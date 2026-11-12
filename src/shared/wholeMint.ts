@@ -13,6 +13,7 @@
  *
  * In tests, src/test/helpers/whole.ts makes a `Whole` of a made-up number. Product code cannot use it.
  */
+import type { WholeFields } from './protocol/generated/backendProtocolSchema';
 import type { Drawn, Whole } from './provenance';
 
 /** fullRead.ts's mint: values the webview holds every one of (a full read's reply, an array a caller held whole). */
@@ -26,6 +27,9 @@ export interface HeldMint {
 /** The names of the fields of `T` that hold a number. */
 type NumberFields<T> = { [K in keyof T]-?: NonNullable<T[K]> extends number ? K : never }[keyof T];
 
+/** `T` with its numbers as `Whole`: an array (of arrays) of numbers and gaps. */
+type Wholed<T> = T extends number ? Whole : T extends ReadonlyArray<infer Item> ? Wholed<Item>[] : T;
+
 /** wholeAnswers.ts's mint: it takes a backend answer and says which part is full, never a bare number. */
 export interface AnswerMint {
     /**
@@ -33,6 +37,12 @@ export interface AnswerMint {
      * field's name, so each call shows which answer the number came from. The caller checks the field is present.
      */
     field<T extends object>(answer: T, name: NumberFields<T>): Whole;
+    /**
+     * An array of a backend answer that the protocol's schema marks as every value of the data (`x-whole` in
+     * python-backend/protocol_schema.py; the generated `WholeFields` lists them). `definition` is the answer's type
+     * in the schema and `name` one of its whole arrays: any other field, or any other array, does not compile.
+     */
+    every<N extends keyof WholeFields, K extends keyof WholeFields[N]>(definition: N, answer: Pick<WholeFields[N], K>, name: K): Wholed<WholeFields[N][K]>;
     /**
      * An array typed `Drawn` that is every value after all (a 'bar' picture's bands). The caller checks that
      * condition first and says so in its comment.
@@ -55,6 +65,7 @@ const unclaimed: Partial<Mints> = {
     },
     wholeAnswers: {
         field: (answer, name) => answer[name] as Whole,
+        every: (_definition, answer, name) => answer[name] as never,
         everyValue: values => values as (Whole | null)[],
         everyBin: values => values as Whole[],
     },

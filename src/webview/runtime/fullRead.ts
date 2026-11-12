@@ -143,14 +143,11 @@ export interface FullPoints {
 export const NO_LEVEL: LevelSum = Object.freeze({ power: mint.value(0), count: 0 });
 
 /**
- * Points of the full data as `FullPoints`: the backend's answer to a full read (full_read.py), or a window a source
- * cuts from values the webview holds every one of (an InlineFullSource written by hand, as the entry strip's cells).
- * As with localLine, calling it is the claim that none of them is a thinned point.
+ * A full read's points as the backend answers them (full_read.py; `StagePoints`, whose arrays the schema marks
+ * `x-whole`), as `FullPoints`. Only this file gives it a reply, where it arrives (fetchedSource).
  */
-export function fullPointsOf(points: StagePoints & Pick<FullPoints, 'rowNames' | 'offset'>): FullPoints {
+function fullPointsOf(points: StagePoints): FullPoints {
     return {
-        ...(points.rowNames ? { rowNames: points.rowNames } : {}),
-        ...(points.offset !== undefined ? { offset: points.offset } : {}),
         xs: mint.values(points.xs), start: points.start, end: points.end, complete: points.complete,
         ...(points.values ? { values: mint.valuesOrGaps(points.values) } : {}),
         ...(points.ys ? { ys: mint.values(points.ys) } : {}),
@@ -159,6 +156,14 @@ export function fullPointsOf(points: StagePoints & Pick<FullPoints, 'rowNames' |
         ...(points.steps ? { steps: points.steps } : {}),
         ...(points.level ? { level: { power: mint.value(points.level.power), count: points.level.count, ...(points.level.peak !== undefined ? { peak: mint.value(points.level.peak) } : {}) } } : {}),
     };
+}
+
+/**
+ * Cells of full data the webview holds, cut around a place (the entry strip's every row and band): `matrix` must be
+ * whole values; `xs` and `ys` are where they sit. For a source written by hand (see localCells for the usual one).
+ */
+export function heldCells(xs: readonly number[], ys: readonly number[], matrix: ReadonlyArray<ReadonlyArray<Whole | null>>, rest: Pick<FullPoints, 'start' | 'end' | 'complete' | 'rowNames'>): FullPoints {
+    return { ...rest, xs: mint.values(xs), ys: mint.values(ys), matrix: matrix.map(row => [...row]) };
 }
 
 /**
@@ -182,53 +187,105 @@ export type FullAnswer = FullPoints | null | undefined;
 
 /**
  * The reads of a full-data source. Every source has every one: a kind of read it cannot give is `cannotRead` (or
- * `noEvent`), set through `UNREADABLE`, never left out. So "this source reads no cells" is written down where the
- * source is made, and a reader asks `source.cells === cannotRead` where it must tell that from a read that failed.
- * They are plain functions, not methods: none uses `this`, so one can be passed on or compared by itself.
+ * `noEvent`), never left out. So a reader asks `source.cells === cannotRead` where it must tell "this source has no
+ * cells" from a read that failed. They are plain functions, not methods: none uses `this`, so one can be passed on
+ * or compared by itself.
  */
 interface FullSourceReads {
-    line: (query: LineQuery, ready: () => void) => FullAnswer;
-    cells: (query: CellQuery, ready: () => void) => FullAnswer;
+    readonly line: (query: LineQuery, ready: () => void) => FullAnswer;
+    readonly cells: (query: CellQuery, ready: () => void) => FullAnswer;
     /** The power of every value of the line in a window (R6), from its full data. */
-    level: (query: LevelQuery, ready: () => void) => LevelAnswer;
+    readonly level: (query: LevelQuery, ready: () => void) => LevelAnswer;
     /** A trigger's event drawn as a line of its own (eventLayers): its own points. */
-    event: (id: number) => FullSource;
+    readonly event: (id: number) => FullSource;
 }
 
 /** The read of a kind a source does not have: there is nothing of that kind to read (null), now and later. */
 export const cannotRead = (): null => null;
 /** The event line of a source that has none: a source with nothing to read. */
 export const noEvent = (): FullSource => NO_FULL_DATA;
+
 /**
- * Every read as "cannot". A source spreads this and then gives the reads it has:
- * `{ held: 'inline', ...UNREADABLE, cells(query) { … } }`.
+ * The reads a source is made with (`fullSource`): the kinds it has, and at least one of them. The kinds left out
+ * become `cannotRead`. A source with no read at all cannot be written this way: that is `NO_FULL_DATA`, by name.
  */
-export const UNREADABLE: FullSourceReads = Object.freeze({ line: cannotRead, cells: cannotRead, level: cannotRead, event: noEvent });
+export type GivenReads = Partial<FullSourceReads> & (Pick<FullSourceReads, 'line'> | Pick<FullSourceReads, 'cells'> | Pick<FullSourceReads, 'level'> | Pick<FullSourceReads, 'event'>);
+
+/** Where a source's full data is: 'inline' the webview holds it, 'fetched' the backend does, 'none' there is none. */
+type Held = 'inline' | 'fetched' | 'none';
+
+/**
+ * A full-data source. Only this module makes one (`fullSource`, `NO_FULL_DATA`): the class is not exported and
+ * `made` is protected, so an object literal, or a spread of another source (`{ ...source, line }`), is not a source
+ * to the compiler. That is what keeps "a source that reads nothing" to the one named value.
+ */
+class Source<H extends Held> implements FullSourceReads {
+    protected readonly made = true;
+    readonly line: FullSourceReads['line'];
+    readonly cells: FullSourceReads['cells'];
+    readonly level: FullSourceReads['level'];
+    readonly event: FullSourceReads['event'];
+    constructor(readonly held: H, reads: Partial<FullSourceReads>) {
+        this.line = reads.line ?? cannotRead;
+        this.cells = reads.cells ?? cannotRead;
+        this.level = reads.level ?? cannotRead;
+        this.event = reads.event ?? noEvent;
+        Object.freeze(this);
+    }
+}
 
 /**
  * Full data the webview holds every value of (localLine, localCells): it answers at once, never pending.
  * Bars, a pair spectrum's every bin, a histogram's bins and a band table are read through one of these, built from
  * their every value, never from what a plot draws.
  */
-export interface InlineFullSource extends FullSourceReads {
-    readonly held: 'inline';
-}
-
+export type InlineFullSource = Source<'inline'>;
 /** Full data the backend holds (fetchedSource): asked for around the pointer, pending until it is in. */
-export interface FetchedFullSource extends FullSourceReads {
-    readonly held: 'fetched';
-}
+export type FetchedFullSource = Source<'fetched'>;
+/** No full data: the type of `NO_FULL_DATA` alone. */
+export type NoFullSource = Source<'none'>;
 
-export type FullSource = InlineFullSource | FetchedFullSource;
+export type FullSource = InlineFullSource | FetchedFullSource | NoFullSource;
 
-/** What every layer declares (StageLayer.full, required): the source of its full data, held or fetched. */
+/** What every layer declares (StageLayer.full, required): the source of its full data, held or fetched, or `NO_FULL_DATA`. */
 export type FullRead = FullSource;
 
 /**
- * The full data of a layer whose caller has none to give: every read is unavailable (no number, R7), and the plot
- * marks the layer (`data-plot-full`), which every ui-smoke test fails (canvasAudit.ts).
+ * "No full data", by name: the source of a layer whose caller has none to give. Every read is unavailable, so the
+ * layer reads no number (R7), and the plot marks it (`data-plot-full="missing: …"`), which every ui-smoke test
+ * fails (canvasAudit.ts). It is the only source that reads nothing: `fullSource` refuses to make another.
  */
-export const NO_FULL_DATA: FetchedFullSource = Object.freeze({ held: 'fetched' as const, ...UNREADABLE });
+export const NO_FULL_DATA: NoFullSource = new Source('none', {});
+
+/** Whether a source has any read: false of `NO_FULL_DATA` only. */
+export const readsFullData = (source: FullSource): source is InlineFullSource | FetchedFullSource => source.held !== 'none';
+
+/**
+ * A full-data source of the reads it has: `fullSource('inline', { cells(query) { … } })`. Give at least one read
+ * (the type requires it); the kinds left out cannot be read. To say "this layer has no full data", pass
+ * `NO_FULL_DATA` instead of making a source.
+ */
+export function fullSource(held: 'inline', reads: GivenReads): InlineFullSource;
+export function fullSource(held: 'fetched', reads: GivenReads): FetchedFullSource;
+export function fullSource(held: 'inline' | 'fetched', reads: GivenReads): InlineFullSource | FetchedFullSource {
+    return reading(new Source(held, reads));
+}
+
+/** `source`, checked to have a read: the type asks for one, but a read passed on from another source can itself be `cannotRead`. */
+function reading<S extends FullSource>(source: S): S {
+    if (source.line === cannotRead && source.cells === cannotRead && source.level === cannotRead && source.event === noEvent) {
+        throw new Error('fullRead: every read given is `cannotRead`, so this source would read nothing. Pass NO_FULL_DATA (fullRead.ts) where a layer has no full data, so the plot marks it.');
+    }
+    return source;
+}
+
+/**
+ * `source` with some of its reads replaced or added (a trigger's `event` lines, a read gated in a test): the same
+ * kind of source, its other reads kept. A spread (`{ ...source, event }`) does not compile, by design (see Source).
+ */
+export function sourceWith<S extends InlineFullSource | FetchedFullSource>(source: S, reads: GivenReads): S {
+    return reading(new Source(source.held, { line: source.line, cells: source.cells, level: source.level, event: source.event, ...reads }) as S);
+}
 
 /** How many points past the one read an arrow key's read asks for, so the next steps need no request. */
 export const STEP_AHEAD = 256;
@@ -270,16 +327,37 @@ function seekIn(xs: readonly Whole[], values: readonly (Whole | null)[], n: numb
 }
 
 /**
+ * A number the webview computed of full data (a Δ of two bins, a mean over channels, a median over recordings), as
+ * full data itself. `from` is what it was computed of, and must be whole: a thinned point (`Drawn`) or a plain
+ * number cannot be given, so a value with no full data behind it cannot be made whole here. What this does not
+ * check is the arithmetic: that `value` really was computed of `from` is for the reader of the call.
+ */
+export function computedWhole(from: ReadonlyArray<Whole | null | undefined>, value: number): Whole;
+export function computedWhole(from: ReadonlyArray<Whole | null | undefined>, value: number | null): Whole | null;
+export function computedWhole(_from: ReadonlyArray<Whole | null | undefined>, value: number | null): Whole | null {
+    return value === null ? null : mint.value(value);
+}
+
+/**
+ * A line of numbers the webview made to lay a figure out, which are not measurements: a histogram's counts, the
+ * height a dot is stacked at, the top of a marker. Nothing of it is thinned, and it has no backend array behind it,
+ * so it cannot come in as `Whole`; its layer writes its own readout text (`StageLayer.readout`). Only the modules
+ * listed in provenanceBoundary.test.ts (LAYOUT_MODULES) may call this: a measured value never goes through here.
+ */
+export function layoutLine(xs: readonly number[], ys: readonly (number | null)[]): InlineFullSource {
+    return localLine(xs, mint.valuesOrGaps(ys));
+}
+
+/**
  * A line the webview holds every point of (ascending `xs`): its full data, read as the backend reads one.
  *
  * Calling this is the claim "these arrays are every value, none thinned": what it answers is `Whole`. A picture's
  * points cannot be passed (`Drawn` is not a number, provenance.ts); bars the backend sends whole go through
  * wholeAnswers.ts `wholeBars`.
  */
-export function localLine(held: readonly number[], heldValues: readonly (number | null)[]): InlineFullSource {
-    const xs = mint.values(held), values = mint.valuesOrGaps(heldValues);
-    return {
-        held: 'inline', ...UNREADABLE,
+export function localLine(held: readonly number[], heldValues: readonly (Whole | null)[]): InlineFullSource {
+    const xs = mint.values(held), values: readonly (Whole | null)[] = heldValues;
+    return fullSource('inline', {
         line(query) {
             const n = Math.min(xs.length, values.length);
             if (query.seek) return seekIn(xs, values, n, query.x0, query.seek, query.beyond, !!query.plain, query.from);
@@ -288,21 +366,20 @@ export function localLine(held: readonly number[], heldValues: readonly (number 
             return { xs: xs.slice(first, after), values: values.slice(first, after), start: first > 0 ? xs[first] : null, end: after < n ? xs[after - 1] : null, complete: true, offset: first, steps: sourceSteps(xs, first, after) };
         },
         level: query => levelOfValues(xs, values, query),
-    };
+    });
 }
 
 /**
  * An image the webview holds every cell of: `matrix` rows over ascending `ys`, columns over ascending `xs`. As with
  * localLine, calling it is the claim that the cells are every one, none thinned.
  */
-export function localCells(heldXs: readonly number[], heldYs: readonly number[], heldMatrix: ReadonlyArray<ReadonlyArray<number | null>>, rowNames?: readonly string[]): InlineFullSource {
-    const xs = mint.values(heldXs), ys = mint.values(heldYs), matrix = mint.rows(heldMatrix);
+export function localCells(heldXs: readonly number[], heldYs: readonly number[], heldMatrix: ReadonlyArray<ReadonlyArray<Whole | null>>, rowNames?: readonly string[]): InlineFullSource {
+    const xs = mint.values(heldXs), ys = mint.values(heldYs), matrix: ReadonlyArray<ReadonlyArray<Whole | null>> = heldMatrix;
     const nearest = (axis: readonly number[], value: number): number => {
         const at = Math.max(1, Math.min(axis.length - 1, firstFrom(axis, value)));
         return axis.length < 2 ? 0 : Math.abs(axis[at - 1] - value) <= Math.abs(axis[at] - value) ? at - 1 : at;
     };
-    return {
-        held: 'inline', ...UNREADABLE,
+    return fullSource('inline', {
         cells(query) {
             if (!xs.length || !ys.length) return { xs: [], ys: [], matrix: [], start: null, end: null, complete: true };
             const column = nearest(xs, query.x), row = nearest(ys, query.y);
@@ -314,7 +391,7 @@ export function localCells(heldXs: readonly number[], heldYs: readonly number[],
                 ...(rowNames ? { rowNames: rowNames.slice(r0, r1) } : {}),
             };
         },
-    };
+    });
 }
 
 /** Whether a complete answer holds every point of [x0, x1] and `beyond` past each end it asked for (one is enough). */
@@ -439,8 +516,7 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
         }
         return undefined;
     };
-    const source: FetchedFullSource = {
-        held: 'fetched', ...UNREADABLE,
+    const source: FetchedFullSource = fullSource('fetched', {
         line(query, ready) {
             const x0 = Math.min(query.x0, query.x1), x1 = Math.max(query.x0, query.x1);
             // A window is asked for wider than the pointer needs (PAD times its width each side), so a pointer moving
@@ -488,7 +564,7 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
                 return (points.start === null || column >= need) && (points.end === null || column + need <= xs.length - 1);
             });
         },
-    };
+    });
     return source;
 }
 
@@ -561,12 +637,12 @@ export function mappedSource(source: FullSource, to: (x: number) => number, from
         ...points, xs: points.xs.map(x => mint.value(from(x))), start: points.start === null ? null : from(points.start), end: points.end === null ? null : from(points.end),
         ...(points.steps ? { steps: points.steps.map((step, index) => stepBack(points.xs[index], step)) } : {}),
     } : points);
-    return {
-        held: source.held,
-        ...UNREADABLE,
+    // No full data on one axis is no full data on another.
+    if (!readsFullData(source)) return source;
+    return new Source(source.held, {
         // A read the source cannot give stays one it cannot give.
         ...(source.line !== cannotRead ? { line: (query: LineQuery, ready: () => void) => back(source.line(mappedLine(query, to), ready)) } : {}),
         ...(source.cells !== cannotRead ? { cells: (query: CellQuery, ready: () => void) => back(source.cells({ ...query, x: to(query.x) }, ready)) } : {}),
         ...(source.level !== cannotRead ? { level: (query: LevelQuery, ready: () => void) => source.level({ ...query, x0: to(query.x0), x1: to(query.x1) }, ready) } : {}),
-    };
+    });
 }

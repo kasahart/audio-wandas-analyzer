@@ -6,13 +6,27 @@
  * field it trusts and why. Add one here when the backend starts sending a new number it takes of every value; say
  * in its comment which Python function takes it. Nothing else may mint (provenanceBoundary.test.ts).
  */
-import type { StageView } from '../../shared/protocol/backendProtocol';
+import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
+import type { PairSpectrumResponse } from '../../shared/protocol/generated/backendProtocolSchema';
 import type { Drawn, Whole } from '../../shared/provenance';
 import { claimMint } from '../../shared/wholeMint';
 import { localLine, type InlineFullSource } from './fullRead';
 
 /** This module's mint (wholeMint.ts): claimed once, used only in the adapters below, never handed on. */
 const mint = claimMint('wholeAnswers');
+
+/**
+ * A scan's arrays of every value: each channel's level, every FFT bin (`spectrumBinsDb`) and every 1/3-octave band
+ * (`thirdOctDb`), which scan_service takes of the whole recording. Never its `spectrumDb` (192 points to draw).
+ */
+export function scanWhole<K extends 'leqDbA' | 'peakHz' | 'spectrumBinsDb' | 'thirdOctDb' | 'crest'>(result: Pick<ScanResult, K>, name: K) {
+    return mint.every('ScanResult', result, name);
+}
+
+/** A pair response's every bin (pair_spectrum sends each curve whole; the webview thins it only to draw). */
+export function pairWhole<K extends 'gainDb' | 'phaseRad' | 'coherence'>(response: Pick<PairSpectrumResponse, K>, name: K) {
+    return mint.every('PairSpectrumResponse', response, name);
+}
 
 /** A band table's bars, which the backend sends whole (every band, none thinned): read from their every value. */
 export function wholeBars(view: StageView | null | undefined): InlineFullSource | undefined {

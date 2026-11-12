@@ -7,12 +7,12 @@
 import type { CompareCombineMessage, ComparePublication } from '../../shared/analysis/entryScan';
 import type { StagePoints, StageRead, StageView } from '../../shared/protocol/backendProtocol';
 import { answerKey, createAnswerStore } from './answerStore';
-import { fetchedSource, type FullRead, type FullSource } from './fullRead';
+import { fetchedSource, NO_FULL_DATA, sourceWith, type FullRead, type FullSource } from './fullRead';
 import { wholeBars } from './wholeAnswers';
 
 export interface StageReader {
-    /** A recording's own picture's full data, by the key its scan kept it under (a band table's own bars); undefined without one. */
-    of(view: StageView | null | undefined): FullRead | undefined;
+    /** A recording's own picture's full data, by the key its scan kept it under (a band table's own bars); NO_FULL_DATA without one. */
+    of(view: StageView | null | undefined): FullRead;
     /** A combined picture's: the median of the `base` keys, or `compare` − that median (`of: 'diff'`). */
     combined(base: readonly string[], compare: string | null, of: 'base' | 'diff'): FullSource;
     /** Takes the host's answers to this reader's requests; false for anything else. */
@@ -31,18 +31,18 @@ export function createStageReader(prefix: string, post: (message: CompareCombine
     const sources = createAnswerStore<FullSource>({ capacity: 256 });
     let count = 0;
     const source = (base: readonly string[], compare: string | null, of: 'base' | 'diff', event?: number): FullSource =>
-        sources.keep(answerKey({ ask: ['combined-read', base, compare, of, event ?? null], version: { by: 'data-keys' } }), () => ({
-            ...fetchedSource((read: StageRead, done) => {
+        sources.keep(answerKey({ ask: ['combined-read', base, compare, of, event ?? null], version: { by: 'data-keys' } }), () => {
+            const fetched = fetchedSource((read: StageRead, done) => {
                 const requestId = `${prefix}-${++count}`;
                 waiting.set(requestId, done);
                 post({ type: 'compare-combine', requestId, base: [...base], ...(compare ? { compare } : {}), read: { ...read, of, ...(event !== undefined ? { event } : {}) } });
-            }),
+            });
             // A trigger's events: each its own line, read by its id.
-            ...(event === undefined ? { event: (id: number) => source(base, compare, of, id) } : {}),
-        }));
+            return event === undefined ? sourceWith(fetched, { event: (id: number) => source(base, compare, of, id) }) : fetched;
+        });
     return {
         // A band table without a key is sent whole: its bars are read from their every value.
-        of: view => (view?.data ? source([view.data], null, 'base') : wholeBars(view)),
+        of: view => (view?.data ? source([view.data], null, 'base') : wholeBars(view) ?? NO_FULL_DATA),
         combined: (base, compare, of) => source(base, compare, of),
         handle(message) {
             if (message.type !== 'compare-combine-result') return false;

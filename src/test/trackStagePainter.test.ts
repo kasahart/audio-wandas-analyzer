@@ -1,3 +1,4 @@
+import { testLine } from './helpers/whole';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { assertNotDrawn, nearestOf, nthAfter } from './fullNotDrawn';
@@ -7,7 +8,8 @@ import type { StageView } from '../shared/protocol/backendProtocol';
 import { ROLE_COLORS } from '../shared/gui/roleColors';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
 import { plotsOf } from '../webview/runtime/trackStageModel';
-import { localLine } from '../webview/runtime/fullRead';
+import { NO_FULL_DATA } from '../webview/runtime/fullRead';
+
 import { stageAxes, stageHover, stageStep } from '../webview/runtime/stagePanes';
 import type { Combined } from '../webview/runtime/combineSource';
 import { calibrationWords } from '../webview/runtime/figureModel';
@@ -53,7 +55,7 @@ function frameFor(tracks: StageTrack[], views: Record<string, StageView | null |
     const coarse = (path: string) => views[path];
     return {
         strings, tracks, allTracks: tracks, referencePath: null, comparePath: 'one.wav', coarse, shown: coarse, picture: views['one.wav'] ?? null,
-        coarsePlots: plotsOf(coarse, tracks, 'one.wav', ['base.wav'], combined), window: FULL_PLOT_WINDOW, diffY: FULL_PLOT_WINDOW.y, waiting: false, role, named, drawnOn: new Map<Element, Drawn>(), ...extra,
+        coarsePlots: plotsOf(coarse, tracks, 'one.wav', ['base.wav'], combined), window: FULL_PLOT_WINDOW, diffY: FULL_PLOT_WINDOW.y, waiting: false, role, named, drawnOn: new Map<Element, Drawn>(), fullOf: () => NO_FULL_DATA, ...extra,
     };
 }
 
@@ -252,7 +254,7 @@ test('side by side, each lane is read at its own full data, never the line thinn
     const tracks = [lane('base.wav'), lane('one.wav')];
     const fullOf = (view: StageView | null | undefined) => {
         const path = Object.keys(views).find(key => views[key] === view);
-        return path ? localLine(xs, spectra[path]) : undefined;
+        return path ? testLine(xs, spectra[path]) : NO_FULL_DATA;
     };
     const frame = frameFor(tracks, views, { fullOf });
     assert.equal(paintStageLanes(frame), 2);

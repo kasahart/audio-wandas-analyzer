@@ -470,7 +470,7 @@ export function paintOverlayFigure(canvas: HTMLCanvasElement, comparison: Compar
 export function deltaFigure(comparison: Pick<CompareModel, 'bins' | 'bandDeltas' | 'frequencies'>): { view: StageView | null; range: FigureRange; binned: boolean } {
     const view = deltaViews(comparison).picture;
     // Every bin's Δ (binsView's valueRange) and every band's: a step is never cut off.
-    const bands = comparison.bandDeltas.filter((value): value is number => value !== null && Number.isFinite(value));
+    const bands = comparison.bandDeltas.flatMap(value => (value !== null && Number.isFinite(value) ? [value] : []));
     const whole = view?.valueRange;
     const valueRange = whole || bands.length ? { min: Math.min(whole?.min ?? Infinity, ...bands), max: Math.max(whole?.max ?? -Infinity, ...bands) } : undefined;
     const range = diffRange(view && { ...view, values: [...(view.values ?? []), ...comparison.bandDeltas], ...(valueRange ? { valueRange } : {}) });

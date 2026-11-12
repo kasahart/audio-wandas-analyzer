@@ -6,15 +6,17 @@
  * ('request-spectrum-slice', fullResolution). Each read has its own slot on the host, so it never cancels the
  * lanes' pictures nor is cancelled by them.
  */
+import type { Drawn, Whole } from '../../shared/provenance';
+import { everyBin } from './wholeAnswers';
 import type { StagePoints, StageRead } from '../../shared/protocol/backendProtocol';
 import type { SpectrumSliceRequest, TrackDetailRequest, WaveformRangeRequest } from '../../shared/utils/audioTarget';
-import { fetchedSource, localLine, type FullSource, UNREADABLE } from './fullRead';
+import { fetchedSource, localLine, type FullSource, fullSource } from './fullRead';
 import { answerKey, createAnswerStore } from './answerStore';
 import { isOfShownVersion } from './lazyResponses';
 
 type ReadRequest = WaveformRangeRequest | TrackDetailRequest | SpectrumSliceRequest;
 /** A slice read at every bin: each channel's values over 0..maxHz. */
-type FullSlice = { values: Map<number, number[]>; maxHz: number };
+type FullSlice = { values: Map<number, Whole[]>; maxHz: number };
 type ReadAnswer = { points?: StagePoints; slice?: FullSlice } | null;
 
 /** A lane's track as a read names it: its index on the protocol, its file, the file's version and calibration, and the analysis it is drawn from. */
@@ -117,8 +119,7 @@ export function createLaneReads(post: (message: ReadRequest) => void, now: () =>
                 const step = slice.maxHz / Math.max(1, values.length - 1);
                 return localLine(values.map((_, bin) => bin * step), values);
             };
-            return once(track, ['slice', cursorNorm, channel], () => ({
-                held: 'fetched', ...UNREADABLE,
+            return once(track, ['slice', cursorNorm, channel], () => (fullSource('fetched', {
                 line(query, ready) {
                     const source = full(ready);
                     return source ? source.line(query, ready) : source;
@@ -127,7 +128,7 @@ export function createLaneReads(post: (message: ReadRequest) => void, now: () =>
                     const source = full(ready);
                     return source ? source.level(query, ready) : source;
                 },
-            }));
+            })));
         },
         handle(message) {
             const { requestId } = message;
@@ -136,7 +137,7 @@ export function createLaneReads(post: (message: ReadRequest) => void, now: () =>
             waiting.delete(requestId);
             if (!asked) return true;
             const { done } = asked;
-            const answer = message as { type: string; sourceVersion?: string; stftSignature?: string; points?: StagePoints; maxFrequencyHz?: number; channels?: Array<{ channelIndex?: number; values?: number[] }> };
+            const answer = message as { type: string; sourceVersion?: string; stftSignature?: string; points?: StagePoints; maxFrequencyHz?: number; frequenciesHz?: number[]; bandCentersHz?: number[]; channels?: Array<{ channelIndex?: number; values?: Drawn[] }> };
             // An answer of another version of the file, or taken with another STFT (the settings changed while the old
             // analysis is still drawn: the host computes with its settings now), than the track's analysis on screen
             // reads nothing. The STFT is the backend's own word (stftSignature), not the settingsSignature it echoes.
@@ -144,8 +145,11 @@ export function createLaneReads(post: (message: ReadRequest) => void, now: () =>
                 done(null);
                 return true;
             }
+            // A slice asked for at every bin is whole unless the backend cut it for display after all (it says so with
+            // frequenciesHz): then none of it is read (wholeAnswers.everyBin).
+            const whole = (values: Drawn[]): Whole[] => everyBin({ values, ...(answer.frequenciesHz ? { frequenciesHz: answer.frequenciesHz } : {}), ...(answer.bandCentersHz ? { bandCentersHz: answer.bandCentersHz } : {}) }) ?? [];
             if (answer.type === 'spectrum-slice-result') {
-                done({ slice: { maxHz: answer.maxFrequencyHz ?? 0, values: new Map((answer.channels ?? []).map((channel, index) => [channel.channelIndex ?? index, channel.values ?? []])) } });
+                done({ slice: { maxHz: answer.maxFrequencyHz ?? 0, values: new Map((answer.channels ?? []).map((channel, index) => [channel.channelIndex ?? index, whole(channel.values ?? [])])) } });
             } else if (answer.type.endsWith('-error')) done(null);
             else done(answer.points ? { points: answer.points } : null);
             return true;

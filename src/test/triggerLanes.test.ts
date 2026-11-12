@@ -1,13 +1,15 @@
+import { testLine } from './helpers/whole';
 import { N } from './helpers/figure';
 import { drawableLine } from '../shared/drawnPoints';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { assertNotDrawn, averagedInto, nearestOf, nthAfter } from './fullNotDrawn';
 import type { StageView } from '../shared/protocol/backendProtocol';
-import { localLine } from '../webview/runtime/fullRead';
+
 import { stageHover, stageStep } from '../webview/runtime/stagePanes';
 import type { Drawn, StageTrack } from '../webview/runtime/trackStagePainter';
 import { paintTriggerLanes, type TriggerLanesFrame } from '../webview/runtime/triggerLanes';
+import { NO_FULL_DATA } from '../webview/runtime/fullRead';
 
 /** A canvas the plot component draws on through a context that draws nothing. */
 function laneCanvas(): HTMLCanvasElement {
@@ -54,7 +56,7 @@ function lanes(threshold: number, recordings: Record<string, ReturnType<typeof r
         // Every sample, as the backend reads it (R7).
         fullOf: view => {
             const found = Object.values(recordings).find(item => item.view === view);
-            return found ? localLine(found.times, found.samples) : undefined;
+            return found ? testLine(found.times, found.samples) : NO_FULL_DATA;
         },
     };
     paintTriggerLanes(frame);

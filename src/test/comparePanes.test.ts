@@ -1,3 +1,4 @@
+import { wholeValues } from './helpers/whole';
 import assert from 'node:assert/strict';
 import { drawableLine } from '../shared/drawnPoints';
 import { assertNotDrawn, averagedInto } from './fullNotDrawn';
@@ -305,7 +306,7 @@ test('a spectrum drawn from its bins carries every bin\'s lowest and highest val
     const base = Array.from({ length: 4097 }, (_, bin) => -60 + Math.sin(bin) * 3);
     base[700] = -11; base[701] = -300; base[5] = -95;
     const diff = base.map((value, bin) => (bin === 2100 ? -27 : bin === 3000 ? 14 : 0));
-    const bins = { hz: 2, nyquist: 8192, base, compare: base, diff };
+    const bins = { hz: 2, nyquist: 8192, base: wholeValues(base), compare: wholeValues(base), diff: wholeValues(diff) };
     const inSpan = (values: number[], low: number, high: number, silent: boolean): { min: number; max: number } => {
         const kept = values.filter((value, bin) => bin * 2 >= low && bin * 2 <= high && bin > 0 && !(silent && value <= -250));
         return { min: Math.min(...kept), max: Math.max(...kept) };
@@ -397,7 +398,7 @@ test('the table\'s results take the bins of a scan of the same condition only, n
 test('the held Δ zoomed in is drawn again from every bin between its ends, not the whole Δ decimated and stretched (R1, R3)', () => {
     // 8192 bins of 1 Hz, each Δ its own: the whole view keeps only a bucket's lowest and highest.
     const diff = Array.from({ length: 8192 }, (_, bin) => Math.sin(bin * 1.7) * 10);
-    const comparison = { bins: { hz: 1, nyquist: 8191, base: null, compare: null, diff }, bandDeltas: [], frequencies: [] };
+    const comparison = { bins: { hz: 1, nyquist: 8191, base: null, compare: null, diff: wholeValues(diff) }, bandDeltas: [], frequencies: [] };
     const whole = deltaViews(comparison);
     assert.equal(whole.view, whole.picture);
     // Zoomed to the window from 1 kHz up: in it, every bin while there are no more than the buckets.
@@ -417,7 +418,7 @@ test('the held Δ zoomed in is drawn again from every bin between its ends, not 
     assert.deepEqual(between.view?.xs, [100, 101]);
     // Without bins, the 1/3-octave bands' Δ (each band from every bin), never a Δ of the scans' 192 points.
     const frequencies = Array.from({ length: 192 }, (_, i) => 20 * (8000 / 20) ** ((i + 0.5) / 192));
-    const bandDeltas = BAND_CENTERS_HZ.map((_, band) => (band === 3 ? 4.5 : 0));
+    const bandDeltas = wholeValues(BAND_CENTERS_HZ.map((_, band) => (band === 3 ? 4.5 : 0)));
     const banded = deltaViews({ bins: null, bandDeltas, frequencies }, { start: 0.2, end: 0.4 });
     assert.equal(banded.view, banded.picture);
     assert.equal(banded.picture?.kind, 'bar');
@@ -429,7 +430,7 @@ test('the held Δ zoomed in is drawn again from every bin between its ends, not 
 
 test('the report\'s Δ figure without bins draws the 1/3-octave Δ, its range holding every band (R1)', () => {
     const frequencies = Array.from({ length: 192 }, (_, i) => 20 * (8000 / 20) ** ((i + 0.5) / 192));
-    const bandDeltas = BAND_CENTERS_HZ.map((_, band) => (band === 20 ? 14 : band === 10 ? 3 : 0));
+    const bandDeltas = wholeValues(BAND_CENTERS_HZ.map((_, band) => (band === 20 ? 14 : band === 10 ? 3 : 0)));
     const figure = deltaFigure({ bins: null, bandDeltas, frequencies });
     assert.equal(figure.binned, false);
     assert.equal(figure.view?.kind, 'bar');
@@ -437,14 +438,14 @@ test('the report\'s Δ figure without bins draws the 1/3-octave Δ, its range ho
     assert.ok(figure.range.max >= 14, `range ${JSON.stringify(figure.range)}`);
     // With the bins, the bin-by-bin Δ.
     const diff = Array.from({ length: 8192 }, (_, bin) => Math.sin(bin) * 2);
-    const binned = deltaFigure({ bins: { hz: 1, nyquist: 8191, base: null, compare: null, diff }, bandDeltas, frequencies });
+    const binned = deltaFigure({ bins: { hz: 1, nyquist: 8191, base: null, compare: null, diff: wholeValues(diff) }, bandDeltas, frequencies });
     assert.equal(binned.binned, true);
     assert.equal(binned.view?.kind, 'line');
     assert.ok(binned.range.max >= 14, 'the band steps stay inside the range');
     assert.notEqual(binned.range.max, Math.max(...drawableLine(binned.view?.values ?? []).map(value => value ?? -Infinity)), 'not the drawn bins\' highest');
     // A narrow dip in one bin, among 8192 drawn in 640 buckets, sets the range's other end.
     diff[3001] = -31;
-    const dipped = deltaFigure({ bins: { hz: 1, nyquist: 8191, base: null, compare: null, diff }, bandDeltas, frequencies });
+    const dipped = deltaFigure({ bins: { hz: 1, nyquist: 8191, base: null, compare: null, diff: wholeValues(diff) }, bandDeltas, frequencies });
     assert.ok(dipped.range.min <= -31 && dipped.range.max >= 14, `range ${JSON.stringify(dipped.range)}`);
 });
 
@@ -487,7 +488,7 @@ test('the report\'s overlay figure orders base and compared by every bin\'s powe
     const count = 65537;
     const base = Array.from({ length: count }, (_, bin) => (bin % 300 === 7 ? -10 : -60));
     const compare = new Array<number>(count).fill(-30);
-    const bins = { hz: 0.5, nyquist: (count - 1) * 0.5, base, compare, diff: compare.map((value, bin) => value - base[bin]) };
+    const bins = { hz: 0.5, nyquist: (count - 1) * 0.5, base: wholeValues(base), compare: wholeValues(compare), diff: wholeValues(compare.map((value, bin) => value - base[bin])) };
     const baseView = binsView(bins, 'base'), compareView = binsView(bins, 'compare');
     assert.ok(baseView && compareView);
     assert.ok((baseView.xs?.length ?? 0) < count / 20, 'the line is thinned to be drawn');

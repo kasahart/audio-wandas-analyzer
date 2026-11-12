@@ -11,7 +11,7 @@ import { binCounts, DISTRIBUTION_BINS, DOTS_BELOW, type Distribution } from '../
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import { plainRange, type FigureRange } from './figureModel';
 import type { StageLayer } from './stagePanes';
-import { localLine } from './fullRead';
+import { layoutLine } from './fullRead';
 
 /** The group's name and count on the left, a little room on the right, the axis strip below. */
 export const DIST_MARGINS = { left: 92, right: 12, axis: 20 };
@@ -118,7 +118,7 @@ export function distributionAxisView(dist: Pick<Distribution, 'low' | 'high'>): 
 }
 
 /** A picture of the row and its full data (R7): every value it draws is held whole, nothing thinned, and read from there. */
-const line = (xs: number[], values: (number | null)[], kind: StageView['kind'] = 'line'): Pick<StageLayer, 'view' | 'full'> => ({ view: { frame: 'Distribution', kind, xScale: 'linear', xs, values }, full: localLine(xs, values) });
+const line = (xs: number[], values: (number | null)[], kind: StageView['kind'] = 'line'): Pick<StageLayer, 'view' | 'full'> => ({ view: { frame: 'Distribution', kind, xScale: 'linear', xs, values }, full: layoutLine(xs, values) });
 
 /** Each group's row as pictures on the value axis: the histogram or dots, the rug, the slots' ticks and the base. */
 export function distributionRows(dist: Distribution, picture: DistributionPicture, colours: DistributionColours, strings: UiStrings): DistributionRow[] {

@@ -1,3 +1,4 @@
+import { testLine, testCells } from './helpers/whole';
 import assert from 'node:assert/strict';
 import { drawableLine, drawableRows } from '../shared/drawnPoints';
 import { N, R, T } from './helpers/figure';
@@ -12,7 +13,7 @@ import { heatmapDbRange, niceRange } from '../shared/utils/ticks';
 import { alongAxisTicks, axisFractionOf, colourEndText, drawnLevelsText, type StageLayer, paintTimeAxis, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, stageReadAgain, stageStep, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
-import { fetchedSource, localCells, localLine, NO_FULL_DATA } from '../webview/runtime/fullRead';
+import { fetchedSource, NO_FULL_DATA } from '../webview/runtime/fullRead';
 import { FAILED_RETRY_MS } from '../webview/runtime/answerStore';
 import { gainAxisName } from '../webview/runtime/figureModel';
 import { distributionRows, type DistributionPicture } from '../webview/runtime/entryDistribution';
@@ -553,7 +554,7 @@ test('a line the webview holds every value of is ordered at once by its values o
     const xs = Array.from({ length: 2049 }, (_, i) => i * 24000 / 2048);
     const x0 = 5000, x1 = 10000;
     const peaked = xs.map((_, i) => (i === 854 ? 0 : -40)), flat = xs.map(() => -35);
-    const layer = (color: string, values: number[]) => ({ color, full: localLine(xs, values),
+    const layer = (color: string, values: number[]) => ({ color, full: testLine(xs, values),
         view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs, values, levelBins: levelBinsOf(xs, values, [0, 24000], false) } as StageView });
     const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 24000], xLimits: [0, 24000], xScale: 'linear' };
     const window = { start: x0 / 24000, end: x1 / 24000 };
@@ -563,7 +564,7 @@ test('a line the webview holds every value of is ordered at once by its values o
     // the louder there (under); judged by the thinned points, it would be the quieter (on top).
     const loud = xs.map((_, i) => (i === 600 ? 0 : -40));
     const thin = (values: number[]): { xs: number[]; values: number[] } => ({ xs: xs.filter((_, i) => i % 16 === 0), values: values.filter((_, i) => i % 16 === 0) });
-    const thinned = (color: string, values: number[]) => ({ color, full: localLine(thin(values).xs, thin(values).values),
+    const thinned = (color: string, values: number[]) => ({ color, full: testLine(thin(values).xs, thin(values).values),
         view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', ...thin(values), levelBins: levelBinsOf(thin(values).xs, thin(values).values, [0, 24000], false) } as StageView });
     const whole = byLevel([layer('peaked', loud), layer('flat', flat)], axis, window).map(item => item.color);
     assert.deepEqual(whole, expectedOrder([{ color: 'peaked', xs, values: loud }, { color: 'flat', xs, values: flat }], x0, x1));
@@ -638,7 +639,7 @@ test('a signal is read at its sample nearest the pointer within a few pixels, ne
     // Drawn as two buckets of their lowest and highest; its samples are four, at their own times.
     const wave: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'amplitude', xs: [], values: [],
         waveform: { min: [-0.5, -0.2], max: [0.5, 0.9], minT: [0, 99], maxT: [40, 51] } } as unknown as StageView;
-    const samples = localLine([0, 40, 51, 52, 99], [-0.5, 0.5, 0.9, 0.7, -0.2]);
+    const samples = testLine([0, 40, 51, 52, 99], [-0.5, 0.5, 0.9, 0.7, -0.2]);
     const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value, xOf: x => x, yAt: value => 50 - value * 50, ratioStep: 1.12, lines: [{ view: wave, color: 'blue', full: samples }], diff: false };
     // The sample at (51, 5) is 1 px from the pointer; the one at (40, 25) is farther.
     assert.deepEqual(pick(stageHover(plot, 50, 5)), { x: 51, y: 5 });
@@ -651,7 +652,7 @@ test('a signal is read at its sample nearest the pointer within a few pixels, ne
 test('zoomed in on a signal\'s level axis, the arrow keys still step one sample at a time: a sample past the axis is read at its edge, never a stop (R7)', () => {
     const wave: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'amplitude', xs: [], values: [],
         waveform: { min: [-0.5], max: [0.5], minT: [30], maxT: [10] } } as unknown as StageView;
-    const samples = localLine([0, 10, 20, 30, 40], [0, 0.5, 0.05, -0.5, 0.02]);
+    const samples = testLine([0, 10, 20, 30, 40], [0, 0.5, 0.05, -0.5, 0.02]);
     // The level axis zoomed to ±0.1: the samples at 10 and 30 s are above and below it.
     const range = { min: -0.1, max: 0.1 };
     const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value * 4, xOf: x => x / 4, yAt: value => Math.min(100, Math.max(0, 50 - value * 500)), ratioStep: 1.12,
@@ -719,7 +720,7 @@ test('a level is read in its axis\'s own unit and reference, on the main axis, t
         set: () => true,
     });
     const picture = { width: 0, height: 0, clientWidth: 600, clientHeight: 200, ownerDocument: { createElement: () => ({ width: 0, height: 0, getContext: () => pictureContext }) }, dataset: {} as DOMStringMap, getContext: () => pictureContext } as unknown as HTMLCanvasElement;
-    const image = paintOverlay(picture, { layers: [{ view: heat, color: '', full: localCells(xs, ys, cells) }] }, R({ min: -80, max: 0 }), N({ x: 'Time [s]', y: 'Frequency [Hz]', colour: 'Level [dB SPL re 20 µPa]' }));
+    const image = paintOverlay(picture, { layers: [{ view: heat, color: '', full: testCells(xs, ys, cells) }] }, R({ min: -80, max: 0 }), N({ x: 'Time [s]', y: 'Frequency [Hz]', colour: 'Level [dB SPL re 20 µPa]' }));
     assert.ok(image?.image);
     const place = image.image.placeOf(1, 1000);
     assert.match(stageHover(image, place.x, place.y)!.text, /−30\.0 dB SPL re 20 µPa$/u);

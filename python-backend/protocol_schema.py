@@ -41,6 +41,8 @@ SUPPORTED_KEYWORDS = frozenset(
         "anyOf",
         "x-tsType",
         "x-drawn",
+        "x-whole",
+        "x-place",
     }
 )
 # ``anyOf`` is limited to the nullable form ``{"anyOf": [schema, {"type": "null"}]}`` with no siblings, so
@@ -62,15 +64,28 @@ _BROWSER_LIMIT_KEYS = (
 )
 
 _NUMBER: Schema = {"type": "number"}
-_NUMBERS: Schema = {"type": "array", "items": _NUMBER}
-_NULLABLE_NUMBERS: Schema = {"type": "array", "items": {"anyOf": [_NUMBER, _NULL]}}
-# A point thinned to be drawn (a line's buckets, an image's averaged cells, a waveform's envelope). ``x-drawn`` carries
-# no constraint: it makes the generated TypeScript type ``Drawn`` (src/shared/provenance.ts), which no code can
-# compute with or write as text, so a number a user reads is never taken of these arrays. Mark every array the
-# backend thins to draw; a value of the full data (StagePoints, valueRange, peak, levelBins) is a plain number.
+# Every array of numbers says which of three things it holds, so no array of thinned points can pass for data
+# (test_protocol_schema.py fails on an array that says none, or more than one):
+#
+# - ``x-drawn``: points thinned to be drawn (a line's buckets, an image's averaged cells, a waveform's envelope or
+#   its picked samples). It makes the generated TypeScript type ``Drawn`` (src/shared/provenance.ts), which no code
+#   can compute with or write as text, so a number a user reads is never taken of these arrays.
+# - ``x-whole``: every value of the data, none left out: a full read's points, a scan's every bin and band, a
+#   number taken per channel of every sample. Only these may be given to the webview as full data
+#   (src/webview/runtime/wholeAnswers.ts; the generated ``WholeFields`` lists them).
+# - ``x-place``: not data values at all: where points sit along an axis (a picture's ``xs``), an axis's limits,
+#   band centres, bin edges, a request's window in pixels.
+#
+# The markers carry no constraint on the wire. When you add an array, choose by asking: did anything upstream pick
+# some of the values and drop others (``x-drawn``), or is this every one (``x-whole``)?
 _DRAWN: Schema = {"type": "number", "x-drawn": True}
 _DRAWN_LINE: Schema = {"type": "array", "items": _DRAWN}
 _DRAWN_GAPPED: Schema = {"type": "array", "items": {"anyOf": [_DRAWN, _NULL]}}
+_WHOLE: Schema = {"type": "number", "x-whole": True}
+_WHOLE_LINE: Schema = {"type": "array", "items": _WHOLE}
+_WHOLE_GAPPED: Schema = {"type": "array", "items": {"anyOf": [_WHOLE, _NULL]}}
+_PLACE: Schema = {"type": "number", "x-place": True}
+_PLACES: Schema = {"type": "array", "items": _PLACE}
 
 DEFINITIONS: dict[str, Schema] = {
     # Deep calibration validation stays in calibration_profile.py / calibrationModel.ts.
@@ -100,7 +115,7 @@ DEFINITIONS: dict[str, Schema] = {
             "max": _DRAWN_LINE,
             "minT": _DRAWN_LINE,
             "maxT": _DRAWN_LINE,
-            "samples": _NUMBERS,
+            "samples": _DRAWN_LINE,
             "absolutePeak": _NUMBER,
         },
     },
@@ -174,7 +189,7 @@ DEFINITIONS: dict[str, Schema] = {
             "referenceValue": {"$ref": "#/$defs/SafeCalibrationValue"},
             "referenceUnit": {"type": "string"},
             "levelReferenceLabel": {"type": "string"},
-            "timeCentersSec": _NUMBERS,
+            "timeCentersSec": _PLACES,
             # A zoomed band's rows run from bandLowHz (its first FFT bin kept) to bandHighHz;
             # absent: 0 to maxFrequencyHz.
             "bandLowHz": _NUMBER,
@@ -385,11 +400,11 @@ DEFINITIONS: dict[str, Schema] = {
             "maxFrequencyHz": _NUMBER,
             # Octave-band results only: the bands' nominal centres and the fixed log axis lower edge.
             "bandsPerOctave": {"type": "integer", "enum": [1, 3]},
-            "bandCentersHz": _NUMBERS,
+            "bandCentersHz": _PLACES,
             "minFrequencyHz": _NUMBER,
             # FFT results cut for display only: each point's frequency, the peak bin of its log-spaced group.
             # Absent when the values hold every FFT bin, evenly spaced from 0 Hz to maxFrequencyHz.
-            "frequenciesHz": _NUMBERS,
+            "frequenciesHz": _PLACES,
             "windowStartNorm": _NUMBER,
             "windowEndNorm": _NUMBER,
             "window": {"type": "string", "enum": ["hann", "hamming", "blackman", "boxcar"]},
@@ -455,9 +470,9 @@ DEFINITIONS: dict[str, Schema] = {
             "averages": {"type": "integer", "minimum": 0},
             "resampled": {"type": "boolean"},
             # null where a quantity is undefined, e.g. the gain where the reference has no power.
-            "gainDb": _NULLABLE_NUMBERS,
-            "phaseRad": _NULLABLE_NUMBERS,
-            "coherence": _NULLABLE_NUMBERS,
+            "gainDb": _WHOLE_GAPPED,
+            "phaseRad": _WHOLE_GAPPED,
+            "coherence": _WHOLE_GAPPED,
             "unit": {"type": "string"},
             "axisLabel": {"type": "string"},
             "referenceValue": {"$ref": "#/$defs/SafeCalibrationValue"},
@@ -599,11 +614,11 @@ DEFINITIONS: dict[str, Schema] = {
         "type": "object",
         "required": ["x", "points"],
         "properties": {
-            "x": {"type": "array", "items": _NUMBER},
-            "y": {"type": "array", "items": _NUMBER},
+            "x": _PLACES,
+            "y": _PLACES,
             "points": {"type": "integer", "minimum": 2, "maximum": MAX_WAVEFORM_POINTS},
-            "peakX": {"type": "array", "items": _NUMBER},
-            "peakY": {"type": "array", "items": _NUMBER},
+            "peakX": _PLACES,
+            "peakY": _PLACES,
         },
     },
     # What a plot reads under its pointer or steps to with an arrow key (full_read.py): its window [x0, x1] (or
@@ -618,17 +633,17 @@ DEFINITIONS: dict[str, Schema] = {
         "type": "object",
         "required": ["x"],
         "properties": {
-            "x": {"type": "array", "items": _NUMBER},
-            "y": {"type": "array", "items": _NUMBER},
+            "x": _PLACES,
+            "y": _PLACES,
             "beyond": {"type": "integer", "minimum": 0, "maximum": 4096},
             "rows": {"type": "integer", "minimum": 0, "maximum": 64},
             "near": _NUMBER,
             "columns": {"type": "integer", "minimum": 1, "maximum": 512},
             "log": {"type": "boolean"},
             "at": _NUMBER,
-            "pixels": {"type": "array", "items": _NUMBER},
+            "pixels": _PLACES,
             # The values the plot shows (its level or amplitude axis, zoomed): a dense window's nearest is on screen.
-            "shown": {"type": "array", "items": _NUMBER},
+            "shown": _PLACES,
             "seek": {"type": "integer", "enum": [-1, 1]},
             "plain": {"type": "boolean"},
             "event": {"type": "integer", "minimum": 0},
@@ -643,17 +658,17 @@ DEFINITIONS: dict[str, Schema] = {
         "type": "object",
         "required": ["xs", "start", "end", "complete"],
         "properties": {
-            "xs": _NUMBERS,
-            "values": _NULLABLE_NUMBERS,
-            "ys": _NUMBERS,
-            "matrix": {"type": "array", "items": _NULLABLE_NUMBERS},
+            "xs": _WHOLE_LINE,
+            "values": _WHOLE_GAPPED,
+            "ys": _WHOLE_LINE,
+            "matrix": {"type": "array", "items": _WHOLE_GAPPED},
             "start": {"anyOf": [_NUMBER, _NULL]},
             "end": {"anyOf": [_NUMBER, _NULL]},
             "complete": {"type": "boolean"},
             # Of a dense window read at the pointer's place: the index in ``xs`` of the point under the pointer.
             "under": {"type": "integer", "minimum": 0},
             # A line's points: each one's distance to its nearer neighbour in the source data (the readout's digits).
-            "steps": _NULLABLE_NUMBERS,
+            "steps": {"type": "array", "items": {"anyOf": [_PLACE, _NULL]}},
             # A level read's answer: the mean power of the window's ``count`` finite values; of a signal ("square")
             # also its ``peak``, the largest |sample| among them.
             "level": {
@@ -678,10 +693,10 @@ DEFINITIONS: dict[str, Schema] = {
                 "enum": ["level", "gain", "coherence", "value", "roughness", "cepstrum", "correlation"],
             },
             "unit": {"type": "string"},
-            "xs": _NUMBERS,
+            "xs": _PLACES,
             # A log axis's ends when its xs are drawn points, not band centres (a spectrum's 20 Hz to Nyquist).
-            "xLimits": _NUMBERS,
-            "ys": _NUMBERS,
+            "xLimits": _PLACES,
+            "ys": _PLACES,
             "yAxis": {"type": "string", "enum": ["frequency", "bark", "quefrency"]},
             "values": _DRAWN_GAPPED,
             "matrix": {"type": "array", "items": _DRAWN_GAPPED},
@@ -723,8 +738,8 @@ DEFINITIONS: dict[str, Schema] = {
                 "type": "object",
                 "required": ["edges", "power", "count"],
                 "properties": {
-                    "edges": _NUMBERS,
-                    "power": _NUMBERS,
+                    "edges": _PLACES,
+                    "power": _WHOLE_LINE,
                     "count": {"type": "array", "items": {"type": "integer", "minimum": 0}},
                 },
             },
@@ -760,7 +775,7 @@ DEFINITIONS: dict[str, Schema] = {
                         # When it triggered, seconds into the file.
                         "time": _NUMBER,
                         # The event's own times from the trigger, one per value.
-                        "xs": _NUMBERS,
+                        "xs": _PLACES,
                         "values": _DRAWN_GAPPED,
                     },
                 },
@@ -843,14 +858,14 @@ DEFINITIONS: dict[str, Schema] = {
             "reason": {"type": "string"},
             "conditionId": {"type": "string"},
             "input": {"$ref": "#/$defs/ScanInput"},
-            "leqDbA": _NUMBERS,
-            "peakHz": _NUMBERS,
+            "leqDbA": _WHOLE_LINE,
+            "peakHz": _WHOLE_LINE,
             "spectrumDb": {"type": "array", "items": _DRAWN_LINE},
             # Every Welch bin per channel (bin k at k × spectrumBinHz), for medians and differences.
-            "spectrumBinsDb": {"type": "array", "items": _NUMBERS},
+            "spectrumBinsDb": {"type": "array", "items": _WHOLE_LINE},
             "spectrumBinHz": _NUMBER,
-            "thirdOctDb": {"type": "array", "items": _NULLABLE_NUMBERS},
-            "crest": _NUMBERS,
+            "thirdOctDb": {"type": "array", "items": _WHOLE_GAPPED},
+            "crest": _WHOLE_LINE,
             "specVersion": {"type": "integer", "minimum": 1},
             "wandasVersion": {"type": "string"},
             "elapsedMs": _NUMBER,

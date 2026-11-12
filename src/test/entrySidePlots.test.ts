@@ -1,3 +1,4 @@
+import { wholeBands, wholeValues } from './helpers/whole';
 import assert from 'node:assert/strict';
 import { assertNotDrawn } from './fullNotDrawn';
 import test from 'node:test';
@@ -104,7 +105,7 @@ test('the strip takes the folder\'s one reference, and a cell of an uncalibrated
     assert.equal(plots.levelWordOf('/d/a.wav'), '');
     assert.match(plots.levelWordOf('/d/b.wav'), /uncalibrated/i);
     const rows = [{ filePath: '/d/a.wav' }, { filePath: '/d/b.wav' }];
-    const bands = new Map<string, (number | null)[]>([['/d/a.wav', BAND_CENTERS_HZ.map(() => -40)], ['/d/b.wav', BAND_CENTERS_HZ.map(() => -42)]]);
+    const bands = wholeBands([['/d/a.wav', BAND_CENTERS_HZ.map(() => -40)], ['/d/b.wav', BAND_CENTERS_HZ.map(() => -42)]]);
     const picture = overviewPicture(rows, bands, FULL_PLOT_WINDOW, 100, path => plots.levelWordOf(path));
     const names = (picture?.names ?? []).flat();
     assert.ok(names.some(name => /b\.wav.*uncalibrated/i.test(name)), JSON.stringify(names));
@@ -177,7 +178,7 @@ test('a recording of several channels has a strip row per channel: each its own 
         { filePath: '/d/a.wav', key: '/d/a.wav#ch2', ch: 2, channels: 2 },
         { filePath: '/d/b.wav', key: '/d/b.wav', ch: 1, channels: 1 },
     ];
-    const bands = new Map<string, (number | null)[]>([['/d/a.wav#ch1', [-40, -30]], ['/d/a.wav#ch2', [-20, -50]], ['/d/b.wav', [-35, -35]]]);
+    const bands = wholeBands([['/d/a.wav#ch1', [-40, -30]], ['/d/a.wav#ch2', [-20, -50]], ['/d/b.wav', [-35, -35]]]);
     const picture = overviewPicture(rows, bands, FULL_PLOT_WINDOW, 100);
     // Bottom first: b, then a's ch2, then a's ch1.
     assert.deepEqual(picture?.view.matrix?.map(row => row.slice(0, 2)), [[-35, -35], [-20, -50], [-40, -30]]);
@@ -199,7 +200,7 @@ test('the strip marks the focused table row, a channel\'s own row of a recording
         { filePath: '/d/a.wav', key: '/d/a.wav#ch1', ch: 1, channels: 2 },
         { filePath: '/d/a.wav', key: '/d/a.wav#ch2', ch: 2, channels: 2 },
     ];
-    const bands = new Map<string, (number | null)[]>([['/d/a.wav#ch1', [-40, -30]], ['/d/a.wav#ch2', [-20, -50]]]);
+    const bands = wholeBands([['/d/a.wav#ch1', [-40, -30]], ['/d/a.wav#ch2', [-20, -50]]]);
     const mark = document.querySelector<HTMLElement>('[data-entry-overview-focus]')!;
     paintOverview(canvas, strings, rows, bands, { first: 0, last: 1 }, '/d/a.wav#ch2', FULL_PLOT_WINDOW, { label: 'dBFS', calibrated: false });
     assert.equal(mark.hidden, false);
@@ -254,7 +255,7 @@ test('the overview colour scale and the dataset table name the recordings\' most
 
 test('the strip is a heatmap of the table: a row per table row counted down from the top, each bucket\'s quietest and loudest when they outnumber its lines (R2)', () => {
     const rows = ['/d/a.wav', '/d/b.wav', '/d/c.wav', '/d/d.wav'].map(filePath => ({ filePath }));
-    const bands = new Map<string, (number | null)[]>([['/d/a.wav', [-40.4, -30]], ['/d/b.wav', [-20, null]], ['/d/d.wav', [-60, -10.2]]]);
+    const bands = wholeBands([['/d/a.wav', [-40.4, -30]], ['/d/b.wav', [-20, null]], ['/d/d.wav', [-60, -10.2]]]);
     const whole = overviewPicture(rows, bands, FULL_PLOT_WINDOW, 100);
     assert.ok(whole);
     // Bottom first, as the axis runs: the last table row at the bottom, each at minus its centre's place.
@@ -276,7 +277,7 @@ test('the strip is a heatmap of the table: a row per table row counted down from
     assert.deepEqual(binned?.names.map(row => row[2]), ['', '']);
     // A quiet row among loud ones is drawn, not left out for its bucket's loudest (R2): four lines, two buckets of four.
     const many = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map(name => ({ filePath: `/d/${name}.wav` }));
-    const levels = new Map<string, (number | null)[]>([-10, -50, -12, -14, -20, -21, -90, -22].map((value, index) => [many[index].filePath, [value]]));
+    const levels = wholeBands([-10, -50, -12, -14, -20, -21, -90, -22].map((value, index) => [many[index].filePath, [value]]));
     const extremes = overviewPicture(many, levels, FULL_PLOT_WINDOW, 4);
     assert.deepEqual(extremes?.view.ys, [-7, -5, -3, -1]);
     assert.deepEqual(extremes?.view.matrix?.map(row => row[0]), [-90, -20, -50, -10]);
@@ -291,9 +292,9 @@ test('the strip is a heatmap of the table: a row per table row counted down from
 test('the strip\'s colour range holds every table row\'s level, not only the rows the window draws, and opens at round ends (R9)', () => {
     // 300 rows on 10 lines: each bucket of 60 rows draws its quietest and its loudest.
     const rows = Array.from({ length: 300 }, (_, index) => ({ filePath: `/d/${index}.wav` }));
-    const bands = new Map<string, (number | null)[]>(rows.map((row, index) => [row.filePath, [-50 + (index % 7), -40 + (index % 5)]]));
-    bands.set('/d/151.wav', [-97.3, -40]);
-    bands.set('/d/20.wav', [-50, -3.4]);
+    const bands = wholeBands(rows.map((row, index) => [row.filePath, [-50 + (index % 7), -40 + (index % 5)]]));
+    bands.set('/d/151.wav', wholeValues([-97.3, -40]));
+    bands.set('/d/20.wav', wholeValues([-50, -3.4]));
     const picture = overviewPicture(rows, bands, FULL_PLOT_WINDOW, 10);
     assert.ok(picture);
     const drawn = (picture.view.matrix ?? []).flat().filter((value): value is number => value !== null);
@@ -309,9 +310,9 @@ test('the strip\'s colour range holds every table row\'s level, not only the row
 
 test('the strip\'s colours reach no more than 100 dB under its loudest level: a digitally silent recording (−300 dB) does not set the bottom (R9)', () => {
     const rows = Array.from({ length: 20 }, (_, index) => ({ filePath: `/d/${index}.wav` }));
-    const bands = new Map<string, (number | null)[]>(rows.map((row, index) => [row.filePath, [-50 + index, -40]]));
-    bands.set('/d/3.wav', [-300, -300]);
-    bands.set('/d/9.wav', [-4.2, -40]);
+    const bands = wholeBands(rows.map((row, index) => [row.filePath, [-50 + index, -40]]));
+    bands.set('/d/3.wav', wholeValues([-300, -300]));
+    bands.set('/d/9.wav', wholeValues([-4.2, -40]));
     const picture = overviewPicture(rows, bands, FULL_PLOT_WINDOW, 10);
     assert.deepEqual(picture?.range, { min: -110, max: 0 });
 });
@@ -328,7 +329,7 @@ test('the strip is read at the table row under the pointer, never a row its buck
     })) as unknown as HTMLCanvasElement['getContext'];
     // 400 rows on a strip about 90 pixels high: each picture line draws the loudest of four or five rows.
     const rows = Array.from({ length: 400 }, (_, index) => ({ filePath: `/d/r${index}.wav` }));
-    const bands = new Map<string, (number | null)[]>(rows.map((row, index) => [row.filePath, BAND_CENTERS_HZ.map((_, band) => (index === 201 ? -21.5 - band : -20 - (index % 3) - band))]));
+    const bands = wholeBands(rows.map((row, index) => [row.filePath, BAND_CENTERS_HZ.map((_, band) => (index === 201 ? -21.5 - band : -20 - (index % 3) - band))]));
     const plot = paintOverview(overview, strings, rows, bands, { first: 0, last: 399 }, null, FULL_PLOT_WINDOW, { label: 'dBFS', calibrated: false }).drawn;
     assert.ok(plot);
     const view = plot.image?.layer.view ?? plot.lines[0]?.view;
@@ -367,7 +368,7 @@ test('the strip\'s row numbers stay clear of its axis name, a table of a thousan
     });
     canvas.getContext = (() => context) as unknown as HTMLCanvasElement['getContext'];
     const rows = Array.from({ length: 1000 }, (_, index) => ({ filePath: `/d/${index}.wav` }));
-    const bands = new Map<string, (number | null)[]>(rows.map(row => [row.filePath, [-40, -30]]));
+    const bands = wholeBands(rows.map(row => [row.filePath, [-40, -30]]));
     paintOverview(canvas, strings, rows, bands, { first: 0, last: 10 }, null, FULL_PLOT_WINDOW, { label: 'dBFS', calibrated: false });
     const name = texts.filter(item => item.turned);
     const numbers = texts.filter(item => !item.turned && item.align === 'right' && /^\d+$/u.test(item.text));

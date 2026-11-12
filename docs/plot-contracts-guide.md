@@ -43,28 +43,54 @@ Drawing it is one call. Reading it with the pointer is not automatic: you wire i
 
 **1. Draw, and keep what was drawn.**
 
+<!-- guide-check file=src/webview/runtime/kurtosisPane.ts
+-->
 ```ts
 // src/webview/runtime/kurtosisPane.ts
+import type { UiStrings } from '../../shared/i18n/strings';
+import type { StageView } from '../../shared/protocol/backendProtocol';
+import { dataRange, stageNames } from './figureModel';
+import { paintOverlay, type StageLayer, type StagePlot } from './stagePanes';
+import type { StageReader } from './stageReader';
+
 let drawn: StagePlot | null = null;   // where the lines are: the pointer needs it
+export const kurtosisPlot = (): StagePlot | null => drawn;
 
 export function paintKurtosis(canvas: HTMLCanvasElement, view: StageView, reader: StageReader, strings: UiStrings): void {
-    const layer: StageLayer = { view, color: '#36c', full: reader.of(view) ?? NO_FULL_DATA };  // full data: required
+    const layer: StageLayer = { view, color: '#36c', full: reader.of(view) };  // full data: required
     drawn = paintOverlay(canvas, { layers: [layer] }, dataRange([view]), stageNames(strings, view, undefined));
 }
 ```
 
 - `dataRange` and `stageNames` come from the figure model: `paintOverlay` takes no other range or names.
-- `reader.of(view)` is the layer's full data (a `FullSource`). `NO_FULL_DATA` means "nothing to read": the plot
-  marks such a layer and every UI test fails on it, so it is a placeholder, not a way out.
+- `reader.of(view)` is the layer's full data (a `FullSource`). `full` cannot be left out. A caller with no full
+  data says so by name, `full: NO_FULL_DATA` (`fullRead.ts`): the plot marks such a layer and every UI test fails
+  on it, so it is a placeholder, not a way out. `reader.of` answers `NO_FULL_DATA` itself for a picture the
+  backend gave no key for.
 - `paintOverlay` returns the `StagePlot` (or null when nothing is drawn). Keep the latest one.
 
 **2. Give the pointer and the arrow keys to the shared interaction.** Nothing reads the plot until you do this.
 
+<!-- guide-check file=src/webview/runtime/kurtosisPane.ts
+import { createPlotHoverLayer } from './plotHoverLayer';
+import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotInteractionDeps, type PlotWindow } from './plotInteraction';
+import type { StagePlot } from './stagePanes';
+declare const drawn: StagePlot | null;
+declare const container: HTMLElement;
+declare const readoutElement: HTMLElement;
+declare let zoomWindow: PlotWindow;
+declare const repaint: () => void;
+declare const locate: PlotInteractionDeps['locate'];
+declare const pointOn: PlotInteractionDeps['pointOn'];
+declare const showBox: PlotInteractionDeps['showBox'];
+declare const hideBox: PlotInteractionDeps['hideBox'];
+declare const openAxisRange: PlotInteractionDeps['openAxisRange'];
+-->
 ```ts
 const marks = createPlotHoverLayer(document);                    // the cursor marks and the readout text
 attachPlotInteraction(container, document, '[data-kurtosis]', {  // the canvas's selector
-    locate(target, clientX, clientY) { /* the canvas under the pointer and the point on it, or null */ },
-    pointOn(plot, clientX, clientY) { /* the same point for a drag that left the canvas */ },
+    locate,                                                       // the canvas under the pointer and the point on it, or null
+    pointOn,                                                      // the same point for a drag that left the canvas
     window: () => zoomWindow,
     setWindow(_plot, next) { zoomWindow = next ?? FULL_PLOT_WINDOW; repaint(); },
     hover(event, hit) { if (hit && drawn) marks.show(hit.plot, drawn, event.clientX, event.clientY, readoutElement); else marks.hide(); },
@@ -88,7 +114,11 @@ under the pointer and the next real point for ← / → from the layer's `FullSo
 
 Then the table (`src/test/plotContracts/charts/kurtosis.ts`, added to `index.ts`):
 
+<!-- guide-check file=src/test/plotContracts/charts/kurtosis.ts
+-->
 ```ts
+import { SP, tt, type ChartContract } from '../model';
+
 export const kurtosis: ChartContract = {
     chart: { id: 'kurtosis', name: '尖度の時間変化', paintedBy: ['src/webview/runtime/kurtosisPane.ts:paintKurtosis'], requires: ['readout', 'step', 'range', 'axis'] },
     rows: [
@@ -123,8 +153,12 @@ Say the kurtosis chart should show "max 7.3 at 1.20 s" above the plot.
 
 The tempting version takes the largest point of the line drawn. It does not compile:
 
+<!-- guide-check file=src/webview/runtime/kurtosisTop.ts
+import type { StageView } from '../../shared/protocol/backendProtocol';
+declare const view: StageView & { values: NonNullable<StageView['values']> };
+-->
 ```ts
-const top = Math.max(...view.values);   // error TS2345: 'Drawn' is not assignable to 'number'
+export const top = Math.max(...view.values);   // error TS2345: 'Drawn' is not assignable to 'number'
 ```
 
 That is the point of the type: the line was thinned to a few hundred points, and its largest is not the data's
@@ -132,37 +166,80 @@ largest. Do it in three steps instead.
 
 1. **Backend**: take the number of every value and send it as a plain number, beside the picture
    (`stage_combine.py` does this for `peak` and `valueRange`). Add the field to `python-backend/protocol_schema.py`
-   as `_NUMBER` (not `_DRAWN`), and regenerate the types.
-2. **`wholeAnswers.ts`**: add one function that names the field and why it is full data:
+   (here `kurtosisPeak: { x, value }` on `StageView`, each a `_NUMBER`), and regenerate the types
+   (`node scripts/generate-protocol-types.mjs --write`).
+2. **`wholeAnswers.ts`**: add one function that names the field and why it is full data. `mint` is that module's
+   own (`const mint = claimMint('wholeAnswers')`, at its top); `mint.field(answer, name)` takes the answer and the
+   field's name, so the call shows which answer the number came from:
 
+   <!-- guide-check file=src/webview/runtime/kurtosisAnswer.ts
+   import type { StageView } from '../../shared/protocol/backendProtocol';
+   import type { Whole } from '../../shared/provenance';
+   import type { AnswerMint } from '../../shared/wholeMint';
+   // Step 1's new field, which the real schema does not have.
+   declare module '../../shared/protocol/generated/backendProtocolSchema' { interface StageView { kurtosisPeak?: { x: number; value: number } } }
+   declare const mint: AnswerMint;
+   -->
    ```ts
    /** The largest kurtosis and where it is (stage_view.kurtosis_peak): found among every frame before thinning. */
    export function backendKurtosisPeak(view: StageView): { at: Whole; value: Whole } | undefined {
-       return view.kurtosisPeak ? { at: mintWhole(view.kurtosisPeak.x), value: mintWhole(view.kurtosisPeak.value) } : undefined;
+       const peak = view.kurtosisPeak;
+       return peak ? { at: mint.field(peak, 'x'), value: mint.field(peak, 'value') } : undefined;
    }
    ```
 3. **The chart**: write it with the plot's own text functions, and add a `headline` row to the chart's table
    naming the function that writes it and the Python function that computes it, with a proof test (next section).
 
-If the webview already holds every value (a band table, a histogram's bins), no backend change is needed: read it
-through `localLine(xs, values)`, which is the claim "these are every value".
+For an **array** the backend takes of every value (every bin of a spectrum, every band), mark the field's items
+`x-whole` in the schema (`_WHOLE_LINE`); the generator then lists it in `WholeFields`, and an adapter reads it with
+`mint.every('ScanResult', result, 'thirdOctDb')` (see `scanWhole`, `pairWhole`). A field that is not marked whole
+does not compile there. Every array of numbers in the schema says which it is: `x-drawn` (points thinned to be
+drawn), `x-whole` (every value) or `x-place` (where values sit: frequencies, times, edges);
+`python-backend/test_protocol_schema.py` fails on an array that says none.
+
+If the webview already holds every value (a band table, every bin of a scan), no backend change is needed: hold it
+with `localLine(xs, values)`. `values` must be `Whole`, so they can only come from one of the adapters above, or be
+computed of such values with `computedWhole(from, value)` (a Δ of two bins, a median over recordings). Plain numbers
+and a picture's points do not compile:
+
+<!-- guide-check file=src/webview/runtime/kurtosisHeld.ts
+import type { StageView } from '../../shared/protocol/backendProtocol';
+import type { Whole } from '../../shared/provenance';
+import { computedWhole, localLine } from './fullRead';
+declare const xs: number[];
+declare const base: Whole[];
+declare const compared: Whole[];
+declare const view: StageView & { values: NonNullable<StageView['values']> };
+-->
+```ts
+export const delta = localLine(xs, base.map((value, bin) => computedWhole([value, compared[bin]], compared[bin] - value)));
+export const plain = localLine(xs, [1, 2, 3]);       // error: number is not Whole
+export const points = localLine(xs, view.values);    // error: Drawn is not Whole
+```
 
 ### The value's type says where it came from
 
 A readout, a headline and the point an arrow key steps to take only `Whole` (`src/shared/provenance.ts`): a number
 of the full data. A plain `number` is not a `Whole`, so this does not compile:
 
+<!-- guide-check file=src/webview/runtime/kurtosisReadout.ts
+import type { StageLayer } from './stagePanes';
+declare const layer: StageLayer;
+declare const index: number;
+declare const xs: number[];
+declare const values: number[];
+-->
 ```ts
-layer.readout?.(index, { x: view.xs[index], value: view.values[index] });  // error: number is not Whole
+layer.readout?.(index, { x: xs[index], value: values[index] });  // error: number is not Whole
 ```
 
 Read the value through the layer's `FullSource` instead (`layer.full.line(...)` answers `FullPoints`, whose values
-are `Whole`). Arithmetic on whole values gives a plain number: a Δ or a mean that a user reads is computed where
-the full data is read (`fullRead.ts`) or by the backend, not at the readout.
+are `Whole`). Arithmetic on whole values gives a plain number: a Δ or a mean that a user reads is computed by the
+backend, or in the webview from whole values and then named whole with `computedWhole` (above).
 
-A number becomes a `Whole` only in `fullRead.ts` (a full read's points; arrays the caller holds every value of,
-through `localLine` / `localCells` / `fullPointsOf`) and in `wholeAnswers.ts` (a backend field the protocol says is
-taken of every value, one named function per field). There is no function that turns a number into a `Whole`: each
+A number becomes a `Whole` only in `fullRead.ts` (a full read's points; `computedWhole`; the places of a line or
+cells held whole, `localLine` / `localCells` / `heldCells`) and in `wholeAnswers.ts` (a backend field the protocol
+says is taken of every value, one named function per field). There is no function that turns a number into a `Whole`: each
 of these two modules claims the mint once as it loads (`claimMint`, `src/shared/wholeMint.ts`), a second claim
 throws, and `src/test/provenanceBoundary.test.ts` fails on any other use of the mint, on a holder handing it on, on
 a cast to `Whole` or a `value is Whole` predicate, and says what to do. A test that needs a `Whole` of a made-up
@@ -182,6 +259,13 @@ A row computed from the full data names at least one test with `tt(file, name)`.
    that counts (`assert.notEqual`, a margin such as `answer - drawn > 3`, or `not np.allclose` do not), so that
    every proof reads the same way and can be found by searching for the helper:
 
+   <!-- guide-check file=src/test/kurtosisProof.ts
+   import assert from 'node:assert/strict';
+   declare const read: { at: number };
+   declare const xs: number[];
+   declare const bin: number;
+   declare const view: { xs: number[] };
+   -->
    ```ts
    import { assertNotDrawn, nearestOf } from './fullNotDrawn';
    assert.equal(read.at, xs[bin]);
@@ -232,14 +316,39 @@ found. Outside `stagePanes.ts`, the function that does it must be:
 - in `SURFACES` as `{ charts: [...] }` (it holds those charts' canvases), or
 - in `SURFACES` with one sentence saying why it is no chart (an icon, a cursor layer).
 
+That list is a ledger: it tells a reviewer where surfaces are made. **What guarantees that a chart is drawn by the
+plot component is the audit in the real browser** (`src/test/uiSmoke/canvasAudit.ts`), which runs in every UI test
+(`npm run test:ui`; specs import `test` from `canvasAudit.ts`, never from `@playwright/test`). A UI test fails when:
+
+- a canvas is on screen that the plot component did not mark (`data-plot`) and `plotRegistry.ts` does not list
+  (its lists are empty today, and only shrink);
+- anything draws into a plot's canvas while the component is not painting: `fill`, `stroke`, `fillRect`,
+  `strokeRect`, `fillText`, `strokeText`, `putImageData` or `drawImage` on its 2D context, whether the canvas was
+  drawn before it was marked, while off the page, or just before it is exported;
+- a chart is drawn as an SVG, or a plot draws a layer with no full data (`NO_FULL_DATA`).
+
+The audit proves itself: `plotContract.spec.ts` plants each of these (a stray canvas, a hand-drawn `fillRect`, a
+copied picture, a draw before the mark) and checks the audit names it. So you do not need to argue from the source
+that your painter only calls `paintOverlay`: show the chart in a UI test and the audit checks what was really drawn.
+
+What the audit cannot see: a chart no UI test puts on screen (add a spec that shows a new chart, as the
+"answer the same gestures as every plot" tests of `plotContract.spec.ts` do), and a draw made from a callback that
+runs while the component is painting.
+
 ## Reading thinned points
 
 **In the webview** the compiler does this. The arrays the backend thins to draw (`StageView.values`, `matrix`, the
 waveform envelope, events, a cursor-spectrum slice, the lane spectrogram, a scan's 192-point spectrum) are typed
 `Drawn`. A `Drawn` is not a number, so this does not compile:
 
+<!-- guide-check file=src/webview/runtime/kurtosisText.ts
+import type { StageView } from '../../shared/protocol/backendProtocol';
+declare const view: StageView & { values: NonNullable<StageView['values']> };
+declare const label: HTMLElement;
+declare const i: number;
+-->
 ```ts
-const top = Math.max(...view.values);          // error: Drawn is not a number
+export const top = Math.max(...view.values);   // error: Drawn is not a number
 label.textContent = view.values[i].toFixed(1); // error: toFixed does not exist on Drawn
 ```
 
@@ -265,12 +374,9 @@ A new decimator is added to `decimators` in that file and to `SOURCES` in the ch
 
 They close the routes we know. They do not make a wrong number impossible. Know the limits when you review a change:
 
-- **A mint is a claim, not a proof.** `localLine(xs, values)` says "these are every value"; `wholeAnswers.ts` says
-  "the protocol takes this field of every value". Nothing checks the claim against the backend. When you review a
-  new adapter or a new `localLine` caller, read where its arrays come from.
-- **`x-drawn` must be set by hand.** A new thinned array sent as plain `_NUMBERS` in `protocol_schema.py` is a
-  plain number in the webview, and nothing stops code from computing with it. `check_decimation_flow.py` covers
-  the Python side of this (a decimator's result must stay in a picture's drawn fields).
+- **A mint is a claim, not a proof.** `wholeAnswers.ts` says "the protocol takes this field of every value".
+  Nothing checks the claim against the backend. `localLine` no longer makes such a claim itself (it takes only
+  `Whole`), so the places to read are the adapters of `wholeAnswers.ts` and the schema's `x-whole` marks.
 - **Inside a drawing module, an unwrapped point is a plain number.** It still cannot reach a readout (those take
   `Whole`), but it can reach text the module writes itself. Keep drawing modules few and small;
   `pictureSummary.ts` is on the list for the reason written there, not because it draws.
@@ -289,8 +395,19 @@ They close the routes we know. They do not make a wrong number impossible. Know 
   kept in a property and written later, so a function can write a number without being listed. What keeps that
   number from being a thinned point is the type of what it was given, not this scan.
 - **The surface scan finds new surfaces, not new drawing.** A function that makes a canvas or an SVG and is not
-  listed fails. A function already listed can still draw by hand next to the plot component, and no check stops
-  that. What it draws with is still `Drawn`, and any number it writes must still be `Whole`.
+  listed fails. A function already listed can still draw by hand next to the plot component, and the static scan
+  does not stop that. The real-browser audit does, for every chart a UI test shows ("Adding a canvas or an SVG"):
+  that audit, not the scan, is the guarantee. A chart that no UI test shows is covered by neither.
+- **`computedWhole` trusts the arithmetic.** It takes the whole values a number was computed of, so a thinned point
+  or a plain number cannot be named whole through it. It does not check that the number really was computed of
+  them. Read each call.
+- **`layoutLine` takes plain numbers.** It exists for numbers a figure is laid out with (a histogram's counts, the
+  height a dot is stacked at). Only the modules in `LAYOUT_MODULES` (`provenanceBoundary.test.ts`) may call it, and
+  the list is the review point: a measured value must never go through it.
+- **Whole or place is said by hand in the schema.** Every array of numbers must say `x-drawn`, `x-whole` or
+  `x-place`, so none is unclassified; but nothing checks that an array marked `x-whole` really is every value.
+  The Python check below covers the direction that matters most (a decimator's result reaching a field that is not
+  `x-drawn`).
 - **The backend has no types for this.** Its check follows data flow through the Python source and can miss a flow
   through code it does not model (dynamic attribute access, a new library call). Its unit tests
   (`python-backend/test_decimation_flow_check.py`) show the forms it does catch.

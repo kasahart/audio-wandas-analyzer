@@ -163,8 +163,8 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         return end && without ? { with: holdSpec(withRow, end), without: holdSpec(picks && ch ? withChannel(without, ch, true) : without, end) } : null;
     }
     /** The held plot's picture and what it was drawn on, for its readout and an axis's range. */
-    function paintView(view: StageView | null, picture: StageView | null, range: FigureRange, axes: FigureNames, zoom: PlotWindow, options: { diff?: boolean; color: string; empty?: string; full?: FullRead }): void {
-        const drawn = paintOverlay(canvas, { layers: view ? [{ view, color: options.color, width: 2, full: options.full ?? NO_FULL_DATA }] : [] }, narrowed(range, zoom), axes,
+    function paintView(view: StageView | null, picture: StageView | null, range: FigureRange, axes: FigureNames, zoom: PlotWindow, options: { diff?: boolean; color: string; empty?: string; full: FullRead }): void {
+        const drawn = paintOverlay(canvas, { layers: view ? [{ view, color: options.color, width: 2, full: options.full }] : [] }, narrowed(range, zoom), axes,
             { diff: options.diff, empty: options.empty ?? '', window: { x: zoom.x }, axisView: picture });
         hold.plot = picture ? { margins: drawnMargins(canvas, drawn), x: f => axisValueAt(picture, f), ofX: number => axisFractionOf(picture, number), range, xLabel: axes.x, yLabel: axes.y, drawn: view ? drawn : null } : null;
     }
@@ -182,7 +182,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         const coarseWithout = specs?.without ? source.view(specs.without, path) ?? null : null;
         if (!specs || waiting || !coarse || (specs.without && !coarseWithout)) {
             if (waiting) { held.classList.add('is-pending'); title.textContent += ` · ${strings.comparePending}`; }
-            paintView(null, null, emptyFigure().range, stageNames(strings, null, input), zoom, { color: deps.colorOf(path), empty: waiting ? '' : strings.stepNotDrawable.replace('{frame}', coarse?.frame ?? '') });
+            paintView(null, null, emptyFigure().range, stageNames(strings, null, input), zoom, { full: NO_FULL_DATA, color: deps.colorOf(path), empty: waiting ? '' : strings.stepNotDrawable.replace('{frame}', coarse?.frame ?? '') });
             return;
         }
         // Zoomed, from the Frame's full resolution once it is in (the coarse picture until then).
@@ -216,7 +216,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         if (!whole) {
             held.classList.add('is-pending');
             title.textContent += ` · ${strings.comparePending}`;
-            paintView(null, null, emptyFigure().range, stageNames(strings, null, input), zoom, { color: DIFF_COLOR, empty: '' });
+            paintView(null, null, emptyFigure().range, stageNames(strings, null, input), zoom, { full: NO_FULL_DATA, color: DIFF_COLOR, empty: '' });
             return;
         }
         const finer = coarse.kind === 'bar' || coarse.kind === 'none' ? null : detail.spec(specs.with, coarse, zoom.x, zoom.y, canvas.clientWidth || 300);
@@ -226,7 +226,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         if (zoomed && asked) lastFine.keep(identity, asked, zoomed);
         const delta = whole.diff;
         const shown = (zoomed ?? (fineDetail && asked ? lastFine.of(identity, asked) : undefined))?.diff ?? delta;
-        paintView(shown, delta, diffRange(delta), stageNames(strings, delta, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: noDeltaNote(whole, strings), ...(asked ? { full: reader.combined(asked.base, asked.compare, 'diff') } : {}) });
+        paintView(shown, delta, diffRange(delta), stageNames(strings, delta, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: noDeltaNote(whole, strings), full: asked ? reader.combined(asked.base, asked.compare, 'diff') : NO_FULL_DATA });
     }
     /** The held row's Δ spectrum (from the table's own scan), zoomed as its window says. */
     function paintDelta(comparison: CompareModel, key: string, input: LevelInput | undefined): void {
@@ -235,7 +235,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         const { picture, view } = deltaViews(comparison, zoom.x);
         // Read from every bin of the Δ (R7); without the bins, from every band of the table's per-band Δ.
         const bins = comparison.bins?.diff;
-        const full: FullRead | undefined = bins?.length && comparison.bins ? localLine(bins.map((_, bin) => bin * (comparison.bins?.hz ?? 0)), bins) : wholeBars(view);
+        const full: FullRead = bins?.length && comparison.bins ? localLine(bins.map((_, bin) => bin * (comparison.bins?.hz ?? 0)), bins) : wholeBars(view) ?? NO_FULL_DATA;
         paintView(view, picture, diffRange(picture), stageNames(strings, picture, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta, full });
     }
 
@@ -266,7 +266,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
             // Nothing of the table's 192 points is drawn meanwhile: the Δ is taken only of every bin (R1, R2).
             held.classList.add('is-pending');
             title.textContent += ` · ${strings.comparePending}`;
-            paintView(null, null, emptyFigure().range, stageNames(strings, null, current.get(path)?.input), deps.keepWindow('held', `delta|slot|${slot}`), { color: DIFF_COLOR, empty: '' });
+            paintView(null, null, emptyFigure().range, stageNames(strings, null, current.get(path)?.input), deps.keepWindow('held', `delta|slot|${slot}`), { full: NO_FULL_DATA, color: DIFF_COLOR, empty: '' });
             return;
         }
         // A file whose every bin failed (and may pass: asked again after the pause) leaves the Δ unmeasured, and the plot
@@ -276,7 +276,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
             held.classList.add('is-failed');
             const why = strings.heldBinsFailed.replace('{files}', failed.map(baseName).join(', ')).replace('{why}', bins.failure(spec, failed[0]) || '—');
             title.textContent += ` · ${why}`;
-            paintView(null, null, emptyFigure().range, stageNames(strings, null, current.get(path)?.input), deps.keepWindow('held', `delta|slot|${slot}`), { color: DIFF_COLOR, empty: why });
+            paintView(null, null, emptyFigure().range, stageNames(strings, null, current.get(path)?.input), deps.keepWindow('held', `delta|slot|${slot}`), { full: NO_FULL_DATA, color: DIFF_COLOR, empty: why });
             return;
         }
         const binned = new Map(files.flatMap(file => { const result = bins.result(spec, file); return result ? [[file, result] as [string, ScanResult]] : []; }));
@@ -332,7 +332,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
                 const path = deps.slotFiles()[hold.slot] ?? deps.focusedFile();
                 title.textContent = path ? `${hold.slot} · ${baseName(path)}` : '';
                 if (path) paintSlot(path, hold.slot);
-                else paintView(null, null, emptyFigure().range, stageNames(strings, null, undefined, true), deps.keepWindow('held', `delta|slot|${hold.slot}`), { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta });
+                else paintView(null, null, emptyFigure().range, stageNames(strings, null, undefined, true), deps.keepWindow('held', `delta|slot|${hold.slot}`), { diff: true, full: NO_FULL_DATA, color: DIFF_COLOR, empty: strings.stageNoDelta });
             }
         },
         handle: message => source.handle(message) || bins.handle(message) || combine.handle(message) || reader.handle(message),

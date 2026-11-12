@@ -7,10 +7,11 @@
  * - a place's digits come from the step of the SOURCE data, which the source sends with each point (`steps`), never
  *   from the gap between the few points a dense window sends.
  */
+import { testLine } from './helpers/whole';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { StagePoints, StageView } from '../shared/protocol/backendProtocol';
-import { fetchedSource, localLine, mappedSource, sourceSteps, type FullSource } from '../webview/runtime/fullRead';
+import { fetchedSource, mappedSource, sourceSteps, type FullSource } from '../webview/runtime/fullRead';
 import { stageHover, stageStep, type StageLayer, type StagePlot } from '../webview/runtime/stagePanes';
 
 /** The four kinds of line a plot draws. Each is 41 points one unit apart, all 0 but 50 at x = 20. */
@@ -23,7 +24,7 @@ const VALUES = XS.map(x => (x === 20 ? 50 : 0));
  * A plot 400 × 100 px of one line of `kind`, 10 px a point across, its value axis zoomed to −10…10 (5 px a unit): the
  * point at x = 20 (50) is past the axis's top, every other point is at mid height (y = 50).
  */
-function plotOf(kind: Kind, full: FullSource = localLine(XS, VALUES)): StagePlot {
+function plotOf(kind: Kind, full: FullSource = testLine(XS, VALUES)): StagePlot {
     const base = { kind: 'line', xScale: 'linear', xs: [0, 40], values: [0, 0] };
     const view = (kind === 'waveform'
         ? { ...base, frame: 'ChannelFrame', x: 'time', quantity: 'value', waveform: { min: [0, 0], max: [0, 0], minT: [0, 40], maxT: [0, 40], absolutePeak: 50, unit: 'Pa', ref: 2e-5 } }
@@ -111,7 +112,7 @@ test('every source says each point\'s step in its whole data: a line the webview
     const xs = [0, 1, 1.5, 4, 10];
     assert.deepEqual(sourceSteps(xs, 0, xs.length), [1, 0.5, 0.5, 2.5, 6]);
     assert.deepEqual(sourceSteps([7], 0, 1), [null], 'a lone point has no step');
-    const source = localLine(xs, [1, 2, 3, 4, 5]);
+    const source = testLine(xs, [1, 2, 3, 4, 5]);
     // A window holding only the point at 4 (and none beyond) still says its step among its neighbours not sent.
     const window = source.line({ x0: 3.9, x1: 4.1, beyond: 0 }, () => undefined);
     assert.deepEqual([window?.xs, window?.steps], [[4], [2.5]]);

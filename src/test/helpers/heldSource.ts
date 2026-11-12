@@ -1,10 +1,11 @@
+import { testLine, testCells } from './whole';
 import { drawableLine, drawableRows } from '../../shared/drawnPoints';
 import type { StageView } from '../../shared/protocol/backendProtocol';
-import { localCells, localLine, type InlineFullSource } from '../../webview/runtime/fullRead';
+import { type InlineFullSource } from '../../webview/runtime/fullRead';
 
 /** A test picture's own values as its full data: a picture whose every point is in hand (R7, StageLayer.full). */
 export function held(view: StageView): InlineFullSource {
-    return view.matrix ? localCells(view.xs ?? [], view.ys ?? [], drawableRows(view.matrix)) : localLine(view.xs ?? [], drawableLine(view.values ?? []));
+    return view.matrix ? testCells(view.xs ?? [], view.ys ?? [], drawableRows(view.matrix)) : testLine(view.xs ?? [], drawableLine(view.values ?? []));
 }
 
 /**

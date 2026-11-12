@@ -2,10 +2,11 @@
  * The peak a new trigger's level starts from (display rules R1): read from every sample of the compared channels
  * through their full data, never taken from the envelope a lane draws. See src/webview/runtime/regionPeak.ts.
  */
+import { testLine } from './helpers/whole';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { FAILED_RETRY_MS } from '../webview/runtime/answerStore';
-import { fetchedSource, localLine, NO_FULL_DATA } from '../webview/runtime/fullRead';
+import { fetchedSource, fullSource, NO_FULL_DATA } from '../webview/runtime/fullRead';
 import { regionPeak } from '../webview/runtime/regionPeak';
 
 /** One second at 1 kHz: a quiet tone (±0.1) with one sample of 0.9 at 0.5005 s and one of −0.6 at 0.2 s. */
@@ -37,7 +38,7 @@ function thinnedPeak(buckets: number, from: number, to: number): number {
 }
 
 test('a region\'s peak is read from every sample: a region that cuts a drawn bucket reads its own largest sample, which the thinned envelope does not hold (R1)', () => {
-    const full = localLine(TIMES, SAMPLES);
+    const full = testLine(TIMES, SAMPLES);
     // 0.452–0.458 s: seven samples inside the drawn bucket 0.4–0.499 s (of 10 buckets). The envelope keeps only that
     // bucket's two extremes, which are elsewhere in it: the region's own largest sample lies between the thinned points.
     const [from, to] = [0.452, 0.458];
@@ -79,13 +80,13 @@ test('while a channel\'s peak is being read it is pending, and a failed read is 
     assert.deepEqual(read(), { state: 'ready', value: 0.9 });
     assert.equal(asked, 2, 'an answer in hand is kept, not asked for again');
     // A channel with no full data to read, and an answer that names no peak, are failures too: never a peak of 0.
-    assert.deepEqual(regionPeak([{ filePath: '/a.wav', full: { ...NO_FULL_DATA, level: () => null }, x0: 0, x1: 1 }], () => undefined, 30), { state: 'failed' });
+    assert.deepEqual(regionPeak([{ filePath: '/a.wav', full: fullSource('fetched', { level: () => null }), x0: 0, x1: 1 }], () => undefined, 30), { state: 'failed' });
     assert.deepEqual(regionPeak([{ filePath: '/a.wav', full: NO_FULL_DATA, x0: 0, x1: 1 }], () => undefined, 30), { state: 'failed' });
 });
 
 test('the peak of more recordings than the limit is not read at all: 31 recordings start no read and say so, 30 are read; channels of one recording count once (R1)', () => {
     let asked = 0;
-    const channel = (filePath: string) => ({ filePath, x0: 0, x1: 1, full: { ...NO_FULL_DATA, level: () => { asked++; return undefined; } } });
+    const channel = (filePath: string) => ({ filePath, x0: 0, x1: 1, full: fullSource('fetched', { level: () => { asked++; return undefined; } }) });
     const recordings = (count: number) => Array.from({ length: count }, (_, index) => channel(`/${index}.wav`));
     assert.deepEqual(regionPeak(recordings(31), () => undefined, 30), { state: 'tooMany', limit: 30 });
     assert.equal(asked, 0, 'over the limit no read may be started (regionPeak must return before asking any source)');
