@@ -43,10 +43,10 @@ The repository ships with a working devcontainer. Use it whenever possible.
 ```bash
 npm install
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"      # installs ruff + pyright + pytest + runtime deps via pyproject.toml
+pip install -c python-backend/constraints.txt -e ".[dev]"   # ruff, pyright, pytest and the runtime deps, at the versions CI uses
 ```
 
-Node 22 (`.nvmrc`, `engines.node`) and Python 3.11 are the supported versions (matches `.devcontainer/Dockerfile` and CI). CI installs Python packages with the pins in `python-backend/constraints.txt` (`pip install -c python-backend/constraints.txt -e ".[dev]"`).
+Node 22 (`.nvmrc`, `engines.node`) and Python 3.11 are the supported versions (matches `.devcontainer/Dockerfile` and CI). The `-c python-backend/constraints.txt` pins every Python package to the version CI installs; without it `pyproject.toml` only gives lower bounds, and a newer ruff or pyright can pass or fail differently from CI. `scripts/check-single-sources.mjs` (part of verify) fails if a documented setup command drops it.
 
 ---
 

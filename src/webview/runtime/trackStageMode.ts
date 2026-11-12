@@ -43,6 +43,7 @@ import { legendHtml, type LegendItem, type LevelInput } from './comparePanes';
 import { regionLabel } from './entryTable';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { INPUT_FRAME } from '../../shared/recipe/recipeCatalog';
+import type { RegionPeak } from './regionPeak';
 
 /** The roles' colours: the base blue, slots 1–3 yellow, purple, magenta (as their cards and badges). */
 
@@ -106,8 +107,11 @@ export interface TrackStageDeps {
      * change asks its pictures again, so a picture of an earlier calibration or version is never drawn or read.
      */
     basis?(filePath: string): string;
-    /** The largest peak of the compared channels' waveforms over the region, in their unit: where a new trigger starts (half of it). */
-    peak?(region: EntryRegion | null): number | undefined;
+    /**
+     * The largest peak of the compared channels over the region, in their unit, read from every sample (regionPeak.ts):
+     * where a new trigger starts (half of it). `ready` is called when a pending or failed read can be asked again.
+     */
+    peak?(region: EntryRegion | null, ready: () => void): RegionPeak | undefined;
     /**
      * A step failed on a file (the scan names it): its chip is marked ⚠ with wandas' reason, as when the entry
      * table's scan fails there, so the plot says why rather than drawing nothing.
@@ -455,7 +459,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const recipe = deps.recipe();
         const id = chosen();
         const shownStage = state.stage && recipe && recipeSteps(recipe.recipe).find(step => step.id === state.stage)?.bypassed ? state.stage : id;
-        stepBar.set({ recipe: recipe?.recipe ?? null, sampleRate: deps.sampleRate(), channels: deps.channels?.(), peak: deps.peak?.(liveRegion()), stage: shownStage ?? undefined, regionRange: state.regionSet, failed: recipe?.failed });
+        stepBar.set({ recipe: recipe?.recipe ?? null, sampleRate: deps.sampleRate(), channels: deps.channels?.(), peak: deps.peak?.(liveRegion(), () => deps.rerender()), stage: shownStage ?? undefined, regionRange: state.regionSet, failed: recipe?.failed });
         // The tracks' selection becomes the region chip once the bar has the chain; a region already there stays.
         if (state.pendingRegion) {
             const range = state.pendingRegion;

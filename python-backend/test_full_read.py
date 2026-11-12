@@ -449,3 +449,49 @@ def test_every_line_answer_sends_each_points_step_in_the_source_data_not_the_gap
     assert some["xs"] == [160.0] and some["steps"] == [35.0]
     alone = read_line(sorted_axis(bands[:1]), lambda a, b: levels[a:b], {"x": [0.0, 500.0]})  # type: ignore[arg-type]
     assert alone["steps"] == [None]
+
+
+def test_a_regions_peak_is_taken_from_every_sample_of_the_lane_not_from_its_envelope(tmp_path: Path) -> None:
+    # Where a new trigger's level starts (half the region's peak, display rules R1). 4 s at 8 kHz: a quiet tone with
+    # one sample of 0.7 at 1.5 s. The region 1.4995–1.5005 s holds it; the region just before it does not.
+    rate, count = 8000, 32_000
+    samples = 0.05 * np.sin(np.arange(count) * 0.37)
+    samples[12_000] = 0.7
+    audio = tmp_path / "spike.wav"
+    sf.write(audio, samples, rate, subtype="DOUBLE")
+    service = AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000))
+    analysis = service.analyze(audio, stft_options={"nFft": 256, "overlapPercent": 50, "window": "hann"})
+
+    def peak(start_s: float, end_s: float) -> float:
+        read = {"x": [start_s * rate / count, end_s * rate / count], "level": "square"}
+        ranged = service.waveform_range(audio, start_norm=0.0, end_norm=1.0, point_count=1, read=read)
+        assert first_violation(DEFINITIONS["StagePoints"], ranged["points"]) is None
+        return ranged["points"]["level"]["peak"]
+
+    def true_peak(start_s: float, end_s: float) -> float:
+        times = np.arange(count) / rate
+        return float(np.max(np.abs(samples[(times >= start_s) & (times <= end_s)])))
+
+    assert peak(1.4995, 1.5005) == pytest.approx(0.7, abs=1e-12)
+    assert peak(0.0, 4.0) == pytest.approx(0.7, abs=1e-12)
+    # A narrow region between the envelope's points: its own largest sample, which the envelope does not hold.
+    inside = peak(1.2001, 1.2006)
+    assert inside == pytest.approx(true_peak(1.2001, 1.2006), abs=1e-12)
+    envelope = analysis["channels"][0]["waveform"]
+    # The old calculation: the envelope's extremes whose time is inside the region.
+    thinned = [
+        abs(value)
+        for values, at in ((envelope["min"], envelope["minT"]), (envelope["max"], envelope["maxT"]))
+        for value, t in zip(values, at, strict=True)
+        if 1.2001 / 4.0 <= t <= 1.2006 / 4.0
+    ]
+    assert max(thinned, default=0.0) != pytest.approx(inside, abs=1e-9), (
+        "the fixture must be a region the envelope gets wrong"
+    )
+    # A level's read ("db") has no peak: a peak is a signal's.
+    assert (
+        "peak"
+        not in read_line(sorted_axis(np.arange(4.0)), lambda a, b: np.zeros(b - a), {"x": [0, 3], "level": "db"})[
+            "level"
+        ]
+    )

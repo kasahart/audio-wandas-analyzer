@@ -32,6 +32,13 @@
 - テスト: `python-backend/test_stage_combine.py` › test_a_median_and_a_difference_are_taken_and_kept_in_float64
 - テスト: `src/test/unroundedRead.test.ts` › a dense window read beyond the pick radius of every point reads the real sample under the pointer, which the backend sends (R7)
 - テスト: `python-backend/test_full_read.py` › test_a_dense_window_sends_the_point_under_the_pointer_and_names_it
+- 設定の初期値にする数も同じです。トリガーを足したときのレベルの初期値は、比較しているチャンネルの、領域の中のピーク（一番大きい |サンプル|）の半分です。このピークは、レーンの読み値と同じ道（`fullRead.ts` の `FullSource.level`、バックエンドは `full_read.read_level` の `peak`）で、元のサンプル全部から読みます（`src/webview/runtime/regionPeak.ts`）。レーンに描く包絡（間引いた最小・最大）からは計算しません。包絡は領域の中の一番大きいサンプルを持っていないことがあるからです。
+  - 読んでいる途中（pending）と、読み取りが失敗したとき（failed）は、ピークの数はありません。推し量った値を初期値にしません。そのときに足したトリガーは処理そのものの既定値で始まり、フッターにそう書きます（`stepPeakUnread`）。
+  - 答えを覚えておくこと、失敗した読み取りを 5 秒の間を置いて出し直すことは、ほかの読み値と同じ決まり（`fetchedSource`、`answerStore.ts`）に任せます。ここに別のキャッシュや出し直しを足しません。
+- テスト: `src/test/regionPeak.test.ts` › a region's peak is read from every sample: a region that cuts a drawn bucket reads its own largest sample, which the thinned envelope does not hold (R1)
+- テスト: `src/test/regionPeak.test.ts` › while a channel's peak is being read it is pending, and a failed read is failed until the answer store's pause is over: neither carries a number (R1)
+- テスト: `python-backend/test_full_read.py` › test_a_regions_peak_is_taken_from_every_sample_of_the_lane_not_from_its_envelope
+- テスト: `src/test/stepBarModel.test.ts` › a new trigger starts at half the tracks' peak, to two figures; fix_length at the files' length
 - テスト: `src/test/unroundedScan.test.ts` › a scan's levels are sent unrounded and its median and Δ are of them: three levels 3.5e-5 dB apart give run 3 a Δ of 8.7e-6 dB from its group, never 0 (R1)
 - テスト: `python-backend/test_scan_service.py` › test_scan_measures_the_analysis_spec_metrics
 - テスト: `src/test/comparePanes.test.ts` › a comparison takes no number of the scans' 192 drawn points: its base, Δ and figures are the same whatever they hold (R1)

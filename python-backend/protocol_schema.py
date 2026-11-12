@@ -654,11 +654,12 @@ DEFINITIONS: dict[str, Schema] = {
             "under": {"type": "integer", "minimum": 0},
             # A line's points: each one's distance to its nearer neighbour in the source data (the readout's digits).
             "steps": _NULLABLE_NUMBERS,
-            # A level read's answer: the mean power of the window's ``count`` finite values.
+            # A level read's answer: the mean power of the window's ``count`` finite values; of a signal ("square")
+            # also its ``peak``, the largest |sample| among them.
             "level": {
                 "type": "object",
                 "required": ["power", "count"],
-                "properties": {"power": _NUMBER, "count": {"type": "integer", "minimum": 0}},
+                "properties": {"power": _NUMBER, "count": {"type": "integer", "minimum": 0}, "peak": _NUMBER},
             },
         },
     },

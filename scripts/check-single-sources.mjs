@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Keeps values that must live in several files in step with their single source:
 //   - Python runtime dependencies: pyproject.toml [project].dependencies
+//   - The dev tools' versions: python-backend/constraints.txt (every documented setup command installs with it)
 //   - Browser session limits: python-backend/browser_service.py (README tables, browserAbout*Limits)
 //   - How many buckets a spectrum is drawn in: python-backend/stage_view.py SPECTRUM_LINE_BUCKETS
 // `--write` regenerates the README limit tables; without it the script only checks (used by verify).
@@ -53,6 +54,19 @@ for (const block of environment.matchAll(/distribution: '([^']+)',\s*requirement
     if (JSON.stringify(maximum ? tuple(maximum) : null) !== JSON.stringify(upper ? versionTuple(upper[1]) : null)) {
         problems.push(`pythonEnvironment.ts: ${distribution} maximum [${maximum ?? ''}] does not match '${requirement}'`);
     }
+}
+
+// --- Documented setup installs what CI installs ------------------------------------------
+// pyproject.toml gives only lower bounds for the dev tools (ruff, pyright, pytest); CI pins them with
+// python-backend/constraints.txt. Every setup command we document must use the same pins, or a fresh checkout can
+// get a newer tool whose results differ from CI's.
+const CONSTRAINTS = '-c python-backend/constraints.txt';
+for (const file of ['AGENTS.md', 'CONTRIBUTING.md', 'docs/developer-guide.md', 'docs/developer-guide.ja.md', 'scripts/verify.mjs', '.devcontainer/devcontainer.json']) {
+    read(file).split('\n').forEach((line, index) => {
+        for (const command of line.matchAll(/pip install[^|;&`]*\[dev\]/g)) {
+            if (!command[0].includes(CONSTRAINTS)) problems.push(`${file}:${index + 1}: "${command[0]}" installs the dev tools without CI's pins; write it as: pip install ${CONSTRAINTS} -e ".[dev]"`);
+        }
+    });
 }
 
 // --- Browser limits ------------------------------------------------------------------------

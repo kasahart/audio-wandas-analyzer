@@ -1521,6 +1521,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "count": {
                             "type": "integer",
                             "minimum": 0
+                        },
+                        "peak": {
+                            "type": "number"
                         }
                     },
                     "additionalProperties": false
@@ -2703,6 +2706,7 @@ export interface StagePoints {
     level?: {
     power: number;
     count: number;
+    peak?: number;
 };
 }
 

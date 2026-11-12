@@ -8,7 +8,7 @@ import { stageBasis } from './stageSource';
 import { hidePlotReadout, PLOT_READOUT_ID } from './plotHover';
 import { secondsText, withMinus } from '../plot/plotText';
 import { trackTimelinePlacement, waveformCoverageFromExtent } from './waveformCoverage';
-import { envelopePeak } from '../waveform/envelopePeak';
+import { regionPeak, type PeakWindow } from './regionPeak';
 import { fileOfKey } from '../../shared/dataset/datasetTable';
 import { attachOffsetEditing } from './offsetInlineEditor';
 import { dispatchTestMouseEvent, fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, heightDragFromPayload, loopRegionFromPayload, setTestInputValue, testActionTrackId } from './testActionForms';
@@ -1543,21 +1543,26 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // A file's pictures are of its version (the table's scan) and calibration (the track's analysis): a change asks them again.
         basis: stageBasis(path => entryScreen.compareData().results.get(path), path => state.results.find(result => result.filePath === path && !result.error), path => entryScreen.compareData().fileEpoch?.(path) ?? ''),
         // What a trigger sees: the compared slots' channels (a channel row, its own) of the shown tracks, over the region.
-        peak: region => {
+        // From every sample of each (the lanes' full data, as their readouts read it), never from the envelopes drawn.
+        peak: (region, ready) => {
             const shown = trackStore.displayOrder.map(trackId => trackStore.require(trackId)).filter(record => !record.runtime.hidden && !record.result.error);
             const compared = entryScreen.compareData().slots.filter((slot): slot is string => !!slot);
-            let peak = 0;
+            const windows: PeakWindow[] = [];
             for (const record of shown) {
                 const result = record.result;
                 const slots = compared.filter(slot => fileOfKey(slot) === result.filePath);
                 if (compared.length && !slots.length) continue;
                 const picked = slots.map(slot => /#ch(\d+)$/.exec(slot)?.[1]).filter((ch): ch is string => ch !== undefined).map(ch => Number(ch) - 1);
-                channelsForResult(result).forEach((channel, index) => {
+                // A lane's samples are read on its file's 0..1: the region's seconds over the file's length.
+                const length = result.durationSeconds;
+                const [x0, x1] = region && length > 0 ? [region.start / length, region.end / length] : [0, 1];
+                channelsForResult(result).forEach((_channel, index) => {
                     if (picked.length && !picked.includes(index)) return;
-                    peak = Math.max(peak, envelopePeak(channel.waveform ?? undefined, result.durationSeconds, region));
+                    // A file changed since it was analysed has no full data to read (changedSource): its peak is unknown.
+                    windows.push({ full: laneTrackFull(record.protocolIndex, track => laneReads.waveform(track, index)) ?? changedSource, x0, x1 });
                 });
             }
-            return peak > 0 ? peak : undefined;
+            return regionPeak(windows, ready);
         },
         stepFailed: (step, reason) => entryScreen.stepFailed(step, reason),
         channels: () => comparedChannels(),

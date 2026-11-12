@@ -15,14 +15,18 @@ function uiSmokeReadLine(xs, values, read) {
     var x0 = Math.min.apply(null, read.x), x1 = Math.max.apply(null, read.x);
     if (read.level) {
         // A level read (R6's order, full_read.read_level): the mean power of every value in the window.
-        var power = 0, count = 0;
+        // A signal's ('square') also has its peak, the largest |sample| of the window (where a new trigger starts).
+        var power = 0, count = 0, peak = 0;
         xs.forEach(function(x, index) {
             var value = values[index];
             if (x < x0 || x > x1 || value === null || value === undefined || !isFinite(value)) return;
             power += read.level === 'square' ? value * value : value <= -250 ? 0 : Math.pow(10, value / 10);
+            peak = Math.max(peak, Math.abs(value));
             count += 1;
         });
-        return { xs: [], start: null, end: null, complete: false, level: { power: count ? power / count : 0, count: count } };
+        var level = { power: count ? power / count : 0, count: count };
+        if (read.level === 'square') level.peak = peak;
+        return { xs: [], start: null, end: null, complete: false, level: level };
     }
     var beyond = read.beyond === undefined ? 1 : read.beyond;
     var low = 0;
