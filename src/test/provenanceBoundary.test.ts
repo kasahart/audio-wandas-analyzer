@@ -2,7 +2,10 @@
  * What the compiler cannot say of `Whole` and `Drawn` (src/shared/provenance.ts), said here by symbol and type, never
  * by a name's spelling:
  *
- * 1. Only the mint modules (MINT_MODULES) refer to a mint of wholeMint.ts.
+ * 1. Only the mint modules (MINT_MODULES) refer to wholeMint.ts, each claims its mint into a const of its own, and
+ *    that mint never leaves the module: it is not exported, passed on or stored, only called. (A second claim of a
+ *    holder also throws at run time, wholeMint.ts.) Product code uses nothing under src/test, where the tests'
+ *    own way of making a `Whole` lives.
  * 2. No code casts a value to a type that holds `Whole` (`3 as Whole`, `as unknown as FullPoints`), and none
  *    declares a type predicate that would (`value is Whole`).
  * 3. Only the drawing modules (DRAWING_MODULES) refer to drawnPoints.ts, where a `Drawn` becomes a number.
@@ -105,7 +108,7 @@ function holds(type: ts.Type, brand: string, checker: ts.TypeChecker, depth = 0,
     });
 }
 
-type Rule = 'mint' | 'cast' | 'predicate' | 'unwrap' | 'drawn-cast' | 'drawn-predicate' | 'drawn-coerced';
+type Rule = 'mint' | 'mint-kept' | 'test-code' | 'cast' | 'predicate' | 'unwrap' | 'drawn-cast' | 'drawn-predicate' | 'drawn-coerced';
 interface Problem { file: string; line: number; rule: Rule; text: string }
 
 /** Whether a value of `type` is itself a `Drawn` (not a holder of one): what arithmetic and text must not take. */
@@ -123,13 +126,30 @@ function provenanceProblems(scanned: ts.Program): Problem[] {
         if (!file.startsWith('src/') || file.startsWith('src/test/') || file.startsWith('src/e2e/') || file === PROVENANCE || file === MINTS || file === UNWRAPS || file.includes('/generated/')) continue;
         const drawn = (node: ts.Expression): boolean => isDrawn(checker.getTypeAtLocation(node));
         const at = (node: ts.Node, rule: Rule): void => { problems.push({ file, line: source.getLineAndCharacterOfPosition(node.getStart()).line + 1, rule, text: node.getText().slice(0, 80) }); };
+        /** Whether `node` is a call of wholeMint.ts's claimMint, by what its callee declares. */
+        const claims = (node: ts.Node): boolean => {
+            if (!ts.isCallExpression(node)) return false;
+            const callee = checker.getSymbolAtLocation(ts.isPropertyAccessExpression(node.expression) ? node.expression.name : node.expression);
+            const declared = callee && callee.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(callee) : callee;
+            return declared?.name === 'claimMint' && declaredIn(declared, MINTS);
+        };
         const visit = (node: ts.Node): void => {
             if (ts.isIdentifier(node)) {
                 const found = checker.getSymbolAtLocation(node);
                 const target = found && found.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(found) : found;
                 if (!MINT_MODULES.has(file) && declaredIn(target, MINTS)) at(node, 'mint');
                 if (!DRAWING_MODULES.has(file) && declaredIn(target, UNWRAPS)) at(node, 'unwrap');
+                if (target?.declarations?.some(declaration => relative(declaration.getSourceFile()).startsWith('src/test/'))) at(node, 'test-code');
+                // A claimed mint is only called (`mint.value(…)`): never exported, passed on or stored.
+                const holder = target?.valueDeclaration;
+                if (holder && ts.isVariableDeclaration(holder) && holder.initializer && claims(holder.initializer)) {
+                    const exported = ts.isVariableStatement(holder.parent.parent) && !!ts.getModifiers(holder.parent.parent)?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword);
+                    const called = ts.isPropertyAccessExpression(node.parent) && node.parent.expression === node && ts.isCallExpression(node.parent.parent) && node.parent.parent.expression === node.parent;
+                    if (holder.name === node ? exported : !called) at(node, 'mint-kept');
+                }
             }
+            // A claim is the initializer of a const, so the rule above can follow the mint.
+            if (claims(node) && !(ts.isVariableDeclaration(node.parent) && node.parent.initializer === node && ts.isIdentifier(node.parent.name))) at(node, 'mint-kept');
             if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
                 const to = checker.getTypeFromTypeNode(node.type);
                 // Dropping null or undefined of what is already whole is no claim.
@@ -169,7 +189,9 @@ function provenanceProblems(scanned: ts.Program): Problem[] {
 }
 
 const FIX: Record<Rule, string> = {
-    mint: 'Only fullRead.ts and wholeAnswers.ts may call a mint (src/shared/wholeMint.ts). To read a value for a readout, read it through the layer\'s FullSource; for a new backend number taken of every value, add an adapter to wholeAnswers.ts.',
+    'mint-kept': 'A module that holds the mint of Whole keeps it: `const mint = claimMint(…)` at the top of the module, not exported, and used only as `mint.value(…)`. Handing the mint to other code would let any number become full data. Export a function that reads or adapts one kind of full data instead (as localLine, backendPeak).',
+    'test-code': 'Product code may not use anything under src/test: the tests\' helpers (such as wholeValue, which makes a Whole of a made-up number) are for tests only. Read the value through a FullSource or an adapter of wholeAnswers.ts.',
+    mint: 'Only fullRead.ts and wholeAnswers.ts may use the mint (src/shared/wholeMint.ts). To read a value for a readout, read it through the layer\'s FullSource; for a new backend number taken of every value, add an adapter to wholeAnswers.ts.',
     cast: 'A cast to a type holding `Whole` claims a number is full data without a mint. Take the value from a FullSource or an adapter of wholeAnswers.ts instead.',
     predicate: 'A type predicate to `Whole` is a mint by another name. Take the value from a FullSource or an adapter of wholeAnswers.ts instead.',
     unwrap: 'Only the drawing modules (DRAWING_MODULES in this file) may call drawnPoints.ts. If this code draws, add its module there with what it draws. If it needs a number to show, compute or export, read it from the full data: the layer\'s FullSource, or the backend\'s valueRange / peak / levelBins.',
@@ -220,15 +242,20 @@ const MUST_NOT_COMPILE: readonly Mutant[] = [
 
 /** The honest forms, which must compile and pass the scan. */
 const ALLOWED: readonly Mutant[] = [
-    { what: 'a value read from full points, and a number computed of whole values', imports: 'import { wholeOf } from \'../../shared/provenance\';', body: 'export const first = (points: FullPoints): Whole | undefined => points.xs[0];\nexport const delta = (a: Whole, b: Whole): Whole => wholeOf((x, y) => x - y, a, b);' },
+    { what: 'a value read from full points', body: 'export const first = (points: FullPoints): Whole | undefined => points.xs[0];' },
     { what: 'dropping null of what is already whole', body: 'export const kept = (value: Whole | null): Whole => value as Whole;' },
     { what: 'a picture passed on, its gaps dropped and its points counted', body: 'export const copy = (view: StageView): StageView => ({ ...view, values: (view.values ?? []).filter(value => value !== null) });\nexport const count = (view: StageView): number => (view.values ?? []).length;' },
 ];
 
 /** What compiles but the scan must refuse, with the rule it breaks. */
-const MUST_NOT_PASS: ReadonlyArray<Mutant & { rule: Rule }> = [
-    { rule: 'mint', what: 'a mint called outside the mint modules', imports: 'import { mintWhole } from \'../../shared/wholeMint\';', body: 'export const made = mintWhole(3);' },
-    { rule: 'mint', what: 'a mint reached through a namespace import', imports: 'import * as mint from \'../../shared/wholeMint\';', body: 'export const made = mint.mintWholes([3]);' },
+const MUST_NOT_PASS: ReadonlyArray<Mutant & { rule: Rule; also?: Rule[] }> = [
+    { rule: 'mint', what: 'the mint claimed outside the mint modules', imports: 'import { claimMint } from \'../../shared/wholeMint\';', body: 'const mint = claimMint(\'fullRead\');\nexport const made = mint.value(3);' },
+    { rule: 'mint', what: 'the mint reached through a namespace import', imports: 'import * as mints from \'../../shared/wholeMint\';', body: 'const mint = mints.claimMint(\'wholeAnswers\');\nexport const made = mint.everyBin([3]);' },
+    { rule: 'mint', also: ['mint-kept'], what: 'a claimed mint exported', imports: 'import { claimMint } from \'../../shared/wholeMint\';', body: 'export const mint = claimMint(\'fullRead\');' },
+    { rule: 'mint', also: ['mint-kept'], what: 'a claimed mint handed on as a value', imports: 'import { claimMint } from \'../../shared/wholeMint\';', body: 'const mint = claimMint(\'fullRead\');\nexport const leak = () => mint;' },
+    { rule: 'mint', also: ['mint-kept'], what: 'a claimed mint\'s method handed on', imports: 'import { claimMint } from \'../../shared/wholeMint\';', body: 'const mint = claimMint(\'fullRead\');\nexport const make = mint.value;' },
+    { rule: 'mint', also: ['mint-kept'], what: 'a claim that is not a const of the module', imports: 'import { claimMint } from \'../../shared/wholeMint\';', body: 'export const made = claimMint(\'fullRead\').value(3);' },
+    { rule: 'test-code', what: 'the tests\' way of making a Whole used in product code', imports: 'import { wholeValue } from \'../../test/helpers/whole\';', body: 'export const made = wholeValue(3);' },
     { rule: 'cast', what: 'a cast to Whole', body: 'export const made = 3 as Whole;' },
     { rule: 'cast', what: 'a cast to Whole through unknown', body: 'export const made = 3 as unknown as Whole;' },
     { rule: 'cast', what: 'a cast to full points', body: 'export const made = { xs: [1], start: null, end: null, complete: true } as unknown as FullPoints;' },
@@ -271,7 +298,7 @@ test('the compiler refuses a plain number where full data is required, and a poi
 test('the scan refuses a mint, a cast or a predicate that makes full data, and every way of making a drawn point a number or text, outside their modules', () => {
     for (const mutant of MUST_NOT_PASS) {
         assert.deepEqual(compileErrors(mutant), [], `${mutant.what} compiles (the scan, not tsc, must catch it):\n${mutant.body}`);
-        assert.deepEqual(scanRules(mutant), [mutant.rule], `${mutant.what}:\n${mutant.body}`);
+        assert.deepEqual(scanRules(mutant).sort(), [mutant.rule, ...(mutant.also ?? [])].sort(), `${mutant.what}:\n${mutant.body}`);
     }
 });
 
@@ -280,4 +307,12 @@ test('the honest forms compile and pass the scan', () => {
         assert.deepEqual(compileErrors(mutant), [], `${mutant.what}:\n${mutant.body}`);
         assert.deepEqual(scanRules(mutant), [], `${mutant.what}:\n${mutant.body}`);
     }
+});
+
+test('the mint of a holder can be claimed once: its own module claims it as it loads, and a second claim throws', async () => {
+    const { claimMint } = await import('../shared/wholeMint');
+    await import('../webview/runtime/fullRead');
+    await import('../webview/runtime/wholeAnswers');
+    assert.throws(() => claimMint('fullRead'), /claimed twice/u);
+    assert.throws(() => claimMint('wholeAnswers'), /claimed twice/u);
 });

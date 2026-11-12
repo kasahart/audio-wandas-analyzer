@@ -8,7 +8,7 @@
  */
 import type { StagePoints, StageRead } from '../../shared/protocol/backendProtocol';
 import type { SpectrumSliceRequest, TrackDetailRequest, WaveformRangeRequest } from '../../shared/utils/audioTarget';
-import { fetchedSource, localLine, type FullSource } from './fullRead';
+import { fetchedSource, localLine, type FullSource, UNREADABLE } from './fullRead';
 import { answerKey, createAnswerStore } from './answerStore';
 import { isOfShownVersion } from './lazyResponses';
 
@@ -118,14 +118,14 @@ export function createLaneReads(post: (message: ReadRequest) => void, now: () =>
                 return localLine(values.map((_, bin) => bin * step), values);
             };
             return once(track, ['slice', cursorNorm, channel], () => ({
-                held: 'fetched',
+                held: 'fetched', ...UNREADABLE,
                 line(query, ready) {
                     const source = full(ready);
-                    return source ? source.line?.(query, ready) : source;
+                    return source ? source.line(query, ready) : source;
                 },
                 level(query, ready) {
                     const source = full(ready);
-                    return source ? source.level?.(query, ready) : source;
+                    return source ? source.level(query, ready) : source;
                 },
             }));
         },

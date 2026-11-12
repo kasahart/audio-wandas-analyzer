@@ -54,13 +54,13 @@ test('a lane read names its track\'s version, is kept under it, and reads nothin
     const reads = createLaneReads(message => { posted.push(message); });
     const query = { x0: 0, x1: 1 } as never;
     const first = reads.slice(track('v1'), 0.5, 0);
-    first.line?.(query, () => undefined);
+    first.line(query, () => undefined);
     assert.equal(posted[0].sourceVersion, 'v1');
     reads.handle({ type: 'spectrum-slice-result', requestId: posted[0].requestId, settingsSignature: 's', sourceVersion: 'v2', maxFrequencyHz: 100, channels: [{ channelIndex: 0, values: [1, 2, 3] }] } as { type: string; requestId: string });
-    assert.equal(first.line?.(query, () => undefined), null, 'answered of another version: nothing read');
+    assert.equal(first.line(query, () => undefined), null, 'answered of another version: nothing read');
     const again = reads.slice(track('v2'), 0.5, 0);
     assert.notEqual(again, first, 'the file analysed again: its reads are kept apart');
-    again.line?.(query, () => undefined);
+    again.line(query, () => undefined);
     assert.equal(posted.length, 2);
     assert.equal(posted[1].sourceVersion, 'v2');
 });

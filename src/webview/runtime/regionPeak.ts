@@ -43,7 +43,7 @@ export function regionPeak(windows: readonly PeakWindow[], ready: () => void, ma
     if (!windows.length) return undefined;
     if (new Set(windows.map(window => window.filePath)).size > maxFiles) return { state: 'tooMany', limit: maxFiles };
     // Every window is asked before any answer is judged, so the reads go out together, not one per repaint.
-    const answers = windows.map(window => (window.full.level ? window.full.level({ x0: window.x0, x1: window.x1, square: true }, ready) : null));
+    const answers = windows.map(window => window.full.level({ x0: window.x0, x1: window.x1, square: true }, ready));
     const peaks: Whole[] = [];
     let pending = false;
     for (const answer of answers) {

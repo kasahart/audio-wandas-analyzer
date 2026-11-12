@@ -113,11 +113,11 @@ test('every source says each point\'s step in its whole data: a line the webview
     assert.deepEqual(sourceSteps([7], 0, 1), [null], 'a lone point has no step');
     const source = localLine(xs, [1, 2, 3, 4, 5]);
     // A window holding only the point at 4 (and none beyond) still says its step among its neighbours not sent.
-    const window = source.line?.({ x0: 3.9, x1: 4.1, beyond: 0 }, () => undefined);
+    const window = source.line({ x0: 3.9, x1: 4.1, beyond: 0 }, () => undefined);
     assert.deepEqual([window?.xs, window?.steps], [[4], [2.5]]);
-    const seek = source.line?.({ x0: 1.5, x1: 1.5, beyond: 0, seek: 1 }, () => undefined);
+    const seek = source.line({ x0: 1.5, x1: 1.5, beyond: 0, seek: 1 }, () => undefined);
     assert.deepEqual([seek?.xs, seek?.steps], [[1.5, 4], [0.5, 2.5]]);
     // Read on an axis ten times the source's (a lane on the lanes' time axis): places and steps are both carried over.
-    const mapped = mappedSource(source, x => x / 10, x => x * 10).line?.({ x0: 39, x1: 41, beyond: 0 }, () => undefined);
+    const mapped = mappedSource(source, x => x / 10, x => x * 10).line({ x0: 39, x1: 41, beyond: 0 }, () => undefined);
     assert.deepEqual([mapped?.xs, mapped?.steps], [[40], [25]]);
 });

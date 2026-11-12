@@ -71,6 +71,7 @@ test('the trigger lanes of one level identity share a range holding every sample
     assert.ok(range.min <= -0.93 && range.max >= 0.93, `${range.min}..${range.max}`);
     assert.ok(range.max < 1.2, 'no wider than the peak and a margin');
     // A line thinned by averaging never holds the one-sample spike: a range of it would stop at the tone's 0.2.
+    assert.equal(range.max, 1, 'the next round end past the 0.93 spike');
     assertNotDrawn(range.max, Math.max(...averagedInto(loud.samples, 200).map(Math.abs)), 'the range holds the spike');
     // A trigger level above every sample stays in sight.
     const high = lanes(1.5, { '/a.wav': loud }).drawn.values().next().value?.range;

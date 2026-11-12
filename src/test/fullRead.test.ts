@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { assertNotDrawn, nearestOf } from './fullNotDrawn';
 import { FAILED_RETRY_MS as FAILED_HOLD_MS } from '../webview/runtime/answerStore';
-import { fetchedSource, localCells, localLine, mappedSource, NO_FULL_DATA, STEP_AHEAD, type FullSource, type LineQuery } from '../webview/runtime/fullRead';
+import { fetchedSource, localCells, localLine, mappedSource, NO_FULL_DATA, STEP_AHEAD, type FullSource, type LineQuery, UNREADABLE } from '../webview/runtime/fullRead';
 import { wholeValue } from './helpers/whole';
 import { wholeBars } from '../webview/runtime/wholeAnswers';
 import { declaresFullRead, stageHover, stageStep, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
@@ -18,7 +18,7 @@ function heldBackend(xs: number[], values: number[]): { source: FullSource; flus
     const whole = localLine(xs, values);
     const source = fetchedSource((read, done) => {
         asked.push(read);
-        queue.push(() => done(whole.line?.({ x0: Math.min(...read.x), x1: Math.max(...read.x), beyond: read.beyond ?? 1 }, () => undefined)));
+        queue.push(() => done(whole.line({ x0: Math.min(...read.x), x1: Math.max(...read.x), beyond: read.beyond ?? 1 }, () => undefined)));
     });
     return { source, asked, flush: () => { while (queue.length) queue.shift()?.(); } };
 }
@@ -87,12 +87,12 @@ test('a dense waveform is read at its real samples: a sample not drawn, and ever
 test('a level asked for while a read is on its way is never dropped for a newer read: the pointer\'s latest goes next, then the latest level (R6, R7)', () => {
     const backend = heldBackend(samples, signal);
     const none = (): void => undefined;
-    assert.equal(backend.source.line?.({ x0: 10, x1: 20, beyond: 1 }, none), undefined);
+    assert.equal(backend.source.line({ x0: 10, x1: 20, beyond: 1 }, none), undefined);
     // While it is on its way: the level of one window, then of the next (zoomed on), then the pointer moving on twice.
-    assert.equal(backend.source.level?.({ x0: 0, x1: 5000, square: true }, none), undefined);
-    assert.equal(backend.source.level?.({ x0: 5000, x1: 9000, square: true }, none), undefined);
-    backend.source.line?.({ x0: 30, x1: 40, beyond: 1 }, none);
-    backend.source.line?.({ x0: 50, x1: 60, beyond: 1 }, none);
+    assert.equal(backend.source.level({ x0: 0, x1: 5000, square: true }, none), undefined);
+    assert.equal(backend.source.level({ x0: 5000, x1: 9000, square: true }, none), undefined);
+    backend.source.line({ x0: 30, x1: 40, beyond: 1 }, none);
+    backend.source.line({ x0: 50, x1: 60, beyond: 1 }, none);
     backend.flush();
     const sent = backend.asked.map(read => (read.level ? `level ${read.x.join('-')}` : `read ${read.x.map(Math.round).join('-')}`));
     assert.equal(sent.length, 3, sent.join(', '));
@@ -301,7 +301,7 @@ test('a picture\'s full data is held or fetched, never its drawn points: a band 
     const bands: StageView = { frame: 'NOctFrame', kind: 'bar', x: 'band', xs: [100, 125, 160], values: [-40, -12, -33] };
     const whole = reader.of(bands);
     assert.equal(whole?.held, 'inline');
-    assert.deepEqual(whole?.line?.({ x0: 125, x1: 125, beyond: 1 }, () => undefined)?.values, [-40, -12, -33]);
+    assert.deepEqual(whole?.line({ x0: 125, x1: 125, beyond: 1 }, () => undefined)?.values, [-40, -12, -33]);
     assert.equal(reader.of({ frame: 'SpectralFrame', kind: 'line', xs: [0, 1], values: [0, 0] }), undefined, 'a thinned line is never read as if whole');
 });
 
@@ -312,15 +312,15 @@ test('a read of values the backend let go is not kept as empty: their pictures a
     const view: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', xs: [0, 1], values: [0, 0], data: 'k1' };
     const source = reader.of(view) as FullSource;
     const query = { x0: 0.4, x1: 0.6, beyond: 1 };
-    assert.equal(source.line?.(query, () => undefined), undefined);
+    assert.equal(source.line(query, () => undefined), undefined);
     assert.equal(posts.length, 1);
     reader.handle({ type: 'compare-combine-result', requestId: posts[0].requestId, result: { ok: false, missing: ['k1'] } } as never);
     assert.deepEqual(lost, [['k1']]);
     // Read again once the picture is back: asked anew, not answered with nothing.
-    assert.equal(source.line?.(query, () => undefined), undefined);
+    assert.equal(source.line(query, () => undefined), undefined);
     assert.equal(posts.length, 2);
     reader.handle({ type: 'compare-combine-result', requestId: posts[1].requestId, result: { ok: true, points: { xs: [0, 1], values: [1, 2], start: null, end: null, complete: true } } } as never);
-    assert.deepEqual(source.line?.(query, () => undefined)?.values, [1, 2]);
+    assert.deepEqual(source.line(query, () => undefined)?.values, [1, 2]);
 });
 
 test('a cursor spectrum read at its real bins writes its frequency to the digits those bins need, not the drawn points\' (R7)', () => {
@@ -328,6 +328,7 @@ test('a cursor spectrum read at its real bins writes its frequency to the digits
     assert.equal(spectrumReadoutValues(slice, 1000, -10)[0], spectrumReadoutValues(slice, 1000.48828125, -10)[0], 'the drawn points\' spacing cannot tell them apart');
     const atBins = spectrumReadoutValues(slice, 1000.48828125, -10, 0.48828125)[0];
     assert.notEqual(spectrumReadoutValues(slice, 1000, -10, 0.48828125)[0], atBins);
+    assert.equal(atBins, '1.0005 kHz', 'the bin\'s own frequency, to the digits its spacing needs');
     assertNotDrawn(atBins, spectrumReadoutValues(slice, 1000.48828125, -10)[0], 'not the digits the drawn points\' spacing gives');
 });
 
@@ -358,7 +359,7 @@ test('an arrow key crosses a silence of any length in one read the backend answe
     const asked: FullReadRequest[] = [];
     const source = fetchedSource((read, done) => {
         asked.push(read);
-        done(whole.line?.({ x0: read.x[0], x1: read.x[read.x.length - 1], beyond: read.beyond ?? 1, ...(read.seek ? { seek: read.seek } : {}) }, () => undefined));
+        done(whole.line({ x0: read.x[0], x1: read.x[read.x.length - 1], beyond: read.beyond ?? 1, ...(read.seek ? { seek: read.seek } : {}) }, () => undefined));
     });
     const view: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', unit: 'dB', xs: [0, count - 1], values: [-20, -20] };
     const plot: StagePlot = {
@@ -402,9 +403,9 @@ test('an arrow key crosses a silence of any length in one read the backend answe
 test('a source read on another axis gets the pointer\'s place and the screen\'s scale on its own axis, so a dense window there is read nearest the pointer (R7)', () => {
     // A file's 0..1 drawn over 10..30 s of the lanes' axis: 20 s to the file's whole.
     const asked: LineQuery[] = [];
-    const file: FullSource = { held: 'fetched', line: query => { asked.push(query); return { xs: [], values: [], complete: true, start: null, end: null }; } };
+    const file: FullSource = { held: 'fetched', ...UNREADABLE, line: query => { asked.push(query); return { xs: [], values: [], complete: true, start: null, end: null }; } };
     const toNorm = (seconds: number): number => (seconds - 10) / 20, toSec = (norm: number): number => 10 + norm * 20;
-    mappedSource(file, toNorm, toSec).line?.({ x0: 12, x1: 18, at: 15, pixels: [40, 3], beyond: 1 }, () => undefined);
+    mappedSource(file, toNorm, toSec).line({ x0: 12, x1: 18, at: 15, pixels: [40, 3], beyond: 1 }, () => undefined);
     assert.equal(asked.length, 1);
     const [query] = asked;
     assert.ok(Math.abs(query.x0 - 0.1) < 1e-12 && Math.abs(query.x1 - 0.4) < 1e-12);
@@ -422,16 +423,16 @@ test('a failed full read is held a while, then asked again: a passing failure do
         done(fail ? null : { xs: [1, 2, 3], values: [10, 20, 30], start: 1, end: 3, complete: true });
     }, {}, () => clock);
     const query: LineQuery = { x0: 2, x1: 2, beyond: 1 };
-    assert.equal(source.line?.(query, () => undefined), undefined, 'asked: pending');
-    assert.equal(source.line?.(query, () => undefined), null, 'the backend failed: nothing to read');
+    assert.equal(source.line(query, () => undefined), undefined, 'asked: pending');
+    assert.equal(source.line(query, () => undefined), null, 'the backend failed: nothing to read');
     clock = FAILED_HOLD_MS - 1;
-    assert.equal(source.line?.(query, () => undefined), null, 'held: not asked again at once');
+    assert.equal(source.line(query, () => undefined), null, 'held: not asked again at once');
     assert.equal(asked.length, 1);
     fail = false;
     clock = FAILED_HOLD_MS;
-    assert.equal(source.line?.(query, () => undefined), undefined, 'the hold has passed: asked again');
+    assert.equal(source.line(query, () => undefined), undefined, 'the hold has passed: asked again');
     assert.equal(asked.length, 2, 'asked again once the hold has passed');
-    assert.deepEqual(source.line?.(query, () => undefined)?.values, [10, 20, 30]);
+    assert.deepEqual(source.line(query, () => undefined)?.values, [10, 20, 30]);
 });
 
 test('a seek on plain values (a signal, a metric over time) reads −250 and below as values, one point at a time, and → and ← agree; a level crosses its floor in one (R7)', () => {
@@ -439,7 +440,7 @@ test('a seek on plain values (a signal, a metric over time) reads −250 and bel
     const values = [1, 2, -300, -300, -300, -300, 10, 11];
     const source = localLine(xs, values);
     const seek = (x: number, seek: -1 | 1, plain: boolean): number => {
-        const got = source.line?.({ x0: x, x1: x, beyond: 0, seek, ...(plain ? { plain: true } : {}) }, () => undefined);
+        const got = source.line({ x0: x, x1: x, beyond: 0, seek, ...(plain ? { plain: true } : {}) }, () => undefined);
         const past = (got?.xs ?? []).filter((at, index) => (seek > 0 ? at > x : at < x) && (plain || (got?.values?.[index] ?? -Infinity) > -250));
         return seek > 0 ? Math.min(...past) : Math.max(...past);
     };

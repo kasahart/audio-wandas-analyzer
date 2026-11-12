@@ -91,7 +91,7 @@ test('a click on a trigger\'s event line while its full data is on its way is de
     // The event's samples are the backend's: each read is answered only when let go, as a slow reply.
     const samples = localLine([0, 0.5, 1], [0.5, 0.5, 0.5]);
     const replies: Array<() => void> = [];
-    const full = fetchedSource((read, done) => { replies.push(() => done(samples.line?.({ x0: read.x[0], x1: read.x[read.x.length - 1], beyond: read.beyond ?? 1 }, () => undefined))); });
+    const full = fetchedSource((read, done) => { replies.push(() => done(samples.line({ x0: read.x[0], x1: read.x[read.x.length - 1], beyond: read.beyond ?? 1 }, () => undefined))); });
     const event = { id: 2, source: '/d/a.wav', out: false };
     const plot = {
         frame, xAt: (value: number) => frame.left + value * frame.width, yAt: (value: number) => frame.top + (1 - value) * frame.height,
@@ -118,14 +118,14 @@ test('a click on a trigger\'s event line while its full data is on its way is de
     while (replies.length) replies.shift()?.();
     assert.deepEqual(toggled, ['take 2', 'edit 2']);
     // A double-click whose second press comes before the data: nothing is left out.
-    const late = fetchedSource((read, done) => { replies.push(() => done(samples.line?.({ x0: read.x[0], x1: read.x[read.x.length - 1], beyond: read.beyond ?? 1 }, () => undefined))); });
+    const late = fetchedSource((read, done) => { replies.push(() => done(samples.line({ x0: read.x[0], x1: read.x[read.x.length - 1], beyond: read.beyond ?? 1 }, () => undefined))); });
     (plot.lines[0] as { full: unknown }).full = late;
     for (const detail of [1, 2]) { fire(canvas, 'mousedown', detail); fire(document, 'mouseup', detail); }
     await wait(400);
     while (replies.length) replies.shift()?.();
     assert.deepEqual(toggled, ['take 2', 'edit 2'], 'the double-click took the first press\'s place');
     // A click waiting for its line's data, then the next press (a drag into a box): the press takes its place.
-    const slow = fetchedSource((read, done) => { replies.push(() => done(samples.line?.({ x0: read.x[0], x1: read.x[read.x.length - 1], beyond: read.beyond ?? 1 }, () => undefined))); });
+    const slow = fetchedSource((read, done) => { replies.push(() => done(samples.line({ x0: read.x[0], x1: read.x[read.x.length - 1], beyond: read.beyond ?? 1 }, () => undefined))); });
     (plot.lines[0] as { full: unknown }).full = slow;
     fire(canvas, 'mousedown');
     fire(document, 'mouseup');
@@ -149,7 +149,7 @@ test('a click on an event line waiting for its data is decided on the plot it wa
     canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width, height, right: width, bottom: height, x: 0, y: 0, toJSON: () => ({}) });
     const samples = localLine([0, 0.5, 1], [0.5, 0.5, 0.5]);
     const replies: Array<() => void> = [];
-    const full = fetchedSource((read, done) => { replies.push(() => done(samples.line?.({ x0: read.x[0], x1: read.x[read.x.length - 1], beyond: read.beyond ?? 1 }, () => undefined))); });
+    const full = fetchedSource((read, done) => { replies.push(() => done(samples.line({ x0: read.x[0], x1: read.x[read.x.length - 1], beyond: read.beyond ?? 1 }, () => undefined))); });
     const event = { id: 2, source: '/d/a.wav', out: false };
     const plotOf = (level: number) => ({
         frame, xAt: (value: number) => frame.left + value * frame.width, yAt: (value: number) => frame.top + (1 - (value - level + 0.5)) * frame.height,
@@ -175,7 +175,7 @@ test('a click on an event line waiting for its data is decided on the plot it wa
     // A scroll before it is decided moves the plot on screen (its line now 40 px off the pixel clicked): the line
     // clicked on is decided all the same, at the place the plot was clicked at.
     drawnOn.set(canvas, { ...drawnOn.get(canvas)!, plot: plotOf(0.5) });
-    const slow = fetchedSource((read, done) => { replies.push(() => done(samples.line?.({ x0: read.x[0], x1: read.x[read.x.length - 1], beyond: read.beyond ?? 1 }, () => undefined))); });
+    const slow = fetchedSource((read, done) => { replies.push(() => done(samples.line({ x0: read.x[0], x1: read.x[read.x.length - 1], beyond: read.beyond ?? 1 }, () => undefined))); });
     (drawnOn.get(canvas)!.plot.lines[0] as { full: unknown }).full = slow;
     canvas.dispatchEvent(new dom.window.MouseEvent('mousedown', { ...at, button: 0, bubbles: true, detail: 1 }));
     document.dispatchEvent(new dom.window.MouseEvent('mouseup', { ...at, button: 0, bubbles: true, detail: 1 }));

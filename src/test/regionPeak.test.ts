@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { FAILED_RETRY_MS } from '../webview/runtime/answerStore';
-import { fetchedSource, localLine } from '../webview/runtime/fullRead';
+import { fetchedSource, localLine, NO_FULL_DATA } from '../webview/runtime/fullRead';
 import { regionPeak } from '../webview/runtime/regionPeak';
 
 /** One second at 1 kHz: a quiet tone (±0.1) with one sample of 0.9 at 0.5005 s and one of −0.6 at 0.2 s. */
@@ -79,13 +79,13 @@ test('while a channel\'s peak is being read it is pending, and a failed read is 
     assert.deepEqual(read(), { state: 'ready', value: 0.9 });
     assert.equal(asked, 2, 'an answer in hand is kept, not asked for again');
     // A channel with no full data to read, and an answer that names no peak, are failures too: never a peak of 0.
-    assert.deepEqual(regionPeak([{ filePath: '/a.wav', full: { held: 'fetched', level: () => null }, x0: 0, x1: 1 }], () => undefined, 30), { state: 'failed' });
-    assert.deepEqual(regionPeak([{ filePath: '/a.wav', full: { held: 'fetched' }, x0: 0, x1: 1 }], () => undefined, 30), { state: 'failed' });
+    assert.deepEqual(regionPeak([{ filePath: '/a.wav', full: { ...NO_FULL_DATA, level: () => null }, x0: 0, x1: 1 }], () => undefined, 30), { state: 'failed' });
+    assert.deepEqual(regionPeak([{ filePath: '/a.wav', full: NO_FULL_DATA, x0: 0, x1: 1 }], () => undefined, 30), { state: 'failed' });
 });
 
 test('the peak of more recordings than the limit is not read at all: 31 recordings start no read and say so, 30 are read; channels of one recording count once (R1)', () => {
     let asked = 0;
-    const channel = (filePath: string) => ({ filePath, x0: 0, x1: 1, full: { held: 'fetched' as const, level: () => { asked++; return undefined; } } });
+    const channel = (filePath: string) => ({ filePath, x0: 0, x1: 1, full: { ...NO_FULL_DATA, level: () => { asked++; return undefined; } } });
     const recordings = (count: number) => Array.from({ length: count }, (_, index) => channel(`/${index}.wav`));
     assert.deepEqual(regionPeak(recordings(31), () => undefined, 30), { state: 'tooMany', limit: 30 });
     assert.equal(asked, 0, 'over the limit no read may be started (regionPeak must return before asking any source)');

@@ -28,8 +28,8 @@ and `python scripts/check_decimation_flow.py`).
 
 ## Adding a chart
 
-1. Draw it with the plot component (`paintOverlay` in `src/webview/runtime/stagePanes.ts`). A chart drawn its own
-   way is found by the surface scan and fails.
+1. Draw it with the plot component (`paintOverlay` in `src/webview/runtime/stagePanes.ts`). A new canvas or SVG
+   made anywhere else is found by the surface scan and fails until it is listed.
 2. Add `src/test/plotContracts/charts/<id>.ts` (copy a small one such as `spectrum-csv.ts`) and add it to
    `index.ts`. List the functions that call the plot component in `paintedBy`.
 3. Add a row for every value the chart shows: the kinds in `requires` must each have one.
@@ -39,17 +39,52 @@ and `python scripts/check_decimation_flow.py`).
 
 Say you add a "kurtosis over time" chart to the comparison. The backend sends a `StageView` for it.
 
+Drawing it is one call. Reading it with the pointer is not automatic: you wire it, in three steps.
+
+**1. Draw, and keep what was drawn.**
+
 ```ts
 // src/webview/runtime/kurtosisPane.ts
+let drawn: StagePlot | null = null;   // where the lines are: the pointer needs it
+
 export function paintKurtosis(canvas: HTMLCanvasElement, view: StageView, reader: StageReader, strings: UiStrings): void {
     const layer: StageLayer = { view, color: '#36c', full: reader.of(view) ?? NO_FULL_DATA };  // full data: required
-    paintOverlay(canvas, { layers: [layer] }, dataRange([view]), stageNames(strings, view, undefined));
+    drawn = paintOverlay(canvas, { layers: [layer] }, dataRange([view]), stageNames(strings, view, undefined));
 }
 ```
 
 - `dataRange` and `stageNames` come from the figure model: `paintOverlay` takes no other range or names.
-- `reader.of(view)` is the layer's full data. With it, the pointer and ← / → read real values with no further code.
-- You wrote no readout, no range rule and no axis name: there is nothing of yours for the checks to doubt.
+- `reader.of(view)` is the layer's full data (a `FullSource`). `NO_FULL_DATA` means "nothing to read": the plot
+  marks such a layer and every UI test fails on it, so it is a placeholder, not a way out.
+- `paintOverlay` returns the `StagePlot` (or null when nothing is drawn). Keep the latest one.
+
+**2. Give the pointer and the arrow keys to the shared interaction.** Nothing reads the plot until you do this.
+
+```ts
+const marks = createPlotHoverLayer(document);                    // the cursor marks and the readout text
+attachPlotInteraction(container, document, '[data-kurtosis]', {  // the canvas's selector
+    locate(target, clientX, clientY) { /* the canvas under the pointer and the point on it, or null */ },
+    pointOn(plot, clientX, clientY) { /* the same point for a drag that left the canvas */ },
+    window: () => zoomWindow,
+    setWindow(_plot, next) { zoomWindow = next ?? FULL_PLOT_WINDOW; repaint(); },
+    hover(event, hit) { if (hit && drawn) marks.show(hit.plot, drawn, event.clientX, event.clientY, readoutElement); else marks.hide(); },
+    clearHover() { marks.hide(); },
+    stepFrom: (plot, delta, arrived) => marks.stepFrom(plot, drawn, delta, arrived),   // ← / →
+    showBox, hideBox, openAxisRange,                              // the zoom box and the axis range dialog
+});
+```
+
+`PlotInteractionDeps` (`src/webview/runtime/plotInteraction.ts`) lists every member, and the compiler tells you
+which ones you left out. `src/webview/runtime/entryDistributionPane.ts` is a complete small example (search for
+`attachPlotInteraction`); `trackStageGestures.ts` is the comparison's.
+
+**3. Let the full data arrive.** A `FullSource` from a `StageReader` asks the backend and answers later. Pass the
+host's messages to `reader.handle(message)` where your screen handles messages, and repaint when a read is in
+(the reader's owner does this for the existing screens: see `createStageReader` in `stageReader.ts` and its callers).
+Until the answer is in, the readout shows its marks and no number; that is the designed state, not a bug.
+
+What you did not write: a readout, a step rule, a range rule or an axis name. The hover layer reads the value
+under the pointer and the next real point for ← / → from the layer's `FullSource`.
 
 Then the table (`src/test/plotContracts/charts/kurtosis.ts`, added to `index.ts`):
 
@@ -122,12 +157,16 @@ layer.readout?.(index, { x: view.xs[index], value: view.values[index] });  // er
 ```
 
 Read the value through the layer's `FullSource` instead (`layer.full.line(...)` answers `FullPoints`, whose values
-are `Whole`). A difference or a mean of whole values is whole: `wholeOf((a, b) => a - b, first, second)`.
+are `Whole`). Arithmetic on whole values gives a plain number: a Δ or a mean that a user reads is computed where
+the full data is read (`fullRead.ts`) or by the backend, not at the readout.
 
 A number becomes a `Whole` only in `fullRead.ts` (a full read's points; arrays the caller holds every value of,
 through `localLine` / `localCells` / `fullPointsOf`) and in `wholeAnswers.ts` (a backend field the protocol says is
-taken of every value, one named function per field). `src/test/provenanceBoundary.test.ts` fails on a mint, a cast
-to `Whole` or a `value is Whole` predicate anywhere else, and says which of these to use.
+taken of every value, one named function per field). There is no function that turns a number into a `Whole`: each
+of these two modules claims the mint once as it loads (`claimMint`, `src/shared/wholeMint.ts`), a second claim
+throws, and `src/test/provenanceBoundary.test.ts` fails on any other use of the mint, on a holder handing it on, on
+a cast to `Whole` or a `value is Whole` predicate, and says what to do. A test that needs a `Whole` of a made-up
+number uses `wholeValue` (`src/test/helpers/whole.ts`), which product code cannot import.
 
 ## Proof tests
 
@@ -245,6 +284,13 @@ They close the routes we know. They do not make a wrong number impossible. Know 
   the reviewer's job: read the test a row names.
 - **The table lists functions, not values.** A function in a row's `computedIn` may write several numbers. The
   types above guard each value; the table records where to look.
+- **The number scan is a ledger, not the guarantee.** It finds a function that turns a number into text directly
+  (`toFixed`, a template, `String(n)`, a value helper) and makes sure the table lists it. It does not follow text
+  kept in a property and written later, so a function can write a number without being listed. What keeps that
+  number from being a thinned point is the type of what it was given, not this scan.
+- **The surface scan finds new surfaces, not new drawing.** A function that makes a canvas or an SVG and is not
+  listed fails. A function already listed can still draw by hand next to the plot component, and no check stops
+  that. What it draws with is still `Drawn`, and any number it writes must still be `Whole`.
 - **The backend has no types for this.** Its check follows data flow through the Python source and can miss a flow
   through code it does not model (dynamic attribute access, a new library call). Its unit tests
   (`python-backend/test_decimation_flow_check.py`) show the forms it does catch.

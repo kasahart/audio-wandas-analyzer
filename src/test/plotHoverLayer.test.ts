@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { held } from './helpers/heldSource';
 import { JSDOM } from 'jsdom';
-import { localLine, STEP_AHEAD, type FullSource } from '../webview/runtime/fullRead';
+import { localLine, STEP_AHEAD, type FullSource, UNREADABLE } from '../webview/runtime/fullRead';
 import { createPlotHoverLayer } from '../webview/runtime/plotHoverLayer';
 import type { StageLayer, StagePlot } from '../webview/runtime/stagePanes';
 
@@ -102,10 +102,10 @@ test('a step that waits for its points is taken, once they are in, through the o
     let held = true;
     // The hover's points are at hand; a step's (STEP_AHEAD) come later.
     const full: FullSource = {
-        held: 'fetched',
+        held: 'fetched', ...UNREADABLE,
         line(query, ready) {
             if (query.beyond === STEP_AHEAD && held) { later = ready; return undefined; }
-            return whole.line?.({ ...query, beyond: Math.min(query.beyond, 1) }, ready);
+            return whole.line({ ...query, beyond: Math.min(query.beyond, 1) }, ready);
         },
     };
     const drawn: StagePlot = { ...plotWith([{ ...line('a', '#f00', values), full }]), xOf: (x: number) => (x - 50) / 10, levelOf: (y: number) => (110 - y) / 10 };
@@ -130,10 +130,10 @@ test('keys pressed while a step waits for its next points add up: three keys, th
         const later: Array<() => void> = [];
         let held = true;
         const full: FullSource = {
-            held: 'fetched',
+            held: 'fetched', ...UNREADABLE,
             line(query, ready) {
                 if (query.beyond === STEP_AHEAD && held) { later.push(ready); return undefined; }
-                return whole.line?.(query, ready);
+                return whole.line(query, ready);
             },
         };
         const drawn: StagePlot = { ...plotWith([{ ...line('a', '#f00', values), full }]), xOf: (x: number) => (x - 50) / 10, levelOf: (y: number) => (110 - y) / 10 };
@@ -159,7 +159,7 @@ test('an arrow key pressed while the readout waits for its points is taken once 
         const waiting: Array<() => void> = [];
         let held = true;
         // Every read waits until the points come in.
-        const full: FullSource = { held: 'fetched', line(query, ready) { if (held) { waiting.push(ready); return undefined; } return whole.line?.(query, ready); } };
+        const full: FullSource = { held: 'fetched', ...UNREADABLE, line(query, ready) { if (held) { waiting.push(ready); return undefined; } return whole.line(query, ready); } };
         const drawn: StagePlot = { ...plotWith([{ ...line('a', '#f00', values), full }]), xOf: (x: number) => (x - 50) / 10, levelOf: (y: number) => (110 - y) / 10 };
         layer.show(plot, drawn, 80, 75, slot);
         assert.equal(layer.reading(), null, 'pending: no number yet');
@@ -187,7 +187,7 @@ test('keys pressed while the readout waits are dropped when the pointer moves on
     const whole = localLine(xs, values);
     const waiting: Array<() => void> = [];
     let held = true;
-    const full: FullSource = { held: 'fetched', line(query, ready) { if (held) { waiting.push(ready); return undefined; } return whole.line?.(query, ready); } };
+    const full: FullSource = { held: 'fetched', ...UNREADABLE, line(query, ready) { if (held) { waiting.push(ready); return undefined; } return whole.line(query, ready); } };
     const drawn: StagePlot = { ...plotWith([{ ...line('a', '#f00', values), full }]), xOf: (x: number) => (x - 50) / 10, levelOf: (y: number) => (110 - y) / 10 };
     layer.show(plot, drawn, 80, 75, slot);
     layer.stepFrom(plot, drawn, 1);
@@ -232,11 +232,11 @@ function gatedLine(values: number[]) {
     const waiting: Array<() => void> = [];
     const gate = { mode: 'held' as 'held' | 'pending' | 'failed' };
     const full: FullSource = {
-        held: 'fetched',
+        held: 'fetched', ...UNREADABLE,
         line(query, ready) {
             if (gate.mode === 'pending') { waiting.push(ready); return undefined; }
             if (gate.mode === 'failed') { waiting.push(ready); return null; }
-            return whole.line?.(query, ready);
+            return whole.line(query, ready);
         },
     };
     const set = (mode: typeof gate.mode): void => { gate.mode = mode; if (mode === 'held') for (const ready of waiting.splice(0)) ready(); };
