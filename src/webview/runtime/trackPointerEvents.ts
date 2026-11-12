@@ -17,6 +17,12 @@ export interface TrackPointerHandlers {
      * button up, where the pointer is now; none for the window's blur or hiding.
      */
     abandon?(e?: MouseEvent): void;
+    /**
+     * The second press of a double click (the browser's: `detail` 2), anywhere on the page, before any surface takes
+     * the press: what a click on a plot changed can move what is under the pointer, and the double click is still that
+     * plot's (R13).
+     */
+    secondPress?(e: MouseEvent): void;
     zoomWheel(e: WheelEvent): void;
     /** `swipe`: a sideways swipe, moved as far as the fingers went; else a Shift+wheel notch, by the lanes' step. */
     panWheel(e: WheelEvent, swipe: boolean): void;
@@ -192,6 +198,7 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
         },
     });
     tracksWrapper.addEventListener('mousedown', function (e) { handlers.press(e); });
+    doc.addEventListener('mousedown', function (e) { if (e.detail > 1) handlers.secondPress?.(e); }, true);
     // A move with no button down is a press whose release was lost (let go outside the page): it ends there.
     doc.addEventListener('mousemove', function (e) { if (e.buttons === 0 && handlers.abandon) handlers.abandon(e); else handlers.drag(e); });
     doc.addEventListener('mouseup', function (e) { handlers.release(e); });

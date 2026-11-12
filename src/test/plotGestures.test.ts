@@ -197,7 +197,7 @@ test('every plot\'s gestures are built on plotInteraction.ts: the shared listene
     assert.deepEqual(plotKeys, ['runtime/trackPointerEvents.ts'], 'only the shared listeners step a plot\'s readout with the keys');
 });
 
-test('every plot that acts on a press that stayed put (plotInteraction\'s tap) leaves the second press of a double click alone: a double click resets the zoom only, one arbitration for all (R13)', () => {
+test('every plot that acts on a press that stayed put (plotInteraction\'s tap) acts at once, and a double click\'s second press takes it back, with no timer of its own or of the shared gestures: one arbitration for all (R13)', () => {
     // Every tap receiver, in each form it is written: a method `tap(plot, event, …) {`, a property `tap: (…) =>`, or a
     // handler `const tap = (…) =>`, with the body up to the next member.
     const pattern = /\btap\s*(?:\(\s*\w+\s*,\s*\w+[^)]*\)\s*\{|:\s*\(\s*\w+[^)]*\)\s*=>|=\s*\(\s*\w+[^,)]*,\s*\w+[^)]*\)[^{]*(?:\{|=>))/gu;
@@ -220,11 +220,13 @@ test('every plot that acts on a press that stayed put (plotInteraction\'s tap) l
     });
     const receivers = new Set(taps.map(item => item.file));
     for (const file of ['runtime/comparisonRuntime.ts', 'runtime/trackStageGestures.ts', 'runtime/entryDistributionPane.ts', 'runtime/entrySidePlots.ts']) assert.ok(receivers.has(file), `${file}'s tap is found`);
-    // The arbitration is plotInteraction's alone: the second press of a double click is no tap, and a tap's action waits
-    // out a double click and is taken back by any later press. No receiver waits a click out with a timer of its own.
+    // The arbitration is plotInteraction's alone (docs/display-rules.md R13): a click acts at once, the second press of
+    // the browser's double click (detail 2) takes back what its first did, and no one waits a click out with a timer,
+    // so a double click slower than any wait can never leave a single click's selection.
     const shared = read('runtime/plotInteraction.ts');
-    assert.match(shared, /const second = event\.detail > 1;/u, 'the second press of a double click is known');
-    assert.match(shared, /const current = \(\): boolean => !second && presses\.count === at;/u, 'and never stands as a click');
-    assert.match(shared, /if \(!second && typeof action === 'function'\) setTimeout\(\(\) => \{ if \(current\(\)\) action\(\); \}, PLOT_DOUBLE_CLICK_MS\)/u, 'a tap acts once no second press came');
-    for (const { file, body } of taps) assert.doesNotMatch(body, /setTimeout|DOUBLE_CLICK|CLICK_WAIT/u, `${file}: a tap that waits out a double click itself`);
+    const fix = 'Fix: a click acts at once in plotInteraction.ts release(), and the second press of a double click takes it back; never a wait (R13).';
+    assert.match(shared, /if \(!first \|\| first\.at !== presses\.count\) return;\s*presses\.click = null;\s*first\.takeBack\(\);/u, `the second press of a double click takes back its first. ${fix}`);
+    assert.match(shared, /const takeBack = typeof action === 'function' \? action\(\) : undefined;/u, `a tap acts at once. ${fix}`);
+    assert.doesNotMatch(shared, /setTimeout|DOUBLE_CLICK_MS/u, `the shared gestures wait a click out. ${fix}`);
+    for (const { file, body } of taps) assert.doesNotMatch(body, /setTimeout|DOUBLE_CLICK|CLICK_WAIT|\.detail/u, `${file}: a tap that waits out a double click, or tells its second press apart, itself (R13: a click acts at once)`);
 });

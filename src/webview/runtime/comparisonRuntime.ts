@@ -2793,7 +2793,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             showBox: showLaneBox,
             hideBox() { rectZoomSelection = null; },
             zoomToBox: zoomLanesToBox,
-            // A click moves the time cursor there and clears the loop once no double click (a zoom reset) follows.
+            // A click moves the time cursor there and clears the loop, at once; a double click's second press puts both back (R13).
             tap: (_plot, e) => endLaneDrag(e, false, true),
             altDrag: {
                 start() { if (lanePress) lanePress.dragType = loopGripAt(viewState.loop, lanePress.startNorm, waveformView.span()) ?? 'loop'; },
@@ -4095,21 +4095,27 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleRender();
     }
     /** A press let go after its drag, or where it was (a click: the cursor goes there and the loop is cleared). */
-    function endLaneDrag(e: MouseEvent, dragged: boolean, waits = false): (() => void) | undefined {
+    function endLaneDrag(e: MouseEvent, dragged: boolean, waits = false): (() => (() => void)) | undefined {
         const press = lanePress;
         lanePress = null;
         if (!press) return undefined;
-        let click: (() => void) | undefined;
+        let click: (() => (() => void)) | undefined;
         if (!dragged) {
-            // The time under the press on the lane as clicked; a plain click's waits out a double click (plotInteraction.ts).
+            // The time under the press on the lane as clicked; a plain click's is returned for plotInteraction.ts to do
+            // at once, with how to put the cursor and the loop back for a double click's second press (R13).
             const canvas = trackStore.protocolIndexForId(press.trackId) === null ? null : canvasById(document, press.canvasId);
             const hit = canvas ? trackCanvasTimeHit(canvas, e.clientX, e.clientY) : null;
             if (hit) {
                 const norm = hit.norm;
-                click = () => { moveCursor(norm); setLoopRegion(null); scheduleSpectrumRefresh('immediate'); };
+                click = () => {
+                    const cursorBefore = viewState.cursor, loopBefore = viewState.loop;
+                    moveCursor(norm); setLoopRegion(null); scheduleSpectrumRefresh('immediate');
+                    return () => { moveCursor(cursorBefore); setLoopRegion(loopBefore); scheduleSpectrumRefresh('immediate'); };
+                };
             }
         }
-        scheduleSpectrumRefresh('immediate');
+        // A click asks for the spectra at the cursor it moves to (its own refresh), not first at the one it leaves.
+        if (!click) scheduleSpectrumRefresh('immediate');
         followPointerAfterDrag(e);
         if (!waits) { click?.(); return undefined; }
         return click;

@@ -4,7 +4,7 @@
  */
 import type { UiStrings } from '../../shared/i18n/strings';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
-import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotHit, type PlotWindow } from './plotInteraction';
+import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotClick, type PlotHit, type PlotWindow } from './plotInteraction';
 import { axisFractionOf, axisValueAt, drawnMargins, rowFractionOf, rowValueAt, stageHover, stagePlotPoint, type StagePlot } from './stagePanes';
 import { createPlotHoverLayer } from './plotHoverLayer';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
@@ -35,8 +35,11 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     /** The lanes sit under a trigger's events: over the recording's time, so they zoom on their own. */
     lanesApart: () => boolean;
     /** A click on a trigger's event line: left out, or put back. */
-    /** Takes what the click is on at once, and returns the edit to make once no double-click follows. */
-    toggleEvent?: (event: { id: number; source: string; out: boolean }) => (() => void) | undefined;
+    /**
+     * Takes what the click is on at once, and returns the edit, done at once (plotInteraction.ts, R13); the edit returns
+     * how to take it back, for a double click's second press.
+     */
+    toggleEvent?: (event: { id: number; source: string; out: boolean }) => (() => (() => void) | undefined) | undefined;
 }): StageGestures {
     const { strings, state, drawnOn } = deps;
     // Each plot's zoom: the Δ pane shares the overlay's frequency axis but not its level axis, and the lanes under a
@@ -109,11 +112,12 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     // A scroll under a still pointer: the shared gestures hover again at the pointer (trackPointerEvents.ts), so the
     // plot now under it is read there (R7).
     // A click on an event's line (the plot gestures' tap: a press that stayed put, a drag zooms instead) leaves it out
-    // or puts it back, once no double click (which resets the zoom) follows: plotInteraction.ts arbitrates the click.
+    // or puts it back, at once: plotInteraction.ts arbitrates the click (R13; a double click's second press takes it back,
+    // so a double click resets the zoom only).
     // It is decided on the plot as it was clicked; a click while the lines' full data is on its way is decided once it
     // is in (R7), never dropped, unless a later press anywhere (a drag, another click) takes its place first.
     const view = document.defaultView;
-    const tap = (plot: HTMLElement, event: MouseEvent, current: () => boolean): (() => void) | undefined => {
+    const tap = (plot: HTMLElement, event: MouseEvent, current: () => boolean): PlotClick | undefined => {
         const toggle = deps.toggleEvent;
         if (!state.on || !toggle || !view) return undefined;
         const { clientX, clientY } = event;
@@ -122,14 +126,16 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
         // Where the plot was on screen as clicked too: a scroll meanwhile moves it, never the line clicked on.
         const clicked = drawnPlot(plot) ?? undefined;
         const { left, top } = plot.getBoundingClientRect();
+        // What the edit made, once made (at once, or once the data is in), so the take-back puts back what was done by then.
+        let takeBack: (() => void) | undefined;
         const decide = (): void => {
             if (!current() || !state.on) return;
             const line = eventAt(plot, clientX, clientY, decide, clicked, { left, top });
             if (line === undefined) return;
             const edit = line ? toggle(line) : undefined;
-            edit?.();
+            takeBack = edit?.();
         };
-        return decide;
+        return () => { decide(); return () => { takeBack?.(); takeBack = undefined; }; };
     };
     const gestures = (selector: string, container: HTMLElement): void => attachPlotInteraction(container, document, selector, {
         locate(target, clientX, clientY): PlotHit | null {

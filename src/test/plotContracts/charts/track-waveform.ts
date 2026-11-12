@@ -33,8 +33,10 @@ export const trackWaveform: ChartContract = {
             from: 'input', trace: 'クリックしてカーソルを置いたレーンでは、← / → は読み値でなくカーソルを動かす。',
             tests: [
                 t('src/test/trackPointerEvents.test.ts', 'a lane with the keyboard focus keeps ← / → for its time cursor, even with the pointer on it; the pointer on another lane steps that one\'s readout (R7)'),
+                t('src/test/shortcuts.test.ts', 'keydownIntent moves the time cursor with arrows only while a track canvas has focus (R7)'),
+                t('src/test/shortcuts.test.ts', 'arrowCursorStep moves one pixel of the zoomed view, or 0.1 s with Shift (R7)'),
             ],
-            exception: { rule: 'R7', quote: 'ただし、キーボードのフォーカスがあるレーン（クリックしてカーソルを置いたレーン）では、マウスがそのレーンに乗っていても、← / → はこれまでどおりカーソルを動かします。' },
+            exception: { rule: 'R7', quote: 'トラック表示のレーンにキーボードのフォーカスがあるとき（クリックしてカーソルを置いた、Tab で選んだ）は、マウスがそのレーンに乗っていても、← / → は再生の時刻カーソルを動かします。' },
         },
         {
             id: 'track-waveform.range', value: 'range', what: '振幅の軸の範囲',

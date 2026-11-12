@@ -9,6 +9,11 @@ export interface StepHistory<T> {
     undo(here: T | null): T | undefined;
     /** What ↷ goes forward to, keeping `here` for ↶; undefined as for undo. */
     redo(here: T | null): T | undefined;
+    /**
+     * The last edit recorded is taken back as if it was never made (a click on a plot that a double click's second press
+     * takes back, R13): what it recorded is returned, and what ↷ had before it comes back; undefined with none.
+     */
+    retract(): T | undefined;
     canUndo(): boolean;
     canRedo(): boolean;
 }
@@ -17,6 +22,8 @@ export const STEP_HISTORY_LIMIT = 50;
 
 export function createStepHistory<T>(limit = STEP_HISTORY_LIMIT): StepHistory<T> {
     const past: T[] = [], future: T[] = [];
+    /** What ↷ had before the last edit dropped it, for retract. */
+    let dropped: T[] = [];
     function travel(from: T[], to: T[], here: T | null): T | undefined {
         const target = from.pop();
         if (target === undefined || here === null) return undefined;
@@ -27,7 +34,13 @@ export function createStepHistory<T>(limit = STEP_HISTORY_LIMIT): StepHistory<T>
         record(here) {
             past.push(here);
             if (past.length > limit) past.shift();
-            future.length = 0;
+            dropped = future.splice(0);
+        },
+        retract() {
+            const here = past.pop();
+            if (here !== undefined) future.splice(0, future.length, ...dropped);
+            dropped = [];
+            return here;
         },
         undo: here => travel(past, future, here),
         redo: here => travel(future, past, here),

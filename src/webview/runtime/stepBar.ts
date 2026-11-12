@@ -41,8 +41,11 @@ export interface StepBar {
     close(): boolean;
     /** The region chip set from outside (the tracks' selection), as an edit × and ↶ take back; false when one is there already. */
     importRegion(range: RegionRange): boolean;
-    /** An edit made on the comparison (an event left out), as ↶ takes back; `said` in the footer. */
-    edit(recipe: RecipeDocument, said: string): void;
+    /**
+     * An edit made on the comparison (an event left out), as ↶ takes back; `said` in the footer. Returns how to take it
+     * back as if never made (no ↷ for it), while it is still the last edit: a double click's second press (R13).
+     */
+    edit(recipe: RecipeDocument, said: string): () => void;
 }
 
 export function createStepBar(deps: {
@@ -111,7 +114,10 @@ export function createStepBar(deps: {
         if (regionChanged) deps.onRegionSet?.(next.region);
         render();
     }
+    /** How many edits, undos and redos were made: an edit is taken back only while it is the last of them (edit's take-back). */
+    let emitted = 0;
     function emit(recipe: RecipeDocument, region: RegionRange | null = state.regionRange ?? null): void {
+        emitted += 1;
         const here = now();
         if (here) edits.record(here);
         // Events found another way are other events: the ones left out come back (↶ puts the edit and them back).
@@ -124,6 +130,7 @@ export function createStepBar(deps: {
     }
     function travel(target: Snapshot | undefined, said: string): void {
         if (!target) return;
+        emitted += 1;
         open = null;
         const before = state.stage;
         const was = recipeNodes(state.recipe).find(node => node.id === before)?.operation;
@@ -475,8 +482,16 @@ export function createStepBar(deps: {
         close,
         importRegion,
         edit(recipe, said) {
+            const here = now();
             emit(recipe);
             footer(said);
+            const mine = emitted;
+            return () => {
+                if (emitted !== mine || !here) return;
+                emitted += 1;
+                edits.retract();
+                applySnapshot(here);
+            };
         },
     };
 }

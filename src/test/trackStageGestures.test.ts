@@ -23,7 +23,7 @@ test('attaching the gestures puts the cursor line, zoom box and axis range popov
     assert.ok(document.getElementById('track-stage-range-popover'));
 });
 
-test('a click on a trigger\'s event line (the plot gestures\' tap: a press that stays put) leaves it out once no double-click follows (plotInteraction arbitrates); a drag or a double-click does not', async () => {
+test('a click on a trigger\'s event line (the plot gestures\' tap: a press that stays put) leaves it out at once (plotInteraction arbitrates); a double click\'s second press puts it back, a drag leaves none out (R13)', () => {
     const dom = new JSDOM('<!doctype html><body><div class="lanes"></div><div class="track-stage"><canvas data-stage-canvas="overlay"></canvas></div></body>');
     const { document } = dom.window;
     const view = dom.window;
@@ -45,39 +45,27 @@ test('a click on a trigger\'s event line (the plot gestures\' tap: a press that 
     attachStageGestures(document.querySelector('.lanes') as HTMLElement, root, document, {
         strings: getStrings('en'), state, drawnOn: new Map([[canvas, { picture: null, range: R({ min: 0, max: 1 }), axes: N({ x: 't', y: 'v' }), plot }]]), painted: () => true,
         moved: () => undefined, rerender: () => undefined, hint: () => undefined, lanesApart: () => false,
-        toggleEvent: line => { toggled.push(`take ${line.id}`); return () => toggled.push(`edit ${line.id}`); },
+        toggleEvent: line => { toggled.push(`take ${line.id}`); return () => { toggled.push(`edit ${line.id}`); return () => { toggled.push(`undo ${line.id}`); }; }; },
     });
     const at = { clientX: frame.left + 100, clientY: frame.top + 50 };
     const fire = (target: EventTarget, type: string, detail = 1, place = at): void => { target.dispatchEvent(new view.MouseEvent(type, { ...place, button: 0, bubbles: true, detail })); };
-    const wait = (): Promise<void> => new Promise(resolve => { setTimeout(resolve, 400); });
+    const fix = 'Fix: a click acts at once, and a double click\'s second press takes it back (plotInteraction.ts release(); docs/display-rules.md R13).';
     fire(canvas, 'mousedown');
     fire(document, 'mouseup');
-    assert.deepEqual(toggled, [], 'decided once no double-click follows');
-    await wait();
-    assert.deepEqual(toggled, ['take 2', 'edit 2']);
-    // A double-click (which resets the zoom) leaves nothing out: its second press takes the first one's place.
+    assert.deepEqual(toggled, ['take 2', 'edit 2'], `a click on the line did not leave it out at once. ${fix}`);
+    // A double-click (which resets the zoom): its first press leaves the event out, its second puts it back.
     for (const detail of [1, 2]) { fire(canvas, 'mousedown', detail); fire(document, 'mouseup', detail); }
-    await wait();
-    assert.deepEqual(toggled, ['take 2', 'edit 2']);
+    assert.deepEqual(toggled, ['take 2', 'edit 2', 'take 2', 'edit 2', 'undo 2'], `a double click left the event out: it resets the zoom only. ${fix}`);
+    toggled.length = 0;
     // A press dragged into a box zooms instead.
     fire(canvas, 'mousedown');
     fire(document, 'mousemove', 1, { clientX: frame.left + 180, clientY: frame.top + 90 });
     fire(document, 'mouseup', 1, { clientX: frame.left + 180, clientY: frame.top + 90 });
-    await wait();
-    assert.deepEqual(toggled, ['take 2', 'edit 2'], 'a drag leaves no event out');
+    assert.deepEqual(toggled, [], 'a drag leaves no event out');
     // Off the line, a click leaves nothing out.
     fire(canvas, 'mousedown', 1, { clientX: frame.left + 100, clientY: frame.top + 90 });
     fire(document, 'mouseup', 1, { clientX: frame.left + 100, clientY: frame.top + 90 });
-    await wait();
-    assert.deepEqual(toggled, ['take 2', 'edit 2']);
-    // A click and then, before it is decided, a drag into a box: the drag takes its place.
-    fire(canvas, 'mousedown');
-    fire(document, 'mouseup');
-    fire(canvas, 'mousedown');
-    fire(document, 'mousemove', 1, { clientX: frame.left + 180, clientY: frame.top + 90 });
-    fire(document, 'mouseup', 1, { clientX: frame.left + 180, clientY: frame.top + 90 });
-    await wait();
-    assert.deepEqual(toggled, ['take 2', 'edit 2'], 'the next press cancels the click');
+    assert.deepEqual(toggled, []);
 });
 
 test('a click on a trigger\'s event line while its full data is on its way is decided once it is in, never dropped; a double-click meanwhile still takes it back (R7)', async () => {
@@ -105,38 +93,38 @@ test('a click on a trigger\'s event line while its full data is on its way is de
     attachStageGestures(document.querySelector('.lanes') as HTMLElement, root, document, {
         strings: getStrings('en'), state, drawnOn: new Map([[canvas, { picture: null, range: R({ min: 0, max: 1 }), axes: N({ x: 't', y: 'v' }), plot }]]), painted: () => true,
         moved: () => undefined, rerender: () => undefined, hint: () => undefined, lanesApart: () => false,
-        toggleEvent: line => { toggled.push(`take ${line.id}`); return () => toggled.push(`edit ${line.id}`); },
+        toggleEvent: line => { toggled.push(`take ${line.id}`); return () => { toggled.push(`edit ${line.id}`); return () => { toggled.push(`undo ${line.id}`); }; }; },
     });
     const at = { clientX: frame.left + 100, clientY: frame.top + 50 };
     const fire = (target: EventTarget, type: string, detail = 1): void => { target.dispatchEvent(new view.MouseEvent(type, { ...at, button: 0, bubbles: true, detail })); };
     const wait = (ms: number): Promise<void> => new Promise(resolve => { setTimeout(resolve, ms); });
     fire(canvas, 'mousedown');
     fire(document, 'mouseup');
-    // No double-click followed: the line under the pointer is asked for, and the click decided once it is in.
-    await wait(400);
+    // The line under the pointer is asked for, and the click decided once it is in.
+    await wait(0);
     assert.deepEqual(toggled, [], 'nothing decided before the line under the pointer is known');
     assert.ok(replies.length >= 1, 'its samples are asked for');
     while (replies.length) replies.shift()?.();
     assert.deepEqual(toggled, ['take 2', 'edit 2']);
-    // A double-click whose second press comes before the data: nothing is left out.
+    // A double-click whose second press comes before the data: nothing is left out (its first press is taken back before it acts).
     const late = fetchedSource((read, done) => { replies.push(() => done(samples.line({ x0: read.x[0], x1: read.x[read.x.length - 1], beyond: read.beyond ?? 1 }, () => undefined))); });
     (plot.lines[0] as { full: unknown }).full = late;
     for (const detail of [1, 2]) { fire(canvas, 'mousedown', detail); fire(document, 'mouseup', detail); }
-    await wait(400);
+    await wait(0);
     while (replies.length) replies.shift()?.();
-    assert.deepEqual(toggled, ['take 2', 'edit 2'], 'the double-click took the first press\'s place');
+    assert.deepEqual(toggled, ['take 2', 'edit 2'], 'the double-click took the first press\'s click back');
     // A click waiting for its line's data, then the next press (a drag into a box): the press takes its place.
     const slow = fetchedSource((read, done) => { replies.push(() => done(samples.line({ x0: read.x[0], x1: read.x[read.x.length - 1], beyond: read.beyond ?? 1 }, () => undefined))); });
     (plot.lines[0] as { full: unknown }).full = slow;
     fire(canvas, 'mousedown');
     fire(document, 'mouseup');
-    await wait(400);
+    await wait(0);
     assert.ok(replies.length >= 1, 'its samples are asked for');
     canvas.dispatchEvent(new view.MouseEvent('mousedown', { ...at, button: 0, bubbles: true, detail: 1 }));
     document.dispatchEvent(new view.MouseEvent('mousemove', { clientX: frame.left + 180, clientY: frame.top + 90, button: 0, bubbles: true }));
     document.dispatchEvent(new view.MouseEvent('mouseup', { clientX: frame.left + 180, clientY: frame.top + 90, button: 0, bubbles: true, detail: 1 }));
     while (replies.length) replies.shift()?.();
-    await wait(400);
+    await wait(0);
     assert.deepEqual(toggled, ['take 2', 'edit 2'], 'a press after the click cancels it, data or no data');
 });
 
@@ -163,14 +151,14 @@ test('a click on an event line waiting for its data is decided on the plot it wa
     const drawnOn = new Map([[canvas, { picture: null, range: R({ min: 0, max: 1 }), axes: N({ x: 't', y: 'v' }), plot: plotOf(0.5) }]]);
     attachStageGestures(document.querySelector('.lanes') as HTMLElement, root, document, {
         strings: getStrings('en'), state, drawnOn, painted: () => true, moved: () => undefined, rerender: () => undefined, hint: () => undefined, lanesApart: () => false,
-        toggleEvent: line => { toggled.push(`take ${line.id}`); return () => toggled.push(`edit ${line.id}`); },
+        toggleEvent: line => { toggled.push(`take ${line.id}`); return () => { toggled.push(`edit ${line.id}`); return () => { toggled.push(`undo ${line.id}`); }; }; },
     });
     const at = { clientX: frame.left + 100, clientY: frame.top + 50 };
     canvas.dispatchEvent(new dom.window.MouseEvent('mousedown', { ...at, button: 0, bubbles: true, detail: 1 }));
     document.dispatchEvent(new dom.window.MouseEvent('mouseup', { ...at, button: 0, bubbles: true, detail: 1 }));
     // Drawn again before the data comes: the line now far from that pixel.
     drawnOn.set(canvas, { ...drawnOn.get(canvas)!, plot: plotOf(0.1) });
-    await new Promise(resolve => { setTimeout(resolve, 400); });
+    await new Promise(resolve => { setTimeout(resolve, 0); });
     while (replies.length) replies.shift()?.();
     assert.deepEqual(toggled, ['take 2', 'edit 2'], 'the line clicked on is the one decided');
     // A scroll before it is decided moves the plot on screen (its line now 40 px off the pixel clicked): the line
@@ -181,7 +169,7 @@ test('a click on an event line waiting for its data is decided on the plot it wa
     canvas.dispatchEvent(new dom.window.MouseEvent('mousedown', { ...at, button: 0, bubbles: true, detail: 1 }));
     document.dispatchEvent(new dom.window.MouseEvent('mouseup', { ...at, button: 0, bubbles: true, detail: 1 }));
     canvas.getBoundingClientRect = () => ({ left: 0, top: -40, width, height, right: width, bottom: height - 40, x: 0, y: -40, toJSON: () => ({}) });
-    await new Promise(resolve => { setTimeout(resolve, 400); });
+    await new Promise(resolve => { setTimeout(resolve, 0); });
     while (replies.length) replies.shift()?.();
     assert.deepEqual(toggled, ['take 2', 'edit 2', 'take 2', 'edit 2'], 'decided where the plot was as clicked, a scroll meanwhile');
 });

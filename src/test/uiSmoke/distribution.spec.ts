@@ -156,9 +156,9 @@ test('a group of two recordings is drawn as dots, and a dot goes to its row; a c
     const dot = (await dots())[2];
     const at = (await dotCanvas.boundingBox())!;
     await page.mouse.click(at.x + dot.x, at.y + dot.y);
-    // Gone to once no double click follows (plotInteraction.ts arbitrates every plot's click).
+    // Gone to at once (plotInteraction.ts arbitrates every plot's click, R13).
     await expect.poll(async () => (await snapshot(page)).focused).toBe(dot.key);
-    // A press that stays put on the plot picks the bin under it (once no second click makes it a double-click).
+    // A press that stays put on the plot picks the bin under it, at once (a double click's second press would take it back, R13).
     // The plot is drawn again once the row is focused: its bars are read after that.
     await expect(page.locator('[data-entry-rows] tr.is-focused')).toHaveAttribute('data-key', dot.key);
     await painted(page);

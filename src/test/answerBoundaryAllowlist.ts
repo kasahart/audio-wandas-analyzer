@@ -79,6 +79,7 @@ export const NOT_ANSWERS: Record<string, Listed> = {
     'src/webview/runtime/entryRuntime.ts#filtered': notAnswer('rows the filter keeps, made again on each filter change'),
     'src/webview/runtime/selectionSync.ts#hostSelection': notAnswer('the files the host has selected'),
     'src/webview/runtime/stepHistory.ts#past': notAnswer('the step bar\'s undo history'),
+    'src/webview/runtime/stepHistory.ts#future': notAnswer('the step bar\'s redo history (kept back for an edit taken back, retract)'),
     'src/webview/runtime/trackStore.ts#records': unmigrated('the tracks open: each track\'s answers are its answer slots (range, spectrogram, zoom window, cursor slices); its analysis is the one result the host sent (state.results), which mergeDetailSpectrograms completes with the spectrogram sent later for that analysis, file version and STFT (see NOT_ANSWER_WRITES)'),
     'src/webview/runtime/trackStore.ts#locallyRemovedIds': notAnswer('tracks the user removed, until the host confirms'),
     'src/webview/runtime/trackStore.ts#protocolOrder': notAnswer('the tracks\' order on the protocol'),

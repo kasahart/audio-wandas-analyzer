@@ -6,7 +6,9 @@
  * Shift+drag moves what the plot shows along it, where the plot has those; Ctrl+wheel zooms the horizontal axis around
  * the pointer (over an axis, around its middle) and Shift+wheel pans it, by the lanes' steps, and a sideways swipe pans it with the fingers; a double-click resets the zoom, or on an axis
  * opens its range; ← / → step the readout to the next point, read as the pointer on it would read it (R7); + / − zoom
- * the horizontal axis of the plot under the pointer around its middle and 0 shows the whole of it.
+ * the horizontal axis of the plot under the pointer around its middle and 0 shows the whole of it. A press that stays
+ * put is a click and acts at once; the second press of a double click takes back what the first did, so a double click
+ * resets the zoom only, however slow; a drag under way owns the view, so no wheel or key changes it until it ends (R13).
  * Built on the low-level listeners of trackPointerEvents.ts, which nothing else attaches (src/test/plotGestures.test.ts).
  */
 import { keyRouterFor } from './keyRouter';
@@ -138,12 +140,16 @@ export interface PlotInteractionDeps {
     shiftDrag?: PlotDrag;
     /**
      * A press that stayed put with neither Alt nor Shift held, at its release (Alt and Shift tell their drag's `end`):
-     * what it does is decided now, on the plot as it was clicked, and returned to be done once no double click follows
-     * (PLOT_DOUBLE_CLICK_MS; a double click resets the zoom only). Any later press, on any plot, takes its place:
-     * `current` says whether it still stands (for a click that waits further, for its data). The second press of a
-     * double click is no click: it is told too (a press that ended), with `current` false and its action never done.
+     * what it does is decided now, on the plot as it was clicked, and returned; it is done at once (R13). The action
+     * returns how to take it back (put back what it changed: the selection, the cursor, the event left out): the
+     * second press of a double click is no click, and takes back what its first press did, so a double click resets
+     * the zoom only, however slow (the browser says it is one: `detail` 2). An action that changes nothing to take
+     * back returns nothing. Any later press, on any plot, takes the click's place: `current` says whether it still
+     * stands (for a click that waits further, for its data; its take-back then puts back what it did by then, if
+     * anything). The second press of a double click, and a press whose release was lost, are told too, with
+     * `current` false, and their action is never done.
      */
-    tap?(plot: HTMLElement, event: MouseEvent, current: () => boolean): (() => void) | void;
+    tap?(plot: HTMLElement, event: MouseEvent, current: () => boolean): PlotClick | void;
     /**
      * Whether `plot` takes ← / → now, its picture still on its way too (the keys wait for it in the readout, R7);
      * where it is left out, a plot takes them where `locate` finds it.
@@ -169,6 +175,9 @@ export interface PlotInteractionDeps {
     focusKeepsArrows?: boolean;
 }
 
+/** What a click does, done at once; it returns how to take it back, for the second press of a double click (R13). */
+export type PlotClick = () => (() => void) | void;
+
 /** A drag of the plot's own under a modifier key, in place of the box zoom. */
 export interface PlotDrag {
     start(hit: PlotHit, event: MouseEvent): void;
@@ -179,19 +188,20 @@ export interface PlotDrag {
 /** What a hover is given of the pointer: a mouse event, or an arrow key's step at the point it reads. */
 export type PlotPointer = Pick<MouseEvent, 'clientX' | 'clientY' | 'target'>;
 
-/** How long a click waits for a second press, which makes it a double click (a zoom reset), before it acts. */
-export const PLOT_DOUBLE_CLICK_MS = 300;
-
 /**
  * The presses on every plot of the page, shared by every surface's gestures (on the document): one count of presses,
- * so a click waiting out a double click (or its data) is taken back by the next press anywhere, and whether a drag is
+ * so a click waiting for its data is taken back by the next press anywhere, and whether a drag is
  * under way, so no other plot reads the pointer during it (R7).
  */
 const PLOT_PRESSES = Symbol.for('audio-wandas-analyzer.plotPresses');
-type PlotPresses = { count: number; dragging: boolean; endedBy: Event | null };
+/**
+ * `click`: the last click done on a plot, at which press, how to take it back and how to reset that plot's zoom: what
+ * the second press of a double click does, wherever it lands (R13).
+ */
+type PlotPresses = { count: number; dragging: boolean; endedBy: Event | null; click: { at: number; plot: HTMLElement; takeBack: () => void; reset: () => void } | null };
 function plotPressesOf(doc: object): PlotPresses {
     const holder = doc as { [PLOT_PRESSES]?: PlotPresses };
-    return holder[PLOT_PRESSES] ??= { count: 0, dragging: false, endedBy: null };
+    return holder[PLOT_PRESSES] ??= { count: 0, dragging: false, endedBy: null, click: null };
 }
 
 export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 'addEventListener'>, plotSelector: string, deps: PlotInteractionDeps): void {
@@ -220,8 +230,17 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
         const axis = axes && typeof element?.closest === 'function' ? element.closest<HTMLElement>(axes.selector) : null;
         return axes && axis ? axes.locate(axis, clientX, clientY) : null;
     };
-    const wheelAt = (event: WheelEvent, gesture: 'zoom' | 'pan'): PlotHit | null =>
-        deps.wheelAt ? deps.wheelAt(event.target, event.clientX, event.clientY, gesture) : deps.locate(event.target, event.clientX, event.clientY) ?? onAxis(event.target, event.clientX, event.clientY);
+    /**
+     * A drag under way, on this surface or another, owns the view (R7, R13): it reads nothing, and no key or wheel
+     * steps, zooms or pans any plot until it ends, so the box (or stretch, or shift) is laid on the window it was
+     * drawn on. The one test every gesture that could change what is read or shown asks.
+     */
+    const dragUnderWay = (): boolean => !!press?.isDrag || presses.dragging;
+    // Every wheel gesture (Ctrl+wheel, Shift+wheel, a sideways swipe) finds its plot here: none during a drag.
+    const wheelAt = (event: WheelEvent, gesture: 'zoom' | 'pan'): PlotHit | null => {
+        if (dragUnderWay()) return null;
+        return deps.wheelAt ? deps.wheelAt(event.target, event.clientX, event.clientY, gesture) : deps.locate(event.target, event.clientX, event.clientY) ?? onAxis(event.target, event.clientX, event.clientY);
+    };
     const view = surface.ownerDocument.defaultView;
     attachTrackPointerListeners(surface, doc, view ? keyRouterFor(view) : { add: () => () => undefined }, {
         step(plot, delta, pointer) {
@@ -229,7 +248,7 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
             const box = plot.getBoundingClientRect();
             if (deps.takesKeys ? !deps.takesKeys(plot as HTMLElement) : !deps.locate(plot, box.left + box.width / 2, box.top + box.height / 2)) return null;
             // A drag under way, on this surface or another, steps nothing and reads nothing (R7).
-            if (press?.isDrag || presses.dragging) return false;
+            if (dragUnderWay()) return false;
             // The owner hovers where the pointer really is (the layer reads the point stepped to there and keeps the
             // step's place apart), or, with the pointer on no plot (a plot given the focus), at the step's place.
             const hoverAt = (at: PlotPlace): void => {
@@ -244,7 +263,7 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
         zoomKey(plot, action) {
             // A drag under way, here or on another surface: the key is taken and zooms nothing (the box would be laid
             // on another window than it was drawn on).
-            if (press?.isDrag || presses.dragging) return true;
+            if (dragUnderWay()) return true;
             const box = plot.getBoundingClientRect();
             const hit = deps.locate(plot, box.left + box.width / 2, box.top + box.height / 2);
             if (!hit) return false;
@@ -264,7 +283,7 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
             // A drag under way, on this surface or another, reads nothing (R7); a move with the button up is no drag
             // (its release was lost: the press is let go on this very move, plotInteraction's abandon).
             const up = (event as Partial<MouseEvent>).buttons === 0;
-            if ((press?.isDrag || presses.dragging) && !up) return;
+            if (dragUnderWay() && !up) return;
             if (press?.isDrag) return;
             const hit = deps.locate(event.target, event.clientX, event.clientY);
             if (hit) hit.plot.dataset.plotYAxis = vertical;
@@ -333,15 +352,22 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
             presses.dragging = false;
             done.drag?.end(event, done.isDrag);
             if (!done.isDrag) {
-                // The one arbitration of a click for every plot: the second press of a double click is no click (it
-                // resets the zoom only: its receiver is told the press ended, with nothing to do, `current` false), and a
-                // click is done once no second press follows, unless another press came.
+                // The one arbitration of a click for every plot (R13): a press that stayed put is a click and acts at
+                // once. The second press of a double click (the browser's: `detail` 2, at whatever interval its OS
+                // sets) is no click: it takes back what its first press did, if no other press came between, and its
+                // receiver is told the press ended with nothing to do. So a double click resets the zoom only, however
+                // slow; no timer of ours decides it. A click that waits for its data stands until another press comes.
                 if (!done.drag) {
-                    const second = event.detail > 1;
                     const at = presses.count;
-                    const current = (): boolean => !second && presses.count === at;
-                    const action = deps.tap?.(done.plot, event, current);
-                    if (!second && typeof action === 'function') setTimeout(() => { if (current()) action(); }, PLOT_DOUBLE_CLICK_MS);
+                    presses.click = null;
+                    if (event.detail > 1) deps.tap?.(done.plot, event, () => false);
+                    else {
+                        const current = (): boolean => presses.count === at;
+                        const action = deps.tap?.(done.plot, event, current);
+                        const takeBack = typeof action === 'function' ? action() : undefined;
+                        const plot = done.plot;
+                        if (typeof takeBack === 'function') presses.click = { at, plot, takeBack, reset: () => setWindow(plot, null) };
+                    }
                 }
                 // Let go where it moved to (within the drag threshold): the readout is the pointer's there, as the
                 // time lines are (R7), whoever owns the press (read once its owner has let go of it).
@@ -369,6 +395,19 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
             const hit = deps.locate(target, event.clientX, event.clientY);
             if (hit) hit.plot.dataset.plotYAxis = vertical;
             deps.hover({ clientX: event.clientX, clientY: event.clientY, target }, hit);
+        },
+        secondPress(event) {
+            // The second press of a double click right after a click on a plot (no press between), wherever it lands:
+            // the click is taken back and that plot's zoom is reset, so a double click resets the zoom only (R13), even
+            // where the click moved what is under the pointer (a bin picked narrows the table). Told on the document,
+            // before any surface counts the press; the surface the click was on answers it once.
+            const first = presses.click;
+            if (!first || first.at !== presses.count) return;
+            presses.click = null;
+            first.takeBack();
+            // On the plot clicked, its own double click resets it (dblclick); landed elsewhere, it is reset here.
+            const under = (event.target as Partial<Element> | null)?.closest?.(plotSelector);
+            if (under !== first.plot) first.reset();
         },
         zoomWheel(event) {
             const hit = wheelAt(event, 'zoom');

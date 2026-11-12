@@ -47,8 +47,8 @@ export interface SidePlotsDeps {
     /** The held plot drawn (or hidden), and what it last drew. */
     paintHeld(): void;
     heldPicture(): HeldPicture | null;
-    /** A row picked on the strip. */
-    pickRow(key: string): void;
+    /** A row picked on the strip; returns how to put the table back (a double click's second press, R13). */
+    pickRow(key: string): (() => void) | void;
 }
 
 export interface SidePlots {
@@ -219,7 +219,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
             stepFrom(plot, delta, arrived) { return marks.stepFrom(plot, plot === heldCanvas ? deps.heldPicture()?.drawn ?? null : overviewDrawn, delta, arrived); },
             // A press on the strip that stayed put (a drag zooms instead) goes to the row under it.
             tap(plot, event) {
-                // The row under the press on the strip as clicked, gone to once no double click follows (plotInteraction.ts).
+                // The row under the press on the strip as clicked, gone to at once; a double click's second press goes back (plotInteraction.ts, R13).
                 if (plot !== overview) return undefined;
                 const rows = deps.rows();
                 const box = overview.getBoundingClientRect();

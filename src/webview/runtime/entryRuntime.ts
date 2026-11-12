@@ -280,17 +280,23 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         reference: () => entryModel().reference, answers: paths => scans.answers(paths),
         document, window, strings, screen, side, body, tableWrap, overview, heldCanvas,
         rows: () => shownRows, focusedRow: () => focus.key, paintDistribution: () => paintDistribution(),
-        paintHeld: () => heldPlot.paint(), heldPicture: () => heldPlot.picture(), pickRow: key => redraw.batch(() => focusRow(key, true)),
+        paintHeld: () => heldPlot.paint(), heldPicture: () => heldPlot.picture(), pickRow: key => { const back = tableNow(); redraw.batch(() => focusRow(key, true)); return back; },
     });
     const distPane = createDistributionPane({
         screen, strings,
         // A range of the value: a chip, which narrows the table.
         pick({ low, high }) {
+            const back = tableNow();
             focus.picked = false;
             choose({ filters: [...chosen.filters.filter(filter => filter.column !== chosen.value), { column: chosen.value, kind: 'range', low, high }], mode: 'all' }, true);
             deps.announce(strings.dsDistPicked.replace('{n}', shownRows.length.toLocaleString()));
+            return back;
         },
-        dot(key) { if (shownRows.some(row => row.key === key)) focusRow(key, true); else focusFile(fileOfKey(key)); },
+        dot(key) {
+            const back = tableNow();
+            if (shownRows.some(row => row.key === key)) focusRow(key, true); else focusFile(fileOfKey(key));
+            return back;
+        },
     });
     const stepBar = createStepBar({
         document, strings, mode: 'entry', onChange: recipe => setRecipe(recipe),
@@ -448,6 +454,19 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         Object.assign(chosen, patch);
         if (toTop) tableWrap.scrollTop = 0;
         rebuild();
+    }
+    /**
+     * The table as it is now (its choices, the focused row, where it is scrolled) and how to put it back: what a click
+     * on a plot changed is taken back by a double click's second press, so a double click resets the zoom only (R13).
+     */
+    function tableNow(): () => void {
+        const before = { chosen: { ...chosen, filters: [...chosen.filters], sort: { ...chosen.sort } }, focus: { ...focus }, scrollTop: tableWrap.scrollTop };
+        return () => {
+            Object.assign(focus, before.focus);
+            // The choices are built again only when the click changed them (a bin's range chip): a row gone to is the focus alone.
+            if (JSON.stringify(before.chosen) !== JSON.stringify(chosen)) choose(before.chosen); else render();
+            tableWrap.scrollTop = before.scrollTop;
+        };
     }
     /** A row the user picked takes the focus. */
     function focusOn(key: string | null): void {

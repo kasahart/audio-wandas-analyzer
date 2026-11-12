@@ -420,18 +420,20 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     let channelOf = (_path: string): number | null => null;
     let shownTrigger: string | null = null;
     /** A click on an event's line: that event of that recording left out of the steps after the trigger, or put back (↶ too). */
-    // The events' trigger and channel are taken when the line is clicked: the edit itself waits out a double-click.
-    function toggleEvent(event: { id: number; source: string; out: boolean }): (() => void) | undefined {
+    // The events' trigger and channel are taken when the line is clicked; the edit is returned for the click to make,
+    // and it returns how to take it back as if never made (a double click's second press, R13).
+    function toggleEvent(event: { id: number; source: string; out: boolean }): (() => (() => void) | undefined) | undefined {
         if (!shownTrigger) return undefined;
         const key = eventsKey(shownTrigger, event.source, channelOf(event.source));
         return () => {
             const editor = deps.recipe()?.recipe;
-            if (!editor) return;
+            if (!editor) return undefined;
             const next = withEventExcluded(editor, key, event.id, !event.out);
             const said = (event.out ? strings.stageEventIn : strings.stageEventOut).replace('{name}', named(event.source, role(event.source)).label).replace('{n}', String(event.id + 1));
-            stepBar.edit(next, said);
+            const takeBack = stepBar.edit(next, said);
             // The footer is the pointer's: the notice stays a moment where the pointer does not write.
             deps.notify?.(said);
+            return takeBack;
         };
     }
     /** A recording's ▶ in the legend (■ while it plays); the base group has none. */

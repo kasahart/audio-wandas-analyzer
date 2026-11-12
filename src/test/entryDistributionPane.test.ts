@@ -45,7 +45,7 @@ function setup() {
     // Shown, as open() does.
     screen.hidden = false;
     const calls: Array<[string, unknown]> = [];
-    const pane = createDistributionPane({ screen, strings, pick: range => calls.push(['pick', range]), dot: key => calls.push(['dot', key]) });
+    const pane = createDistributionPane({ screen, strings, pick: range => { calls.push(['pick', range]); return () => { calls.push(['unpick', range]); }; }, dot: key => { calls.push(['dot', key]); return () => { calls.push(['undot', key]); }; } });
     const attributes = new Map([['/d/a.wav', { rpm: '900', score: '0.2' }], ['/d/b.wav', { rpm: '900', score: '0.4' }], ['/d/c.wav', { rpm: '1500', score: '0.9' }]]);
     const rows: DatasetRow[] = datasetRows([...attributes.keys()], '/d', attributes, new Map());
     const byKey = new Map(rows.map(row => [row.key, row]));
@@ -114,7 +114,7 @@ test('Alt+drag on a row picks a range, as Alt+drag is on every plot (plotInterac
     assert.equal(calls.length, 1, 'a plain drag picks nothing');
 });
 
-test('a click on a row (the plot gestures\' tap: a press that stays put) picks the bin under it once no double-click follows; a double-click picks none', async () => {
+test('a click on a row (the plot gestures\' tap: a press that stays put) picks the bin under it at once; a double click\'s second press puts the table back (R13)', () => {
     const { dom, screen, pane, calls, inputs } = setup();
     pane.place(true);
     pane.paint(inputs);
@@ -122,25 +122,14 @@ test('a click on a row (the plot gestures\' tap: a press that stays put) picks t
     assert.ok(canvas);
     const { document } = dom.window;
     const fire = (target: EventTarget, type: string, detail = 1): void => { target.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, button: 0, clientX: 200, detail })); };
-    const wait = (): Promise<void> => new Promise(resolve => { setTimeout(resolve, 400); });
+    const fix = 'Fix: a click acts at once, and a double click\'s second press takes it back (plotInteraction.ts release(); docs/display-rules.md R13).';
     fire(canvas, 'mousedown');
     fire(document, 'mouseup');
-    assert.equal(calls.length, 0, 'it waits out a double-click');
-    await wait();
-    assert.equal(calls.length, 1);
+    assert.equal(calls.length, 1, `a click did not pick at once. ${fix}`);
     assert.equal(calls[0][0], 'pick');
     for (const detail of [1, 2]) { fire(canvas, 'mousedown', detail); fire(document, 'mouseup', detail); }
-    await wait();
-    assert.equal(calls.length, 1, 'a double-click picks no bin');
-    // A click, then a zoom (Ctrl+wheel) before it is done: the bin clicked on, on the plot as it was clicked.
-    const zoomedBefore = (canvas as HTMLElement).dataset.plotWindow;
-    fire(canvas, 'mousedown');
-    fire(document, 'mouseup');
-    canvas.dispatchEvent(new dom.window.WheelEvent('wheel', { bubbles: true, cancelable: true, clientX: 200, clientY: 10, deltaY: -300, ctrlKey: true }));
-    assert.notEqual((canvas as HTMLElement).dataset.plotWindow, zoomedBefore, 'the wheel zoomed');
-    await wait();
-    assert.equal(calls.length, 2);
-    assert.deepEqual(calls[1], calls[0], 'the bin under the click, not the one the zoom put there');
+    assert.deepEqual(calls.slice(1).map(call => call[0]), ['pick', 'unpick'], `a double click left a bin picked: it resets the zoom only. ${fix}`);
+    assert.deepEqual(calls[2][1], calls[1][1], 'the bin its first press picked is the one put back');
 });
 
 test('each group is a row of the plot component: its dots, its slots and the base on it', () => {

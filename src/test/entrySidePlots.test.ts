@@ -45,7 +45,7 @@ function setup(stale: Set<string> = new Set()) {
         screen, side, body: query('[data-entry-rows]'), tableWrap: query('.entry-table-wrap'), overview, heldCanvas,
         rows: () => rows, focusedRow: () => null,
         paintDistribution: () => calls.push('distribution'), paintHeld: () => calls.push('held'), heldPicture: () => null,
-        pickRow: key => calls.push(`pick ${key}`),
+        pickRow: key => { calls.push(`pick ${key}`); return () => { calls.push(`unpick ${key}`); }; },
         // The folder's reference and each recording's answer, as the entry model and the answer store give them: a
         // stale result is an answer of another chain, never ready.
         reference: () => folderReference(answers(['/d/a.wav', '/d/b.wav', '/d/c.wav', '/d/d.wav'])),
@@ -133,7 +133,7 @@ test('painting waits for the next frame, once however often it is asked; the dis
     assert.deepEqual(calls.slice(2), ['distribution', 'held']);
 });
 
-test('a click on the strip (the plot gestures\' tap: a press that stays put) picks the row under it once no double-click follows, a drag none; the gestures add a zoom box and a range popover', async () => {
+test('a click on the strip (the plot gestures\' tap: a press that stays put) picks the row under it at once, a double click\'s second press goes back, a drag picks none; the gestures add a zoom box and a range popover (R13)', () => {
     const { document, side, overview, plots, calls } = setup();
     plots.attach();
     assert.ok(side.querySelector('.entry-zoom-box[hidden]'));
@@ -145,31 +145,28 @@ test('a click on the strip (the plot gestures\' tap: a press that stays put) pic
     const fire = (target: EventTarget, type: string, clientY: number, clientX = OVERVIEW_MARGINS.left + 50): void => {
         target.dispatchEvent(new view.MouseEvent(type, { clientX, clientY, button: 0, bubbles: true }));
     };
-    const wait = (): Promise<void> => new Promise(resolve => { setTimeout(resolve, 400); });
-    const click = async (clientY: number): Promise<void> => { fire(overview, 'mousedown', clientY); fire(document, 'mouseup', clientY); await wait(); };
-    fire(overview, 'mousedown', OVERVIEW_MARGINS.top + 10); fire(document, 'mouseup', OVERVIEW_MARGINS.top + 10);
-    assert.deepEqual(calls, [], 'picked once no double-click follows');
-    await wait();
-    await click(OVERVIEW_MARGINS.top + 60);
-    await click(OVERVIEW_MARGINS.top + 140);
+    const fix = 'Fix: a click acts at once, and a double click\'s second press takes it back (plotInteraction.ts release(); docs/display-rules.md R13).';
+    const click = (clientY: number): void => { fire(overview, 'mousedown', clientY); fire(document, 'mouseup', clientY); };
+    click(OVERVIEW_MARGINS.top + 10);
+    assert.deepEqual(calls, ['pick /d/a.wav'], `a click did not pick at once. ${fix}`);
+    click(OVERVIEW_MARGINS.top + 60);
+    click(OVERVIEW_MARGINS.top + 140);
     assert.deepEqual(calls, ['pick /d/a.wav', 'pick /d/c.wav'], 'below the rows is no row');
-    // A double-click (which resets the zoom) picks nothing.
+    // A double-click (which resets the zoom only): its first press goes to the row, its second goes back.
     for (const detail of [1, 2]) {
         overview.dispatchEvent(new view.MouseEvent('mousedown', { clientX: OVERVIEW_MARGINS.left + 50, clientY: OVERVIEW_MARGINS.top + 10, button: 0, bubbles: true, detail }));
         document.dispatchEvent(new view.MouseEvent('mouseup', { clientX: OVERVIEW_MARGINS.left + 50, clientY: OVERVIEW_MARGINS.top + 10, button: 0, bubbles: true, detail }));
     }
-    await wait();
-    assert.deepEqual(calls, ['pick /d/a.wav', 'pick /d/c.wav'], 'a double-click picks no row');
+    assert.deepEqual(calls, ['pick /d/a.wav', 'pick /d/c.wav', 'pick /d/a.wav', 'unpick /d/a.wav'], `a double click left a row picked: it resets the zoom only. ${fix}`);
     // A press dragged into a box zooms instead: no row is picked.
+    calls.length = 0;
     fire(overview, 'mousedown', OVERVIEW_MARGINS.top + 10);
     fire(document, 'mousemove', OVERVIEW_MARGINS.top + 80, OVERVIEW_MARGINS.left + 150);
     fire(document, 'mouseup', OVERVIEW_MARGINS.top + 80, OVERVIEW_MARGINS.left + 150);
-    await wait();
-    assert.deepEqual(calls, ['pick /d/a.wav', 'pick /d/c.wav'], 'a drag picks no row');
+    assert.deepEqual(calls, [], 'a drag picks no row');
     // A click event alone (no press on the plot) is not the plot's: the strip answers only the shared gestures.
     overview.dispatchEvent(new view.MouseEvent('click', { clientX: OVERVIEW_MARGINS.left + 50, clientY: OVERVIEW_MARGINS.top + 10, bubbles: true }));
-    await wait();
-    assert.deepEqual(calls, ['pick /d/a.wav', 'pick /d/c.wav']);
+    assert.deepEqual(calls, []);
 });
 
 test('a recording of several channels has a strip row per channel: each its own levels, named by its channel', () => {

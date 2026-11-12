@@ -651,7 +651,7 @@ const ROWS: Row[] = [
             await settled(page);
             expect(await cursor(), 'the time cursor stays').toBe(before);
             await expect(page.locator('#loop-time-display'), 'the loop stays').toHaveText(loop ?? '');
-            // A click alone moves the cursor and clears the loop, once no second press follows.
+            // A click alone moves the cursor and clears the loop, at once (R13).
             await page.mouse.click(box.x + box.width * 0.85, box.y + box.height / 2);
             await expect.poll(() => cursor()).not.toBe(before);
             await expect(page.locator('#loop-time-display')).toBeHidden();
@@ -737,7 +737,7 @@ const ROWS: Row[] = [
         },
     },
     {
-        chart: 'steps overlay (a trigger\'s events, over its lanes)', event: 'an event-line click, then a drag before it is decided: the drag takes its place', backend: true,
+        chart: 'steps overlay (a trigger\'s events, over its lanes)', event: 'an event-line click leaves its event out at once, a drag after it does not take that back, and a double click on the line resets the zoom only (R13)', backend: true,
         async run(page) {
             await page.setViewportSize({ width: 1280, height: 1100 });
             await openTrigger(page, scanned!);
@@ -751,7 +751,7 @@ const ROWS: Row[] = [
             const left = page.locator('[data-action="stage-event-toggle"][data-out="true"]');
             const leftOut = await left.count();
             const whole = (window: string | null): boolean => !window || window.startsWith('0.000 1.000');
-            // The click on the line, then at once a drag into a box elsewhere on the plot.
+            // The click on the line (its data in: decided at once), then at once a drag into a box elsewhere on the plot.
             await page.mouse.click(box.x + on!.x, box.y + on!.y);
             await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.3);
             await page.mouse.down();
@@ -759,14 +759,15 @@ const ROWS: Row[] = [
             await page.mouse.up();
             await expect.poll(async () => whole(await overlay.getAttribute('data-plot-window'))).toBe(false);
             await settled(page);
-            expect(await left.count(), 'no event left out: the drag took the click\'s place').toBe(leftOut);
-            // A click alone on the line leaves its event out, once no second press follows.
-            await page.keyboard.press('0');
-            await expect.poll(async () => whole(await overlay.getAttribute('data-plot-window'))).toBe(true);
+            expect(await left.count(), 'the click left its event out at once, and the drag after it does not take that back (R13)').toBe(leftOut + 1);
+            // A double click on a line, zoomed: the zoom is reset, and its first press's edit is taken back by its second.
             await hoverAt(page, overlay, 0.5);
             const again = await overlay.evaluate(canvas => { const read = (canvas as HTMLElement & { __plotRead?: { x: number; y: number } | null }).__plotRead; return read ? { x: read.x, y: read.y } : null; });
-            await page.mouse.click(box.x + again!.x, box.y + again!.y);
-            await expect.poll(() => left.count(), { message: 'the click alone leaves it out' }).toBe(leftOut + 1);
+            expect(again, 'an event\'s line under the pointer').not.toBeNull();
+            await page.mouse.dblclick(box.x + again!.x, box.y + again!.y);
+            await expect.poll(async () => whole(await overlay.getAttribute('data-plot-window'))).toBe(true);
+            await settled(page);
+            expect(await left.count(), 'a double click on a line leaves out or puts back nothing: it resets the zoom only (R13)').toBe(leftOut + 1);
         },
     },
     {
@@ -942,7 +943,7 @@ const ROWS: Row[] = [
         },
     },
     {
-        chart: 'steps overlay (a trigger\'s events, over its lanes)', event: 'an event-line click, then a scroll before it is decided: the line clicked on is left out', backend: true,
+        chart: 'steps overlay (a trigger\'s events, over its lanes)', event: 'an event-line click, then a scroll at once: the line clicked on is left out', backend: true,
         async run(page) {
             await page.setViewportSize({ width: 1280, height: 620 });
             await openTrigger(page, scanned!, 2);

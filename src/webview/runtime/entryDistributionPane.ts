@@ -66,10 +66,10 @@ export function csvAxisName(column: string, strings: Pick<UiStrings, 'dsDistCsvA
 export interface DistributionPaneDeps {
     screen: HTMLElement;
     strings: UiStrings;
-    /** A range of the value picked on the plot. */
-    pick(range: { low: number; high: number }): void;
-    /** A dot pressed: that row. */
-    dot(key: string): void;
+    /** A range of the value picked on the plot; returns how to put the table back (a double click's second press, R13). */
+    pick(range: { low: number; high: number }): (() => void) | void;
+    /** A dot pressed: that row; returns how to put the table back (a double click's second press, R13). */
+    dot(key: string): (() => void) | void;
 }
 
 export interface DistributionPane {
@@ -267,15 +267,14 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
     }
     const canvasOf = (target: EventTarget | null): HTMLElement | null => (target as HTMLElement | null)?.closest?.<HTMLElement>('[data-dist-canvas]') ?? null;
 
-    // A press that stayed put (no box drawn; the plot gestures' tap): on a dot, its row; elsewhere, the bin under it
-    // once no double-click follows.
-    // The bin is the one under the pointer on the rows as clicked (a zoom before the click is done draws another
-    // there), and is picked once no double click follows (plotInteraction.ts arbitrates every plot's click).
+    // A press that stayed put (no box drawn; the plot gestures' tap): on a dot, its row; elsewhere, the bin under it.
+    // The bin is the one under the pointer on the rows as clicked, picked at once; a double click's second press puts
+    // the table back (plotInteraction.ts arbitrates every plot's click, R13).
     const tap = (canvas: HTMLElement, event: MouseEvent, current: () => boolean): (() => void) | undefined => {
         if (!scale || event.altKey || !current()) return undefined;
         const bounds = canvas.getBoundingClientRect();
         const dot = dotAt(canvas, event.clientX - bounds.left, event.clientY - bounds.top);
-        // A dot's row too, once no double click (a zoom reset only) follows.
+        // A dot's row too, at once.
         if (dot) return () => deps.dot(dot);
         const plot = groups.querySelector<HTMLElement>('[data-entry-dist-plot]');
         const x = event.clientX - (plot ?? canvas).getBoundingClientRect().left;
