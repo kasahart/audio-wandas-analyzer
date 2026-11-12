@@ -147,11 +147,12 @@
 - テスト: `src/test/spectrogramZoom.test.ts` › up the frequency axis: the whole range's rows serve a wide band; a narrow one asks for its own bins, a little wider than shown (R3)
 - テスト: `src/test/uiSmoke/spectrogramZoom.spec.ts` › a spectrogram lane boxed to a narrow band asks for that band's own bins and draws and reads them, not the whole range's rows stretched (R3)
 - テスト: `src/test/uiSmoke/plotContract.spec.ts` › the lanes under a trigger zoom on their own (the recording's time, not the trigger's) and draw the signal at full resolution once zoomed
-- **届いた答えに絵がないとき**も、それが答えです。スペクトログラムのレーンは、チャンネルにスペクトログラムがない間、トラックの詳細を取り寄せます。取り寄せた答えが正しく届き、そのチャンネルのスペクトログラムが入っていなかったら、その設定での答えは「ない」です（empty）。レーンは「このチャンネルのスペクトログラムはありません」（`spectrogramNone`）と書き、同じ設定のまま取り寄せ直しません。同じことを聞けば同じ答えが返るだけで、聞き直すと描くたび（毎フレーム）に要求が出続けます。
-  - 取り寄せ直すのは、聞いた条件が変わったときだけです。STFT や窓の設定が変わったとき（設定の署名が変わる）と、ファイルを解析し直したとき（新しい版、校正の変更。トラックの答えを全部手放す）です。時間がたっただけでは聞き直しません。
-  - 失敗（failed）は別です。失敗は 5 秒の間を置いて出し直します（`answerStore.ts` の決まり）。届くまで（pending）は「読み込み中」と書きます。
-  - レーンがどの状態かは `trackStore.ts` の `laneDetailState` が 1 か所で決めます（empty / failed / pending / ask）。覚えているのはトラックの答えの置き場（`answerStore.ts` の `createAnswerSlot`、答えが届いたときの設定を持つ）だけです。ほかにキャッシュや出し直しを足しません。
-- テスト: `src/test/trackStore.test.ts` › a detail answered without a spectrogram is asked exactly once: the lane says there is none, and asks again only when the settings change or the file is analysed anew (a failure is asked again after the answer store's pause)
+- **届いた答えに絵がないとき**も、それが答えです。スペクトログラムのレーンは、チャンネルにスペクトログラムがない間、トラックの詳細を取り寄せます。取り寄せた答えが正しく届き、スペクトログラムが 1 つも入っていなかったら、その鍵での答えは「ない」です（answer store の empty）。レーンは「このチャンネルのスペクトログラムはありません」（`spectrogramNone`）と書き、同じ鍵のまま取り寄せ直しません。同じことを聞けば同じ答えが返るだけで、聞き直すと描くたび（毎フレーム）に要求が出続けます。ほかのチャンネルにだけスペクトログラムが届いた答え（ready）でも、届かなかったチャンネルのレーンは同じく「ありません」と書きます。
+  - 鍵は `trackStore.ts` の `trackDetailKey` です。ファイル、その版（sourceVersion）、校正、スペクトログラムの設定の署名（STFT と窓）でできています。取り寄せ直すのは、このどれかが変わったときだけです。時間がたっただけでは聞き直しません。
+  - 失敗（failed）は別です。失敗は 5 秒の間を置いて出し直します（`answerStore.ts` の `FAILED_RETRY_MS`）。設定に触れると失敗は手放されてすぐ出し直しますが、届いた答え（empty も）は手放しません（`clearDetailErrors`）。届くまで（pending）は「読み込み中」と書きます。
+  - 状態は answer store（`createAnswerStore`）が持ち、レーンでの意味は `trackStore.ts` の `laneDetailState` が 1 か所で決めます（answered / failed / pending / ask）。ほかにキャッシュや出し直しを足しません。
+- テスト: `src/test/trackStore.test.ts` › a detail answered without a spectrogram is asked exactly once: the lane says there is none, and asks again only when its key changes (file version, calibration, STFT or window settings); a failure is asked again after the answer store's pause
+- テスト: `src/test/trackStore.test.ts` › touching the spectrogram settings lets go a track's detail failure but keeps its empty answer (clearDetailErrors)
 - テスト: `src/test/uiSmoke/toolbar.spec.ts` › static page: a detail answered with no spectrogram is asked once, and the lane says there is none
 - 同じ実際の録音で、狭い音の上に拡大すると、図はその範囲のビンを取り寄せ（`detail` 付きの要求）、範囲の中のビンを 1 つ残らず、ビンの間隔（16000/8192 Hz）で描き直します。点の数は範囲のビンの数とほぼ同じで、全体を間引いた線がその範囲に持っていた点の 2 倍より多くなります。一番高い点はその音で、全体のときと同じ高さです。範囲の外のもっと大きい音は図に出ません。差の欄も同じで、差は範囲のビンから取り直します（`detail` 付きの `compare-combine`）。
 - テスト: `src/test/uiSmoke/narrowFeatures.spec.ts` › a narrow tone in real recordings is drawn at its full level on the thinned whole spectrum, and zoomed onto it the window is drawn again from every one of its own bins (R2, R3)

@@ -76,8 +76,8 @@ function staticWorkerInit(detail: 'spectrogram' | 'none' = 'spectrogram'): strin
                     : { ...fixtures.find(entry => entry.command === command.cmd)?.response, filePath: command.filePath,
                         ...(command.cmd === 'analyze' ? { channelCount: 1, channels: [{ label: 'Channel 1', peakAbsolute: 1, fullScale: true, sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS',
                             waveform: { min: [-1], max: [1], samples: [0], absolutePeak: 1 }, spectrogram: null }] } : {}),
-                        // A track's detail is its channels' spectrograms. A lane asks again, on every frame, for as long as its
-                        // channel has none, so an answer without one keeps the page working and settled() never ends.
+                        // A track's detail is its channels' spectrograms, as the real worker sends them; with detail 'none' it is a
+                        // valid answer with no channels, which the page keeps as the answer under its key and asks no more.
                         ...(command.cmd === 'track-detail' && ${detail === 'spectrogram'} ? { channels: fixtures.find(entry => entry.command === 'analyze' && entry.response.channels.some(channel => channel.spectrogram)).response.channels } : {}) };
                 queueMicrotask(() => this.onmessage({ data: { requestId: command.requestId, result } }));
             }
@@ -134,7 +134,7 @@ test('static page: with a track shown the page comes to rest, so settled() can b
     await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: tinyWav() });
     await expect(page.locator('.track-row')).toHaveCount(1);
     expect(await settled(page), 'the page kept working with one track shown and nothing playing. It is asking the stand-in Worker (staticWorkerInit) again for an answer it did not take: '
-        + 'make the stand-in answer what the real worker would (a lane asks for its detail until its channel has a spectrogram), or settled() waits its whole 10 s wherever a track is shown').toBe(true);
+        + 'make the stand-in answer every command as the real worker would (a lane waits on its track\'s detail until it is answered, with or without a spectrogram), or settled() waits its whole 10 s wherever a track is shown').toBe(true);
 });
 
 test('static page: a detail answered with no spectrogram is asked once, and the lane says there is none', async ({ page }) => {
@@ -143,7 +143,7 @@ test('static page: a detail answered with no spectrogram is asked once, and the 
         CanvasRenderingContext2D.prototype.fillText = function (text, x, y) { window.__drawnText.push({ id: this.canvas.id, text: String(text) }); return fill.apply(this, arguments); }; }`, 'none');
     await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: tinyWav() });
     await expect(page.locator('.track-row')).toHaveCount(1);
-    const fix = 'An answer without a spectrogram is the answer under those settings (docs/display-rules.md R3): the lane asks only in laneDetailState\'s "ask" (trackStore.ts)';
+    const fix = 'A valid answer without a spectrogram is the answer under its key (docs/display-rules.md R3): record it as the answer store\'s empty state (detail.empty(trackDetailKey(...)) in comparisonRuntime.ts) and ask only when detail.ask(key) says so';
     expect(await settled(page), `the page kept working with one track shown: its lane asks for its detail again on every frame. ${fix}`).toBe(true);
     await settled(page);
     expect(await page.evaluate(() => (window as typeof window & { __detailAsks?: number }).__detailAsks), `the track's detail was asked more than once. ${fix}`).toBe(1);

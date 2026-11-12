@@ -1,4 +1,4 @@
-import { createAnswerSlot, createLatestAnswers, type AnswerSlot, type LatestAnswers } from './answerStore';
+import { answerKey, createAnswerSlot, createAnswerStore, createLatestAnswers, type AnswerKey, type AnswerSlot, type AnswerStore, type LatestAnswers } from './answerStore';
 import type {
     ComparisonTrackState,
     LazyRequestState,
@@ -26,10 +26,10 @@ export interface TrackRecord {
     /** What the track asked the host for: its waveform range ('range'), spectrogram ('detail') and cursor spectrum ('slice'). */
     readonly requests: HostRequests<LazyRequestState | null>;
     /**
-     * The track's spectrogram detail, as answered: the settings its answer came under, or its failure under the
-     * settings it was asked with (shown in the lane, asked again after the store's pause). See laneDetailState.
+     * The track's spectrogram detail, under its key (trackDetailKey): pending while asked, ready when it brought a
+     * spectrogram, empty when it brought none, failed (asked again after the store's pause). See laneDetailState.
      */
-    readonly detail: AnswerSlot<string>;
+    readonly detail: AnswerStore<true>;
     /** A zoomed lane's spectrogram window, asked again at full resolution (R3); drawn while it covers the view; its failure waits the pause. */
     readonly spectrogramZoom: AnswerSlot<SpectrogramZoom>;
     /** Each channel's cursor slice last answered (answerStore: one per channel, checked against the cursor by sliceIsCurrentAt). */
@@ -59,21 +59,36 @@ export interface ReconcileResult {
 }
 
 /**
- * What a lane whose channel has no spectrogram does about its detail, under the settings shown now (`condition`: the
- * spectrogram settings' signature; a new analysis of the file, a new version or calibration, clears the slot):
- * - 'empty': the detail was answered under these settings and brought this channel no spectrogram. That is the
- *   answer: the lane says there is none, and it is not asked again until the settings or the analysis change.
- *   Asking again would get the same answer, on every frame the lane is drawn.
- * - 'failed': it failed under these settings and the answer store's pause is not over; the lane shows why.
- * - 'pending': it is asked under these settings and not answered yet.
- * - 'ask': none of these, so the lane asks now.
- * The states are the answer slot's own (answerStore.ts); nothing else remembers what was asked or answered.
+ * The key of a track's spectrogram detail: the file, the version and calibration it was analysed under, and the
+ * spectrogram settings' signature (STFT and window) it is asked under. An answer is of exactly this key: any part
+ * changed is another answer, asked for once.
  */
-export function laneDetailState(detail: AnswerSlot<string>, condition: string, askedUnder: string | undefined): 'empty' | 'failed' | 'pending' | 'ask' {
-    if (detail.get() === condition) return 'empty';
-    if (detail.holds(condition)) return 'failed';
-    return askedUnder === condition ? 'pending' : 'ask';
+export function trackDetailKey(result: Pick<ComparisonTrackState, 'filePath' | 'sourceVersion' | 'calibrationSignature'>, settingsSignature: string): AnswerKey {
+    return answerKey({ ask: 'track-detail', file: result.filePath, version: { fileVersion: result.sourceVersion ?? '', calibration: result.calibrationSignature ?? '' }, condition: settingsSignature });
 }
+
+/**
+ * What a lane whose channel has no spectrogram does about its track's detail under `key` (trackDetailKey), read
+ * from the answer store's state alone:
+ * - 'answered': the detail came under this key (empty: with no spectrogram; ready: with spectrograms for other
+ *   channels) and brought this channel none. That is the answer: the lane says there is none, and it is not asked
+ *   again until the key changes. Asking again would get the same answer, on every frame the lane is drawn.
+ * - 'failed': it failed under this key and the store's pause is not over; the lane shows why.
+ * - 'pending': it is asked under this key and not answered yet.
+ * - 'ask': none of these (never asked, or its failure's pause is over), so the lane asks now (detail.ask(key)).
+ */
+export function laneDetailState(detail: AnswerStore<true>, key: AnswerKey): 'answered' | 'failed' | 'pending' | 'ask' {
+    const state = detail.state(key);
+    if (state === 'ready' || state === 'empty') return 'answered';
+    if (state === 'failed' || state === 'pending') return state;
+    return 'ask';
+}
+
+/**
+ * A track's detail answers kept: the latest key's only. The spectrograms an answer brought are merged into the track's
+ * analysis and replaced under other settings, so an older key's answer no longer says what the lanes hold.
+ */
+const DETAIL_ANSWERS_KEPT = 1;
 
 export class TrackStore {
     private readonly records = new Map<TrackId, TrackRecord>();
@@ -174,8 +189,12 @@ export class TrackStore {
         return true;
     }
 
+    /** Lets go every track's detail failure, so it is asked again now; an answer that came (even empty) is kept. */
     clearDetailErrors(): void {
-        this.activeIds().forEach((activeId) => { this.require(activeId).detail.clear(); });
+        this.activeIds().forEach((activeId) => {
+            const detail = this.require(activeId).detail;
+            for (const [key, held] of [...detail.newestFirst()]) if (held.state === 'failed') detail.forget(key);
+        });
     }
 
     allowExplicitSelection(filePath: string): void {
@@ -297,7 +316,7 @@ export class TrackStore {
             waveformCoverage: null,
             rangeCache: createAnswerSlot<WaveformRangeCache>(undefined, this.retried),
             requests: new HostRequests(),
-            detail: createAnswerSlot<string>(undefined, this.retried),
+            detail: createAnswerStore<true>({ capacity: DETAIL_ANSWERS_KEPT, retried: this.retried }),
             spectrogramZoom: createAnswerSlot<SpectrogramZoom>(undefined, this.retried),
             spectrumSliceCache: createLatestAnswers<SpectrumSlice, number>(),
             sourceChanged: false,
