@@ -1,3 +1,4 @@
+import { clippedPath } from '../plot/lineClip';
 import { WAVEFORM_HALF_HEIGHT_RATIO } from './waveformLayout';
 
 export interface WaveformEnv {
@@ -194,6 +195,10 @@ export function decimateBuckets(
 /**
  * DecimatedPoint ペア列を Canvas に描画する。
  * Canvas API を触るのはこの関数だけ。
+ *
+ * Lines are clipped, not clamped (docs/display-rules.md R2, plot/lineClip.ts): each point at its exact y, each segment
+ * cut where it crosses `box` (the plot in the transform's coordinates) grown by the line's width. A line wholly in the
+ * box is the same moveTo/lineTo path as without clipping.
  */
 export function paintDecimatedPoints(
     ctx: CanvasCtx,
@@ -201,18 +206,22 @@ export function paintDecimatedPoints(
     transform: CoordTransform,
     color: string,
     lineWidth: number,
+    box: { left: number; top: number; width: number; height: number },
 ): void {
     if (points.length === 0) { return; }
     ctx.lineWidth = lineWidth;
     ctx.strokeStyle = color;
     ctx.beginPath();
-    let started = false;
+    const path = clippedPath({ start: (x, y) => ctx.moveTo(x, y), to: (x, y) => ctx.lineTo(x, y) }, box, lineWidth);
+    let last: [number, number] | null = null;
 
     for (const [first, second] of points) {
         const x0 = transform.toX(first.tNorm),  y0 = transform.toY(first.value);
         const x1 = transform.toX(second.tNorm), y1 = transform.toY(second.value);
-        if (!started) { ctx.moveTo(x0, y0); started = true; } else { ctx.lineTo(x0, y0); }
-        ctx.lineTo(x1, y1);
+        // The first pair starts the line; each later one is joined to the one before it, as one run.
+        if (last) path.segment(last[0], last[1], x0, y0);
+        path.segment(x0, y0, x1, y1);
+        last = [x1, y1];
     }
     ctx.stroke();
 }

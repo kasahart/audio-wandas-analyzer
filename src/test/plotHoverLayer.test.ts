@@ -73,7 +73,6 @@ test('with two level axes a line a level zoom clips off the plot is not read ove
     const drawn = plotWith([line('shown', '#00f', [8, 8, 8, 8, 8, 8, 8, 8, 8, 8])], [line('clipped', '#ff0', [0, 0, 0, 0, 0, 0, 0, 0, 0, 0])]);
     // The right-hand axis is zoomed so its line is far above the plot: drawn off it, its point held at the top edge (y 10).
     const secondary = drawn.secondary!;
-    secondary.paintY = secondary.yOf;
     secondary.yAt = (v: number) => Math.max(10, Math.min(110, 110 - (v + 100) * 10));
     // The pointer 5 px under the top edge, 15 px over the shown line (at y 30): that line's point is read.
     layer.show(plot, drawn, 100, 15, slot);
@@ -85,7 +84,6 @@ test('an arrow key steps to a point above or below the level axis as the pointer
     const { plot, slot, layer } = setup();
     // Levels 0–10 on the plot; from the fourth point on the line is far below it (a floor at −100).
     const drawn = plotWith([line('a', '#f00', [5, 5, 5, -100, -100, -100, -100, -100, -100, -100])]);
-    drawn.paintY = drawn.yOf;
     drawn.yAt = (v: number) => Math.max(10, Math.min(110, 110 - v * 10));
     layer.show(plot, drawn, 70, 60, slot);
     assert.equal(layer.reading()?.index, 2);
@@ -204,7 +202,6 @@ test('a point stepped to above the level axis stays read when the plot is drawn 
     const values = [5, 5, 9, 100, 9, 5, 5, 5, 5, 5];
     const draw = (): StagePlot => {
         const drawn = plotWith([line('a', '#f00', values)]);
-        drawn.paintY = drawn.yOf;
         drawn.yAt = (v: number) => Math.max(10, Math.min(110, 110 - v * 10));
         return drawn;
     };

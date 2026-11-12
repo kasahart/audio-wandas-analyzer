@@ -76,7 +76,7 @@ export function paintWaveformLayer(
     context.save();
     context.beginPath(); context.rect(from, plot.top, to - from, plot.height); context.clip();
     context.translate(plot.left, plot.top);
-    paintDecimatedPoints(context, points, transform, color, lineWidth);
+    paintDecimatedPoints(context, points, transform, color, lineWidth, { left: 0, top: 0, width: plot.width, height: plot.height });
     context.restore();
     if (options.onPoint) {
         for (const pair of points) {

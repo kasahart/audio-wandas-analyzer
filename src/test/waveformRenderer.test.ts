@@ -352,7 +352,7 @@ test('paintDecimatedPoints: 最初の点は moveTo', () => {
     const pts = decimateBuckets(env, { i0: 0, i1: 1, div: 1 }, 0, 1);
     const t = makeCoordTransform(0, 1, 0, 800, 80, 0.5);
     const ctx = makeMockCtx();
-    paintDecimatedPoints(ctx, pts, t, '#fff', 1.5);
+    paintDecimatedPoints(ctx, pts, t, '#fff', 1.5, { left: 0, top: 0, width: 800, height: 80 });
     assert.ok(ctx.calls.includes('beginPath'), 'beginPath が呼ばれる');
     assert.ok(ctx.calls.includes('stroke'), 'stroke が呼ばれる');
     assert.ok(ctx.calls.some(c => c.startsWith('moveTo')), '最初の点は moveTo');
@@ -361,7 +361,7 @@ test('paintDecimatedPoints: 最初の点は moveTo', () => {
 test('paintDecimatedPoints: 空の点列は何も描画しない', () => {
     const ctx = makeMockCtx();
     const t = makeCoordTransform(0, 1, 0, 800, 80, 1.0);
-    paintDecimatedPoints(ctx, [], t, '#fff', 1.5);
+    paintDecimatedPoints(ctx, [], t, '#fff', 1.5, { left: 0, top: 0, width: 800, height: 80 });
     assert.ok(!ctx.calls.includes('stroke'), '空の場合 stroke を呼ばない');
 });
 

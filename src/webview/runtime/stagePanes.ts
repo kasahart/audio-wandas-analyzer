@@ -17,6 +17,7 @@ import { middleEllipsis } from '../../shared/dataset/datasetTable';
 import type { NormalizedRange } from './waveformInteraction';
 import { plotPointIn, type PlotMargins } from './plotInteraction';
 import { HOVER_PICK_RADIUS_PX, nearestPoint } from './plotHover';
+import { clippedPath, nearPlot } from '../plot/lineClip';
 import { paintWaveformLayer, waveformRange, type PlotBox, type SignalPointSink } from '../plot/waveformLayer';
 import { packRgb, paletteColour, rasterizeHeatmap, unpackRgb } from '../plot/heatmapRaster';
 import { readoutText, type AxisTick, type Palette } from '../../shared/gui-core/index';
@@ -870,12 +871,6 @@ export interface StagePlot {
      * and the signal drawn again at another width (the hover's thicker line).
      */
     signal?: { unit: string; range?: { min: number; max: number }; paint(context: CanvasRenderingContext2D, layer: StageLayer, width: number): void };
-    /**
-     * A value's y for painting a line only (AxisTransform.paintY): held ten spans past the axis, so a stretch past the
-     * level axis leaves the plot where it crosses the axis and is clipped, instead of running along the plot's edge.
-     * Held, it is no value's true place: only a painting function (paint…, stroke…) calls it (R14, pickScaleBoundary.test.ts).
-     */
-    paintY?: (value: number) => number;
     /** The lines read on the right-hand level axis (`StagePaintOptions.secondary`), placed by its range. */
     secondary?: StagePlot;
     /**
@@ -1089,14 +1084,15 @@ const paintedGenerations = new WeakMap<HTMLCanvasElement, number>();
 
 /**
  * A value axis's value-to-pixel transform on a plot (display rules R14), the one every use takes: the lines on the axis
- * are painted by it (a signal by the lanes' waveform pipeline over its range, any other line by `paintY`), the
+ * are painted by it (a signal by the lanes' waveform pipeline over its range, any other line by `yOf`), the
  * pointer picks their points and places the read mark by it (`yOf`, `pixelsPerUnit`), and the values it shows are its
  * range. A plot with a right-hand axis makes one for each axis (FigureModel's axes), and each line takes its own
  * axis's, never the plot's first one.
  *
- * Scale for decisions is exact; holding is only for painting (R14): `yOf` and `pixelsPerUnit` come from the range and
- * the box alone. `paintY` holds a value ten spans past the axis, so the difference of two of its y's is no scale: on
- * ±0.001 over 100 px, paintY(1) − paintY(0) is 1,050 px where the axis has 50,000 px per unit.
+ * Scale for decisions is exact (R14): `yOf` and `pixelsPerUnit` come from the range and the box alone. A line is
+ * painted by the same exact `yOf` and clipped segment by segment where it leaves the plot (strokeStageLine, R2): no y
+ * is held for painting a line. The one held y is `yAt`, a point's mark held inside the plot, and fills (a bar's body)
+ * held to the plot's edge: a held y is never a scale (two of them differenced, pickScaleBoundary.test.ts).
  */
 export interface AxisTransform {
     /** The axis's ends as painted: what it shows of a line's values, and what its range popover writes. */
@@ -1107,8 +1103,6 @@ export interface AxisTransform {
     yOf: (value: number) => number;
     /** The axis's exact pixels per value unit (its box's height over its span): the scale every decision takes. */
     pixelsPerUnit: number;
-    /** A value's y for painting a line only: held ten spans past the axis, it leaves the plot and is clipped. Painting functions only. */
-    paintY: (value: number) => number;
     /** The value at a canvas y. */
     levelOf: (y: number) => number;
     /** A signal on this axis drawn as itself (its waveform envelope), over this axis's range. */
@@ -1129,8 +1123,6 @@ export function axisTransform(axis: Pick<FigureAxis<unknown>, 'range'> | { reado
         yAt: value => yOf(Math.max(min, Math.min(max, value))),
         yOf,
         pixelsPerUnit: height / span,
-        // Ten spans past either end is far outside the plot: a line's slope where it crosses the edge stays right.
-        paintY: value => yOf(Math.max(min - 10 * span, Math.min(max + 10 * span, value))),
         levelOf: y => min + (1 - (y - top) / height) * span,
         paintSignal: (context, layer, width, onPoint) => {
             if (!layer.view.waveform) return;
@@ -1263,7 +1255,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
 
     let levelTicks: AxisTick[] = [];
     const plot: StagePlot = { frame: { left, top, width: plotWidth, height: plotHeight }, xAt, yAt, xOf: x => xAxis.at((x - left) / plotWidth), xLog: xAxis.log, levelOf: mainAxis.levelOf,
-        yOf: mainAxis.yOf, pixelsPerUnit: mainAxis.pixelsPerUnit, paintY: mainAxis.paintY, ratioStep: 1.12, lines: [], diff: !!options.diff, xRange: { min: xAxis.low, max: xAxis.high }, ...(yAxis ? { rowRange: { min: yAxis.low, max: yAxis.high } } : {}), ...(heatmap ? {} : { valueRange: mainAxis.valueRange }), ...(options.readout === false ? { noReadout: true } : {}), ...levelUnitOf(heatmap ? axes.colour : axes.y) };
+        yOf: mainAxis.yOf, pixelsPerUnit: mainAxis.pixelsPerUnit, ratioStep: 1.12, lines: [], diff: !!options.diff, xRange: { min: xAxis.low, max: xAxis.high }, ...(yAxis ? { rowRange: { min: yAxis.low, max: yAxis.high } } : {}), ...(heatmap ? {} : { valueRange: mainAxis.valueRange }), ...(options.readout === false ? { noReadout: true } : {}), ...levelUnitOf(heatmap ? axes.colour : axes.y) };
     // Where its data is drawn on the canvas (CSS pixels: left, top, width, height), so a gesture test can tell what a
     // drag or a wheel at a pixel should show from the pixel alone, not from the plot's own answer (C6).
     if (canvas.dataset) canvas.dataset.plotFrame = [left, top, plotWidth, plotHeight].map(String).join(' ');
@@ -1372,7 +1364,10 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         }
         if (options.diff) {
             context.strokeStyle = muted;
-            context.beginPath(); context.moveTo(left, yAt(0)); context.lineTo(left + plotWidth, yAt(0)); context.stroke();
+            // The Δ's 0 at its exact y, and only where it is on the plot (R2: a line past the axis is clipped, never
+            // drawn along the plot's edge as if 0 were there).
+            const zero = mainAxis.yOf(0);
+            if (zero >= top && zero <= top + plotHeight) { context.beginPath(); context.moveTo(left, zero); context.lineTo(left + plotWidth, zero); context.stroke(); }
         }
         const bars = view.kind === 'bar';
         const barXs = view.xs ?? [];
@@ -1390,7 +1385,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
             context.fillRect(Math.min(a, b), top, Math.max(1, Math.abs(b - a)), plotHeight);
             context.restore();
         }
-        if (options.bandSteps) paintBandSteps(context, options.bandSteps, xAt, yAt);
+        if (options.bandSteps) paintBandSteps(context, options.bandSteps, box, xAt, mainAxis.yOf);
         // Signals drawn as themselves share an amplitude axis: a picture without a signal (a group's median level) is left out.
         const signals = layers.some(layer => layer.view.waveform);
         for (const layer of layers) {
@@ -1440,7 +1435,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
             const { levelUnit: _main, signal: _left, ...shared } = plot;
             const rightAxis = axisTransform(options.secondary, { box, time: wholeAxis, window: xWindow });
             const rightSignal = options.secondary.layers.find(layer => layer.view.waveform)?.view.waveform;
-            const secondPlot: StagePlot = { ...shared, valueRange: rightAxis.valueRange, yAt: rightAxis.yAt, yOf: rightAxis.yOf, pixelsPerUnit: rightAxis.pixelsPerUnit, levelOf: rightAxis.levelOf, paintY: rightAxis.paintY, lines: [],
+            const secondPlot: StagePlot = { ...shared, valueRange: rightAxis.valueRange, yAt: rightAxis.yAt, yOf: rightAxis.yOf, pixelsPerUnit: rightAxis.pixelsPerUnit, levelOf: rightAxis.levelOf, lines: [],
                 ...(rightSignal ? { signal: signalOn(rightAxis, rightSignal.unit) } : {}), ...levelUnitOf(options.secondary.title) };
             plot.secondary = secondPlot;
             if (canvas.dataset) canvas.dataset.plotEnds = paintedEnds();
@@ -1476,7 +1471,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         if (xLabels && end < xTitleLeft - 4 && x - 6 >= labelsEnd + X_LABEL_GAP_PX) { context.fillText(label, x - 6, height - 3); labelsEnd = end; }
     }
     if (options.region) paintRegion(context, options.region, view, { left, top, width: plotWidth, height: plotHeight }, xAt, { muted, text });
-    if (options.guides) paintGuides(context, options.guides, { left, top, width: plotWidth, height: plotHeight }, xAt, yAt, text);
+    if (options.guides) paintGuides(context, options.guides, { left, top, width: plotWidth, height: plotHeight }, xAt, mainAxis.yOf, text);
     if (options.bandSteps?.legend) paintBandLegend(context, options.bandSteps.legend, options.bandSteps.color, left + plotWidth - 6, top, muted);
     context.fillStyle = text;
     if (xLabels) {
@@ -1766,13 +1761,18 @@ export function barEdges(plot: Pick<StagePlot, 'xAt' | 'xLog'>, xs: readonly num
     return xs.map((_, index) => [plot.xAt(edges[index]), plot.xAt(edges[index + 1])]);
 }
 
-/** One picture of a pane as its line (or its bands as steps, or its points as marks), `width` wide, clipped to the plot. */
+/**
+ * One picture of a pane as its line (or its bands as steps, or its points as marks), `width` wide, clipped to the plot.
+ *
+ * Lines are clipped, not clamped (display rules R2, plot/lineClip.ts): every point is placed by the axis's exact `yOf`,
+ * never held, and each segment is cut where it crosses the plot's box grown by the line's width. So the part of a line
+ * on the plot is exactly its segments however far the next point is past the axis, at every zoom.
+ */
 export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePlot, layer: StageLayer, width: number): void {
     if (layer.view.waveform) { plot.signal?.paint(context, layer, width); return; }
-    const { frame, xAt } = plot;
-    // Past the level axis a line leaves the plot (clipped), not along its edge: painting is paintY's one use (R14).
-    const yAt = plot.paintY ?? plot.yAt;
+    const { frame, xAt, yOf } = plot;
     const values = drawableLine(layer.view.values ?? []), xs = layer.view.xs ?? [];
+    const path = clippedPath({ start: (x, y) => context.moveTo(x, y), to: (x, y) => context.lineTo(x, y) }, frame, width);
     context.save();
     context.beginPath(); context.rect(frame.left, frame.top, frame.width, frame.height); context.clip();
     context.strokeStyle = layer.color;
@@ -1780,11 +1780,14 @@ export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePl
     context.lineWidth = width;
     if (layer.dash) context.setLineDash([...layer.dash]);
     if (layer.marks === 'dots') {
-        // Each point a dot of the line's colour (its width the radius), the things a few points stand for.
+        // Each point a dot of the line's colour (its width the radius), the things a few points stand for: one wholly
+        // past the plot is not drawn.
         values.forEach((value, index) => {
             if (value === null) return;
+            const x = xAt(xs[index]), y = yOf(value);
+            if (!nearPlot(frame, x, y, width)) return;
             context.fillStyle = layer.colorAt?.(index) ?? layer.color;
-            context.beginPath(); context.arc(xAt(xs[index]), yAt(value), width, 0, 2 * Math.PI); context.fill();
+            context.beginPath(); context.arc(x, y, width, 0, 2 * Math.PI); context.fill();
         });
     } else if (layer.marks === 'rug') {
         // A short tick up from the plot's floor at each point, one per half pixel: many draw what can be seen.
@@ -1797,17 +1800,17 @@ export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePl
         values.forEach((value, index) => {
             if (value === null) return;
             const [x0, x1] = edges[index];
-            context.beginPath(); context.moveTo(x0, yAt(value)); context.lineTo(x1 - 1, yAt(value)); context.stroke();
+            context.beginPath(); path.lift(); path.segment(x0, yOf(value), x1 - 1, yOf(value)); context.stroke();
         });
     } else {
         context.beginPath();
         // A point between two gaps (a bucket's peak beside silent nulls) is drawn as a pixel-wide dash.
         let run = 0, lastX = 0, lastY = 0;
-        const closeRun = (): void => { if (run === 1) context.lineTo(lastX + 1, lastY); run = 0; };
+        const closeRun = (): void => { if (run === 1) path.segment(lastX, lastY, lastX + 1, lastY); run = 0; path.lift(); };
         values.forEach((value, index) => {
             if (value === null || silent(layer.view, value, plot.diff)) { closeRun(); return; }
-            const x = xAt(xs[index]), y = yAt(value);
-            if (run) context.lineTo(x, y); else context.moveTo(x, y);
+            const x = xAt(xs[index]), y = yOf(value);
+            if (run) path.segment(lastX, lastY, x, y);
             run += 1; lastX = x; lastY = y;
         });
         closeRun();
@@ -1941,8 +1944,8 @@ function fullLineNear(plot: StagePlot, layer: StageLayer, source: FullSource, x:
     if (source.line === cannotRead || !plot.xOf) return { near: [], at: null };
     // The pointer's place and the screen's scale there, so a window too dense to send whole holds the point nearest
     // the pointer by its true distance on screen (R7), not only each column's nearest in height.
-    // The value scale is the axis's exact one (R14: pixelsPerUnit), never a difference of two painted y's, which are
-    // held ten spans past the axis and so too small a scale on a narrow axis.
+    // The value scale is the axis's exact one (R14: pixelsPerUnit), never a difference of two mapped y's (a held one,
+    // as a mark's yAt, is too small a scale on a narrow axis).
     const place = plot.xOf(x), level = plot.levelOf?.(y);
     const pixels: [number, number] | undefined = level === undefined ? undefined
         : [Math.abs(plot.xLog ? plot.xAt(place * Math.E) - plot.xAt(place) : plot.xAt(place + 1) - plot.xAt(place)), Math.abs(plot.pixelsPerUnit)];
@@ -2228,7 +2231,7 @@ function paintPending(context: CanvasRenderingContext2D, pending: { done: number
 
 
 /** A Δ figure's band steps (see StagePaintOptions.bandSteps), on the plot's frequency axis. */
-function paintBandSteps(context: CanvasRenderingContext2D, steps: NonNullable<StagePaintOptions['bandSteps']>, xAt: (hz: number) => number, yAt: (value: number) => number): void {
+function paintBandSteps(context: CanvasRenderingContext2D, steps: NonNullable<StagePaintOptions['bandSteps']>, frame: PlotBox, xAt: (hz: number) => number, yOf: (value: number) => number): void {
     const { deltas, headline } = steps;
     const leak = (band: number): boolean => [band - 1, band + 1].some(peak => headline.includes(peak)
         && Math.sign(deltas[peak] ?? 0) === Math.sign(deltas[band] ?? 0) && Math.abs(deltas[band] ?? 0) < Math.abs(deltas[peak] ?? 0));
@@ -2239,10 +2242,18 @@ function paintBandSteps(context: CanvasRenderingContext2D, steps: NonNullable<St
         if (delta === null) return;
         const center = BAND_CENTERS_HZ[band];
         const x0 = xAt(center * 2 ** (-1 / 6)), x1 = xAt(center * 2 ** (1 / 6));
-        const box: [number, number, number, number] = [x0, Math.min(yAt(0), yAt(delta)), Math.max(1, x1 - x0), Math.abs(yAt(delta) - yAt(0))];
-        if (leak(band)) { context.globalAlpha = 0.6; context.setLineDash([3, 2]); context.strokeRect(...box); context.setLineDash([]); return; }
+        // The step from 0 to its Δ at their exact y's (R2: clipped, not clamped). Its body filled over the part on the
+        // plot; a leak's outline stroked with an edge past the plot put just past the plot's clip, so no edge is drawn
+        // where the step is cut and what is seen is the exact rectangle's.
+        const exactLow = Math.max(yOf(0), yOf(delta)), exactHigh = Math.min(yOf(0), yOf(delta));
+        const bottom = frame.top + frame.height;
+        const within = (margin: number): [number, number, number, number] => {
+            const high = Math.max(frame.top - margin, Math.min(bottom + margin, exactHigh)), low = Math.max(frame.top - margin, Math.min(bottom + margin, exactLow));
+            return [x0, high, Math.max(1, x1 - x0), low - high];
+        };
+        if (leak(band)) { context.globalAlpha = 0.6; context.setLineDash([3, 2]); context.strokeRect(...within(1)); context.setLineDash([]); return; }
         context.globalAlpha = headline.includes(band) ? 0.45 : 0.15;
-        context.fillRect(...box);
+        context.fillRect(...within(0));
     });
     context.restore();
 }
@@ -2295,7 +2306,7 @@ function paintRegion(context: CanvasRenderingContext2D, region: NonNullable<Stag
     context.restore();
 }
 
-function paintGuides(context: CanvasRenderingContext2D, guides: NonNullable<StagePaintOptions['guides']>, plot: { left: number; top: number; width: number; height: number }, xAt: (value: number) => number, yAt: (value: number) => number, text: string): void {
+function paintGuides(context: CanvasRenderingContext2D, guides: NonNullable<StagePaintOptions['guides']>, plot: { left: number; top: number; width: number; height: number }, xAt: (value: number) => number, yOf: (value: number) => number, text: string): void {
     context.save();
     context.beginPath(); context.rect(plot.left, plot.top, plot.width, plot.height); context.clip();
     context.fillStyle = text;
@@ -2304,12 +2315,15 @@ function paintGuides(context: CanvasRenderingContext2D, guides: NonNullable<Stag
         const x0 = xAt(span.start), x1 = xAt(span.end);
         context.fillRect(x0, plot.top, Math.max(1, x1 - x0), plot.height);
     }
-    if (guides.level) {
+    // The level guide at its exact y, and only where it is on the plot (R2: a line past the axis is clipped, never
+    // drawn along the plot's edge as if the level were there).
+    const levelY = guides.level ? yOf(guides.level.value) : NaN;
+    if (guides.level && levelY >= plot.top && levelY <= plot.top + plot.height) {
         context.globalAlpha = 0.9;
         context.strokeStyle = text;
         context.setLineDash([5, 3]);
         context.lineWidth = 1;
-        const y = yAt(guides.level.value);
+        const y = levelY;
         context.beginPath(); context.moveTo(plot.left, y); context.lineTo(plot.left + plot.width, y); context.stroke();
         context.setLineDash([]);
         context.font = '10px sans-serif';

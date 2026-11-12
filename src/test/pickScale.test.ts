@@ -1,8 +1,7 @@
 /**
- * Scale for decisions is exact; holding is only for painting (docs/display-rules.md R14). A plot paints a line by
- * `paintY`, which holds a value ten spans past its axis so a stretch off the plot leaves it at the right slope. Held,
- * two of its y's are no scale: on an axis of ±0.001 over 100 px, paintY(1) − paintY(0) is 1,050 px where the axis has
- * 50,000 px per unit. The pointer's pick, the scale the plot sends the backend for a dense window
+ * Scale for decisions is exact (docs/display-rules.md R14). A y held anywhere is no scale: a y held ten spans past
+ * the axis (how lines were once painted, before R2 clipped them), differenced, gives on an axis of ±0.001 over 100 px
+ * 1,050 px per unit where the axis has 50,000. The pointer's pick, the scale the plot sends the backend for a dense window
  * (full_read._nearest_on_screen) and the read mark take the axis's exact `pixelsPerUnit` and `yOf` instead.
  *
  * Each plot here is painted by paintOverlay (its own axisTransform, never a hand-made one), on the left axis, on the
@@ -30,12 +29,12 @@ const required = process.env.AWA_REQUIRE_BACKEND === '1' || (process.env.AWA_REQ
 
 const FIX = 'R14 (docs/display-rules.md): scale for decisions is exact; holding is only for painting. Take the axis\'s '
     + 'pixelsPerUnit and yOf (stagePanes.ts axisTransform) for the pick, the scale sent to full_read.py and the read mark; '
-    + 'paintY (held ten spans past the axis) is for painting a line only, and no scale is made by differencing two y\'s.';
+    + 'no scale is made by differencing two y\'s (a held y, as one held ten spans past the axis, is no value\'s place).';
 
 /** The narrow value axis: ±0.001 over the plot's 100 px, 50,000 px per unit. */
 const NARROW = { min: -0.001, max: 0.001 };
 const EXACT = 100 / (NARROW.max - NARROW.min);
-/** What differencing the held paintY around 0 gives on it: (0.001 + 10 × 0.002 − 0) × 50,000. */
+/** What differencing a y held ten spans past the axis around 0 gives on it: (0.001 + 10 × 0.002 − 0) × 50,000. */
 const HELD = 1050;
 
 type Case = { name: string; log: boolean; right: boolean };
@@ -142,7 +141,7 @@ test('on a value axis of ±0.001 over 100 px the scale a plot sends for a dense 
         assert.equal(stageHover(on, x, y)?.pending, true, `${item.name}: the window is asked for`);
         const sent = asked[0]?.pixels;
         assert.ok(sent, `${item.name}: the read sends the screen's scale`);
-        assert.ok(Math.abs(sent[1] - EXACT) < 1e-6, `${item.name}: sent ${sent[1]} px per unit, the axis has ${EXACT}${Math.abs(sent[1] - HELD) < 1e-6 ? ' (the held paintY\'s difference)' : ''}. ${FIX}`);
+        assert.ok(Math.abs(sent[1] - EXACT) < 1e-6, `${item.name}: sent ${sent[1]} px per unit, the axis has ${EXACT}${Math.abs(sent[1] - HELD) < 1e-6 ? ' (a held y\'s difference)' : ''}. ${FIX}`);
         assert.equal(on.pixelsPerUnit, EXACT, `${item.name}: the axis's own scale. ${FIX}`);
         assert.ok(Math.abs(on.yOf(0.0005) - (on.frame.top + 25)) < 1e-9, `${item.name}: yOf is the exact place`);
         assert.ok(Math.abs(on.yOf(1) - (on.frame.top + 50 - EXACT)) < 1e-6, `${item.name}: yOf holds nothing, however far past the axis (${on.yOf(1)}). ${FIX}`);
