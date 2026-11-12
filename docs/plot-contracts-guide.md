@@ -418,9 +418,14 @@ They close the routes we know. They do not make a wrong number impossible. Know 
 - **The places of a held line are the caller's.** `localLine(xs, line)` takes the line as a `WholeLine` but its
   `xs` as plain numbers (bin × spacing, the band centres): where each value sits is laid out by the caller and is
   not checked against the backend.
-- **A read can be typed to answer points and still never do so.** A source's read whose type can only be null or
-  nothing fails the boundary test (use `NO_FULL_DATA`, `STALE_FULL_DATA` or `PENDING_FULL_DATA`, the named values).
-  A function typed to answer points that returns null on every path is not found by a type check.
+- **A read is judged by what it returns, not by what it does.** A source's read whose every `return` (or whose
+  type, for a read passed on from elsewhere) can only be null fails the boundary test, and so does one that can only
+  answer "on its way" outside `fullRead.ts`; the boundary test reads the function's returns, so typing it
+  `FullAnswer` does not hide it. A layer with no full data passes `NO_FULL_DATA`; a picture that must not be read at
+  all (a lane whose file changed since it was analysed) is painted with `readout: false`; a stand-in whose real
+  picture is on its way passes `PENDING_FULL_DATA`. What is not found: a read that can answer points on some path but
+  in practice never does (its condition never holds), or a fetch callback (`fetchedSource`) that always answers
+  null.
 - **`layoutLine` takes plain numbers.** It exists for numbers a figure is laid out with (a histogram's counts, the
   height a dot is stacked at). Only the modules in `LAYOUT_MODULES` (`provenanceBoundary.test.ts`) may call it, and
   the list is the review point: a measured value must never go through it.

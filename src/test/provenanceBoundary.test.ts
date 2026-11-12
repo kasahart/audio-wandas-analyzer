@@ -133,6 +133,43 @@ function isDrawn(type: ts.Type): boolean {
     return thinned(type) || (type.isUnion() && type.types.some(thinned));
 }
 
+/** What a symbol stands for, through an import. */
+const aliased = (symbol: ts.Symbol | undefined, checker: ts.TypeChecker): ts.Symbol | undefined => (symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol);
+
+/** What each answer of a type can be: 'null' (failed), 'nothing' (undefined, void, never) or 'something'. */
+function answerKinds(type: ts.Type): Array<'null' | 'nothing' | 'something'> {
+    if (type.isUnion()) return type.types.flatMap(answerKinds);
+    if (type.flags & ts.TypeFlags.Null) return ['null'];
+    return type.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Void | ts.TypeFlags.Never) ? ['nothing'] : ['something'];
+}
+
+/**
+ * The answers a source's read can give, one list of kinds per way it answers: each `return` of the function written
+ * for it (an arrow, a method, or a function it names), an expression body, or ending with no return; else, for a read
+ * passed on from elsewhere, what its type says it answers.
+ */
+function answersOf(read: ts.Symbol, at: ts.Node, checker: ts.TypeChecker): Array<Array<'null' | 'nothing' | 'something'>> {
+    const declaration = read.valueDeclaration;
+    let written: ts.Node | undefined = declaration && ts.isPropertyAssignment(declaration) ? declaration.initializer
+        : declaration && ts.isMethodDeclaration(declaration) ? declaration
+            : declaration && ts.isShorthandPropertyAssignment(declaration) ? checker.getShorthandAssignmentValueSymbol(declaration)?.valueDeclaration : undefined;
+    if (written && ts.isIdentifier(written)) written = aliased(checker.getSymbolAtLocation(written), checker)?.valueDeclaration;
+    if (written && ts.isVariableDeclaration(written)) written = written.initializer;
+    if (written && (ts.isArrowFunction(written) || ts.isFunctionExpression(written) || ts.isFunctionDeclaration(written) || ts.isMethodDeclaration(written)) && written.body) {
+        if (!ts.isBlock(written.body)) return [answerKinds(checker.getTypeAtLocation(written.body))];
+        const answers: Array<Array<'null' | 'nothing' | 'something'>> = [];
+        const walk = (node: ts.Node): void => {
+            if (ts.isFunctionLike(node) || ts.isClassLike(node)) return;
+            if (ts.isReturnStatement(node)) answers.push(node.expression ? answerKinds(checker.getTypeAtLocation(node.expression)) : ['nothing']);
+            ts.forEachChild(node, walk);
+        };
+        ts.forEachChild(written.body, walk);
+        // A body that can run to its end answers undefined there too; only the answers are judged, so it adds 'nothing'.
+        return answers.length ? answers : [['nothing']];
+    }
+    return checker.getTypeOfSymbolAtLocation(read, at).getCallSignatures().map(signature => answerKinds(signature.getReturnType()));
+}
+
 /** Every place that breaks rules 1 to 4 above. */
 function provenanceProblems(scanned: ts.Program): Problem[] {
     const checker = scanned.getTypeChecker();
@@ -184,18 +221,20 @@ function provenanceProblems(scanned: ts.Program): Problem[] {
             if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.PlusToken && drawn(node.operand)) at(node, 'drawn-coerced');
             if (ts.isBinaryExpression(node) && (node.operatorToken.kind === ts.SyntaxKind.PlusToken || node.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken) && (drawn(node.left) || drawn(node.right))) at(node, 'drawn-coerced');
             if (ts.isTemplateSpan(node) && drawn(node.expression)) at(node, 'drawn-coerced');
-            // A read given to a source (fullSource, sourceWith) that can only answer null or nothing reads no data.
-            if (file !== FULL_READ && ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
-                const called = checker.getSymbolAtLocation(node.expression);
-                const made = called && called.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(called) : called;
-                const reads = node.arguments[1];
-                if (made && ['fullSource', 'sourceWith'].includes(made.name) && declaredIn(made, FULL_READ) && reads) {
-                    const nothing = ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void | ts.TypeFlags.Never;
+            // A read given to a source (fullSource, sourceWith, or fullRead.ts's own `new Source`) whose every answer is
+            // null fails every time: it reads no data, yet the source would count as one that reads (readsFullData).
+            // What it answers is taken of its body's returns where the read is written there, so a function typed to
+            // answer points (FullAnswer) that returns null on every path is no read either. A read whose every answer
+            // is "on its way" (undefined) waits for ever: only fullRead.ts makes one (PENDING_FULL_DATA).
+            if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && ts.isIdentifier(node.expression)) {
+                const made = aliased(checker.getSymbolAtLocation(node.expression), checker);
+                const reads = node.arguments?.[1];
+                if (made && ['fullSource', 'sourceWith', 'Source'].includes(made.name) && declaredIn(made, FULL_READ) && reads) {
                     for (const read of checker.getTypeAtLocation(reads).getProperties()) {
                         if (!['line', 'cells', 'level'].includes(read.name)) continue;
-                        const answers = checker.getTypeOfSymbolAtLocation(read, reads).getCallSignatures().map(signature => signature.getReturnType());
-                        const only = (type: ts.Type): boolean => (type.isUnion() ? type.types.every(only) : !!(type.flags & nothing));
-                        if (answers.length && answers.every(only)) { at(reads, 'empty-read'); break; }
+                        const answers = answersOf(read, reads, checker);
+                        const nothing = answers.length > 0 && answers.every(answer => answer.length > 0 && answer.every(kind => kind !== 'something'));
+                        if (nothing && (file !== FULL_READ || answers.some(answer => answer.includes('null')))) { at(reads, 'empty-read'); break; }
                     }
                 }
             }
@@ -223,7 +262,7 @@ function provenanceProblems(scanned: ts.Program): Problem[] {
 const FIX: Record<Rule, string> = {
     'mint-kept': 'A module that holds the mint of Whole keeps it: `const mint = claimMint(…)` at the top of the module, not exported, and used only as `mint.value(…)`. Handing the mint to other code would let any number become full data. Export a function that reads or adapts one kind of full data instead (as localLine, backendPeak).',
     layout: 'Only the layout modules (LAYOUT_MODULES in this file) may call layoutLine, which holds plain numbers as a readable line. If these numbers are measurements, take them whole instead: a backend field through wholeAnswers.ts (scanWhole, pairWhole), or computedWhole for a number computed of whole values, then localLine. If they are numbers this module makes to lay a figure out (counts, stacking heights), add the module to LAYOUT_MODULES with what they are.',
-    'empty-read': 'A read given to fullSource / sourceWith here can only answer null or nothing, so the source would be declared as full data and read none. If the layer has no full data, pass NO_FULL_DATA; if its data went out of date (its file changed), pass STALE_FULL_DATA; if it is a stand-in whose real picture is on its way, pass PENDING_FULL_DATA (all in fullRead.ts). A read that can fail must also be able to answer points: give its function the return type FullAnswer.',
+    'empty-read': 'A read given to a source here can only answer null (it fails every time), or, outside fullRead.ts, only nothing: the source would count as full data and read none. If the layer has no full data, pass NO_FULL_DATA (fullRead.ts); a picture that must not be read at all (its file changed since it was analysed) is painted with `readout: false`. A stand-in whose real picture is on its way passes PENDING_FULL_DATA. A kind of read the source does not have is left out (it becomes cannotRead). A read that can fail must also be able to answer points on some path.',
     'test-code': 'Product code may not use anything under src/test: the tests\' helpers (such as wholeValue, which makes a Whole of a made-up number) are for tests only. Read the value through a FullSource or an adapter of wholeAnswers.ts.',
     mint: 'Only fullRead.ts and wholeAnswers.ts may use the mint (src/shared/wholeMint.ts). To read a value for a readout, read it through the layer\'s FullSource; for a new backend number taken of every value, add an adapter to wholeAnswers.ts.',
     cast: 'A cast to a type holding `Whole` claims a number is full data without a mint. Take the value from a FullSource or an adapter of wholeAnswers.ts instead.',
@@ -305,6 +344,7 @@ const ALLOWED: readonly Mutant[] = [
     { what: 'a value read from full points', body: 'export const first = (points: FullPoints): Whole | undefined => points.xs[0];' },
     { what: 'a whole line held, a line computed of it, and a number computed of two of its values', body: 'export const full = (xs: number[], line: WholeLine<Whole>) => [localLine(xs, line), localLine(xs, computedLine([line], bin => line[bin] * 2))];\nexport const delta = (a: Whole, b: Whole): Derived => computedWhole([a, b], a - b);' },
     { what: 'dropping null of what is already whole', body: 'export const kept = (value: Whole | null): Whole => value as Whole;' },
+    { what: 'a read that can fail, and answers points otherwise', imports: 'import { fullSource, type FetchedFullSource } from \'./fullRead\';', body: 'export const some = (held: FetchedFullSource, late: boolean) => fullSource(\'fetched\', { line(query, ready) { if (late) return null; return held.line(query, ready); } });' },
     { what: 'a picture passed on, its gaps dropped and its points counted', body: 'export const copy = (view: StageView): StageView => ({ ...view, values: (view.values ?? []).filter(value => value !== null) });\nexport const count = (view: StageView): number => (view.values ?? []).length;' },
 ];
 
@@ -319,6 +359,10 @@ const MUST_NOT_PASS: ReadonlyArray<Mutant & { rule: Rule; also?: Rule[] }> = [
     { rule: 'layout', what: 'plain numbers held as a readable line outside the layout modules', imports: 'import { layoutLine } from \'./fullRead\';', body: 'export const full = (xs: number[], values: number[]) => layoutLine(xs, values);' },
     { rule: 'empty-read', what: 'a source whose read can only answer null', imports: 'import { fullSource } from \'./fullRead\';', body: 'export const none = fullSource(\'fetched\', { line: () => null });' },
     { rule: 'empty-read', what: 'a source whose read answers nothing', imports: 'import { fullSource } from \'./fullRead\';', body: 'export const none = fullSource(\'inline\', { cells() { return undefined; }, level: () => null });' },
+    { rule: 'empty-read', what: 'a source whose read only waits, made outside fullRead.ts', imports: 'import { fullSource } from \'./fullRead\';', body: 'export const waits = fullSource(\'fetched\', { line: () => undefined });' },
+    { rule: 'empty-read', what: 'a read typed to answer points that returns null on every path', imports: 'import { fullSource, type FullAnswer } from \'./fullRead\';', body: 'export const none = (late: boolean) => fullSource(\'fetched\', { line(): FullAnswer { if (late) return null; return null; } });' },
+    { rule: 'empty-read', what: 'a read that names a function that only fails', imports: 'import { fullSource, type FullAnswer } from \'./fullRead\';', body: 'function failed(): FullAnswer { return null; }\nexport const none = fullSource(\'fetched\', { line: failed });' },
+    { rule: 'empty-read', what: 'a read of a source replaced by one that only fails', imports: 'import { sourceWith, type FetchedFullSource } from \'./fullRead\';', body: 'export const none = (source: FetchedFullSource) => sourceWith(source, { line: () => null });' },
     { rule: 'test-code', what: 'the tests\' way of making a Whole used in product code', imports: 'import { wholeValue } from \'../../test/helpers/whole\';', body: 'export const made = wholeValue(3);' },
     { rule: 'cast', what: 'a cast to Whole', body: 'export const made = 3 as Whole;' },
     { rule: 'cast', what: 'a cast to Whole through unknown', body: 'export const made = 3 as unknown as Whole;' },
@@ -371,6 +415,15 @@ test('the honest forms compile and pass the scan', () => {
         assert.deepEqual(compileErrors(mutant), [], `${mutant.what}:\n${mutant.body}`);
         assert.deepEqual(scanRules(mutant), [], `${mutant.what}:\n${mutant.body}`);
     }
+});
+
+test('inside fullRead.ts too, a source whose read can only fail is refused; a wait for ever is made there alone (PENDING_FULL_DATA)', () => {
+    const own = program().getSourceFile(path.join(repoRoot, FULL_READ));
+    assert.ok(own, 'fullRead.ts is compiled');
+    const added = ['export const FAILS = new Source(\'fetched\', { line: () => null, cells: () => null });', 'export const WAITS = new Source(\'fetched\', { level: () => undefined });'];
+    const scannedHere = provenanceProblems(program(new Map([[FULL_READ, `${own.text}\n${added.join('\n')}\n`]]))).filter(problem => problem.file === FULL_READ);
+    const failsAt = own.text.split('\n').length + 1;
+    assert.deepEqual(scannedHere.map(problem => `${problem.line} ${problem.rule}`), [`${failsAt} empty-read`], told(scannedHere));
 });
 
 test('the mint of a holder can be claimed once: its own module claims it as it loads, and a second claim throws', async () => {

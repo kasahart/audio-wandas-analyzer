@@ -122,6 +122,8 @@ export interface LaneSpectrogramView {
     dbHi: number;
     /** The track's duration: with the frame centres it places each cell on its STFT window. */
     durationSec: number;
+    /** false: the lane gives no readout (its file changed since it was analysed: no cell of it is read, R7). */
+    readout?: false;
 }
 
 /** The names on a spectrogram lane: what the colour measures (as the comparison's heatmaps name it), its frequency axis, and the time axis. */
@@ -172,7 +174,7 @@ export function paintTrackSpectrogram(
     full?: FullSource,
 ): SpectrogramRasterCacheEntry {
     const key = [canvas.width, canvas.height, view.window.start, view.window.end, place.startSec, place.spanSec, place.offsetNorm, place.trackDurRatio,
-        view.dbLo, view.dbHi, view.maxFrequencyHz, view.minFrequencyHz, view.durationSec, titles.colour, titles.frequency, look].join(':');
+        view.dbLo, view.dbHi, view.maxFrequencyHz, view.minFrequencyHz, view.durationSec, view.readout ?? '', titles.colour, titles.frequency, look].join(':');
     const colors = sideAxisColors(canvas);
     if (cached && cached.source === spec && cached.key === key && cached.full === full) {
         if (axisCanvas) paintSideAxis(axisCanvas, cached.ticks, titles.frequency, colors);
@@ -189,7 +191,7 @@ export function paintTrackSpectrogram(
     const cells = full ? mappedSource(full, seconds => seconds - span[0], seconds => seconds + span[0]) : NO_FULL_DATA;
     const plot = paintOverlay(canvas, { layers: [{ view: picture, color: '', span, full: cells }] }, plainRange(view.dbLo, view.dbHi),
         plainNames(titles.time, titles.frequency, titles.colour),
-        { axisCanvas, axisView, heatmapPalette: viridis, window: { x: view.window, y: { start: (Math.max(0, view.minFrequencyHz) - low) / rowSpan, end: (view.maxFrequencyHz - low) / rowSpan } } });
+        { axisCanvas, axisView, heatmapPalette: viridis, ...(view.readout === false ? { readout: false as const } : {}), window: { x: view.window, y: { start: (Math.max(0, view.minFrequencyHz) - low) / rowSpan, end: (view.maxFrequencyHz - low) / rowSpan } } });
     return { source: spec, key, full, plot, colourBar: plot?.colourBar ?? { x: 0, y: 0, width: 0, height: 0 }, ticks: plot?.levelTicks ?? [] };
 }
 

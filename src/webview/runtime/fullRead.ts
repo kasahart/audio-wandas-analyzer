@@ -221,7 +221,8 @@ type Held = 'inline' | 'fetched' | 'none';
 /**
  * A full-data source. Only this module makes one (`fullSource`, `NO_FULL_DATA`): the class is not exported and
  * `made` is protected, so an object literal, or a spread of another source (`{ ...source, line }`), is not a source
- * to the compiler. That is what keeps "a source that reads nothing" to the one named value.
+ * to the compiler. That is what keeps "a source that reads nothing" to the named values (NO_FULL_DATA, and
+ * PENDING_FULL_DATA for a stand-in's wait).
  */
 class Source<H extends Held> implements FullSourceReads {
     protected readonly made = true;
@@ -257,23 +258,18 @@ export type FullRead = FullSource;
 /**
  * "No full data", by name: the source of a layer whose caller has none to give. Every read is unavailable, so the
  * layer reads no number (R7), and the plot marks it (`data-plot-full="missing: …"`), which every ui-smoke test
- * fails (canvasAudit.ts). It is the only source that reads nothing: `fullSource` refuses to make another.
+ * fails (canvasAudit.ts). It is the only source with no full data: `fullSource` refuses to make another, and a read
+ * that can only fail (answer null) fails provenanceBoundary.test.ts (empty-read).
  */
 export const NO_FULL_DATA: NoFullSource = new Source('none', {});
 
 /**
- * "Its full data may no longer be read", by name: the source of a picture whose data went out of date after it was
- * drawn (its file changed since it was analysed). Every read fails (null: no number and no other line in its place,
- * R7) and none is asked of the backend. It differs from NO_FULL_DATA, which says there never was any: this layer is
- * declared, and reads again once it is drawn anew. A source whose reads can only answer null is never written out
- * (`fullSource('fetched', { line: () => null })` fails provenanceBoundary.test.ts): it is this value.
- */
-export const STALE_FULL_DATA: FetchedFullSource = new Source('fetched', { line: () => null, cells: () => null, level: () => null });
-
-/**
  * "Its full data is on its way", by name: the source of a stand-in drawn while the real picture is being made (the
- * cursor spectrum before its slice is in). Every read stays pending (the cursor's marks, no number, R7); the real
- * picture, drawn when it comes, brings its own source.
+ * cursor spectrum before its slice is in). Every read stays pending (the cursor's marks, no number, R7) and its level
+ * is judged once it is in (R6); the real picture, drawn when it comes, brings its own source. It reads nothing, as
+ * NO_FULL_DATA does, but says so as "not yet" where the plot shows a wait. It is the only other source whose reads
+ * answer nothing: a read that can only fail (null) is no read anywhere, and a read that can only wait is made here
+ * alone (provenanceBoundary.test.ts, empty-read).
  */
 export const PENDING_FULL_DATA: FetchedFullSource = new Source('fetched', { line: () => undefined, level: () => undefined });
 
