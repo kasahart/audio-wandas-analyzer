@@ -143,10 +143,6 @@ def _template(view: StageView) -> StageView:
     return {key: value for key, value in view.items() if key not in drawn}  # type: ignore[return-value]
 
 
-def _f64(values: Any) -> np.ndarray:
-    return np.asarray(values, dtype=np.float64)
-
-
 def _calibration(frame: object) -> LevelIdentity:
     """What ``frame``'s values are in (level_identity: unit, reference, its label; a trigger's events: their first
     event's; a transfer function or a cross spectrum: its drawn pair's)."""
@@ -339,7 +335,7 @@ def _signal_line(
     picked = sv.min_max_indices(
         np.broadcast_to(np.float64(0.0), values.shape), values, _line_buckets("series", points), False
     )
-    return sv.x_at(data, first + picked), _f64(values[picked])
+    return sv.x_at(data, first + picked), values[picked]
 
 
 #: How many stretches of the axis a line's level on screen is kept in (StageView ``levelBins``).
@@ -360,7 +356,7 @@ def level_bins(data: StageData, detail: StageDetail | None = None) -> StageLevel
         edges = np.linspace(first, last, min(LEVEL_BINS, last - first) + 1).round().astype(np.int64)
         powers, counts = [], []
         for start, end in zip(edges[:-1], edges[1:], strict=True):
-            block = data.values[start:end].astype(np.float64)
+            block = data.values[start:end]
             finite = block[np.isfinite(block)]
             counts.append(int(finite.size))
             powers.append(float(np.dot(finite, finite) / finite.size) if finite.size else 0.0)
@@ -372,7 +368,7 @@ def level_bins(data: StageData, detail: StageDetail | None = None) -> StageLevel
         return _event_level_bins(data, bounds)
     if data.view.get("quantity") not in DB_QUANTITIES or data.values.ndim != 1:
         return None
-    xs, values = data.xs, _f64(data.values)
+    xs, values = data.xs, data.values
     log = data.view.get("xScale") == "log"
     if bounds is None and data.mode == "spectrum":
         bounds = [spec.SPECTRUM_MIN_HZ, data.nyquist]
@@ -400,9 +396,8 @@ def _event_level_bins(data: StageData, bounds: list[float] | None) -> StageLevel
     """A trigger's events' power, as a signal's (A44, R6): the mean square of every event's samples, in LEVEL_BINS
     stretches of the time from the trigger, so its events are ordered among the overlaid recordings' by their
     samples, never left unordered."""
-    rows = np.asarray(data.rows, dtype=np.float64)
-    xs = _f64(data.xs)
-    if rows.ndim != 2 or not xs.size or rows.shape[1] != xs.size:
+    rows, xs = data.rows, data.xs
+    if rows is None or rows.ndim != 2 or not xs.size or rows.shape[1] != xs.size:
         return None
     low, high = (min(bounds), max(bounds)) if bounds is not None else (float(xs[0]), float(xs[-1]))
     keep = np.isfinite(xs) & (xs >= low) & (xs <= high)
@@ -437,7 +432,7 @@ def _image(data: StageData, detail: StageDetail | None, diff: bool) -> StageView
     STFT's frequencies, quefrency blocks for a cepstrogram). A median is reduced as the recordings' own images
     are; a difference keeps each block's value of largest magnitude."""
     bounds, points = _bounds(detail)
-    plane = _f64(data.values)
+    plane = data.values
     times, ys = data.xs, data.ys if data.ys is not None else np.empty(0)
     whole = data.whole
     if bounds is not None:
@@ -599,7 +594,7 @@ def value_range(
             warnings.simplefilter("ignore", RuntimeWarning)
             low, high = float(np.nanmin(part)), float(np.nanmax(part))
         return {"min": low, "max": high} if np.isfinite(low) and np.isfinite(high) else None
-    values = _f64(part).ravel()
+    values = np.ravel(part)
     keep = np.isfinite(values)
     if floored(data.view, diff):
         keep &= values > SILENT_DB
@@ -675,7 +670,7 @@ def time_axis(item: StageData) -> StageTimeAxis | None:
 def _median(items: list[StageData]) -> np.ndarray:
     """Point by point; a point where any recording has no value has none (NaN)."""
     # In float64 (as kept), never float32: a median of two values a float32 step apart lies between them.
-    stacked = np.stack([_f64(item.values) for item in items])
+    stacked = np.stack([item.values for item in items])
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         return np.median(stacked, axis=0)
@@ -712,14 +707,14 @@ def combine(base: list[StageData], compare: StageData | None, detail: StageDetai
         return {"ok": True, "noDelta": reason} if reason else {"ok": True}
     base, compare = aligned[: len(base)], (aligned[-1] if compare is not None else None)
     first = base[0]
-    median = _median(base) if len(base) > 1 else _f64(first.values)
+    median = _median(base) if len(base) > 1 else first.values
     result: CombineResult = {"ok": True}
     if len(base) > 1:
         result["base"] = draw(replace(first, values=median, whole=_whole_of(base)), detail)
     # Two recordings' events are not one another's: they are compared overlaid, with no difference.
     if compare is None or first.mode == "events":
         return result
-    difference = _f64(compare.values) - median
+    difference = compare.values - median
     whole = _whole_of([*base, compare])
     drawn = replace(first, values=difference, whole=whole)
     result["diff"] = draw(drawn, detail, diff=True)
@@ -799,7 +794,7 @@ def difference_peak(data: StageData, values: np.ndarray, detail: StageDetail | N
         plane = np.asarray(values)
         best, row, column = -1.0, -1, -1
         for start in range(0, column_at.size, 256):
-            block = np.abs(plane[np.ix_(row_at, column_at[start : start + 256])], dtype=np.float64)
+            block = np.abs(plane[np.ix_(row_at, column_at[start : start + 256])])
             np.nan_to_num(block, copy=False, nan=-1.0, posinf=-1.0, neginf=-1.0)
             at = int(np.argmax(block))
             if block.flat[at] > best:
@@ -821,7 +816,7 @@ def difference_peak(data: StageData, values: np.ndarray, detail: StageDetail | N
             keep &= xs > 0
         # Found among the unrounded values (two that round alike still differ), rounded as drawn only once found.
         at = np.flatnonzero(keep)
-        line = np.abs(_f64(np.asarray(values)[at]))
+        line = np.abs(np.asarray(values)[at])
         line[~np.isfinite(line)] = -1.0
         if not line.size or float(line.max()) < 0:
             return None
@@ -842,7 +837,7 @@ def _sent(data: StageData, values: np.ndarray, diff: bool) -> np.ndarray:
     picks the nearest point, tells silence, orders lines and steps the arrow keys on them, and only the text it writes
     rounds them (R1, R7). Only an image's cells, which are drawn as colours and never read (the readout reads the full
     cells, read_cells), are rounded to keep the picture small."""
-    values = _f64(values)
+    values = np.asarray(values)
     if not diff and data.mode in ("spectrogram", "spectrum", "bands"):
         return sv.floored_db(values)
     return values
@@ -873,10 +868,10 @@ def read_points(base: list[StageData], compare: StageData | None, read: StageRea
         else:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", RuntimeWarning)
-                middle = np.median(np.stack([_f64(values) for values in parts]), axis=0)
+                middle = np.median(np.stack(parts), axis=0)
         if other is None:
             return middle
-        return _f64(part(other)) - middle
+        return part(other) - middle
 
     if first.mode in ("spectrogram", "roughness", "cepstrogram"):
         ys = first.ys if first.ys is not None else np.empty(0)

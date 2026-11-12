@@ -1,16 +1,17 @@
 """A Frame's reading is float64, whatever dtype its recording was read in (docs/display-rules.md R1).
 
-A 16-bit WAV is read as float32. ``stage_view.read_frame`` converts every number it takes of a Frame to float64
-before it averages channels, so no median, difference, range or readout is computed in float32.
+A 16-bit WAV is read as float32. ``stage_view.read_frame`` takes every number of a Frame as float64 (complex128 for
+complex values) with ``stage_view._taken`` before it averages channels, so no median, difference, range or readout is
+computed in float32, and it checks every array field of the reading, a field added later included.
 
-If one of these fails: convert the Frame's data with ``_f64`` (or ``_rows`` / ``_plane``) in its branch of
-``stage_view._read_frame`` before computing with it. A new number field of ``FrameReading`` goes into
-``stage_view.READING_NUMBER_FIELDS``.
+If one of these fails: take the Frame's array with ``stage_view._taken`` in its branch of ``stage_view._read_frame``
+before any arithmetic on it. Do not convert later, in a view or in stage_combine.py: by then a channel mean may have
+been taken in float32. A new array field of flags (not numbers) goes into ``stage_view.READING_FLAG_FIELDS``.
 """
 
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import fields, replace
 
 import numpy as np
 import pytest
@@ -34,16 +35,31 @@ def test_every_array_of_a_reading_is_float64_whatever_the_recordings_dtype(kind:
     assert reading is not None, f"{kind} is drawn"
     arrays = {item.name: getattr(reading, item.name) for item in fields(reading)}
     arrays = {name: value for name, value in arrays.items() if isinstance(value, np.ndarray)}
-    assert set(arrays) - {"whole"} <= set(sv.READING_NUMBER_FIELDS), (
-        f"FrameReading has an array field not in stage_view.READING_NUMBER_FIELDS: {sorted(arrays)}. Add it there, "
-        "so read_frame checks its dtype."
-    )
     for name, array in arrays.items():
-        expected = np.bool_ if name == "whole" else np.float64
-        assert array.dtype == expected, (
-            f"{kind}: the reading's {name} is {array.dtype}, not {np.dtype(expected)}. Convert the Frame's data "
-            "with _f64 in its branch of stage_view._read_frame before computing with it."
+        expected = (np.bool_,) if name in sv.READING_FLAG_FIELDS else (np.float64, np.complex128)
+        assert array.dtype in [np.dtype(item) for item in expected], (
+            f"{kind}: the reading's {name} is {array.dtype}, not float64 (R1). Take the Frame's array with "
+            "stage_view._taken in its branch of stage_view._read_frame, before any arithmetic on it."
         )
+
+
+def test_read_frame_refuses_a_reading_with_any_array_not_in_float64(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The check is of every array field of the reading, so a field added without the conversion fails at once,
+    naming read_frame's rule, whatever the field is called."""
+    frame = _KINDS["spectrum"](_recording(0.5))
+    reading = sv.read_frame(frame)
+    assert reading is not None
+    for name in ("xs", "values", "ys", "rows"):
+        bad = replace(reading, **{name: np.zeros(3, dtype=np.float32)})
+        monkeypatch.setattr(sv, "_read_frame", lambda *_args, bad=bad: bad)
+        with pytest.raises(TypeError, match=rf"read_frame: .* has {name} in float32.*stage_view\._taken"):
+            sv.read_frame(frame)
+    # complex values are held in complex128, which is a reading's dtype too.
+    monkeypatch.setattr(sv, "_read_frame", lambda *_args: replace(reading, values=reading.values.astype(np.complex128)))
+    assert sv.read_frame(frame) is not None
+    monkeypatch.setattr(sv, "_read_frame", lambda *_args: replace(reading, values=reading.values.astype(np.complex64)))
+    with pytest.raises(TypeError, match="complex64"):
+        sv.read_frame(frame)
 
 
 def test_a_float32_trigger_events_channel_mean_is_taken_in_float64() -> None:

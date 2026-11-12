@@ -63,16 +63,17 @@ MUTATIONS = {
     ),
     "Δ of two drawn lines": (
         "stage_combine",
-        "    difference = _f64(compare.values) - median\n",
+        "    difference = compare.values - median\n",
         '    difference = np.asarray(compare.view["values"]) - np.asarray(first.view["values"])\n',
         "stage_combine:combine: Δ ",
     ),
     "overlay order from the drawn line": (
         "stage_combine",
-        "    xs, values = data.xs, _f64(data.values)\n",
+        '    xs, values = data.xs, data.values\n    log = data.view.get("xScale") == "log"\n',
         "    xs, values = sv.spectrum_line(\n"
-        "        data.xs, _f64(data.values), [1.0, data.nyquist], sv.SPECTRUM_LINE_BUCKETS\n"
-        "    )\n",
+        "        data.xs, data.values, [1.0, data.nyquist], sv.SPECTRUM_LINE_BUCKETS\n"
+        "    )\n"
+        '    log = data.view.get("xScale") == "log"\n',
         "stage_combine:level_bins: field 'power' = drawn points",
     ),
     "colour range from the block-averaged image": (
