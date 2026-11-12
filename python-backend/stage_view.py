@@ -458,14 +458,36 @@ def _stft_whole(frame: Any, columns: int, signal_s: float | None) -> np.ndarray 
     return (centres >= half - 1e-9) & (centres <= signal_s - half + 1e-9)
 
 
+#: The fields of a FrameReading that hold numbers (``whole`` holds booleans).
+READING_NUMBER_FIELDS = ("xs", "values", "ys", "rows")
+
+
 def read_frame(frame: object, signal_s: float | None = None) -> FrameReading | None:
+    """``frame``'s values and axes (``_read_frame``), every number of them float64 whatever dtype the Frame's data
+    has. A recording read as float32 is converted here, once, before any channel is averaged: nothing after this
+    computes in float32 (docs/display-rules.md R1)."""
+    reading = _read_frame(frame, signal_s)
+    if reading is None:
+        return None
+    for name in READING_NUMBER_FIELDS:
+        array = getattr(reading, name)
+        if array is not None and array.dtype != np.float64:
+            raise TypeError(
+                f"read_frame: the reading of a {type(frame).__name__} has {name} in {array.dtype}, not float64. "
+                "Convert the Frame's data with _f64 (or _rows / _plane) in its branch of _read_frame before "
+                "computing with it."
+            )
+    return reading
+
+
+def _read_frame(frame: object, signal_s: float | None = None) -> FrameReading | None:
     """``frame``'s values and axes, per Frame kind: the only place the comparison interprets a wandas Frame's data.
 
     Channels are combined as the entry table combines them (levels power-averaged, values averaged), a
     cross-channel Frame keeps its one drawn pair, and times are seconds into the file. None for a Frame with
     nothing to draw (a kind the app does not draw, no pair of two channels, a trigger with no event).
 
-    To support a new Frame kind, add its branch here; its picture (``_stage_view``) and its full-resolution values
+    To support a new Frame kind, add its branch here (converting its data to float64 first); its picture (``_stage_view``) and its full-resolution values
     (stage_combine.stage_data) then both take it from the reading. ``signal_s``: the length (s) of the time signal
     before the step, which an STFT's columns are checked against.
     """
@@ -679,7 +701,9 @@ def _channel_view(frame: ChannelFrame, reading: FrameReading) -> StageView:
 
 def _event_rows(segments: ChannelFrameSegments) -> tuple[np.ndarray, np.ndarray]:
     """Every event's samples with its channels averaged (event × sample), and each sample's time from the trigger."""
-    data = segments.to_numpy()
+    # In float64 before the channels are averaged, as every reading is (read_frame): the mean of two float32
+    # samples a float32 step apart lies between them.
+    data = _f64(segments.to_numpy())
     rows = np.mean(data.reshape(data.shape[0], data.shape[1], -1), axis=1)
     rate = float(segments[0].sampling_rate)
     return rows, np.arange(rows.shape[1]) / rate - float(segments.pre)
