@@ -892,3 +892,54 @@ def test_a_triggers_events_level_is_one_quantity_whole_and_zoomed_every_events_m
         assert level["power"] == pytest.approx(np.mean(rows[:, inside] ** 2), rel=1e-9), fix
         zoomed[name] = level["power"]
     assert sorted(zoomed, key=zoomed.__getitem__, reverse=True) == expected(low, high) == whole, fix
+
+
+def test_a_group_medians_level_is_the_mean_square_of_the_median_line_whichever_recording_is_first() -> None:
+    """R6: the order lines are stacked in comes from the values each line shows; a median's from the median. A group's
+    median of trigger events is one line with no events of its own (combined_picture drops the first recording's
+    rows), so its level, whole and zoomed, is the mean square of the median line's own values: never the first
+    recording's events, which made the order depend on which recording the group listed first. Recording A's events
+    are constant +10 and −10 (their mean 0), B's constant 1 (mean 1): the median line is 0.5, its level 0.25 whichever
+    comes first, and a second line C (constant 0.6, mean square 0.36) is louder than it, so it is drawn under it."""
+
+    def recording(*levels: float) -> StageData:
+        samples = np.zeros(RATE)
+        for at, level in zip((0.1, 0.6), levels, strict=True):
+            # Constant over more than the event, so every sample the event cuts is that level.
+            samples[int((at - 0.05) * RATE) : int((at + 0.35) * RATE)] = level
+        frame = wd.from_numpy(samples[np.newaxis], sampling_rate=RATE).segment([0.1, 0.6], duration=0.3)
+        data = stage_data(frame, dict(stage_view(frame, None)))
+        assert data is not None and data.mode == "events" and data.rows is not None
+        return data
+
+    a, b, c = recording(10.0, -10.0), recording(1.0, 1.0), recording(0.6, 0.6)
+    # Independently of the backend: each recording's events' mean over the raw samples, their median, its square.
+    median_line = np.median(np.stack([np.mean(a.rows, axis=0), np.mean(b.rows, axis=0)]), axis=0)
+    assert np.allclose(median_line, 0.5)
+    own = float(np.mean(c.rows**2))
+    fix = (
+        "Fix: a combined picture is made only by stage_combine.combined_picture, which drops the first recording's "
+        "events (rows), so level_bins and read_points take the median line's own values (docs/display-rules.md R6: "
+        "the order lines are stacked in comes from the values each line shows; a median's from the median)."
+    )
+    xs = a.xs
+    low, high = float(xs[100]), float(xs[3000])
+    zoom = {"x": [low, high], "points": 400}
+    for group, name in (([a, b], "A first"), ([b, a], "B first")):
+        result = combine(group, None)
+        whole = 10 ** (_level(result["base"]["levelBins"]) / 10)
+        assert whole == pytest.approx(float(np.mean(median_line**2)), rel=1e-9), f"{name}: whole level. {fix}"
+        assert "events" not in result["base"], f"{name}: a median has no events of its own. {fix}"
+        detail = combine(group, None, zoom)["base"]["levelBins"]
+        assert 10 ** (_level(detail) / 10) == pytest.approx(0.25, rel=1e-9), f"{name}: zoomed levelBins. {fix}"
+        points = read_points(group, None, {"x": [low, high], "level": "square"})
+        assert points is not None and "level" in points, f"{name}: the zoomed read of a cut window. {fix}"
+        inside = (xs >= low) & (xs <= high)
+        level = points["level"]
+        assert level["count"] == int(inside.sum()), f"{name}: the read takes the median line's values. {fix}"
+        assert level["power"] == pytest.approx(float(np.mean(median_line[inside] ** 2)), rel=1e-9), fix
+        # The stacking order against a second line: C (0.36) is louder than the median (0.25), drawn under it.
+        stacked = sorted({"median": whole, "C": own}.items(), key=lambda item: item[1], reverse=True)
+        assert [key for key, _ in stacked] == ["C", "median"], f"{name}: the median is the quieter line. {fix}"
+        zoomed = sorted({"median": level["power"], "C": own}.items(), key=lambda item: item[1], reverse=True)
+        assert [key for key, _ in zoomed] == ["C", "median"], f"{name}: zoomed, the median is the quieter. {fix}"

@@ -402,6 +402,17 @@ from. The failure names the line and gives the two fixes: register the function 
 sent and none thinned (a band table, a full read) or the field is another answer's of the same name, list the place
 under `unthinned` in `drawn_points_contract.json` with one sentence saying why.
 
+## When you change a rule
+
+A pre-existing quirk you meet while fixing a rule is part of that rule's fix, or you report it as a blocker and stop.
+It is never left as it is. A quirk left next to a fixed rule is the next bug of that rule: the rule now says the
+quirk is wrong, and the code still does it.
+
+Example: E3 made a trigger's events stacked by every event's samples (R6), and left the group median's level bins on
+the first recording's events, noted as an existing quirk. A later review found it as a P1: the same group and the
+same median line were stacked differently depending on which recording the group listed first. The fix
+(`combined_picture` in `stage_combine.py`) belonged to E3.
+
 ## What these checks cannot guarantee
 
 They close the routes we know. They do not make a wrong number impossible. Know the limits when you review a change:

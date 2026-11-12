@@ -55,7 +55,9 @@ DB_QUANTITIES = ("level", "gain")
 class StageData(FrameReading):
     """One recording's step at full resolution, channels combined as its picture combines them: the Frame's reading
     (stage_view.FrameReading, whose fields and x axis it keeps) with the picture's template and the recording's
-    calibration. A median or a difference is a StageData too: the first recording's, with other ``values``.
+    calibration. A median or a difference is a StageData too: the first recording's axes and template, with other
+    ``values`` and no ``rows`` (combined_picture): a combined line has no events of its own, so nothing reads one
+    member's events through the group (R6: a line's level is of the values it shows).
 
     ``values`` is a line over ``xs`` or an image (rows over ``ys``, columns over ``xs``). For ``signal`` (the sound
     itself) it is every sample, channels averaged, at ``start + n / rate``, with no ``xs`` (half an hour at 48 kHz
@@ -367,7 +369,7 @@ def level_bins(data: StageData, detail: StageDetail | None = None) -> StageLevel
         # The last stretch ends at its last sample's time.
         times[-1] = sv.x_at(data, last - 1)
         return {"of": "square", "edges": sv._axis(times), "power": powers, "count": counts}
-    if data.mode == "events" and data.rows is not None:
+    if data.mode == "events":
         return _event_level_bins(data, bounds)
     if data.view.get("quantity") not in DB_QUANTITIES or data.values.ndim != 1:
         return None
@@ -404,8 +406,10 @@ def _event_level_bins(data: StageData, bounds: list[float] | None) -> StageLevel
     """A trigger's events' power, as a signal's (A44, R6): the mean square of every event's samples, in LEVEL_BINS
     stretches of the time from the trigger, so its events are ordered among the overlaid recordings' by their
     samples, never left unordered. A window an edge cuts is read as the same quantity (read_points: every event's
-    samples, never the events' mean)."""
-    rows, xs = data.rows, data.xs
+    samples, never the events' mean). A combined line of events (a group's median, combined_picture) has no events:
+    its power is the mean square of its own values, the line it shows (R6), never of a member's events."""
+    rows = data.rows if data.rows is not None else np.asarray(data.values)[np.newaxis]
+    xs = data.xs
     if rows is None or rows.ndim != 2 or not xs.size or rows.shape[1] != xs.size:
         return None
     low, high = (min(bounds), max(bounds)) if bounds is not None else (float(xs[0]), float(xs[-1]))
@@ -668,9 +672,19 @@ def _aligned(items: list[StageData]) -> list[StageData] | None:
         if item.xs.size == n:
             return item
         whole = item.whole[:n] if item.whole is not None else None
-        return replace(item, xs=item.xs[:n], values=item.values[..., :n], whole=whole)
+        # A trigger's events are cut with the line they make, so its rows stay on its xs.
+        rows = item.rows[:, :n] if item.rows is not None else None
+        return replace(item, xs=item.xs[:n], values=item.values[..., :n], whole=whole, rows=rows)
 
     return [cut(item) for item in items]
+
+
+def combined_picture(first: StageData, values: np.ndarray, whole: np.ndarray | None) -> StageData:
+    """A group's median or a difference as a StageData: ``first``'s axes and template with the combined ``values``,
+    and no events (``rows``, ``event_ids``). The one place a combined picture is made: what it draws, ranges over
+    (value_range), is stacked by (level_bins) and reads (read_points) are the values it shows, never ``first``'s
+    events (R6: a median's level is the median's)."""
+    return replace(first, values=values, whole=whole, rows=None, event_ids=())
 
 
 def _median(items: list[StageData]) -> np.ndarray:
@@ -716,13 +730,13 @@ def combine(base: list[StageData], compare: StageData | None, detail: StageDetai
     median = _median(base) if len(base) > 1 else first.values
     result: CombineResult = {"ok": True}
     if len(base) > 1:
-        result["base"] = draw(replace(first, values=median, whole=_whole_of(base)), detail)
+        result["base"] = draw(combined_picture(first, median, _whole_of(base)), detail)
     # Two recordings' events are not one another's: they are compared overlaid, with no difference.
     if compare is None or first.mode == "events":
         return result
     difference = compare.values - median
     whole = _whole_of([*base, compare])
-    drawn = replace(first, values=difference, whole=whole)
+    drawn = combined_picture(first, difference, whole)
     result["diff"] = draw(drawn, detail, diff=True)
     peak = difference_peak(drawn, difference, _on_screen(detail))
     if peak is not None:
@@ -888,10 +902,11 @@ def read_points(base: list[StageData], compare: StageData | None, read: StageRea
             return None
         row = first.rows[first.event_ids.index(int(read["event"]))]
         return read_line(sv.reading_axis(first), lambda a, b: row[a:b], read)
-    if first.mode == "events" and "level" in read and not diff and first.rows is not None:
-        # The level on screen of a trigger's events (R6) is what their levelBins are (_event_level_bins): the mean
-        # square of every event's every sample in the window, never of the events' mean. A median's are its first
-        # recording's events, as its levelBins are (combine draws it from ``first`` with the median values).
+    if first.mode == "events" and "level" in read and len(group) == 1 and not diff and first.rows is not None:
+        # The level on screen of a recording's trigger events (R6) is what their levelBins are (_event_level_bins):
+        # the mean square of every event's every sample in the window, never of the events' mean. A group's median
+        # has no events (combined_picture): its level is read below from the median line's own values, as its
+        # levelBins are, never from a member's events.
         rows = first.rows
         return read_line(sv.reading_axis(first), lambda a, b: rows[:, a:b].ravel(), read)
     # The x of every point read is the reading's own axis (sv.reading_axis), which the picture was drawn on: the
