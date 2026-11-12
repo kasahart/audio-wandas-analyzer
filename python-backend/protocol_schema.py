@@ -744,8 +744,11 @@ DEFINITIONS: dict[str, Schema] = {
             # A compared line's power in stretches of its axis, from every value before thinning (R6's order).
             "levelBins": {
                 "type": "object",
-                "required": ["edges", "power", "count"],
+                "required": ["of", "edges", "power", "count"],
                 "properties": {
+                    # What power is (stage_combine.level_bins): a mean square of samples, or a mean of 10^(dB/10).
+                    # The webview orders by it unchanged at every zoom and reads an edge-cut window as it (R6).
+                    "of": {"type": "string", "enum": ["square", "dbPower"]},
                     "edges": _PLACES,
                     "power": _WHOLE_LINE,
                     "count": {"type": "array", "items": {"type": "integer", "minimum": 0}},

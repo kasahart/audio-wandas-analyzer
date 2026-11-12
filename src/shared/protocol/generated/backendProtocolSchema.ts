@@ -1793,11 +1793,19 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "levelBins": {
                     "type": "object",
                     "required": [
+                        "of",
                         "edges",
                         "power",
                         "count"
                     ],
                     "properties": {
+                        "of": {
+                            "type": "string",
+                            "enum": [
+                                "square",
+                                "dbPower"
+                            ]
+                        },
                         "edges": {
                             "type": "array",
                             "items": {
@@ -2819,6 +2827,7 @@ export interface StageView {
 };
     data?: string;
     levelBins?: {
+    of: "square" | "dbPower";
     edges: number[];
     power: number[];
     count: number[];

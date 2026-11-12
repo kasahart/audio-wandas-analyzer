@@ -10,7 +10,7 @@ import { held, ranged } from './helpers/heldSource';
 import { spectrumLayer } from '../webview/runtime/overlaySpectrumPainter';
 import { axisNameParts, fontPixels } from '../webview/plot/axisTitle';
 import { heatmapDbRange, niceRange } from '../shared/utils/ticks';
-import { alongAxisTicks, axisFractionOf, colourEndText, drawnLevelsText, type StageLayer, paintTimeAxis, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, stageReadAgain, stageStep, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
+import { alongAxisTicks, axisFractionOf, colourEndText, drawnLevelsText, type StageLayer, paintTimeAxis, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, stageReadAgain, stageStep, screenLevels, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
 import { fetchedSource, NO_FULL_DATA } from '../webview/runtime/fullRead';
@@ -345,7 +345,7 @@ test('waveforms are ordered by their samples\' mean square on the shared amplitu
     const signal = (color: string, peak: number, level: number, ref: number) => ({ color, view: {
         frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'level', xs: [0, 1], values: [level, level],
         waveform: { min: [-peak, -peak], max: [peak, peak], minT: [0, 1], maxT: [0, 1], absolutePeak: peak, unit: ref === 1 ? 'FS' : 'Pa', ref },
-        levelBins: { edges: [0, 1], power: [peak * peak / 2], count: [48000] },
+        levelBins: { of: 'square', edges: [0, 1], power: [peak * peak / 2], count: [48000] },
     } as StageView, full: NO_FULL_DATA });
     const pa = signal('blue', 0.1, 71, 2e-5), fs = signal('yellow', 0.5, -9, 1);
     assert.deepEqual(byLevel([pa, fs], pa.view).map(item => item.color), ['yellow', 'blue']);
@@ -367,13 +367,13 @@ test('the order comes from every value before thinning, never from the points dr
     const signal = (color: string, power: number) => ({ color, view: {
         frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 1], values: [0.5, 0.5],
         waveform: { min: [0.5, 0.5], max: [0.5, 0.5], minT: [0, 1], maxT: [0, 1], absolutePeak: 0.5, unit: '', ref: 1 },
-        levelBins: { edges: [0, 0.5, 1], power: [power, power], count: [2, 2] },
+        levelBins: { of: 'square', edges: [0, 0.5, 1], power: [power, power], count: [2, 2] },
     } as StageView, full: NO_FULL_DATA });
     const dc = signal('dc', 0.25), faint = signal('faint', 0.0001);
     assert.deepEqual(byLevel([faint, dc], dc.view).map(item => item.color), ['dc', 'faint']);
     // Over part of the axis, only the stretches on screen count.
-    const late = { color: 'late', view: { ...dc.view, levelBins: { edges: [0, 0.5, 1], power: [0, 1], count: [2, 2] } }, full: dc.full };
-    const early = { color: 'early', view: { ...dc.view, levelBins: { edges: [0, 0.5, 1], power: [0.5, 0], count: [2, 2] } }, full: dc.full };
+    const late = { color: 'late', view: { ...dc.view, levelBins: { of: 'square' as const, edges: [0, 0.5, 1], power: [0, 1], count: [2, 2] } }, full: dc.full };
+    const early = { color: 'early', view: { ...dc.view, levelBins: { of: 'square' as const, edges: [0, 0.5, 1], power: [0.5, 0], count: [2, 2] } }, full: dc.full };
     assert.deepEqual(byLevel([late, early], dc.view, { start: 0, end: 0.5 }).map(item => item.color), ['early', 'late']);
     assert.deepEqual(byLevel([early, late], dc.view, { start: 0.5, end: 1 }).map(item => item.color), ['late', 'early']);
 });
@@ -937,10 +937,63 @@ test('a trigger\'s events overlaid are ordered by their samples\' power: without
     };
     const layers = [events(0.5), events(0.01)].flatMap(eventLayers);
     assert.ok(drawnLevelsText(layers, { xs: [0, 1], xScale: 'linear' }).split(',').every(text => text === '?'), drawnLevelsText(layers, { xs: [0, 1], xScale: 'linear' }));
-    const bins = (power: number): StageView['levelBins'] => ({ edges: [0, 1], power: [power], count: [10] });
+    const bins = (power: number): StageView['levelBins'] => ({ of: 'square', edges: [0, 1], power: [power], count: [10] });
     const measured = [events(0.5, bins(0.25)), events(0.01, bins(0.0001))].flatMap(eventLayers);
     const texts = drawnLevelsText(measured, { xs: [0, 1], xScale: 'linear' }).split(',').map(Number);
     assert.ok(texts[0] > texts[1], texts.join(','));
+});
+
+test('a trigger\'s events are ordered by one level, whole and zoomed: the quantity their levelBins say (`of`), every event\'s samples on screen (R6)', async () => {
+    const fix = 'Fix: the level\'s quantity is the backend\'s levelBins.of, used unchanged at every zoom: stagePanes.screenLevels asks a cut window\'s read as `square` when of is \'square\' (never inferred from view.waveform), and the backend reads a trigger\'s events from every event\'s samples (stage_combine.read_points). See docs/display-rules.md R6.';
+    // Two recordings of two events each, 8 samples at 0..7 s from the trigger. A's events are opposite in sign: their
+    // mean is silence, yet over every sample A is the louder. B's are alike and quieter.
+    const xs = Array.from({ length: 8 }, (_, i) => i);
+    const rowsOf = { A: [xs.map(i => (i % 2 ? 0.5 : -0.5)), xs.map(i => (i % 2 ? -0.5 : 0.5))], B: [xs.map(() => 0.3), xs.map(() => 0.3)] };
+    const names = Object.keys(rowsOf) as (keyof typeof rowsOf)[];
+    // Independently of the code under test: the mean square of every event's raw samples inside [x0, x1].
+    const expected = (x0: number, x1: number): string[] => [...names].sort((a, b) => {
+        const meanSquare = (name: keyof typeof rowsOf): number => { const inside = rowsOf[name].flatMap(row => row.filter((_, i) => xs[i] >= x0 && xs[i] <= x1)); return inside.reduce((sum, v) => sum + v * v, 0) / inside.length; };
+        return meanSquare(b) - meanSquare(a);
+    });
+    // The backend (stage_combine.read_points, full_read.read_level) for each recording's events: a 'square' read is
+    // every event's samples squared; a 'db' read is the events' mean taken as dB (what a level line is).
+    const asked: string[] = [];
+    const backend = (rows: number[][]) => fetchedSource((read, done) => {
+        asked.push(String(read.level));
+        setTimeout(() => {
+            const [x0, x1] = read.x;
+            const inside = (row: readonly number[]): number[] => row.filter((_, i) => xs[i] >= x0 && xs[i] <= x1);
+            const values = read.level === 'square' ? rows.flatMap(inside) : inside(xs.map((_, i) => (rows[0][i] + rows[1][i]) / 2));
+            const power = values.reduce((sum, v) => sum + (read.level === 'square' ? v * v : 10 ** (v / 10)), 0) / values.length;
+            done({ xs: [], start: null, end: null, complete: false, level: { power, count: values.length } });
+        }, 0);
+    });
+    // The levelBins the backend sends (stage_combine._event_level_bins): two stretches of every event's squares.
+    const bins = (rows: number[][]): NonNullable<StageView['levelBins']> => {
+        const half = (low: number, high: number) => rows.flatMap(row => row.filter((_, i) => xs[i] >= low && xs[i] < high));
+        const parts = [half(0, 3.5), half(3.5, 8)];
+        return { of: 'square', edges: [0, 3.5, 7], power: parts.map(part => part.reduce((sum, v) => sum + v * v, 0) / part.length), count: parts.map(part => part.length) };
+    };
+    const layers: StageLayer[] = names.map(name => ({ color: name, full: backend(rowsOf[name]), view: {
+        frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs, values: xs.map(() => 0), levelBins: bins(rowsOf[name]),
+        events: rowsOf[name].map((values, id) => ({ id, time: id, xs, values })) } as unknown as StageView }));
+    const axis: StageView = { frame: 'ChannelFrameSegments', kind: 'line', xs: [0, 7], xScale: 'linear' };
+    const order = async (window: { start: number; end: number }): Promise<string[]> => {
+        let ready: () => void = () => undefined;
+        const came = new Promise<void>(resolve => { ready = resolve; });
+        let levels = screenLevels(layers, axis, window, { ready });
+        if ([...levels.values()].some(level => level.state === 'pending')) { await came; await new Promise(resolve => setTimeout(resolve, 0)); levels = screenLevels(layers, axis, window); }
+        assert.ok([...levels.values()].every(level => level.state === 'exact'), `every level must be known: ${JSON.stringify([...levels.values()])}`);
+        return byLevel(layers, axis, window, levels).map(layer => layer.color);
+    };
+    const whole = await order({ start: 0, end: 1 });
+    assert.deepEqual(whole, expected(0, 7), `the whole view must order by every event's samples' mean square. ${fix}`);
+    assert.equal(asked.length, 0, 'whole, the levelBins give the order with nothing read');
+    // Zoomed to 1–5 s: the edge cuts the stretch 0–3.5 s, so each recording's level on screen is read exactly.
+    const zoomed = await order({ start: 1 / 7, end: 5 / 7 });
+    assert.ok(asked.length > 0 && asked.every(kind => kind === 'square'), `a cut window of levelBins of 'square' must be read as 'square', was ${asked.join(',')}. ${fix}`);
+    assert.deepEqual(zoomed, expected(1, 5), `zoomed, the order must be every event's samples' mean square on screen. ${fix}`);
+    assert.deepEqual(zoomed, whole, `the order must not change between whole and zoomed when every sample's level does not. ${fix}`);
 });
 
 /**

@@ -385,7 +385,8 @@ export function axisValueAt(view: AxisView, fraction: number): number { return a
  * Overlaid lines in drawing order by level over the shown part of the axis: the loudest first, the quietest last on
  * top, so a louder recording does not cover a quieter one. A line's level is the power of its every value inside the
  * part on screen (R6), from the values before the line was thinned to be drawn (R2): a signal's mean square on the
- * amplitude axis the signals share, a spectrum's power mean of its dB (screenLevels). The drawn points are never
+ * amplitude axis the signals share, a spectrum's power mean of its dB (screenLevels). Which of the two is the backend's
+ * to say (`levelBins.of`), and is used unchanged at every zoom. The drawn points are never
  * measured. Lines with no level (not a level, or nothing shown) keep their place among themselves after the rest; the
  * colours and the legend are not changed.
  */
@@ -420,6 +421,11 @@ const levelUnsettled = (level: ScreenLevel): boolean => level.state === 'pending
  * are on screen, so the line is measured from its full data instead (`full`, fullRead.ts): its drawn points when they
  * are all its points, else every value of the window, read where the data is (`ready` is called once a fetched one is
  * in). A line with no levelBins is measured so only when it says so (`measured`).
+ *
+ * What the level is (a mean square of samples, or a power mean of dB) is the one quantity its levelBins say (`of`, set
+ * by the backend's stage_combine.level_bins or by levelBinsOf), whole and zoomed alike: the exact read of a cut window
+ * asks for that same quantity, never one guessed from which fields the picture has (a trigger's events have no
+ * `waveform`, yet are samples). A `measured` line with no bins is a level in dB (a cursor slice).
  */
 export function screenLevels(layers: readonly StageLayer[], axisView: AxisView | undefined, window: NormalizedRange = FULL_WINDOW, context: { ready?: () => void } = {}): Map<StageLayer, ScreenLevel> {
     const scale = axisView && axisExtent(axisView) ? axisScale(axisView) : null;
@@ -429,10 +435,9 @@ export function screenLevels(layers: readonly StageLayer[], axisView: AxisView |
     for (const layer of layers) {
         const { view } = layer;
         const bins = view.levelBins;
-        const signal = !!view.waveform;
         if (!bins && !layer.measured) {
             // A trigger's events are their recording's signal, ordered by their samples (A44): unmeasured without bins.
-            levels.set(layer, { level: -Infinity, state: isDb(view) || signal || !!view.events || !!layer.ofEvents ? 'unmeasured' : 'none' });
+            levels.set(layer, { level: -Infinity, state: isDb(view) || !!view.waveform || !!view.events || !!layer.ofEvents ? 'unmeasured' : 'none' });
             continue;
         }
         let estimate = -Infinity;
@@ -461,7 +466,7 @@ export function screenLevels(layers: readonly StageLayer[], axisView: AxisView |
         const ends: [number, number] | null = scale ? [scale.at(window.start), scale.at(window.end)] : own ? [own.first, own.last] : null;
         const full = layer.full;
         let sum: LevelAnswer = null;
-        if (ends && full.level !== cannotRead) sum = full.level({ x0: ends[0], x1: ends[1], square: signal }, context.ready ?? (() => undefined));
+        if (ends && full.level !== cannotRead) sum = full.level({ x0: ends[0], x1: ends[1], square: bins?.of === 'square' }, context.ready ?? (() => undefined));
         // null from data the backend holds is a read that failed (as a line's read, fullLineNear): not a level of 0 and
         // not the estimate. From a source with no level to give, there is nothing to measure.
         const failed = sum === null && full.held === 'fetched' && full.level !== cannotRead && !!ends;
@@ -474,7 +479,8 @@ export function screenLevels(layers: readonly StageLayer[], axisView: AxisView |
 
 /**
  * A line's levelBins (see byLevel) from the values it has before thinning, for a line the webview holds in full (the
- * cursor spectrum's slice): its dB values' power in `bins` stretches of `span` on its axis, silence as no power.
+ * cursor spectrum's slice): its dB values' power in `bins` stretches of `span` on its axis, silence as no power
+ * (`of: 'dbPower'`, as the backend's level_bins says of a level's).
  */
 export function levelBinsOf(xs: ArrayLike<number>, values: WholeLine, span: readonly [number, number], log: boolean, bins = 256): NonNullable<StageView['levelBins']> {
     const [low, high] = log ? [Math.max(span[0], Number.MIN_VALUE), span[1]] : span;
@@ -488,7 +494,7 @@ export function levelBinsOf(xs: ArrayLike<number>, values: WholeLine, span: read
         power[bin] += value <= -250 ? 0 : 10 ** (value / 10);
         count[bin] += 1;
     }
-    return { edges, power: power.map((sum, i) => (count[i] ? sum / count[i] : 0)), count };
+    return { of: 'dbPower', edges, power: power.map((sum, i) => (count[i] ? sum / count[i] : 0)), count };
 }
 
 /**

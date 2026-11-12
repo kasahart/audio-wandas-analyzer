@@ -18,14 +18,15 @@ window.__AWA_TEST_HOOKS__ = true;
 // resolution, named by a key as the backend names the values it keeps, and combined point by point.
 window.__uiSmokeStageData = {};
 // The backend's levelBins (stage_combine.level_bins) for a picture a test answers with, its values taken as every
-// value: a level's power mean of 10^(dB/10), a waveform's mean square, in stretches of its axis (R6's order).
+// value: a level's power mean of 10^(dB/10), a waveform's mean square, in stretches of its axis (R6's order), each
+// saying which it is (of), as the backend's do.
 function uiSmokeLevelBins(view) {
     const xs = view.xs || [];
     // A trigger's events: the mean square of every event's samples (stage_combine._event_level_bins, A44).
     if (view.events && view.events.length) {
         let sum = 0, n = 0, low = Infinity, high = -Infinity;
         view.events.forEach(function(event) { (event.values || []).forEach(function(value, i) { if (value === null || !isFinite(value)) return; sum += value * value; n += 1; low = Math.min(low, event.xs[i]); high = Math.max(high, event.xs[i]); }); });
-        return n ? { edges: [low, high > low ? high : low + 1], power: [sum / n], count: [n] } : null;
+        return n ? { of: 'square', edges: [low, high > low ? high : low + 1], power: [sum / n], count: [n] } : null;
     }
     const db = view.quantity === 'level' || view.quantity === 'gain';
     if ((view.kind !== 'line' && view.kind !== 'bar') || (!db && !view.waveform) || !xs.length) return null;
@@ -39,7 +40,7 @@ function uiSmokeLevelBins(view) {
     const edges = [low, high > low ? high : low + 1];
     let power = 0, count = 0;
     powers.forEach(function(value) { if (value !== null && isFinite(value)) { power += value; count += 1; } });
-    return { edges: edges, power: [count ? power / count : 0], count: [count] };
+    return { of: view.waveform ? 'square' : 'dbPower', edges: edges, power: [count ? power / count : 0], count: [count] };
 }
 function uiSmokeSourceAxis(places) {
     const axis = { count: places.length, first: places[0], last: places[places.length - 1] };

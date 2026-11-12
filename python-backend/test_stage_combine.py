@@ -838,3 +838,57 @@ def test_every_full_resolution_picture_is_kept_in_float64(signal: wd.ChannelFram
     for frame in (signal, signal.stft(n_fft=512, hop_length=256)):
         data = stage_data(frame, dict(stage_view(frame)))
         assert data is not None and data.values.dtype == np.float64, type(frame).__name__
+
+
+def test_a_triggers_events_level_is_one_quantity_whole_and_zoomed_every_events_mean_square() -> None:
+    """R6: a trigger's events' level is the quantity their levelBins say (``of``), whole and zoomed alike: the mean
+    square of every event's every sample on screen, never a dB power of the events' mean. Recording A's two events
+    are opposite in sign (their mean is silence, yet A is the louder); B's are alike and quieter. Over every sample A
+    is louder; a dB power of the events' mean would put B over A once zoomed."""
+
+    def recording(frequency: float, amplitude: float) -> tuple[dict, StageData, np.ndarray]:
+        t = np.arange(RATE) / RATE
+        # At 101 Hz the event cut 0.5 s later is the first one inverted; at 100 Hz it is the same.
+        frame = wd.from_numpy(amplitude * np.sin(2 * np.pi * frequency * t)[np.newaxis], sampling_rate=RATE).segment(
+            [0.1, 0.6], duration=0.3
+        )
+        view = dict(stage_view(frame, None))
+        data = stage_data(frame, view)
+        assert data is not None and data.rows is not None
+        return view, data, np.asarray(frame.to_numpy(), dtype=float).reshape(2, -1)
+
+    recordings = {"A": recording(101, 0.5), "B": recording(100, 0.3)}
+    fix = (
+        "Fix: stage_combine.level_bins states what levelBins.power is (of), the webview reads a cut window as that "
+        "same quantity (stagePanes.screenLevels), and read_points reads a trigger's events' level from every event's "
+        "samples (docs/display-rules.md R6)."
+    )
+    for name, (view, _, _) in recordings.items():
+        of = view["levelBins"].get("of")
+        assert of == "square", f"{name}: a trigger's events' levelBins must say of='square'. {fix}"
+
+    def expected(low: float, high: float) -> list[str]:
+        # Independently of the backend: every event's raw samples at the times from the trigger inside the window.
+        def mean_square(name: str) -> float:
+            _, data, rows = recordings[name]
+            inside = (data.xs >= low) & (data.xs <= high)
+            return float(np.mean(rows[:, inside] ** 2))
+
+        return sorted(recordings, key=mean_square, reverse=True)
+
+    xs = recordings["A"][1].xs
+    whole = sorted(recordings, key=lambda name: _level(recordings[name][0]["levelBins"]), reverse=True)
+    assert whole == expected(float(xs[0]), float(xs[-1])) == ["A", "B"], fix
+    # Zoomed to a window whose edges cut level-bin stretches: the exact level read of that window.
+    low, high = float(xs[100]), float(xs[3000])
+    zoomed: dict[str, float] = {}
+    for name, (view, data, rows) in recordings.items():
+        of = view["levelBins"]["of"]
+        points = read_points([data], None, {"x": [low, high], "level": "square" if of == "square" else "db"})
+        assert points is not None and "level" in points
+        level = points["level"]
+        inside = (data.xs >= low) & (data.xs <= high)
+        assert level["count"] == rows[:, inside].size, f"{name}: the read must take every event's samples. {fix}"
+        assert level["power"] == pytest.approx(np.mean(rows[:, inside] ** 2), rel=1e-9), fix
+        zoomed[name] = level["power"]
+    assert sorted(zoomed, key=zoomed.__getitem__, reverse=True) == expected(low, high) == whole, fix

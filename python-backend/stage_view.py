@@ -166,9 +166,13 @@ class StageValueRange(TypedDict):
 
 
 class StageLevelBins(TypedDict):
+    #: What ``power`` is, from the reading's kind (stage_combine.level_bins): a signal's or a trigger's events' mean
+    #: square of samples (``"square"``), or a level's or gain's mean of 10^(dB/10) (``"dbPower"``). The webview
+    #: orders by this one quantity at every zoom, and reads a window an edge cuts as it (R6); it never infers it.
+    of: Literal["square", "dbPower"]
     #: The stretches' edges on the x axis (one more than the stretches).
     edges: list[float]
-    #: Each stretch's mean power (linear: mean square of a signal, mean of 10^(dB/10) of a level).
+    #: Each stretch's mean power, as ``of`` says.
     power: list[float]
     #: How many values each stretch holds.
     count: list[int]

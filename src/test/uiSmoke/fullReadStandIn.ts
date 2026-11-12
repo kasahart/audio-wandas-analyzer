@@ -79,6 +79,12 @@ function uiSmokeReadPoints(view, read) {
         var event = (view.events || []).find(function(item) { return item.id === read.event; });
         return event ? uiSmokeReadLine(event.xs || [], event.values, read) : null;
     }
+    if (read.level && view.events && view.events.length) {
+        // A trigger's events' level on screen is every event's samples (stage_combine.read_points), as their levelBins.
+        var all = { xs: [], values: [] };
+        view.events.forEach(function(item) { (item.xs || []).forEach(function(x, index) { all.xs.push(x); all.values.push(item.values[index]); }); });
+        return uiSmokeReadLine(all.xs, all.values, read);
+    }
     if (view.waveform) {
         var xs = view.xs || [];
         var line = uiSmokeEnvelopePoints(view.waveform, function(index, count) { return xs.length ? xs[0] + (xs[xs.length - 1] - xs[0]) * (index + 0.5) / count : index; });

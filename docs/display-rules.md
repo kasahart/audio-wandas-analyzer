@@ -266,6 +266,9 @@
 - トリガーのイベントも、波形と同じく全イベントの全サンプルの二乗平均で並べます（`stage_combine.py` の `_event_level_bins`）。測れないイベントの線は「?」と書き、UI テストの監査で失敗にします。
 - テスト: `python-backend/test_stage_combine.py` › test_a_triggers_events_carry_their_samples_power_so_a_quiet_recordings_events_are_drawn_over_a_loud_ones
 - テスト: `src/test/stagePanes.test.ts` › a trigger's events overlaid are ordered by their samples' power: without it they are written unmeasured, which the audit of every plot fails (A44, R6)
+- レベルが何の量か（サンプルの二乗平均か、dB 値のパワー平均か）は、処理部が `levelBins.of`（`'square'` か `'dbPower'`）で言います。決めるのは levelBins を作るただ一か所（`stage_combine.py` の `level_bins`。Webview が全データを持つ線は `stagePanes.ts` の `levelBinsOf` で `'dbPower'`）で、読んだデータの種類から決めます。Webview は図にどの項目があるか（`waveform` があるかなど）から推し量らず、`levelBins.of` をそのまま使います。全体表示でも拡大でも同じ量です。画面の端が区間を切るときの全データの読み取りも、同じ `of` の量を頼みます（`square` なら `level: 'square'`）。トリガーのイベントのその読み取りは、全イベントの全サンプルの二乗平均で、イベントの平均の線からは測りません（`stage_combine.py` の `read_points`）。量が拡大で変わると、静かなものが上の順が拡大するだけで入れ替わります。
+- テスト: `src/test/stagePanes.test.ts` › a trigger's events are ordered by one level, whole and zoomed: the quantity their levelBins say (`of`), every event's samples on screen (R6)
+- テスト: `python-backend/test_stage_combine.py` › test_a_triggers_events_level_is_one_quantity_whole_and_zoomed_every_events_mean_square
 
 - テスト: `src/test/stagePanes.test.ts` › every plot draws its overlaid lines loudest first and the quietest last on top, whatever order the caller gives them (R6)
 - テスト: `src/test/stagePanes.test.ts` › while a line's level on screen is on its way, the plot keeps the order it last judged on every value: never one guessed from part of it (R6)

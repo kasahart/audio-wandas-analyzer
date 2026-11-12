@@ -346,7 +346,11 @@ def level_bins(data: StageData, detail: StageDetail | None = None) -> StageLevel
     whole picture, or ``detail``'s part): for the plot to draw the quietest line on top over whatever part is on
     screen (R6) from the values before they were thinned to be drawn. A signal's power is the mean square of its
     samples (on the amplitude axis the signals share); a level's or gain's, the mean of 10^(dB/10), silence (−250
-    dB and below) counted as no power. None for a line of other values (a coherence) or an image."""
+    dB and below) counted as no power. None for a line of other values (a coherence) or an image.
+
+    The one place level bins are made: each states which of the two its ``power`` is (``of``: ``"square"`` or
+    ``"dbPower"``), from the reading's kind, and the webview reads the level on screen as that one quantity at every
+    zoom (R6): the exact read of a window an edge cuts (read_points, full_read.read_level) asks for the same ``of``."""
     bounds, _ = _bounds(detail)
     if data.mode == "signal":
         first, last = _signal_range(data, bounds)
@@ -362,7 +366,7 @@ def level_bins(data: StageData, detail: StageDetail | None = None) -> StageLevel
         times = sv.x_at(data, edges)
         # The last stretch ends at its last sample's time.
         times[-1] = sv.x_at(data, last - 1)
-        return {"edges": sv._axis(times), "power": powers, "count": counts}
+        return {"of": "square", "edges": sv._axis(times), "power": powers, "count": counts}
     if data.mode == "events" and data.rows is not None:
         return _event_level_bins(data, bounds)
     if data.view.get("quantity") not in DB_QUANTITIES or data.values.ndim != 1:
@@ -388,13 +392,19 @@ def level_bins(data: StageData, detail: StageDetail | None = None) -> StageLevel
     counts = np.bincount(which, minlength=LEVEL_BINS)
     sums = np.bincount(which, weights=power, minlength=LEVEL_BINS)
     means = np.divide(sums, counts, out=np.zeros(LEVEL_BINS), where=counts > 0)
-    return {"edges": sv._axis(edges), "power": [float(v) for v in means], "count": [int(c) for c in counts]}
+    return {
+        "of": "dbPower",
+        "edges": sv._axis(edges),
+        "power": [float(v) for v in means],
+        "count": [int(c) for c in counts],
+    }
 
 
 def _event_level_bins(data: StageData, bounds: list[float] | None) -> StageLevelBins | None:
     """A trigger's events' power, as a signal's (A44, R6): the mean square of every event's samples, in LEVEL_BINS
     stretches of the time from the trigger, so its events are ordered among the overlaid recordings' by their
-    samples, never left unordered."""
+    samples, never left unordered. A window an edge cuts is read as the same quantity (read_points: every event's
+    samples, never the events' mean)."""
     rows, xs = data.rows, data.xs
     if rows is None or rows.ndim != 2 or not xs.size or rows.shape[1] != xs.size:
         return None
@@ -410,7 +420,12 @@ def _event_level_bins(data: StageData, bounds: list[float] | None) -> StageLevel
     counts = np.bincount(which, weights=finite.sum(axis=0), minlength=LEVEL_BINS)
     sums = np.bincount(which, weights=squares.sum(axis=0), minlength=LEVEL_BINS)
     means = np.divide(sums, counts, out=np.zeros(LEVEL_BINS), where=counts > 0)
-    return {"edges": sv._axis(edges), "power": [float(v) for v in means], "count": [int(c) for c in counts]}
+    return {
+        "of": "square",
+        "edges": sv._axis(edges),
+        "power": [float(v) for v in means],
+        "count": [int(c) for c in counts],
+    }
 
 
 def _line_buckets(mode: Mode, points: int) -> int:
@@ -873,6 +888,12 @@ def read_points(base: list[StageData], compare: StageData | None, read: StageRea
             return None
         row = first.rows[first.event_ids.index(int(read["event"]))]
         return read_line(sv.reading_axis(first), lambda a, b: row[a:b], read)
+    if first.mode == "events" and "level" in read and not diff and first.rows is not None:
+        # The level on screen of a trigger's events (R6) is what their levelBins are (_event_level_bins): the mean
+        # square of every event's every sample in the window, never of the events' mean. A median's are its first
+        # recording's events, as its levelBins are (combine draws it from ``first`` with the median values).
+        rows = first.rows
+        return read_line(sv.reading_axis(first), lambda a, b: rows[:, a:b].ravel(), read)
     # The x of every point read is the reading's own axis (sv.reading_axis), which the picture was drawn on: the
     # recordings combined were cut to the same count of values (_aligned).
     return read_line(sv.reading_axis(first), lambda a, b: combined(lambda item: item.values[a:b]), read)
