@@ -35,6 +35,10 @@
 - 設定の初期値にする数も同じです。トリガーを足したときのレベルの初期値は、比較しているチャンネルの、領域の中のピーク（一番大きい |サンプル|）の半分です。このピークは、レーンの読み値と同じ道（`fullRead.ts` の `FullSource.level`、バックエンドは `full_read.read_level` の `peak`）で、元のサンプル全部から読みます（`src/webview/runtime/regionPeak.ts`）。レーンに描く包絡（間引いた最小・最大）からは計算しません。包絡は領域の中の一番大きいサンプルを持っていないことがあるからです。
   - 読んでいる途中（pending）と、読み取りが失敗したとき（failed）は、ピークの数はありません。推し量った値を初期値にしません。そのときに足したトリガーは処理そのものの既定値で始まり、フッターにそう書きます（`stepPeakUnread`）。
   - 答えを覚えておくこと、失敗した読み取りを 5 秒の間を置いて出し直すことは、ほかの読み値と同じ決まり（`fetchedSource`、`answerStore.ts`）に任せます。ここに別のキャッシュや出し直しを足しません。
+  - サンプルを読みに行くのは、トリガーを足せるときだけです。＋ のメニューを開いてトリガーが選べるときと、トリガーを足すときに、ステップバーが読みます（`StepBarState.peak` は値ではなく読む関数です）。グラフを描き直すたびには読みません。読むのは比較しているスロットのチャンネルだけで、トラックに並んでいるほかのファイルは読みません（スロットがないときは、表示中のトラック全部が比較の対象なので、その全部を読みます）。
+- テスト: `src/test/uiSmoke/triggerDefault.spec.ts` › a trigger added on a region starts at half the region's true peak, read from every sample by the real backend; added while that read is on its way it keeps its own level and the footer says so (R1)
+- テスト: `src/test/uiSmoke/triggerDefault.spec.ts` › with a hundred files open and thirty of them on the tracks, the samples for a trigger's level are asked only when ＋ offers a trigger, and only of the two compared slots (R1)
+- テスト: `src/test/stepBar.test.ts` › a trigger added once the tracks' peak is read starts at half of it; added while the peak is pending or its read failed it keeps its own level and the footer says so (R1)
 - テスト: `src/test/regionPeak.test.ts` › a region's peak is read from every sample: a region that cuts a drawn bucket reads its own largest sample, which the thinned envelope does not hold (R1)
 - テスト: `src/test/regionPeak.test.ts` › while a channel's peak is being read it is pending, and a failed read is failed until the answer store's pause is over: neither carries a number (R1)
 - テスト: `python-backend/test_full_read.py` › test_a_regions_peak_is_taken_from_every_sample_of_the_lane_not_from_its_envelope
