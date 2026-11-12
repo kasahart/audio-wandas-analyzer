@@ -1,4 +1,21 @@
 /**
+ * An envelope's points in order of their time: each bucket's lowest and highest at their own places (`minT`, `maxT`),
+ * else at `placeOf(bucket, buckets)`. The stand-in answers a signal's reads from these (UI_SMOKE_READS), and a test
+ * that expects a point of the signal (plotContract.spec.ts, knownData.ts) takes them from the same raw envelope it posted.
+ */
+export function uiSmokeEnvelopePoints(envelope: { min: number[]; max: number[]; minT?: number[]; maxT?: number[] }, placeOf: (index: number, count: number) => number): { xs: number[]; values: number[] } {
+    const points: Array<[number, number]> = [];
+    const count = Math.max(envelope.min.length, envelope.max.length);
+    for (let index = 0; index < count; index++) {
+        const middle = placeOf(index, count);
+        points.push([envelope.minT?.[index] ?? middle, envelope.min[index]]);
+        points.push([envelope.maxT?.[index] ?? middle, envelope.max[index]]);
+    }
+    points.sort((a, b) => a[0] - b[0]);
+    return { xs: points.map(point => point[0]), values: points.map(point => point[1]) };
+}
+
+/**
  * The ui-smoke pages' stand-in for the backend's reads of full data (R7, python-backend/full_read.py): a plot's
  * readout asks for the points around the pointer and the page answers from what it holds, which for these pages is
  * the full data (a lane's envelope points, its spectrogram's cells, a picture a test posted). The real reads are
@@ -59,18 +76,7 @@ function uiSmokeReadCells(xs, ys, matrix, read) {
         start: c0 > 0 ? xs[c0] : null, end: c1 < xs.length ? xs[c1 - 1] : null, complete: true,
     };
 }
-/** An envelope's points in order of their time: each bucket's lowest and highest at their own places. */
-function uiSmokeEnvelopePoints(envelope, placeOf) {
-    var points = [];
-    var count = Math.max((envelope.min || []).length, (envelope.max || []).length);
-    for (var index = 0; index < count; index++) {
-        var middle = placeOf(index, count);
-        points.push([envelope.minT && envelope.minT[index] !== undefined ? envelope.minT[index] : middle, envelope.min[index]]);
-        points.push([envelope.maxT && envelope.maxT[index] !== undefined ? envelope.maxT[index] : middle, envelope.max[index]]);
-    }
-    points.sort(function(a, b) { return a[0] - b[0]; });
-    return { xs: points.map(function(point) { return point[0]; }), values: points.map(function(point) { return point[1]; }) };
-}
+${uiSmokeEnvelopePoints.toString()}
 /** A picture's own points for a read (its line, its signal's envelope, one event's line, its image's cells). */
 function uiSmokeReadPoints(view, read) {
     if (!view || view.kind === 'none') return null;

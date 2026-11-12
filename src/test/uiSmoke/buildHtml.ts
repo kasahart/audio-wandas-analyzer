@@ -150,6 +150,13 @@ HTMLMediaElement.prototype.play = function() {
 </script>`;
 }
 
+/**
+ * The Extension Host path stub's grids (buildExtensionHostApiStub): a cursor spectrum's every bin (4097, an 8192-point
+ * FFT) and a pair view's 129 bins, each from 0 Hz up to `maxHz`. Exported so a test that expects a bin of them
+ * (plotContract.spec.ts) takes it from the data the stub answers with, not from the plot.
+ */
+export const UI_SMOKE_HOST_GRID = { spectrumBins: 4097, pairBins: 129, maxHz: 4000 } as const;
+
 function buildExtensionHostApiStub(nonce: string, responseDelayMs: number): string {
     return `<script nonce="${nonce}">
 window.__uiSmokePostedMessages = [];
@@ -165,7 +172,7 @@ window.__uiSmokeHostMetrics = {
 };
 // A cursor spectrum is a row cut for display (192 points); the CSV export asks for every bin of an 8192-point FFT.
 const uiSmokeSpectrumBins = function(message) {
-    return message.fullResolution ? 4097 : 192;
+    return message.fullResolution ? ${UI_SMOKE_HOST_GRID.spectrumBins} : 192;
 };
 // A test may set window.__uiSmokeSpikeHz: one bin there stands at −2 dB in an answer at full resolution only, a
 // line a spectrum cut for display (192 points) does not have.
@@ -224,7 +231,7 @@ const uiSmokeSpectrumResponse = function(message) {
         trackIndex: message.trackIndex,
         filePath: message.filePath,
         frequencyBins: bins,
-        maxFrequencyHz: 4000,
+        maxFrequencyHz: ${UI_SMOKE_HOST_GRID.maxHz},
         ...(message.fullResolution ? {} : { frequenciesHz: Array.from({ length: bins }, function(_, index) { return index / (bins - 1) * 4000; }) }),
         windowStartNorm: message.cursorNorm - 0.02,
         windowEndNorm: message.cursorNorm + 0.02,
@@ -254,7 +261,7 @@ const uiSmokeSpectrumResponse = function(message) {
     });
 };
 const uiSmokePairResponse = function(message) {
-    const bins = 129;
+    const bins = ${UI_SMOKE_HOST_GRID.pairBins};
     return {
         type: 'pair-spectrum-result',
         requestId: message.requestId,
@@ -263,7 +270,7 @@ const uiSmokePairResponse = function(message) {
         filePath: message.reference.filePath,
         channelIndex: message.reference.channelIndex,
         frequencyBins: bins,
-        maxFrequencyHz: 4000,
+        maxFrequencyHz: ${UI_SMOKE_HOST_GRID.maxHz},
         nFft: 256,
         hopLength: 64,
         window: 'hann',
@@ -346,16 +353,24 @@ function finalizeUiSmokeHtml(html: string, apiStub = buildVsCodeApiStub): string
     return html.replace('<div id="app"></div>', `<div id="app"></div>\n    ${apiStub(nonce)}`);
 }
 
-interface PreviewResult {
+export interface PreviewResult {
     filePath: string;
     fileName: string;
     channels: Array<Record<string, unknown>>;
     [key: string]: unknown;
 }
 
-interface PreviewState {
+export interface PreviewState {
     results: PreviewResult[];
     [key: string]: unknown;
+}
+
+/** The app state a page was built with (its results: each track's waveform envelope, spectrogram, duration). */
+export function appStateOf(html: string): PreviewState {
+    let state: PreviewState | null = null;
+    replaceAppState(html, built => { state = JSON.parse(JSON.stringify(built)) as PreviewState; });
+    if (!state) throw new Error('no __APP_STATE__ in the page');
+    return state;
 }
 
 function replaceAppState(html: string, mutate: (state: PreviewState) => void): string {

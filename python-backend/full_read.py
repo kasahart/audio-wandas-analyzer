@@ -205,11 +205,10 @@ def read_line(
                 start + int(index)
                 for index in (np.nanargmin(masked), np.nanargmax(masked), np.nanargmin(np.abs(masked - near)))
             )
-        nearest = _nearest_on_screen(read, window, x_at, low, high, near, log, plain)
+        nearest, across = pointer_picks(axis, values_in, read, window)
         if nearest is not None:
             chosen.append(nearest)
-        across = _nearest_along(read, window, x_at, low, high, log, plain)
-        if across is not None:
+        if across is not None and low <= across < high:
             chosen.append(across)
         inside = np.unique(np.asarray(chosen, dtype=np.int64))
         picked = np.concatenate([np.arange(first, low), inside, np.arange(high, after)]).astype(np.int64)
@@ -297,6 +296,33 @@ def _seek_line(
     }
 
 
+def pointer_picks(
+    axis: tuple[int, XAt, IndexOf],
+    values_in: Callable[[int, int], np.ndarray],
+    read: StageRead,
+    window: np.ndarray | None = None,
+) -> tuple[int | None, int | None]:
+    """The two points the pointer may read of a line (docs/display-rules.md R7's table, the rule the webview's
+    stagePanes.fullLineNear follows too): the index of the point nearest it on screen among those in the pick window
+    ``x`` (_nearest_on_screen; the webview reads it only within its pick radius), and of the point under it
+    (_nearest_along), looked for in the window and ``beyond`` points past each end, as the webview looks among the
+    points it is sent. ``window``: the values of the pick window, where the caller has read them already. Both are
+    run against python-backend/tests/fixtures/pick_cases.json (test_pick_cases.py)."""
+    count, x_at, index_of = axis
+    bounds = [float(value) for value in read["x"]]
+    low, high = index_of(min(bounds), "left"), index_of(max(bounds), "right")
+    high = max(high, low)
+    beyond = _limited(read, "beyond", 1, READ_BEYOND_LIMIT)
+    first, after = max(0, low - beyond), min(count, high + beyond)
+    near = read.get("near")
+    log = bool(read.get("log")) and min(bounds) > 0
+    plain = bool(read.get("plain"))
+    inside = np.asarray(values_in(low, high) if window is None else window, dtype=np.float64)
+    nearest = None if near is None else _nearest_on_screen(read, inside, x_at, low, high, float(near), log, plain)
+    around = np.concatenate([values_in(first, low), inside, values_in(high, after)]).astype(np.float64)
+    return nearest, _nearest_along(read, around, x_at, first, after, log, plain, count)
+
+
 def _nearest_on_screen(
     read: StageRead, window: np.ndarray, x_at: XAt, low: int, high: int, near: float, log: bool, plain: bool = False
 ) -> int | None:
@@ -321,18 +347,38 @@ def _nearest_on_screen(
 
 
 def _nearest_along(
-    read: StageRead, window: np.ndarray, x_at: XAt, low: int, high: int, log: bool, plain: bool = False
+    read: StageRead,
+    window: np.ndarray,
+    x_at: XAt,
+    low: int,
+    high: int,
+    log: bool,
+    plain: bool = False,
+    count: int | None = None,
 ) -> int | None:
     """The index of the point of ``window`` (indices [low, high)) with a value to read whose x is nearest the pointer's
     (``at``, on a log axis by ratio): the point under the pointer, which it reads when no point is near it on screen
-    (beyond the pick radius, StagePoints ``under``). None without the pointer's place or a point to read."""
+    (beyond the pick radius, StagePoints ``under``). None without the pointer's place or a point to read, and, given
+    the line's ``count``, with the pointer more than half a pixel (``pixels``) before its first point or past its
+    last: there the pointer is over none of it (R7, as stagePanes.fullLineNear)."""
     if "at" not in read or high <= low:
         return None
     at = float(read["at"])
     if not math.isfinite(at) or (log and at <= 0):
         return None
+
+    def measure(xs: np.ndarray) -> np.ndarray:
+        return np.log(np.maximum(xs, 1e-300)) if log else xs
+
+    place = float(measure(np.asarray(at, dtype=np.float64)))
+    if count:
+        scale = [float(value) for value in read.get("pixels", [])]
+        slack = 0.5 / scale[0] if len(scale) == 2 and math.isfinite(scale[0]) and scale[0] > 0 else 0.0
+        ends = measure(np.asarray(x_at(np.asarray([0, count - 1])), dtype=np.float64))
+        if place < float(ends[0]) - slack or place > float(ends[1]) + slack:
+            return None
     xs = np.asarray(x_at(np.arange(low, high)), dtype=np.float64)
-    along = np.abs(np.log(np.maximum(xs, 1e-300)) - math.log(at)) if log else np.abs(xs - at)
+    along = np.abs(measure(xs) - place)
     # Not held to the values on screen (``shown``): the point under the pointer is the line's point there (R7).
     readable = _readable(window, plain) & np.isfinite(along)
     if not readable.any():

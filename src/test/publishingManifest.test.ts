@@ -170,6 +170,8 @@ test('.vscodeignore excludes development-only assets from the published VSIX', (
         'python-backend/__pycache__/**',
         'python-backend/.pytest_cache/**',
         'python-backend/test_*.py',
+        // The fixtures both implementations' tests read (pick_cases.json): test data, not the backend.
+        'python-backend/tests/**',
     ]) {
         assert.match(vscodeIgnore, new RegExp(`(^|\\n)${entry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\n|$)`));
     }

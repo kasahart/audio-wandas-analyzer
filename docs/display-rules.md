@@ -317,7 +317,21 @@
 
 - 「一番近い点」を画面の中の点に限るのは、軸の外の点を候補にしてから Webview で捨てると、画面の中の本当の最寄りの点を読み落とすからです。密な窓では、バックエンドが `shown` の中から選びます（`full_read._nearest_on_screen`、`_on_screen`）。
 - 「マウスの下の点」を値で絞らないのは、絞ると、マウスの真下の点の代わりに横にずれた別の点を読むからです。密な窓では、バックエンドが値で絞らずに選びます（`full_read._nearest_along`、答えの `under`）。
-- この決まりを変えるときは、`fullLineNear` と `full_read.py` の 2 つの関数を一緒に変え、下の 4 種類の線のテストを通してください。線の種類ごとの分岐は足しません。
+- この決まりを変えるときは、まず下のピックの表の行を足すか変え、`fullLineNear`（← / → は `stageStep`）と `full_read.py` を一緒に変え、表の両方のテストと下の 4 種類の線のテストを通してください。線の種類ごとの分岐は足しません。
+
+マウスが読む点と ← / → が進む先の決まりの定義は、1 つの表 `python-backend/tests/fixtures/pick_cases.json` です。上の表と文はその説明で、食い違うときは表が正しく、説明を直します。表の 1 行は、線の点（x と値。値のない点は null・NaN・±∞）、値の線か無音の床のあるレベルか（`plain`）、表示（横軸の範囲と線形・対数、値の範囲、図の枠の画素）、マウスの位置（枠の左上からの画素）か読んでいる点の番号（`from`）、読み方（`nearest`：半径の中の一番近い点、`under`：マウスの下の点、`step+` / `step-`：→ / ←）と、読む点の番号（なければ null）です。Webview（`stagePanes.stageHover` と `stageStep`、`paintOverlay` で描いた図と全部の値を持つ線で）とバックエンド（`full_read.pointer_picks` の `_nearest_on_screen` と `_nearest_along`、← / → は `_seek_line`）が、同じ表の全行をテストで通します。表には、同じ距離の 2 点（データの順で先の点）、同じ x で値の違う点（← / → は `from` から隣の点へ）、拡大した値の軸の外の点、±0.001 と ±10⁶ の値の範囲、対数の横軸、値のない点と無音の床、線の両端を入れています。
+
+- 片方で表せない行は、行の `not_on` にその側と理由（表の `cannot` の名前）を書きます。黙って飛ばしません。どちらのテストも、表せない行の一覧を確かめます。今は、バックエンドで表せない 4 行です。ピックの半径（20 px）は Webview だけが持ちます（バックエンドは画面の上で一番近い点を距離によらず送り、Webview が半径で選ぶ）。バックエンドの seek は `from` を持たず x だけで進みます（バックエンドの線は x が重ならない。重なる線は Webview が全部の値を持って番号で進む）。バックエンドの seek は表示を知りません（図の横の端で止まるのは Webview）。
+- 決まりどおりにまだ動かない行は、`today` に今の答えと、それを変える作業を書きます。その行は今の答えを確かめ、決まりどおりに直るとテストが失敗して `today` を消すよう求めます。今は 1 行です。ピックの窓より長い値のない区間の上では、Webview もバックエンドも窓とその外の 1 点ずつしか見ないので何も読みませんが、上の表は「一番近い値のある点」と言います。値のない点の決まりは G5 で決め、両方を一緒に変えます。
+- 値が有限でない点（NaN、±∞）は値のない点です。マウスの下でも ← / → の先でも読みません（`stagePanes.fullPoint`、`fullRead.readableValue`、`full_read._readable`）。
+- マウスの下の点は、ピックの窓と、その外の 1 点ずつ（`beyond`）から探します。Webview は送られた点から、バックエンドも同じ範囲から探します（`full_read.pointer_picks`）。線の最初の点より左、最後の点より右に半画素より外では、マウスの下の点はありません。
+- UI テストの ← / → の確かめ（`src/test/uiSmoke/plotContract.spec.ts` の contract の `step` と `zoom keys`）は、次の点を、グラフ自身の全データ（`StageLayer.full`）からではなく、テストが自分で送った・作ったデータから、この表の step の決まりで求めます（`src/test/uiSmoke/knownData.ts`：比較の図はテストが送った絵、レーンはテストが送った解析結果や作ったページの状態、カーソルスペクトルとペアの図は stand-in のビン、入口の保持図は渡したビン、概観は 1/3 オクターブの中心周波数）。同じ x の隣の点があれば、番号か identity でその点を確かめます。実装に期待を聞くと、実装のデータが間違っていても一致してしまうからです。テストがデータを知らないグラフは `NO_KNOWN_DATA` に理由と一緒に書き、そのグラフは一方向に進んで戻ることだけを確かめます。今は分布図の棒だけです（棒は Webview 自身のビン分けで、期待を作るにはテストする実装をもう一度書くことになる）。書かれていないグラフをデータなしで確かめると、そのテストが失敗します。
+- テスト: `src/test/pickCases.test.ts` › every pick case of the table is read by the webview as the table says: nearest, under, ← and → (R7)
+- テスト: `src/test/pickCases.test.ts` › the pick cases the webview cannot express are listed with why (R7)
+- テスト: `python-backend/test_pick_cases.py` › test_every_pick_case_of_the_table_is_read_by_the_backend_as_the_table_says
+- テスト: `python-backend/test_pick_cases.py` › test_the_cases_the_backend_cannot_express_are_listed_with_why
+- テスト: `src/test/uiSmoke/plotContract.spec.ts` › every plot the comparison shows answers the same gestures: readout above it, ← / → step it, Ctrl+wheel zoom, double-click reset, axis range, both axes named (R13)
+
 
 読み値の時刻・周波数の桁は、元のデータの刻み（その点と、元のデータで隣の点との間隔）から決めます。刻みは、全データの出どころが点ごとに答えに付けて送ります（`StagePoints.steps`。バックエンドは `full_read.source_steps`、Webview が全部の値を持つ線は `fullRead.sourceSteps`、別の軸で読む出どころは `mappedSource` がその軸に直します）。Webview は、送られてきた点どうしの間隔から桁を作りません。密な窓では画素の列ごとに数点しか送られず、その間隔は元の刻みよりずっと粗いので、隣のサンプルと同じ数字になるからです。答えに刻みがない点（1 点しかない線など）は、刻みなしとして書きます。熱図とスペクトログラムのマスは、いつも元のデータの隣り合う列と行をそのまま送るので、その間隔が元の刻みです。
 

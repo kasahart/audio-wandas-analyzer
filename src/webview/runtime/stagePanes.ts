@@ -1893,7 +1893,9 @@ export function declaresFullRead(layer: StageLayer): boolean {
 function fullPoint(plot: StagePlot, layer: StageLayer, points: FullPoints, index: number): ReadPoint | null {
     const value = points.values?.[index];
     const at = points.xs[index];
-    if (value === null || value === undefined || at === undefined || silent(layer.view, value, plot.diff)) return null;
+    // A value that is not finite (NaN, ±Infinity) is no value, as a seek and the backend read it (fullRead.readableValue,
+    // full_read._readable): the pointer never reads it under itself, nor does a step land on it (R7's pick table).
+    if (value === null || value === undefined || !Number.isFinite(value) || at === undefined || silent(layer.view, value, plot.diff)) return null;
     const { top, height } = plot.frame;
     // Its exact place (R14), held at the plot's edge only when its value is past the axis.
     const y = Math.min(top + height, Math.max(top, plot.yOf(value)));

@@ -2,12 +2,13 @@ import { readFileSync } from 'node:fs';
 import { stubStage } from './stubStage';
 import path from 'node:path';
 import { expect, settled, test, type Locator, type Page } from './canvasAudit';
-import { buildExtensionHostPathUiSmokeHtml, buildUiSmokeCalibrationHtml, buildUiSmokeHtml } from './buildHtml';
+import { appStateOf, buildExtensionHostPathUiSmokeHtml, buildUiSmokeCalibrationHtml, buildUiSmokeHtml, UI_SMOKE_HOST_GRID } from './buildHtml';
 import { getStrings } from '../../shared/i18n/strings';
 import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
 import { INPUT_FRAME, isCharted, outputOf, WANDAS_OPERATIONS } from '../../shared/recipe/recipeCatalog';
 import { reachableFrameKinds } from '../helpers/frameKinds';
 import { DIFF_COLOR, FLAG_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
+import { binGrid, firstKnown, isPoint, postedPictures, recordingLanes, stepOf, type KnownData, type PointAt, type ReadOf } from './knownData';
 
 const STR_EN = getStrings('en');
 
@@ -39,6 +40,7 @@ async function answer(page: Page, files: ScannedFile[], view: Record<string, unk
     const request = (await stageScans(page)).at(-1)!;
     // Each recording's picture with the valueRange the backend sends with one (the first recording 6 dB up).
     const stages = request.filePaths.map((_, index) => stubStage(view, value => value + (index === 0 ? 6 : 0)));
+    request.filePaths.forEach((filePath, index) => postedStages.push({ filePath, picture: stages[index] }));
     await page.evaluate(({ request, stages, files }) => {
         request.filePaths.forEach((filePath, index) => {
             const file = files.find(item => item.filePath === filePath)!;
@@ -61,10 +63,13 @@ async function openComparison(page: Page, files: ScannedFile[]): Promise<void> {
     await page.keyboard.press('1');
     await page.keyboard.press('Enter');
     await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
-    await page.evaluate(paths => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: paths.map(filePath => ({
-        filePath, fileName: filePath.split('/').at(-1), audioSource: '', sampleRateHz: 16000, durationSeconds: 2, channelCount: 1, sampleCount: 32000,
+    const results = paths.map(filePath => ({
+        filePath, fileName: filePath.split('/').at(-1) ?? '', audioSource: '', sampleRateHz: 16000, durationSeconds: 2, channelCount: 1, sampleCount: 32000,
         channels: [{ label: 'L', peakAbsolute: 0.5, fullScale: true, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } }],
-    })) } })), paths);
+    }));
+    await page.evaluate(results => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results } })), results);
+    // Every plot the comparison draws reads the pictures the test posts (answer, answerKinds) or the recordings' lanes.
+    knownData = firstKnown(postedPictures(postedStages), recordingLanes(results));
     await expect(page.locator('.track-stage')).toBeVisible();
     await expect.poll(async () => (await stageScans(page)).length).toBeGreaterThan(0);
     const bar = page.locator('.track-stage-bar');
@@ -78,12 +83,15 @@ async function openComparison(page: Page, files: ScannedFile[]): Promise<void> {
 
 /**
  * The point a plot reads now (plotHoverLayer.ts's notePlotRead keeps it on the plot, `__plotRead`): where it is along
- * the horizontal axis (`at`), its row for an image, and whether it is on the line the first read was on. Waited for
- * until there is one (its full data may be on its way) and, given `from`, until it is another than that one, or until
- * the page has finished answering and still reads `from` (which is then returned: the caller decides what it means).
+ * the horizontal axis (`at`), its row for an image, its index among its source's every point and its identity where it
+ * has them (so a point beside it at the same x is told apart), and whether it is on the line the first read was on.
+ * Waited for until there is one (its full data may be on its way) and, given `from`, until it is another than that
+ * one, or until the page has finished answering and still reads `from` (which is then returned: the caller decides
+ * what it means).
  */
-type PointRead = { at: number; row: number | null; sameLayer: boolean };
-type NotedPlot = HTMLElement & { __plotRead?: { at?: number; row?: number; image?: boolean; layer: { label?: string; color?: string; source?: string; event?: { id: number } } } | null; __stepLayer?: string };
+type PointRead = PointAt & { sameLayer: boolean };
+type NotedPlot = HTMLElement & { __plotRead?: { at?: number; row?: number; index?: number; identity?: string; image?: boolean; layer: { label?: string; color?: string; source?: string; event?: { id: number } } } | null; __stepLayer?: string };
+const samePoint = (a: PointAt, b: PointAt): boolean => a.at === b.at && a.row === b.row && a.index === b.index && a.identity === b.identity;
 async function pointRead(plot: Locator, from?: PointRead | null): Promise<PointRead | null> {
     const now = (): Promise<PointRead | null> => plot.evaluate((canvas, first) => {
         const noted = canvas as NotedPlot;
@@ -92,7 +100,7 @@ async function pointRead(plot: Locator, from?: PointRead | null): Promise<PointR
         // The line read, by what tells it apart (a plot drawn again under a step makes its layers anew).
         const layer = [read.layer.label, read.layer.color, read.layer.source, read.layer.event?.id].join('|');
         if (first) noted.__stepLayer = layer;
-        return { at: read.at, row: read.row ?? null, sameLayer: layer === noted.__stepLayer };
+        return { at: read.at, row: read.row ?? null, index: read.index !== undefined && read.index >= 0 ? read.index : null, identity: read.identity ?? null, sameLayer: layer === noted.__stepLayer };
     }, !from);
     // The wait is for the page, never for a time: once it has answered (settled(): its frames, its timers, the host's
     // answers) and no read is waiting for its full data (data-plot-read "pending"), what the plot reads is its answer,
@@ -101,7 +109,7 @@ async function pointRead(plot: Locator, from?: PointRead | null): Promise<PointR
     for (let tries = 0, rested = 0; tries < 100; tries++) {
         await settled(plot.page());
         const point = await now();
-        if (point && (!from || point.at !== from.at || point.row !== from.row)) return point;
+        if (point && (!from || !samePoint(point, from))) return point;
         if (await plot.getAttribute('data-plot-read') === 'pending') {
             rested = 0;
             await plot.page().waitForTimeout(100);
@@ -114,57 +122,42 @@ async function pointRead(plot: Locator, from?: PointRead | null): Promise<PointR
 const COUNT_QUANTITIES = (['en', 'ja'] as const).map(language => getStrings(language).dsDistCountAxis.split('[')[0].trim());
 
 /**
- * The next point to the right of the one the plot reads, in the full-resolution data that point is read from (R7):
- * the layer's full source (fullRead.ts: StageLayer.full, which every layer has, bars too), asked as the plot asks
- * it, never the points it draws. The expectation follows the one rule the arrow keys follow (stagePanes.ts stageStep),
- * so the two cannot drift apart:
- * - a line is asked with a seek (LineQuery.seek): the first point with a value to read past the one read, however
- *   long the gap or the silence before it (a fixed look-ahead would stop inside a long silence);
- * - the silent floor (−250 dB and below, drawn as a gap) is skipped only on a line that has one, a level or a gain;
- *   a Δ and a plain value read −250 and below as the value it is (stagePanes.ts `floorless`, which the plot notes
- *   for the line read as data-plot-read-floorless; fullRead.ts `readableValue` is the same test);
- * - an image's next point is the next column (time frame, band) on its row.
- * Null where the plot reads no point of its data.
+ * The point → (or ←, `delta`) must read from `from` on `plot` (R7), taken from the raw data the test posted or built
+ * the page with (`knownData`, knownData.ts), never from the plot's own full source (`layer.full`): an expectation
+ * asked of the implementation agrees with it however wrong its data is. The step is the pick rule's
+ * (pick_cases.json): from the point read, the next one in the data's order with a value to read, one at the same x
+ * too; an image's next column on its row. The silent floor (−250 dB and below, drawn as a gap) is skipped only on a
+ * line that has one, as the plot decided for the line read (data-plot-read-floorless, stagePanes.ts `floorless`).
+ * `known` false where the test knows no data for the line read (NO_KNOWN_DATA says why); `expected` null past the end.
  */
-async function nextPoint(plot: Locator): Promise<number | null> {
-    return plot.evaluate(async canvas => {
-        type Points = { xs: number[]; values?: Array<number | null> };
-        type Source = { line?(query: Record<string, unknown>, ready: () => void): Points | null | undefined; cells?(query: Record<string, unknown>, ready: () => void): Points | null | undefined };
-        type Layer = { full: Source; view: { kind: string; quantity?: string } };
-        const read = (canvas as NotedPlot).__plotRead as { at?: number; row?: number; image?: boolean; layer: Layer } | null | undefined;
-        if (!read || read.at === undefined) return null;
-        const at = read.at, layer = read.layer;
-        const source = layer.full;
-        // Asked as the plot asks it: an answer on its way calls `ready`, and is asked again then.
-        const ask = (query: (ready: () => void) => Points | null | undefined): Promise<Points | null> => new Promise(resolve => {
-            let done = false;
-            const finish = (points: Points | null): void => { if (!done) { done = true; resolve(points); } };
-            const ready = (): void => { const got = query(ready); if (got !== undefined) finish(got); };
-            setTimeout(() => finish(null), 15_000);
-            ready();
-        });
-        if (read.image) {
-            if (!source.cells || read.row === undefined) return null;
-            const got = await ask(ready => source.cells!({ x: at, y: read.row, beyond: 8 }, ready));
-            const xs = got?.xs ?? [];
-            const column = xs.findIndex(x => x === at);
-            return column >= 0 && column + 1 < xs.length ? xs[column + 1] : null;
-        }
-        // Whether the line read has no silent floor, as the plot itself decided it for this line (notePlotRead).
-        const plain = canvas.getAttribute('data-plot-read-floorless') === 'true';
-        // The keys' own query: a seek to the first readable point past `at`, with the same floor rule.
-        const got = source.line ? await ask(ready => source.line!({ x0: at, x1: at, beyond: 512, seek: 1, ...(plain ? { plain: true } : {}) }, ready)) : null;
-        if (!got) return null;
-        // fullRead.ts readableValue, written out: this runs in the page, where the module is not imported.
-        const readable = (value: number | null | undefined): boolean => value !== null && value !== undefined && Number.isFinite(value) && (plain || value > -250);
-        const index = got.xs.findIndex((x, i) => x > at && readable(got.values?.[i]));
-        return index >= 0 ? got.xs[index] : null;
+type Expected = { known: true; expected: PointAt | null } | { known: false; why: string };
+async function knownStep(plot: Locator, from: PointAt, delta: 1 | -1 = 1): Promise<Expected> {
+    const read = await plot.evaluate(canvas => {
+        const noted = (canvas as HTMLElement & { __plotRead?: { image?: boolean; layer: { label?: string; view: { frame?: string; xs?: number[] } } } | null }).__plotRead;
+        const xs = noted?.layer.view.xs;
+        const track = /^track-(?:spec-)?canvas-(\d+)(?:-(\d+))?$/u.exec(canvas.id);
+        return {
+            id: canvas.id, stage: canvas.getAttribute('data-stage-canvas'), attrs: Array.from(canvas.attributes).map(attribute => attribute.name), label: noted?.layer.label ?? null, frame: noted?.layer.view.frame ?? null,
+            image: !!noted?.image, ends: xs?.length ? [xs[0], xs[xs.length - 1]] as [number, number] : null,
+            trackIndex: track ? Number(track[1]) : null, channelIndex: track?.[2] !== undefined ? Number(track[2]) : null,
+        };
     });
+    const known = knownData?.(read) ?? null;
+    if (!known) return { known: false, why: `no data of its own known for ${read.id || read.attrs.filter(name => name.startsWith('data-')).join(' ')} (${read.frame ?? 'no Frame'}, ${read.label ?? 'unnamed'}, ${JSON.stringify(read.ends)})` };
+    const plain = await plot.getAttribute('data-plot-read-floorless') === 'true';
+    const expected = stepOf(from, known, delta, plain);
+    // A point read that the raw data does not have: the plot reads data the test never gave it. Its step fails, named.
+    if (expected === 'unknown') {
+        strayPlots.add(`${read.id || read.attrs.filter(name => name.startsWith('data-')).join(' ')} (${read.frame ?? 'no Frame'}, ${read.label ?? 'unnamed'}) reads x = ${from.at}${from.row !== null ? `, row ${from.row}` : ''}`);
+        return { known: true, expected: null };
+    }
+    return { known: true, expected };
 }
 
 /** The checks a plot passes, each tried on its own; a failure is noted, not thrown, so every check is tried. */
 async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     const passed = new Set<Check>();
+    const plotKey = await plot.evaluate(plotName);
     const box = (await plot.boundingBox())!;
     const middle = { x: box.x + box.width * 0.6, y: box.y + box.height * 0.45 };
     // Both axes are named, on screen: each name the plot gives (data-plot-axes) names its quantity and its unit and is
@@ -231,7 +224,7 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     // the one before it again, and → once more that next one; the readout stays in its row above the plot.
     const read = async (): Promise<string> => (await readouts(rowTop)).filter(Boolean).join(' | ');
     const origin = await pointRead(plot);
-    const next = origin ? await nextPoint(plot) : null;
+    const next = origin ? await knownStep(plot, origin) : null;
     const steps: string[] = [];
     const stepped: Array<PointRead | null> = [];
     for (const key of ['ArrowRight', 'ArrowLeft', 'ArrowRight']) {
@@ -242,14 +235,15 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
         steps.push(await read());
     }
     const hovered = await read();
-    const same = (a: number, b: number): boolean => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
-    const onPoint = (point: PointRead | null, at: number | null | undefined): boolean => !!point && !!origin && at !== null && at !== undefined
-        && point.sameLayer && same(point.at, at) && (origin.row === null ? point.row === null : point.row !== null && same(point.row, origin.row));
-    // The next point of the signal the test posted, where it posted one: the plot's full source must agree with it.
-    const known = knownSignal;
-    const knownNext = known && origin ? known.xs.find((x, index) => x > origin.at + 1e-12 * Math.max(1, Math.abs(origin.at)) && (known.values === undefined || (known.values[index] !== null && Number.isFinite(known.values[index])))) : undefined;
-    const agrees = !known || (knownNext !== undefined && next !== null && same(next, knownNext));
-    const onePoint = !!next && agrees && onPoint(stepped[0], next) && onPoint(stepped[1], origin?.at) && onPoint(stepped[2], next);
+    const onLine = (point: PointRead | null, expected: PointAt | null): boolean => !!point && point.sameLayer && isPoint(point, expected);
+    // → the very point the raw data has next (a point beside the one read at the same x too, told apart by its index or
+    // identity), ← the one read again, → that next one again. Where the test knows no data of the line read (only as
+    // NO_KNOWN_DATA lists, with why), the keys are checked to move one way and back, not to which point.
+    const blind = next && !next.known ? NO_KNOWN_DATA[plotKey] : undefined;
+    const onePoint = !!origin && !!next && (next.known
+        ? !!next.expected && onLine(stepped[0], next.expected) && onLine(stepped[1], origin) && onLine(stepped[2], next.expected)
+        : !!blind && movedOn(origin, stepped[0]) && onLine(stepped[1], origin) && onLine(stepped[2], stepped[0]));
+    if (next && !next.known && !blind) unknownPlots.add(`${plotKey}: ${next.why}`);
     // Where the point is, written apart from its neighbour's (C3: its digits from the points' spacing), not only its
     // value: the readout less its last part (the value) differs between two neighbouring points.
     const place = (text: string): string => text.split(' / ').slice(0, -1).join(' / ');
@@ -329,7 +323,11 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     const movedTo = zoomedRead && await pointRead(plot, zoomedRead);
     // Marked as the line the step is checked on.
     const zoomedHere = movedTo && await pointRead(plot);
-    const zoomedNext = zoomedHere ? await nextPoint(plot) : null;
+    const zoomedKnown = zoomedHere ? await knownStep(plot, zoomedHere) : null;
+    const zoomedNext = zoomedKnown?.known ? zoomedKnown.expected : null;
+    // The step taken is to the point the raw data has next, or, where the test knows none (NO_KNOWN_DATA), on.
+    const stepsOn = (from: PointRead | null, to: PointRead | null): boolean => !!from && !!to && to.sameLayer
+        && (zoomedKnown?.known ? isPoint(to, zoomedNext) : !!NO_KNOWN_DATA[plotKey] && movedOn(from, to));
     await page.keyboard.press('ArrowRight');
     const zoomedStep = zoomedHere && await pointRead(plot, zoomedHere);
     const near = (a: number | undefined, b: number | null): boolean => a !== undefined && b !== null && Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
@@ -350,10 +348,10 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
         return false;
     };
     const steppedZoomed = letGo && !!zoomedStep && zoomedStep.sameLayer && await readOnPlot()
-        && (near(zoomedStep.at, zoomedNext) || (zoomedStep.at === zoomedHere?.at && !await seenInside(zoomedNext)));
+        && (stepsOn(zoomedHere, zoomedStep) || (!!zoomedHere && samePoint(zoomedStep, zoomedHere) && zoomedKnown?.known === true && !await seenInside(zoomedNext?.at ?? null)));
     // − zooms back out about the middle: the point stepped to stays on the plot, so it stays the one read, on the
     // plot drawn anew (R7), whether the plot keeps its canvas or makes it anew on every repaint (the distribution).
-    const stepTaken = !!zoomedStep && near(zoomedStep.at, zoomedNext);
+    const stepTaken = stepsOn(zoomedHere, zoomedStep);
     await page.keyboard.press('-');
     await settled(page);
     let keptOut = !stepTaken;
@@ -552,12 +550,59 @@ const UNCHECKED: Record<string, string> = {
 const seenPlots = new Set<string>();
 const checkedPlots = new Set<string>();
 /**
- * The points of the signal a test posted itself (a kind's picture, which the page's stand-in reads answer from, so it
- * is the full data there): the next point after the one read is checked against them too, an answer apart from the
- * plot's own full source (C6). Null where the test knows no signal of its own.
+ * The raw data of the plots a test shows, as the test itself posted it or built the page with (knownData.ts): the arrow
+ * keys' expectation (knownStep) comes from it, never from the plot's own full source. Each test sets it; a plot whose
+ * data it does not know is checked only to step one way and back, and only where NO_KNOWN_DATA says why.
  */
-let knownSignal: { xs: number[]; values?: Array<number | null> } | null = null;
-test.afterEach(() => { knownSignal = null; });
+let knownData: KnownData | null = null;
+/** The pictures a comparison test posted (answer, answerKinds): each recording's, by its file. */
+const postedStages: Array<{ filePath: string; picture: Record<string, unknown> }> = [];
+/**
+ * The plots whose raw data a test cannot know apart from the plot, with why. The list only shrinks: a plot that comes
+ * to have known data is taken off (its step is then checked to the point).
+ */
+const NO_KNOWN_DATA: Record<string, string> = {
+    'canvas.entry-dist-canvas[data-dist-canvas]':
+        'the distribution\'s bars are the webview\'s own binning of the recordings\' values (entryDistribution.ts); the next bar is known only by binning them again, the implementation under test',
+};
+/** Plots stepped with no data known and not in NO_KNOWN_DATA: each fails its 'step' check, and is named here. */
+const unknownPlots = new Set<string>();
+/** Plots that read a point the data the test gave them does not have: each fails its 'step' check, and is named here. */
+const strayPlots = new Set<string>();
+/** A point to the right of `from`, or beside it at the same x (another index or identity): a step on, wherever to. */
+function movedOn(from: PointAt, to: PointAt | null): boolean {
+    return !!to && (to.at > from.at || (to.at === from.at && to.row === from.row && (to.index !== from.index || to.identity !== from.identity)));
+}
+/** The nominal 1/3-octave centres (IEC 61260), from 20 Hz: the entry overview's columns, as many as a scan has bands. */
+const THIRD_OCTAVE_CENTRES = [20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800, 1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000];
+/** The entry's plots, from the scan results the test opened it with: the overview's columns are each band of a row. */
+function entryKnown(files: ScannedFile[]): KnownData {
+    const bands = ((files[0]?.result.thirdOctDb as number[][] | undefined)?.[0] ?? []).length;
+    return read => (read.image && read.attrs.includes('data-entry-overview') ? { kind: 'image', xs: THIRD_OCTAVE_CENTRES.slice(0, bands) } : null);
+}
+/**
+ * A page the test built (buildHtml.ts), from what it was built with: the tracks' lanes from its app state, the cursor
+ * spectrum's every bin (on the Extension Host path, its stub's grid; else the lane spectrogram's rows, which the page's
+ * stand-in slices it from) and the pair view's bins (its stub's grid).
+ */
+function pageKnown(html: string, hostPath = false): KnownData {
+    const results = appStateOf(html).results;
+    const spectrogram = results[0]?.channels[0]?.spectrogram as { frequencyBins: number; maxFrequencyHz: number } | null | undefined;
+    const isSpectrum = (read: ReadOf): boolean => read.id === 'spectrum-overlay-canvas';
+    const spectrum = hostPath ? binGrid(isSpectrum, UI_SMOKE_HOST_GRID.spectrumBins, UI_SMOKE_HOST_GRID.maxHz)
+        : spectrogram ? binGrid(isSpectrum, spectrogram.frequencyBins, spectrogram.maxFrequencyHz) : (): null => null;
+    return firstKnown(recordingLanes(results), spectrum, binGrid(read => read.attrs.includes('data-pair-lane'), UI_SMOKE_HOST_GRID.pairBins, UI_SMOKE_HOST_GRID.maxHz));
+}
+test.afterEach(() => {
+    knownData = null;
+    postedStages.length = 0;
+    const unknown = [...unknownPlots];
+    unknownPlots.clear();
+    expect.soft(unknown, 'plots whose arrow keys were checked with no raw data of their own: give the test their data (knownData, knownData.ts), or list them in NO_KNOWN_DATA with why (R7)').toEqual([]);
+    const stray = [...strayPlots];
+    strayPlots.clear();
+    expect.soft(stray, 'plots that read a point the data the test gave them does not have (R7: a readout is read from the full data, never elsewhere): the plot\'s full source (StageLayer.full) answers other points than its data, or knownData.ts models the data wrongly').toEqual([]);
+});
 test.beforeEach(() => { seenPlots.clear(); checkedPlots.clear(); });
 /**
  * A plot's name, as the audit names a canvas: its id, else its class and the data attributes that say which plot it
@@ -697,6 +742,7 @@ async function answerKinds(page: Page, files: ScannedFile[], answered: Set<strin
             answered.add(request.requestId);
             // The recordings differ a little, inside the quantity's range (a coherence stays within 0–1).
             const stages = request.filePaths.map((_, index) => stubStage(KIND_VIEWS[stageFrame(request)], value => value * (index === 0 ? 0.9 : 1)));
+            request.filePaths.forEach((filePath, index) => postedStages.push({ filePath, picture: stages[index] }));
             await page.evaluate(({ request, stages, files }) => {
                 request.filePaths.forEach((filePath, index) => {
                     const file = files.find(item => item.filePath === filePath)!;
@@ -726,10 +772,6 @@ for (const [kind, chain] of reachableFrameKinds()) {
         }
         await answerKinds(page, scanned!, answered);
         expect((await stageScans(page)).map(stageFrame)).toContain(kind);
-        // The posted picture is the data its reads answer from: a line's or bar's points, an image's columns. A
-        // signal drawn as itself (its envelope) and a trigger's events are read elsewhere, so they have none here.
-        const posted = KIND_VIEWS[kind] as { xs: number[]; values?: Array<number | null>; waveform?: unknown; events?: unknown; kind: string };
-        knownSignal = posted.waveform || posted.events ? null : posted.kind === 'heatmap' ? { xs: posted.xs } : { xs: posted.xs, ...(posted.values ? { values: posted.values } : {}) };
         // The kind is drawn: overlaid, or (an image a recording each) in lanes.
         await expect.poll(async () => (await page.locator('.track-canvas[data-plot], [data-stage-canvas][data-plot]').evaluateAll(plots => plots.filter(plot => (plot as HTMLElement).dataset.plotAxes).length))).toBeGreaterThan(0);
         await expectEveryPlot(page);
@@ -870,6 +912,7 @@ test('the entry\'s held plot answers the same gestures as every plot (R13)', asy
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     await page.setViewportSize({ width: 1280, height: 900 });
     await openEntry(page, scanned!, { language: 'en' });
+    knownData = entryKnown(scanned!);
     // A row in slot 1, then its key held: its Δ is drawn on the side while the key is down.
     await page.keyboard.press('1');
     await page.keyboard.down('1');
@@ -881,6 +924,9 @@ test('the entry\'s held plot answers the same gestures as every plot (R13)', asy
         .find(message => message.type === 'compare-scan' && message.requestId.startsWith('held-bins'));
     await expect.poll(binsAsked).toBeTruthy();
     const request = (await binsAsked())!;
+    // The held Δ is of the bins answered here: every bin from 0 Hz to half the rate, as the test hands them over.
+    const held = scanned!.find(item => request.filePaths.includes(item.filePath))!.result as { spectrumDb: number[][]; input: { fs: number } };
+    knownData = firstKnown(entryKnown(scanned!), binGrid(read => read.attrs.includes('data-entry-held-canvas'), held.spectrumDb[0].length, held.input.fs / 2));
     await page.evaluate(({ request, files }) => {
         for (const file of files.filter(item => (request as unknown as { filePaths: string[] }).filePaths.includes(item.filePath))) {
             const result = file.result as { spectrumDb: number[][]; input: { fs: number } };
@@ -899,6 +945,7 @@ test('the entry\'s overview strip answers the same gestures as every plot (R13)'
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     await page.setViewportSize({ width: 1280, height: 900 });
     await openEntry(page, scanned!, { language: 'en' });
+    knownData = entryKnown(scanned!);
     const plot = page.locator('[data-entry-overview]');
     await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe('');
     await expectContract(page, 'entry overview', plot);
@@ -909,6 +956,7 @@ test('the entry\'s distribution answers the same gestures as every plot: each gr
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     await page.setViewportSize({ width: 1280, height: 900 });
     await openEntry(page, scanned!, { language: 'en' });
+    knownData = entryKnown(scanned!);
     const plot = page.locator('[data-dist-canvas]').first();
     await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe(null);
     await expectContract(page, 'entry distribution', plot);
@@ -917,7 +965,9 @@ test('the entry\'s distribution answers the same gestures as every plot: each gr
 
 test('the cursor spectrum answers the same gestures as every plot (R13)', async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 900 });
-    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    const html = buildUiSmokeHtml();
+    knownData = pageKnown(html);
+    await page.setContent(html, { waitUntil: 'domcontentloaded' });
     const plot = page.locator('#spectrum-overlay-canvas');
     await expect.poll(() => plot.evaluate(canvas => (canvas as HTMLCanvasElement).dataset.plotAxes ?? '')).not.toBe('');
     await expectContract(page, 'cursor spectrum', plot);
@@ -926,7 +976,9 @@ test('the cursor spectrum answers the same gestures as every plot (R13)', async 
 
 test('the cursor spectrum with two level references answers the axis gestures on its right-hand axis as on its left (A48, R13)', async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 900 });
-    await page.setContent(buildUiSmokeCalibrationHtml(), { waitUntil: 'domcontentloaded' });
+    const html = buildUiSmokeCalibrationHtml();
+    knownData = pageKnown(html);
+    await page.setContent(html, { waitUntil: 'domcontentloaded' });
     const plot = page.locator('#spectrum-overlay-canvas');
     await expect.poll(() => plot.evaluate(canvas => ((canvas as HTMLCanvasElement).dataset.plotAxes ?? '').split('|').length)).toBe(3);
     await expectContract(page, 'cursor spectrum, two references', plot);
@@ -935,7 +987,9 @@ test('the cursor spectrum with two level references answers the axis gestures on
 
 test('the pair view\'s gain, phase and γ² plots answer the same gestures as every plot (R13)', async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 900 });
-    await page.setContent(buildExtensionHostPathUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    const html = buildExtensionHostPathUiSmokeHtml();
+    knownData = pageKnown(html, true);
+    await page.setContent(html, { waitUntil: 'domcontentloaded' });
     await page.locator('[data-action="set-pair-reference"]').first().click();
     await expect(page.locator('[data-pair-lane][data-plot]')).toHaveCount(3);
     for (const lane of ['gain', 'phase', 'coherence']) {
@@ -948,7 +1002,9 @@ test('the pair view\'s gain, phase and γ² plots answer the same gestures as ev
 
 test('the track view\'s waveform and spectrogram lanes answer the same gestures as every plot: readout in the toolbar above them (R13)', async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 900 });
-    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    const html = buildUiSmokeHtml();
+    knownData = pageKnown(html);
+    await page.setContent(html, { waitUntil: 'domcontentloaded' });
     for (const [name, selector] of [['track waveform', '.track-canvas:not(.track-spec-canvas)'], ['track spectrogram', '.track-spec-canvas']] as const) {
         const plot = page.locator(`${selector}[data-plot]`).first();
         await expect(plot).toBeVisible();
