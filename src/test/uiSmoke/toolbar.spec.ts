@@ -23,13 +23,12 @@ async function leaveEntryTable(page: Page) {
 /**
  * A folder just opened, once its table has stopped moving. The table is shown at once and then moves: the controls
  * above it wrap again as the scan recipe (a fetch) and the files' headers (file reads) arrive, and each arrival
- * shifts every row by a line or two. Use this before a hover on a row (showRow), which needs the rows to stay put.
- * It is for a page with no track yet: this file's stand-in Worker answers a track's detail with a fixture that is not
- * that track's, the page keeps asking, and settled() would wait its whole 10 s.
+ * shifts every row by a line or two. Use this before the test acts on a row's place.
  */
 async function folderListed(page: Page) {
     await leaveEntryTable(page);
-    expect(await settled(page), 'the page kept working after the folder was listed: see folderListed() for what it waits for and when it cannot be used').toBe(true);
+    expect(await settled(page), 'the page kept working after the folder was listed, so its rows may still move. Find what it is waiting for or keeps asking for: '
+        + 'a wait from outside the page belongs in installSettleTracker (canvasAudit.ts), and an answer of the stand-in Worker the page does not take is asked again for ever').toBe(true);
 }
 
 /** A file's row in the side panel's entry table. */
@@ -46,11 +45,12 @@ const entryRow = (page: Page, filePath: string) => page.locator(`#entry-dock tr[
 
 /**
  * A row's ▶: the file becomes a track. The ▶ exists only on the row under the pointer, and the pointer stays where
- * hover() put it, so the rows must not move between the hover and the click: after opening a folder, wait with
- * folderListed() first. If this click times out with another row "intercepting pointer events",
- * the rows moved after the hover: find what arrived late and make settled() wait for it (canvasAudit.ts).
+ * hover() put it, so the rows must not move between the hover and the click: the page is given time to finish what
+ * it is doing first. If the click still times out with another row "intercepting pointer events", the rows moved
+ * after the hover: find what arrived late and make settled() wait for it (canvasAudit.ts).
  */
 async function showRow(page: Page, filePath: string) {
+    await settled(page);
     await entryRow(page, filePath).hover();
     await entryRow(page, filePath).locator('[data-action="entry-row-play"]').click();
 }
@@ -73,7 +73,10 @@ function staticWorkerInit(): string {
                         leqDbA: [-20], peakHz: [1000], spectrumDb: [[-20]], thirdOctDb: [[-23]], crest: [1.4], specVersion: 1, wandasVersion: '0.9.0', elapsedMs: 1 }
                     : { ...fixtures.find(entry => entry.command === command.cmd)?.response, filePath: command.filePath,
                         ...(command.cmd === 'analyze' ? { channelCount: 1, channels: [{ label: 'Channel 1', peakAbsolute: 1, fullScale: true, sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS',
-                            waveform: { min: [-1], max: [1], samples: [0], absolutePeak: 1 }, spectrogram: null }] } : {}) };
+                            waveform: { min: [-1], max: [1], samples: [0], absolutePeak: 1 }, spectrogram: null }] } : {}),
+                        // A track's detail is its channels' spectrograms. A lane asks again, on every frame, for as long as its
+                        // channel has none, so an answer without one keeps the page working and settled() never ends.
+                        ...(command.cmd === 'track-detail' ? { channels: fixtures.find(entry => entry.command === 'analyze' && entry.response.channels.some(channel => channel.spectrogram)).response.channels } : {}) };
                 queueMicrotask(() => this.onmessage({ data: { requestId: command.requestId, result } }));
             }
         };`;
@@ -123,6 +126,14 @@ test('static page CSP allows the page and calibration clicks report unsupported 
     expect(cspErrors).toEqual([]);
 });
 
+
+test('static page: with a track shown the page comes to rest, so settled() can be used on it', async ({ page }) => {
+    await openStaticPage(page);
+    await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: tinyWav() });
+    await expect(page.locator('.track-row')).toHaveCount(1);
+    expect(await settled(page), 'the page kept working with one track shown and nothing playing. It is asking the stand-in Worker (staticWorkerInit) again for an answer it did not take: '
+        + 'make the stand-in answer what the real worker would (a lane asks for its detail until its channel has a spectrogram), or settled() waits its whole 10 s wherever a track is shown').toBe(true);
+});
 
 test('static page: the empty view offers the samples, which load as three tracks, and then is no longer offered', async ({ page }) => {
     await openStaticPage(page);

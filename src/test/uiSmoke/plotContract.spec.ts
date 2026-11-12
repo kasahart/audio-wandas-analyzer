@@ -78,8 +78,9 @@ async function openComparison(page: Page, files: ScannedFile[]): Promise<void> {
 
 /**
  * The point a plot reads now (plotHoverLayer.ts's notePlotRead keeps it on the plot, `__plotRead`): where it is along
- * the horizontal axis (`at`), its row for an image, and whether it is on the line the first read was on. Polled until
- * there is one (its full data may be on its way) and, given `from`, until it is another than that one.
+ * the horizontal axis (`at`), its row for an image, and whether it is on the line the first read was on. Waited for
+ * until there is one (its full data may be on its way) and, given `from`, until it is another than that one, or until
+ * the page has finished answering and still reads `from` (which is then returned: the caller decides what it means).
  */
 type PointRead = { at: number; row: number | null; sameLayer: boolean };
 type NotedPlot = HTMLElement & { __plotRead?: { at?: number; row?: number; image?: boolean; layer: { label?: string; color?: string; source?: string; event?: { id: number } } } | null; __stepLayer?: string };
@@ -93,10 +94,18 @@ async function pointRead(plot: Locator, from?: PointRead | null): Promise<PointR
         if (first) noted.__stepLayer = layer;
         return { at: read.at, row: read.row ?? null, sameLayer: layer === noted.__stepLayer };
     }, !from);
-    for (let tries = 0; tries < 100; tries++) {
+    // The wait is for the page, never for a time: once it has answered (settled(): its frames, its timers, the host's
+    // answers) and no read is waiting for its full data (data-plot-read "pending"), what the plot reads is its answer,
+    // the same point too. The same point is the right answer where → cannot leave the line's last point or the next
+    // point is off a zoomed window, and a wait by time alone for "another point" costs its whole bound each time there.
+    for (let tries = 0, rested = 0; tries < 100; tries++) {
+        await settled(plot.page());
         const point = await now();
         if (point && (!from || point.at !== from.at || point.row !== from.row)) return point;
-        await plot.page().waitForTimeout(100);
+        if (await plot.getAttribute('data-plot-read') === 'pending') {
+            rested = 0;
+            await plot.page().waitForTimeout(100);
+        } else if (++rested >= 2) return point;
     }
     return now();
 }
