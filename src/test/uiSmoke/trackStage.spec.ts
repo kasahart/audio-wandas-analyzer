@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { stubStage } from './stubStage';
 import path from 'node:path';
 import { expect, settled, test, type Page } from './canvasAudit';
 import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
@@ -23,7 +24,7 @@ async function answer(page: Page, view: Record<string, unknown>): Promise<Posted
             window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...file.result, stage: view } }, '*');
         }
         window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
-    }, { request, view, files: scanned! });
+    }, { request, view: stubStage(view), files: scanned! });
     return request;
 }
 

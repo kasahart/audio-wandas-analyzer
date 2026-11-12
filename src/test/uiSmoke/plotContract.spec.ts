@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { stubStage } from './stubStage';
 import path from 'node:path';
 import { expect, settled, test, type Locator, type Page } from './canvasAudit';
 import { buildExtensionHostPathUiSmokeHtml, buildUiSmokeCalibrationHtml, buildUiSmokeHtml } from './buildHtml';
@@ -36,14 +37,15 @@ const spectrum = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale:
 
 async function answer(page: Page, files: ScannedFile[], view: Record<string, unknown> = spectrum): Promise<void> {
     const request = (await stageScans(page)).at(-1)!;
-    await page.evaluate(({ request, view, files }) => {
+    // Each recording's picture with the valueRange the backend sends with one (the first recording 6 dB up).
+    const stages = request.filePaths.map((_, index) => stubStage(view, value => value + (index === 0 ? 6 : 0)));
+    await page.evaluate(({ request, stages, files }) => {
         request.filePaths.forEach((filePath, index) => {
             const file = files.find(item => item.filePath === filePath)!;
-            const values = (view.values as number[] | undefined)?.map(value => value + (index === 0 ? 6 : 0));
-            window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...file.result, stage: { ...view, ...(values ? { values } : {}) } } }, '*');
+            window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...file.result, stage: stages[index] } }, '*');
         });
         window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
-    }, { request, view, files });
+    }, { request, stages, files });
 }
 
 /** Slots two recordings as base and compare 1 and opens the comparison on the chain's end, its plots drawn. */
@@ -688,15 +690,15 @@ async function answerKinds(page: Page, files: ScannedFile[], answered: Set<strin
         quiet = 0;
         for (const request of open) {
             answered.add(request.requestId);
-            await page.evaluate(({ request, view, files }) => {
+            // The recordings differ a little, inside the quantity's range (a coherence stays within 0–1).
+            const stages = request.filePaths.map((_, index) => stubStage(KIND_VIEWS[stageFrame(request)], value => value * (index === 0 ? 0.9 : 1)));
+            await page.evaluate(({ request, stages, files }) => {
                 request.filePaths.forEach((filePath, index) => {
                     const file = files.find(item => item.filePath === filePath)!;
-                    // The recordings differ a little, inside the quantity's range (a coherence stays within 0–1).
-                    const values = (view.values as number[] | undefined)?.map(value => value * (index === 0 ? 0.9 : 1));
-                    window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...file.result, stage: { ...view, ...(values ? { values } : {}) } } }, '*');
+                    window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...file.result, stage: stages[index] } }, '*');
                 });
                 window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
-            }, { request, view: KIND_VIEWS[stageFrame(request)], files });
+            }, { request, stages, files });
         }
     }
 }

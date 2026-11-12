@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { stubStage } from './stubStage';
 import path from 'node:path';
 import { expect, settled, test, type Locator, type Page } from './canvasAudit';
 import { buildExtensionHostPathManyTracksHtml, buildExtensionHostPathUiSmokeHtml, buildUiSmokeHtml } from './buildHtml';
@@ -69,14 +70,15 @@ const stageScans = async (page: Page): Promise<Posted[]> => (await page.evaluate
 const SPECTRUM = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000, 5000], values: [-40, -30, -50] };
 async function answer(page: Page, files: ScannedFile[], view: Record<string, unknown> = SPECTRUM): Promise<void> {
     const request = (await stageScans(page)).at(-1)!;
-    await page.evaluate(({ request, view, files }) => {
+    // Each recording's picture with the valueRange the backend sends with one (the first recording 6 dB up).
+    const stages = request.filePaths.map((_, index) => stubStage(view, value => value + (index === 0 ? 6 : 0)));
+    await page.evaluate(({ request, stages, files }) => {
         request.filePaths.forEach((filePath, index) => {
             const file = files.find(item => item.filePath === filePath)!;
-            const values = (view.values as number[] | undefined)?.map(value => value + (index === 0 ? 6 : 0));
-            window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...file.result, stage: { ...view, ...(values ? { values } : {}) } } }, '*');
+            window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...file.result, stage: stages[index] } }, '*');
         });
         window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
-    }, { request, view, files });
+    }, { request, stages, files });
 }
 /** `more`: further recordings slotted after the compared one (compare 2, 3), so the lanes under the steps' plots scroll. */
 async function openComparison(page: Page, files: ScannedFile[], more = 0): Promise<void> {

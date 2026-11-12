@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { stubStage } from './stubStage';
 import path from 'node:path';
 import { expect, settled, test, type Page } from './canvasAudit';
 import { getStrings } from '../../shared/i18n/strings';
@@ -17,14 +18,15 @@ const spectrum = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale:
 /** Answers the last steps-mode scan as a host does: each file's scan result carrying `view` (shifted for the first file). */
 async function answer(page: Page, view: Record<string, unknown> = spectrum): Promise<Posted> {
     const request = (await stageScans(page)).at(-1)!;
-    await page.evaluate(({ request, view, files }) => {
+    // Each recording's picture with the valueRange the backend sends with one (the first recording 6 dB up).
+    const stages = request.filePaths.map((_, index) => stubStage(view, value => value + (index === 0 ? 6 : 0)));
+    await page.evaluate(({ request, stages, files }) => {
         request.filePaths.forEach((filePath, index) => {
             const file = files.find(item => item.filePath === filePath)!;
-            const values = (view.values as number[] | undefined)?.map(value => value + (index === 0 ? 6 : 0));
-            window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...file.result, stage: { ...view, ...(values ? { values } : {}) } } }, '*');
+            window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...file.result, stage: stages[index] } }, '*');
         });
         window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
-    }, { request, view, files: scanned! });
+    }, { request, stages, files: scanned! });
     return request;
 }
 
