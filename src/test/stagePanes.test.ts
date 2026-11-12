@@ -391,7 +391,7 @@ test('a zoom narrower than one of a line\'s stretches still orders it by the str
 
 test('a cursor spectrum on a linear axis counts its 0 Hz bin in its level (R6)', () => {
     // [0, −100, −100] dB is louder over every bin (−4.8 dB) than [−100, −20, −20] (−21.8 dB): it goes under.
-    const slice = (values: number[]) => ({ slice: { values, frequencyBins: 3, maxFrequencyHz: 1000, minDb: -100, maxDb: 0 }, color: String(values[0]), index: 0, channelIndex: 0, label: '' });
+    const slice = (values: number[]) => ({ slice: { values, bins: values, frequencyBins: 3, maxFrequencyHz: 1000, minDb: -100, maxDb: 0 }, color: String(values[0]), index: 0, channelIndex: 0, label: '' });
     const visible = { frequencyMin: 0, frequencyMax: 1000, buckets: 400, logFrequency: false };
     const dc = spectrumLayer(slice([0, -100, -100]), 1000, visible), tone = spectrumLayer(slice([-100, -20, -20]), 1000, visible);
     const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 1000], xLimits: [0, 1000], xScale: 'linear' };

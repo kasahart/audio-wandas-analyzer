@@ -661,6 +661,13 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "x-drawn": true
                     }
                 },
+                "bins": {
+                    "type": "array",
+                    "items": {
+                        "type": "number",
+                        "x-whole": true
+                    }
+                },
                 "minDb": {
                     "type": "number"
                 },
@@ -2590,6 +2597,7 @@ export interface RangeResult {
 export interface SpectrumSliceChannel {
     channelIndex: number;
     values: Drawn[];
+    bins?: number[];
     minDb: number;
     maxDb: number;
     unit?: string;
@@ -2952,6 +2960,7 @@ export interface BrowserLimits {
 
 /** The array fields that hold every value of the data (protocol_schema.py `x-whole`), by the type they are of. */
 export interface WholeFields {
+    SpectrumSliceChannel: Pick<SpectrumSliceChannel, 'bins'>;
     PairSpectrumResponse: Pick<PairSpectrumResponse, 'gainDb' | 'phaseRad' | 'coherence'>;
     StagePoints: Pick<StagePoints, 'xs' | 'values' | 'ys' | 'matrix'>;
     ScanResult: Pick<ScanResult, 'leqDbA' | 'peakHz' | 'spectrumBinsDb' | 'thirdOctDb' | 'crest'>;

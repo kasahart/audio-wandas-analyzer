@@ -127,14 +127,15 @@ function fileSide(result: ScanOk): Omit<CompareSide, 'title' | 'filePaths'> {
     // A scan that succeeded carries its metrics; one without them has no levels to give. Its 192-point spectrum is
     // drawn points (scan_service.log_spectrum) and is never read: every level here is of full data (R1).
     // Its bins and bands come in as full data (wholeAnswers.scanWhole: the schema's x-whole arrays), and a mean over
-    // channels of them is full data too (computedLine names the lines each is computed of).
+    // channels of them is full data too (computedLine maps every bin of the first channel, reading the others at it).
     const [binRow, ...binRows] = scanWhole(result, 'spectrumBinsDb') ?? [];
     const [bandRow, ...bandRows] = scanWhole(result, 'thirdOctDb') ?? [];
     return {
-        ...(binRow ? { bins: computedLine([binRow, ...binRows], bin => powerMeanDb([binRow, ...binRows].map(row => row[bin]))) } : {}),
+        ...(binRow ? { bins: computedLine(binRow, (level, bin) => powerMeanDb([level, ...binRows.map(row => row[bin])])) } : {}),
         leq: powerMeanDb(result.leqDbA ?? []),
-        // One level per band of the app's band table, whatever the scan sent: a band it has none for is a gap.
-        bands: bandRow ? computedLine([bandRow, ...bandRows], band => powerMeanOrNull([bandRow, ...bandRows].map(row => row[band])), BAND_CENTERS_HZ.length) : gapsLine(BAND_CENTERS_HZ.length),
+        // One level per band of the scan's band table (scan_service: one per THIRD_OCTAVE_CENTERS_HZ, the app's
+        // BAND_CENTERS_HZ), a band it has none for a gap: the line is as long as the row it is computed of (R7).
+        bands: bandRow ? computedLine(bandRow, (level, band) => powerMeanOrNull([level, ...bandRows.map(row => row[band])])) : gapsLine(BAND_CENTERS_HZ.length),
         ...(result.input ? { levelLabel: result.input.levelReferenceLabel, levelKey: levelKeyOf(result.input) } : {}),
         ...(result.input && result.input.calibrationStatus !== 'calibrated' ? { uncalibrated: true } : {}),
     };
@@ -173,17 +174,17 @@ function medianSide(sides: Array<Omit<CompareSide, 'title' | 'filePaths'>>, inpu
     // Every bin's median, where every file has the same bins (the same sample rate and n_fft).
     const first = sides[0].bins;
     const everyBins = sides.flatMap(side => (side.bins && side.bins.length === first?.length ? [side.bins] : []));
-    const bins = first && everyBins.length === sides.length ? computedLine([first, ...everyBins.slice(1)], bin => medianOfSome(everyBins.map(line => line[bin]))) : undefined;
+    const bins = first && everyBins.length === sides.length ? computedLine(first, (value, bin) => medianOfSome([value, ...everyBins.slice(1).map(line => line[bin])])) : undefined;
     return {
         ...(spread ? { spread } : {}),
         ...(bins ? { bins } : {}),
         ...(input ? { levelLabel: input.levelReferenceLabel, levelKey: levelKeyOf(input) } : {}),
         ...(input?.calibrationStatus !== 'calibrated' ? { uncalibrated: true } : {}),
         leq: medianOfSome(sides.map(side => side.leq)),
-        bands: computedLine([sides[0].bands, ...sides.slice(1).map(side => side.bands)], band => {
-            const levels = sides.map(side => side.bands[band] ?? null);
-            return levels.some(level => level === null) ? null : medianOfSome(levels as number[]);
-        }, BAND_CENTERS_HZ.length),
+        bands: computedLine(sides[0].bands, (level, band) => {
+            const levels = [level, ...sides.slice(1).map(side => side.bands[band] ?? null)];
+            return levels.some(each => each === null) ? null : medianOfSome(levels as number[]);
+        }),
     };
 }
 
@@ -267,8 +268,8 @@ export function buildCompareModel(
     const bins = binsOf(compared, baseValues, base, compare, comparable, fs / 2);
     const leq = comparable ? { base: baseSide.leq, compare: compare.leq, delta: levelDelta(compare.leq, baseSide.leq) } : null;
     const bandDeltas = comparable
-        ? computedLine([compare.bands, baseSide.bands], band => {
-            const level = compare.bands[band] ?? null, reference = baseSide.bands[band] ?? null;
+        ? computedLine(compare.bands, (level, band) => {
+            const reference = baseSide.bands[band] ?? null;
             return level === null || reference === null ? null : levelDelta(level, reference);
         })
         : gapsLine();
@@ -303,7 +304,7 @@ function binsOf(compared: ScanOk | undefined, baseValues: readonly ScanOk[], bas
     if (!hz || spacings.length < read.length || !(nyquist > SPECTRUM_MIN_HZ) || spacings.some(spacing => Math.abs(spacing - hz) > 1e-9 * hz)) return null;
     const baseBins = base?.bins ?? null, compareBins = compare?.bins ?? null;
     if ((base && !baseBins) || (compare && !compareBins) || (baseBins && compareBins && baseBins.length !== compareBins.length)) return null;
-    const diff = comparable && baseBins && compareBins ? computedLine([compareBins, baseBins], bin => compareBins[bin] - baseBins[bin]) : null;
+    const diff = comparable && baseBins && compareBins ? computedLine(compareBins, (level, bin) => level - baseBins[bin]) : null;
     return { hz, nyquist, base: baseBins, compare: compareBins, diff };
 }
 
@@ -404,6 +405,15 @@ export function deltaViews(comparison: Pick<CompareModel, 'bins' | 'bandDeltas' 
     if (!picture || !comparison.bins || !zoom || (zoom.start <= 0 && zoom.end >= 1)) return { picture, view: picture };
     const low = axisValueAt(picture, Math.max(0, zoom.start)), high = axisValueAt(picture, Math.min(1, zoom.end));
     return { picture, view: high > low ? binsView(comparison.bins, 'diff', [low, high]) ?? picture : picture };
+}
+
+/**
+ * The full data of deltaViews' band Δ (the bars drawn without bins): every band of the table's per-band Δ, a
+ * WholeLine computed of the scans' band levels, at the band centres up to Nyquist. Never the bars' values, which
+ * are drawn points (R7).
+ */
+export function bandsDeltaSource(comparison: Pick<CompareModel, 'bandDeltas' | 'frequencies'>): InlineFullSource {
+    return localLine(BAND_CENTERS_HZ.slice(0, bandCount(comparison.frequencies)), comparison.bandDeltas);
 }
 
 const signed = (value: number): string => signedNumberText(value);

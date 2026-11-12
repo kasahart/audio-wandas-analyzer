@@ -45,8 +45,10 @@ export type HostInboundMessage =
         type: 'spectrum-slice-result';
         channels: Array<{
             channelIndex: number;
-            /** As drawn: every bin unless the slice was cut for display (wholeAnswers.ts everyBin). */
+            /** As drawn: every bin unless the slice was cut for display; never read (x-drawn). */
             values: Drawn[];
+            /** Every bin (or band), only for a slice not cut for display (x-whole): what is read (wholeAnswers.ts everyBin). */
+            bins?: number[];
             minDb: number;
             maxDb: number;
             unit?: string;

@@ -202,6 +202,8 @@ const uiSmokeBandResponse = function(message) {
             return {
                 channelIndex: channelIndex,
                 values: centers.map(function(_, index) { return -60 + index - channelIndex * 6; }),
+                // Bands are never cut for display: every band is sent as bins too (x-whole), as the backend does.
+                bins: centers.map(function(_, index) { return -60 + index - channelIndex * 6; }),
                 minDb: -66,
                 maxDb: -60 + centers.length,
             };
@@ -232,6 +234,7 @@ const uiSmokeSpectrumResponse = function(message) {
         return Object.assign(identity, {
             channelIndex: message.channelIndex,
             values: uiSmokeSpectrumValues(message.cursorNorm, message.channelIndex, bins),
+            ...(message.fullResolution ? { bins: uiSmokeSpectrumValues(message.cursorNorm, message.channelIndex, bins) } : {}),
             minDb: -100,
             maxDb: 0,
         });
@@ -241,6 +244,8 @@ const uiSmokeSpectrumResponse = function(message) {
             return {
                 channelIndex: channelIndex,
                 values: uiSmokeSpectrumValues(message.cursorNorm, channelIndex, bins),
+                // Every bin (x-whole) only for a row not cut for display (no frequenciesHz), as the backend does.
+                ...(message.fullResolution ? { bins: uiSmokeSpectrumValues(message.cursorNorm, channelIndex, bins) } : {}),
                 minDb: -100,
                 maxDb: 0,
             };

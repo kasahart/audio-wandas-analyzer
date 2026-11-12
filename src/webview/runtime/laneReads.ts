@@ -6,7 +6,7 @@
  * ('request-spectrum-slice', fullResolution). Each read has its own slot on the host, so it never cancels the
  * lanes' pictures nor is cancelled by them.
  */
-import type { Drawn, Whole, WholeLine } from '../../shared/provenance';
+import type { Whole, WholeLine } from '../../shared/provenance';
 import { everyBin } from './wholeAnswers';
 import type { StagePoints, StageRead } from '../../shared/protocol/backendProtocol';
 import type { SpectrumSliceRequest, TrackDetailRequest, WaveformRangeRequest } from '../../shared/utils/audioTarget';
@@ -137,7 +137,7 @@ export function createLaneReads(post: (message: ReadRequest) => void, now: () =>
             waiting.delete(requestId);
             if (!asked) return true;
             const { done } = asked;
-            const answer = message as { type: string; sourceVersion?: string; stftSignature?: string; points?: StagePoints; maxFrequencyHz?: number; frequenciesHz?: number[]; bandCentersHz?: number[]; channels?: Array<{ channelIndex?: number; values?: Drawn[] }> };
+            const answer = message as { type: string; sourceVersion?: string; stftSignature?: string; points?: StagePoints; maxFrequencyHz?: number; channels?: Array<{ channelIndex?: number; bins?: number[] }> };
             // An answer of another version of the file, or taken with another STFT (the settings changed while the old
             // analysis is still drawn: the host computes with its settings now), than the track's analysis on screen
             // reads nothing. The STFT is the backend's own word (stftSignature), not the settingsSignature it echoes.
@@ -145,11 +145,11 @@ export function createLaneReads(post: (message: ReadRequest) => void, now: () =>
                 done(null);
                 return true;
             }
-            // A slice asked for at every bin is whole unless the backend cut it for display after all (it says so with
-            // frequenciesHz): then none of it is read (wholeAnswers.everyBin).
-            const whole = (values: Drawn[]): WholeLine<Whole> | null => everyBin({ values, ...(answer.frequenciesHz ? { frequenciesHz: answer.frequenciesHz } : {}), ...(answer.bandCentersHz ? { bandCentersHz: answer.bandCentersHz } : {}) });
+            // A slice asked for at every bin is read from its every bin (`bins`, x-whole), which the backend sends only
+            // when it did not cut the row for display after all: a cut channel has none and none of it is read
+            // (wholeAnswers.everyBin).
             if (answer.type === 'spectrum-slice-result') {
-                done({ slice: { maxHz: answer.maxFrequencyHz ?? 0, values: new Map((answer.channels ?? []).flatMap((channel, index) => { const line = whole(channel.values ?? []); return line ? [[channel.channelIndex ?? index, line] as const] : []; })) } });
+                done({ slice: { maxHz: answer.maxFrequencyHz ?? 0, values: new Map((answer.channels ?? []).flatMap((channel, index) => { const line = everyBin(channel); return line ? [[channel.channelIndex ?? index, line] as const] : []; })) } });
             } else if (answer.type.endsWith('-error')) done(null);
             else done(answer.points ? { points: answer.points } : null);
             return true;

@@ -178,7 +178,7 @@ export function pairLanes(input: PairPaintInput, visible: FrequencyScale, string
         }));
     return [
         { key: 'gain', axes: plainNames(plainTitle(strings, 'axisFrequency'), gainAxisName(drawn[0]?.response, strings)), range: gainRange(drawn, shown), layers: lines(response => pairWhole(response, 'gainDb'), 'gain', gainUnit(drawn[0]?.response)) },
-        { key: 'phase', axes: plainNames(plainTitle(strings, 'axisFrequency'), plainTitle(strings, 'pairPhaseLabel')), range: plainRange(-180, 180), layers: lines(response => { const radians = pairWhole(response, 'phaseRad'); return computedLine([radians], bin => { const value = radians[bin]; return value === null ? null : value * DEGREES; }); }, 'value', '°') },
+        { key: 'phase', axes: plainNames(plainTitle(strings, 'axisFrequency'), plainTitle(strings, 'pairPhaseLabel')), range: plainRange(-180, 180), layers: lines(response => { const radians = pairWhole(response, 'phaseRad'); return computedLine(radians, value => (value === null ? null : value * DEGREES)); }, 'value', '°') },
         { key: 'coherence', axes: plainNames(plainTitle(strings, 'axisFrequency'), plainTitle(strings, 'pairCoherenceLabel')), range: plainRange(0, 1), layers: lines(response => pairWhole(response, 'coherence'), 'coherence', 'γ²') },
     ];
 }

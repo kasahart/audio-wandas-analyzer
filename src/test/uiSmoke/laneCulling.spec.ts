@@ -161,7 +161,7 @@ function answerSlices(page: Page): Promise<AnsweredSlice[]> {
                 windowStartNorm: cursorNorm - 0.02,
                 windowEndNorm: cursorNorm + 0.02,
                 window: 'hann',
-                channels: channels.map((channelIndex) => ({ channelIndex, values, minDb: -100, maxDb: 0 })),
+                channels: channels.map((channelIndex) => ({ channelIndex, values, bins: values, minDb: -100, maxDb: 0 })),
             }, '*');
         });
         return slices.slice();

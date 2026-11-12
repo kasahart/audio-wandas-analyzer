@@ -11,6 +11,7 @@ import { OVERLAY_SPECTRUM_PAD, overlayLevelAxes, spectrumReadoutText, withCalibr
 import type { SpectrumSeries, SpectrumSlice } from '../webview/runtime/types';
 import { extractSpectrumAtCursor } from '../webview/spectrum/cursorSpectrum';
 import { createLaneReads } from '../webview/runtime/laneReads';
+import { NO_FULL_DATA } from '../webview/runtime/fullRead';
 
 function recordingCtx(): { ctx: CanvasDrawCtx; calls: string[] } {
     const calls: string[] = [];
@@ -37,7 +38,7 @@ function canvasOf(ctx: CanvasDrawCtx, marks: CanvasDrawCtx = ctx): HTMLCanvasEle
 }
 
 const series: SpectrumSeries[] = [{
-    slice: { values: [-60, -20, -40, -50], frequencyBins: 4, maxFrequencyHz: 1000, minDb: -60, maxDb: -20, unit: 'dB' },
+    slice: { values: [-60, -20, -40, -50], bins: [-60, -20, -40, -50], frequencyBins: 4, maxFrequencyHz: 1000, minDb: -60, maxDb: -20, unit: 'dB' },
     color: '#ff0000',
     index: 0,
     channelIndex: 0,
@@ -72,7 +73,7 @@ test('paintOverlaySpectrum draws no line and gives nothing to read when the freq
 test('an arrow key reads the next bin the cursor spectrum drew, from the one the pointer read (R7)', () => {
     const bins = 129, tone = 40;
     const values = Array.from({ length: bins }, (_, bin) => -Math.abs(bin - tone) / 2);
-    const slice = { values, frequencyBins: bins, maxFrequencyHz: 24000, minDb: -100, maxDb: 0, unit: 'dB' };
+    const slice = { values, bins: values, frequencyBins: bins, maxFrequencyHz: 24000, minDb: -100, maxDb: 0, unit: 'dB' };
     const binHz = (bin: number) => bin * 24000 / (bins - 1);
     const { ctx } = recordingCtx();
     const plot = plotOf(paintOverlaySpectrum(canvasOf(ctx), 356, 200, [{ ...series[0], slice }], fullView));
@@ -88,7 +89,7 @@ test('an arrow key reads the next bin the cursor spectrum drew, from the one the
 test('a slice too dense to draw whole is read at its real bins: a bin thinned out of the line, and every bin by the arrow keys (R7)', () => {
     const bins = 8193;
     const values = Array.from({ length: bins }, (_, bin) => -50 + 20 * Math.sin(bin * 1.37) * Math.cos(bin * 0.11));
-    const slice = { values, frequencyBins: bins, maxFrequencyHz: 24000, minDb: -100, maxDb: 0, unit: 'dB' };
+    const slice = { values, bins: values, frequencyBins: bins, maxFrequencyHz: 24000, minDb: -100, maxDb: 0, unit: 'dB' };
     const binHz = (bin: number) => bin * 24000 / (bins - 1);
     const { ctx } = recordingCtx();
     const plot = plotOf(paintOverlaySpectrum(canvasOf(ctx), 356, 200, [{ ...series[0], slice }], fullView));
@@ -115,10 +116,22 @@ test('a slice too dense to draw whole is read at its real bins: a bin thinned ou
     }
 });
 
+test('a cursor slice is read from its every bin as the backend sends it (bins, x-whole), never from its drawn values; one without bins has nothing to read (R7)', () => {
+    // values and bins differ here only so the test can tell which one was read: the backend sends the same numbers.
+    const drawnValues = [-60, -20, -40, -50], every = [-61, -21, -41, -51];
+    const layer = spectrumLayer({ ...series[0], slice: { ...series[0].slice, values: drawnValues, bins: every } }, 1000);
+    const read = layer.full.line({ x0: 0, x1: 1000, beyond: 0 }, () => undefined);
+    assert.deepEqual(read?.values, every);
+    assertNotDrawn(read?.values?.[1], drawnValues[1], 'not the value drawn');
+    // A slice cut for display (no bins) is only drawn: without a read of every bin (series.full) it has no full data.
+    const cut = spectrumLayer({ ...series[0], slice: { ...series[0].slice, values: drawnValues, bins: undefined, frequenciesHz: [0, 250, 500, 1000] } }, 1000);
+    assert.equal(cut.full, NO_FULL_DATA);
+});
+
 test('the pointer reads the point nearest it within a few pixels, so a narrow peak beside it is read at its top (R7)', () => {
     const bins = 129, tone = 60;
     const values = Array.from({ length: bins }, (_, bin) => (bin === tone ? 0 : -60));
-    const slice = { values, frequencyBins: bins, maxFrequencyHz: 24000, minDb: -100, maxDb: 0, unit: 'dB' };
+    const slice = { values, bins: values, frequencyBins: bins, maxFrequencyHz: 24000, minDb: -100, maxDb: 0, unit: 'dB' };
     const binHz = (bin: number) => bin * 24000 / (bins - 1);
     const { ctx } = recordingCtx();
     const plot = plotOf(paintOverlaySpectrum(canvasOf(ctx), 356, 200, [{ ...series[0], slice }], fullView));
@@ -130,7 +143,7 @@ test('the pointer reads the point nearest it within a few pixels, so a narrow pe
 const SPL = 'Spectrum amplitude level [dB SPL re 20 µPa]';
 const VOLT = 'Spectrum amplitude level [dB re 1 V]';
 function levelSeries(label: string, color: string, axisLabel: string, values: number[], minDb: number, maxDb: number): SpectrumSeries {
-    return { slice: { values, frequencyBins: values.length, maxFrequencyHz: 1000, minDb, maxDb, unit: axisLabel === SPL ? 'dB SPL' : 'dB', axisLabel }, color, index: 0, channelIndex: 0, label };
+    return { slice: { values, bins: values, frequencyBins: values.length, maxFrequencyHz: 1000, minDb, maxDb, unit: axisLabel === SPL ? 'dB SPL' : 'dB', axisLabel }, color, index: 0, channelIndex: 0, label };
 }
 const mixed = [
     levelSeries('A', '#0000ff', SPL, [80, 40, 60, 50], 40, 80),
@@ -317,7 +330,7 @@ test('a line past the dB axis leaves the plot where it crosses the axis (clipped
 
 test('zoomed between two log ticks, the frequency axis still labels where it is', () => {
     const centers = Array.from({ length: 31 }, (_, band) => 20 * 2 ** (band / 3));
-    const bands: SpectrumSeries[] = [{ ...series[0], slice: { values: centers.map(() => -30), frequencyBins: 31, maxFrequencyHz: 20000 * 2 ** (1 / 6), minDb: -60, maxDb: 0, unit: 'dB', bandsPerOctave: 3, bandCentersHz: centers, minFrequencyHz: 20 / 2 ** (1 / 6) } }];
+    const bands: SpectrumSeries[] = [{ ...series[0], slice: { values: centers.map(() => -30), bins: centers.map(() => -30), frequencyBins: 31, maxFrequencyHz: 20000 * 2 ** (1 / 6), minDb: -60, maxDb: 0, unit: 'dB', bandsPerOctave: 3, bandCentersHz: centers, minFrequencyHz: 20 / 2 ** (1 / 6) } }];
     const axis = { frequencyMin: 20 / 2 ** (1 / 6), frequencyMax: 20000 * 2 ** (1 / 6), logFrequency: true };
     const view = { ...fullView, freqStart: frequencyFraction(1100, axis), freqEnd: frequencyFraction(1900, axis) };
     const texts: Array<{ text: string; y: number }> = [];
@@ -330,7 +343,8 @@ test('zoomed between two log ticks, the frequency axis still labels where it is'
 
 test('a full-resolution slice is thinned only to be drawn: every bin in a narrow zoomed range is kept, a bucket per two pixels across a wide one (R2, R3)', () => {
     const bins = 8193;
-    const slice = { values: Array.from({ length: bins }, (_, bin) => Math.sin(bin * 1.3) * 20 - 40), frequencyBins: bins, maxFrequencyHz: 8192, minDb: -60, maxDb: -20 } as unknown as SpectrumSeries['slice'];
+    const every = Array.from({ length: bins }, (_, bin) => Math.sin(bin * 1.3) * 20 - 40);
+    const slice = { values: every, bins: every, frequencyBins: bins, maxFrequencyHz: 8192, minDb: -60, maxDb: -20 } as unknown as SpectrumSeries['slice'];
     const series = { slice, color: '#fff', label: 'a' } as unknown as SpectrumSeries;
     const zoomed = spectrumLayer(series, 8192, { frequencyMin: 1000, frequencyMax: 1100, buckets: 300 });
     const inside = (zoomed.view.xs ?? []).filter(x => x >= 1000 && x <= 1100);
@@ -340,7 +354,7 @@ test('a full-resolution slice is thinned only to be drawn: every bin in a narrow
     assert.ok(wholeXs.length <= 2 * 300 + 1, `${wholeXs.length} points`);
     assert.equal(wholeXs[0], 0, 'DC kept');
     // A slice the backend already thinned (it names its frequencies) is drawn as it came.
-    const thinned = spectrumLayer({ ...series, slice: { ...slice, frequenciesHz: slice.values.map((_, bin) => bin) } }, 8192, { frequencyMin: 0, frequencyMax: 8192, buckets: 300 });
+    const thinned = spectrumLayer({ ...series, slice: { ...slice, bins: undefined, frequenciesHz: every.map((_, bin) => bin) } }, 8192, { frequencyMin: 0, frequencyMax: 8192, buckets: 300 });
     assert.equal(thinned.view.xs?.length, bins);
 });
 
@@ -375,7 +389,7 @@ test('the cursor spectrum orders a slice cut for display by every bin on screen,
     paintOverlaySpectrum(canvas, 400, 200, lines, fullView);
     assert.match(canvas.dataset.plotOrder ?? '', /…/u, 'not judged until every bin is in');
     assert.equal(posted.length, 1, 'the slice at every bin asked for once, for both channels');
-    reads.handle({ type: 'spectrum-slice-result', requestId: posted[0].requestId, maxFrequencyHz: maxHz, channels: [{ channelIndex: 0, values: spiky }, { channelIndex: 1, values: steady }] } as { type: string; requestId: string });
+    reads.handle({ type: 'spectrum-slice-result', requestId: posted[0].requestId, maxFrequencyHz: maxHz, channels: [{ channelIndex: 0, values: spiky, bins: spiky }, { channelIndex: 1, values: steady, bins: steady }] } as { type: string; requestId: string });
     strokes.length = 0;
     await new Promise(resolve => setTimeout(resolve, 0));
     assert.deepEqual(strokes.filter(color => color === 'spiky' || color === 'steady'), expected, 'drawn again with every bin: the quieter on top');
@@ -413,7 +427,7 @@ test('until the backend\'s slice comes, the cursor spectrum draws the lane\'s av
     const silence = extractSpectrumAtCursor(source, 0, 1.5, { startSec: 0, spanSec: 1 }, context);
     assert.ok(silence);
     assert.equal(silence.standIn, 'silence');
-    const real = { values: [-80, -30, -50, -55], frequencyBins: 4, maxFrequencyHz: 1000, minDb: -80, maxDb: -30, unit: 'dB' };
+    const real = { values: [-80, -30, -50, -55], bins: [-80, -30, -50, -55], frequencyBins: 4, maxFrequencyHz: 1000, minDb: -80, maxDb: -30, unit: 'dB' };
     const both = plotOf(paintOverlaySpectrum(canvasOf(ctx), 400, 200, [{ ...series[0], slice: silence }, { ...series[0], color: '#0000ff', label: 'B', slice: real }], fullView));
     const floor = both.lines.find(line => line.color === '#ff0000');
     assert.ok(floor, 'the floor is drawn');

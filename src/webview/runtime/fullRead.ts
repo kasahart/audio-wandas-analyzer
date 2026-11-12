@@ -15,7 +15,7 @@
  */
 import { answerKey, createAnswerStore, type AnswerKey } from './answerStore';
 import type { StagePoints, StageRead } from '../../shared/protocol/backendProtocol';
-import type { Derived, Whole, WholeLine } from '../../shared/provenance';
+import type { Derived, Whole, WholeCells, WholeLine } from '../../shared/provenance';
 import { claimMint } from '../../shared/wholeMint';
 
 /** This module's mint (wholeMint.ts): claimed once, used only in this file's readers, never handed on. */
@@ -346,27 +346,50 @@ function seekIn(xs: readonly Whole[], values: readonly (Whole | null)[], n: numb
 
 /**
  * A number the webview computed of full data (a Δ of two bins, a mean over channels), as full data itself, typed
- * `Derived`. `from` is what it was computed of: at least one whole value (an empty list does not compile), so a
- * number with no full data behind it cannot be made whole here, and neither can a thinned point (`Drawn`) or a plain
- * number. What this does not check is the arithmetic: that `value` really was computed of `from` is for the reader
- * of the call. For a whole line computed value by value, use computedLine.
+ * `Derived`. `from` is what it is computed of: at least one whole value (an empty list, a gap, a thinned point
+ * (`Drawn`) or a plain number does not compile), and `compute` is handed those values and answers the number: the
+ * number is made only of what the call names (display rules R7, "a whole collection is made only by its
+ * producers"). provenanceBoundary.test.ts refuses a `compute` that is not written at the call or leaves one of the
+ * values unused (rule `computed-unused`). What is still for the reader of the call is the arithmetic itself.
+ * For a whole line computed value by value, use computedLine.
  */
-export function computedWhole(_from: readonly [Whole, ...Array<Whole | null | undefined>], value: number): Derived {
-    return mint.derived(value);
+export function computedWhole<const From extends readonly [Whole, ...Whole[]]>(from: From, compute: (...values: From) => number): Derived {
+    return mint.derived(compute(...from));
 }
 
 /**
- * A line computed value by value of whole lines (the Δ of two spectra bin by bin, the median of several recordings'
- * bins, the mean over channels): `each(index)` is the value at `index`, or null for a gap. It is every value because
- * it has one for every index of the lines it is computed of: as long as the first of `from`, or `length` values
- * where the lines are known to be that long (the 1/3-octave bands). `from` holds at least one line.
- * As computedWhole, it does not check the arithmetic.
+ * A line computed value by value of a whole line (a level in degrees, the Δ of two spectra bin by bin, the median
+ * of several recordings' bins, the mean over channels): `map(value, index)` is the value at `index`, or null for a
+ * gap, given `from`'s value there. The line made has one value for every value of `from` and no other, so it is
+ * every value as `from` is; there is no length to give and no array of values to hand in (display rules R7).
+ * Other lines it is computed of are read at `index` inside `map`; provenanceBoundary.test.ts refuses a `map` that is
+ * not written at the call or leaves `from`'s value unused (rule `computed-unused`). As computedWhole, the
+ * arithmetic is for the reader of the call.
  */
-export function computedLine(from: readonly [WholeLine, ...WholeLine[]], each: (index: number) => number, length?: number): WholeLine<Whole>;
-export function computedLine(from: readonly [WholeLine, ...WholeLine[]], each: (index: number) => number | null, length?: number): WholeLine;
-export function computedLine(from: readonly [WholeLine, ...WholeLine[]], each: (index: number) => number | null, length: number = from[0].length): WholeLine {
-    return mint.line(Array.from({ length }, (_, index) => each(index)));
+export function computedLine(from: WholeLine<Whole>, map: (value: Whole, index: number) => number): WholeLine<Whole>;
+export function computedLine(from: WholeLine, map: (value: Whole | null, index: number) => number | null): WholeLine;
+export function computedLine(from: WholeLine, map: LineMap): WholeLine {
+    // A line of Whole is handed to its own overload's map only: each value it gives is one of `from`'s.
+    const each = map as (value: Whole | null, index: number) => number | null;
+    return mint.line(from.map((value, index) => each(value, index)));
 }
+
+/**
+ * Cells computed cell by cell of whole cells (a Δ of two images, cell by cell): `map(value, row, column)` is the
+ * cell at `row`, `column`, or null for a gap, given `from`'s cell there. Every row and every column of `from` is
+ * kept and no other is made, so the cells are every row as `from`'s are (WholeCells). The same check as
+ * computedLine holds of `map`.
+ */
+export function computedCells(from: WholeCells<Whole>, map: (value: Whole, row: number, column: number) => number): WholeCells<Whole>;
+export function computedCells(from: WholeCells, map: (value: Whole | null, row: number, column: number) => number | null): WholeCells;
+export function computedCells(from: WholeCells, map: CellMap): WholeCells {
+    const each = map as (value: Whole | null, row: number, column: number) => number | null;
+    return mint.cells(from.map((line, row) => line.map((value, column) => each(value, row, column))));
+}
+
+/** What computedLine's and computedCells' overloads take as `map`. */
+type LineMap = ((value: Whole, index: number) => number) | ((value: Whole | null, index: number) => number | null);
+type CellMap = ((value: Whole, row: number, column: number) => number) | ((value: Whole | null, row: number, column: number) => number | null);
 
 /** The full data of a line that has no point at all (an axis drawn alone, a slice with no bins): read, it answers nothing. */
 export const NO_POINTS: InlineFullSource = localLine([], mint.line([]));
@@ -409,10 +432,12 @@ export function localLine(held: readonly number[], values: WholeLine): InlineFul
 }
 
 /**
- * An image the webview holds every cell of: `matrix` rows over ascending `ys`, columns over ascending `xs`. As with
- * localLine, calling it is the claim that the cells are every one, none thinned.
+ * An image the webview holds every cell of: `matrix` rows over ascending `ys`, columns over ascending `xs`.
+ * `matrix` is `WholeCells`: every row, each every value, which only its producers make (provenance.ts). Rows that
+ * are each whole but filtered or sliced (`matrix.filter(…)`), a picture's cells and plain numbers do not compile.
+ * `heldXs` and `heldYs` are the places the cells sit at, which the caller lays out, as localLine's.
  */
-export function localCells(heldXs: readonly number[], heldYs: readonly number[], matrix: ReadonlyArray<WholeLine>, rowNames?: readonly string[]): InlineFullSource {
+export function localCells(heldXs: readonly number[], heldYs: readonly number[], matrix: WholeCells, rowNames?: readonly string[]): InlineFullSource {
     const xs = mint.values(heldXs), ys = mint.values(heldYs);
     const nearest = (axis: readonly number[], value: number): number => {
         const at = Math.max(1, Math.min(axis.length - 1, firstFrom(axis, value)));

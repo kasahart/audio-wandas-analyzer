@@ -7,10 +7,9 @@
  * in its comment which Python function takes it. Nothing else may mint (provenanceBoundary.test.ts).
  */
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
-import type { PairSpectrumResponse } from '../../shared/protocol/generated/backendProtocolSchema';
-import type { Drawn, Whole, WholeLine } from '../../shared/provenance';
+import type { PairSpectrumResponse, SpectrumSliceChannel } from '../../shared/protocol/generated/backendProtocolSchema';
+import type { Whole, WholeLine } from '../../shared/provenance';
 import { claimMint } from '../../shared/wholeMint';
-import { localLine, type InlineFullSource } from './fullRead';
 
 /** This module's mint (wholeMint.ts): claimed once, used only in the adapters below, never handed on. */
 const mint = claimMint('wholeAnswers');
@@ -28,11 +27,6 @@ export function pairWhole<K extends 'gainDb' | 'phaseRad' | 'coherence'>(respons
     return mint.every('PairSpectrumResponse', response, name);
 }
 
-/** A band table's bars, which the backend sends whole (every band, none thinned): read from their every value. */
-export function wholeBars(view: StageView | null | undefined): InlineFullSource | undefined {
-    return view?.kind === 'bar' ? localLine(view.xs ?? [], mint.everyValue(view.values ?? [])) : undefined;
-}
-
 /** Where a Δ is largest and its value there (stage_combine.difference_peak): found among every value before thinning (R2). */
 export function backendPeak(view: StageView): { x: Whole; y?: Whole; value: Whole; xStep?: number; yStep?: number } | undefined {
     const peak = view.peak;
@@ -41,12 +35,13 @@ export function backendPeak(view: StageView): { x: Whole; y?: Whole; value: Whol
 }
 
 /**
- * A cursor-spectrum slice's values when they are every bin of it (or every band): the backend sends a slice whole
- * unless it cut it for display, which it marks with `frequenciesHz`. null for a cut slice and for a stand-in (drawn
- * while the real slice is on its way: none of its values is a bin). What a slice's readout, order and CSV take.
+ * A cursor-spectrum slice's every bin (or every band), what its readout, order and CSV take: the channel's `bins`,
+ * which the schema marks `x-whole` and analysis_service.spectrum_slice sends only for a row it did not cut for
+ * display. null for a cut slice (it has no `bins`: read it again at every bin) and for a stand-in (drawn while the
+ * real slice is on its way: none of its values is a bin). Never the slice's `values`, which are drawn points
+ * (`x-drawn`) even when they happen to be every bin (display rules R7).
  */
-export function everyBin(slice: { values: readonly Drawn[]; frequenciesHz?: readonly number[]; bandCentersHz?: readonly number[]; standIn?: string }): WholeLine<Whole> | null {
+export function everyBin(slice: Pick<SpectrumSliceChannel, 'bins'> & { standIn?: string }): WholeLine<Whole> | null {
     if (slice.standIn) return null;
-    if (slice.frequenciesHz && !slice.bandCentersHz?.length) return null;
-    return mint.everyBin(slice.values);
+    return mint.every('SpectrumSliceChannel', slice, 'bins') ?? null;
 }

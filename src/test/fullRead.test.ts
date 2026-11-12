@@ -4,7 +4,6 @@ import { assertNotDrawn, nearestOf } from './fullNotDrawn';
 import { FAILED_RETRY_MS as FAILED_HOLD_MS } from '../webview/runtime/answerStore';
 import { fetchedSource, mappedSource, NO_FULL_DATA, STEP_AHEAD, type FullSource, type LineQuery, fullSource, cannotRead, readsFullData, sourceWith } from '../webview/runtime/fullRead';
 import { wholeValue, testLine, testCells } from './helpers/whole';
-import { wholeBars } from '../webview/runtime/wholeAnswers';
 import { declaresFullRead, stageHover, stageStep, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
 import { HOVER_PICK_RADIUS_PX } from '../webview/runtime/plotHover';
 import { createStageReader } from '../webview/runtime/stageReader';
@@ -324,28 +323,26 @@ test('every layer a plot draws is given its full data, held or fetched: one give
     assert.equal(declaresFullRead({ view: line, color: '', full: NO_FULL_DATA }), false);
     assert.equal(declaresFullRead({ view: bars, color: '', full: NO_FULL_DATA }), false, 'bars are not taken as whole for being bars');
     assert.equal(declaresFullRead({ view: line, color: '', full: testLine([1, 2], [0, 1]) }), true);
-    assert.equal(declaresFullRead({ view: bars, color: '', full: wholeBars(bars) ?? NO_FULL_DATA }), true);
-    assert.equal(wholeBars(line), undefined, 'a line is never read from what it draws');
+    assert.equal(declaresFullRead({ view: bars, color: '', full: testLine([1, 2], [0, 1]) }), true);
     // Given none, the pointer reads no number off it, not the point drawn under it.
     const plot = (full: FullSource): StagePlot => ({ frame: { left: 0, top: 0, width: 100, height: 100 }, xAt: x => (x - 1) * 100, yAt: v => 100 - v * 100, xOf: x => 1 + x / 100, ratioStep: 1.12, lines: [{ view: bars, color: '', full }], diff: false });
     assert.equal(stageHover(plot(NO_FULL_DATA), 0, 100), null);
-    assert.equal(stageHover(plot(wholeBars(bars) ?? NO_FULL_DATA), 0, 100)?.value, 0);
+    assert.equal(stageHover(plot(testLine([1, 2], [0, 1])), 0, 100)?.value, 0);
     // A line thinned to be drawn (its 1.5 peak left out) is never taken whole: its full data is read, not its points.
     const thinned: StageView = { ...line, values: [0, 0] };
     const over = (full: FullSource): number | undefined => stageHover({ ...plot(full), lines: [{ view: thinned, color: '', full }] }, 50, 0)?.value;
-    const full = wholeBars(thinned) ?? testLine([1, 1.5, 2], [0, 1, 0]);
+    const full = testLine([1, 1.5, 2], [0, 1, 0]);
     assert.equal(over(full), 1);
-    assert.notEqual(over(wholeBars(thinned) ?? full), over(testLine([1, 2], [0, 0])), 'not the value of the points drawn');
+    assert.notEqual(over(full), over(testLine([1, 2], [0, 0])), 'not the value of the points drawn');
 });
 
-test('a picture\'s full data is held or fetched, never its drawn points: a band table without a key reads its every band at once, a line without one has none (R7)', () => {
+test('a picture\'s full data is fetched by its key, never its drawn points: a band table is read as a line is, and without a key neither has any (R7)', () => {
     const reader = createStageReader('kinds-test', () => undefined);
     const keyed = reader.of({ frame: 'SpectralFrame', kind: 'line', xs: [0, 1], values: [0, 0], data: 'k1' });
     assert.equal(keyed?.held, 'fetched');
     const bands: StageView = { frame: 'NOctFrame', kind: 'bar', x: 'band', xs: [100, 125, 160], values: [-40, -12, -33] };
-    const whole = reader.of(bands);
-    assert.equal(whole?.held, 'inline');
-    assert.deepEqual(whole?.line({ x0: 125, x1: 125, beyond: 1 }, () => undefined)?.values, [-40, -12, -33]);
+    assert.equal(reader.of({ ...bands, data: 'k2' })?.held, 'fetched', 'bars are read through the full read of their step, as a line is');
+    assert.equal(reader.of(bands), NO_FULL_DATA, 'a band table\'s values are drawn points (x-drawn): without a key it has no full data, however many bands it draws (R7)');
     assert.equal(reader.of({ frame: 'SpectralFrame', kind: 'line', xs: [0, 1], values: [0, 0] }), NO_FULL_DATA, 'a thinned line is never read as if whole: it has no full data, by name');
 });
 

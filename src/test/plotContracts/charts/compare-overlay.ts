@@ -15,7 +15,7 @@ export const compareOverlay: ChartContract = {
             tests: [
                 t('src/test/fullRead.test.ts', 'every layer a plot draws is given its full data, held or fetched: one given none is marked and reads no number, bars too (R7)'),
                 t('src/test/stagePanes.test.ts', 'a level is read in its axis\'s own unit and reference, on the main axis, the right-hand one and a colour bar: never a bare dB beside "dBFS" (R4, R7)'),
-                t('src/test/fullRead.test.ts', 'a picture\'s full data is held or fetched, never its drawn points: a band table without a key reads its every band at once, a line without one has none (R7)'),
+                t('src/test/fullRead.test.ts', 'a picture\'s full data is fetched by its key, never its drawn points: a band table is read as a line is, and without a key neither has any (R7)'),
                 t('src/test/stagePanes.test.ts', 'the pointer reads the point nearest it within a few pixels, so a narrow peak beside it is read at its top (R7)'),
                 t('src/test/uiSmoke/narrowFeatures.spec.ts', 'a hover and the arrow keys on the thinned whole spectrum read its real bins from the backend, one bin per key, each at its exact value (R7)'),
                 tt('python-backend/test_full_read.py', 'test_a_recordings_spectrum_is_read_at_its_own_bins_not_its_picture'),
@@ -52,8 +52,8 @@ export const compareOverlay: ChartContract = {
         },
         {
             id: 'compare-overlay.readout-bands', value: 'readout', what: '1/3 オクターブ帯（棒）の読み値',
-            computedIn: [`${SP}:lineRead`, 'python-backend/stage_view.py:_noct_view', 'src/webview/runtime/wholeAnswers.ts:wholeBars', 'src/webview/runtime/stageReader.ts:createStageReader'],
-            from: 'whole', trace: '帯は間引かない（NOctFrame の全帯）。バックエンドが全データの鍵を付けない帯の表は、stageReader が wholeBars で全帯を InlineFullSource にして読む。全データのない層は読み値を出さない（NO_FULL_DATA）。',
+            computedIn: [`${SP}:lineRead`, 'python-backend/stage_view.py:_noct_view', 'src/webview/runtime/stageReader.ts:createStageReader', 'python-backend/full_read.py:read_line'],
+            from: 'whole', trace: '帯は間引かない（NOctFrame の全帯）が、絵の values は描く点（x-drawn）なので読まない。棒も線と同じく、段の鍵（data）で全データを取り寄せて読む（stageReader、full_read.py）。鍵のない帯の表は全データがなく、読み値を出さない（NO_FULL_DATA）。',
             tests: [
                 t('src/test/fullRead.test.ts', 'every layer a plot draws is given its full data, held or fetched: one given none is marked and reads no number, bars too (R7)'),
                 t('src/test/uiSmoke/trackCompare.spec.ts', 'the comparison shows a step\'s bands as bars, and hides the lanes\' own controls'),

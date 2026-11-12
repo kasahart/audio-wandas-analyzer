@@ -166,7 +166,7 @@
     "python-backend/full_read.py:read_line#values": "a full read's points (StagePoints.values, x-whole): every value around the pointer, none thinned",
     "python-backend/full_read.py:_seek_line#values": "a full read's points found by seeking to the next value (StagePoints.values, x-whole): none thinned",
     "python-backend/full_read.py:read_cells#matrix": "a full read's cells (StagePoints.matrix, x-whole): every cell around the pointer, none thinned",
-    "python-backend/stage_view.py:_noct_view#values": "a band table: every band of the NOctFrame is sent, none thinned (the webview reads its bars as full data, wholeBars)",
+    "python-backend/stage_view.py:_noct_view#values": "a band table: every band of the NOctFrame is sent, none thinned; still x-drawn (StageView.values is a picture), so the webview reads the bars through the full read of the step (stageReader), never from these values",
     "python-backend/stage_combine.py:value_range#min": "one number, the lowest of every value before thinning (valueRange.min): not the envelope's array of the same name",
     "python-backend/stage_combine.py:value_range#max": "one number, the highest of every value before thinning (valueRange.max): not the envelope's array of the same name",
     "python-backend/stage_combine.py:_line_buckets#events": "a table of how many points each kind of picture draws, keyed by the picture's mode: not a picture's events"

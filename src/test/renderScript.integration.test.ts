@@ -951,8 +951,8 @@ test('renderScript: multichannel lazy spectrum uses one track-batched request', 
         trackIndex: 0,
         filePath: '/tmp/a.wav',
         channels: [
-            { channelIndex: 0, values: [-20], minDb: -90, maxDb: 0 },
-            { channelIndex: 1, values: [-10], minDb: -90, maxDb: 0 },
+            { channelIndex: 0, values: [-20], bins: [-20], minDb: -90, maxDb: 0 },
+            { channelIndex: 1, values: [-10], bins: [-10], minDb: -90, maxDb: 0 },
         ],
         frequencyBins: 1, maxFrequencyHz: 22050,
     } }));
@@ -992,7 +992,7 @@ test('renderScript: lazy spectrum applies global backpressure and converges to t
         settingsSignature: initial.settingsSignature,
         trackIndex: 0,
         filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-40], minDb: -90, maxDb: 0 }],
+        channels: [{ channelIndex: 0, values: [-40], bins: [-40], minDb: -90, maxDb: 0 }],
         frequencyBins: 1, maxFrequencyHz: 22050,
     } }));
     await nextAnimationFrame(env.dom);
@@ -1011,7 +1011,7 @@ test('renderScript: lazy spectrum applies global backpressure and converges to t
         settingsSignature: requests[1].settingsSignature,
         trackIndex: 0,
         filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-30, -10], minDb: -90, maxDb: 0 }],
+        channels: [{ channelIndex: 0, values: [-30, -10], bins: [-30, -10], minDb: -90, maxDb: 0 }],
         frequencyBins: 2, maxFrequencyHz: 22050,
     } }));
     await nextAnimationFrame(env.dom);
@@ -1039,7 +1039,7 @@ test('renderScript: a lane scrolled into view in the frame a spectrum hover repa
         settingsSignature: first.settingsSignature,
         trackIndex: 0,
         filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-40], minDb: -90, maxDb: 0 }],
+        channels: [{ channelIndex: 0, values: [-40], bins: [-40], minDb: -90, maxDb: 0 }],
         frequencyBins: 1, maxFrequencyHz: 22050,
     } }));
     await nextAnimationFrame(env.dom);
@@ -1072,7 +1072,7 @@ test('renderScript: a PNG export asks for the cursor spectrum of a lane out of v
         settingsSignature: first.settingsSignature,
         trackIndex: 0,
         filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-40], minDb: -90, maxDb: 0 }],
+        channels: [{ channelIndex: 0, values: [-40], bins: [-40], minDb: -90, maxDb: 0 }],
         frequencyBins: 1, maxFrequencyHz: 22050,
     } }));
     await nextAnimationFrame(env.dom);
@@ -1107,7 +1107,7 @@ test('renderScript: a cursor set again to where an in-flight slice was asked ask
         settingsSignature: initial.settingsSignature,
         trackIndex: 0,
         filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-40], minDb: -90, maxDb: 0 }],
+        channels: [{ channelIndex: 0, values: [-40], bins: [-40], minDb: -90, maxDb: 0 }],
         frequencyBins: 1, maxFrequencyHz: 22050,
     } }));
     await nextAnimationFrame(env.dom);
@@ -1150,7 +1150,7 @@ test('renderScript: waveform seek invalidates an in-flight spectrum response', a
         settingsSignature: initial.settingsSignature,
         trackIndex: 0,
         filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-40, -20], minDb: -90, maxDb: 0 }],
+        channels: [{ channelIndex: 0, values: [-40, -20], bins: [-40, -20], minDb: -90, maxDb: 0 }],
         frequencyBins: 2,
         maxFrequencyHz: 22050,
     } }));
@@ -1170,7 +1170,7 @@ test('renderScript: waveform seek invalidates an in-flight spectrum response', a
         settingsSignature: requests[1].settingsSignature,
         trackIndex: 0,
         filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-30, -10], minDb: -90, maxDb: 0 }],
+        channels: [{ channelIndex: 0, values: [-30, -10], bins: [-30, -10], minDb: -90, maxDb: 0 }],
         frequencyBins: 2,
         maxFrequencyHz: 22050,
     } }));
@@ -1195,7 +1195,7 @@ test('renderScript: lazy spectrum slices apply display range settings', async ()
         settingsSignature: req.settingsSignature,
         trackIndex: 0,
         filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-120, -20, 10], minDb: -120, maxDb: 10,
+        channels: [{ channelIndex: 0, values: [-120, -20, 10], bins: [-120, -20, 10], minDb: -120, maxDb: 10,
             unit: 'dB', axisLabel: 'Spectrum level [dB]' }],
         frequencyBins: 3,
         maxFrequencyHz: 22050,
@@ -1244,7 +1244,7 @@ test('renderScript: lazy spectrum cache is scoped to the current cursor: an earl
         settingsSignature: initialReq.settingsSignature,
         trackIndex: 0,
         filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-120, -20, 10], minDb: -120, maxDb: 10 }],
+        channels: [{ channelIndex: 0, values: [-120, -20, 10], bins: [-120, -20, 10], minDb: -120, maxDb: 10 }],
         frequencyBins: 3,
         maxFrequencyHz: 22050,
     } }));
@@ -1284,7 +1284,7 @@ test('renderScript: lazy spectrum keeps previous drawing while a new cursor slic
         settingsSignature: initialReq.settingsSignature,
         trackIndex: 0,
         filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-120, -20, 10], minDb: -120, maxDb: 10 }],
+        channels: [{ channelIndex: 0, values: [-120, -20, 10], bins: [-120, -20, 10], minDb: -120, maxDb: 10 }],
         frequencyBins: 3,
         maxFrequencyHz: 22050,
     } }));
@@ -1336,7 +1336,7 @@ test('renderScript: the last cursor spectrum is held only for a cursor action, n
     await nextAnimationFrame(env.dom);
     const answer = (request: any) => env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
         type: 'spectrum-slice-result', requestId: request.requestId, analysisId: request.analysisId, settingsSignature: request.settingsSignature,
-        trackIndex: 0, filePath: '/tmp/a.wav', channels: [{ channelIndex: 0, values: [-120, -20, 10], minDb: -120, maxDb: 10 }], frequencyBins: 3, maxFrequencyHz: 22050,
+        trackIndex: 0, filePath: '/tmp/a.wav', channels: [{ channelIndex: 0, values: [-120, -20, 10], bins: [-120, -20, 10], minDb: -120, maxDb: 10 }], frequencyBins: 3, maxFrequencyHz: 22050,
     } }));
     const latest = () => (env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any[]).at(-1);
     answer(latest());
@@ -2096,7 +2096,7 @@ async function answerSpectrumSlices(env: ReturnType<typeof setupEnv>, stateJson:
                 const spec = channel.spectrogram;
                 const at = Math.max(0, Math.min(spec.timeBins - 1, Math.floor(request.cursorNorm * spec.timeBins)));
                 // The backend's slice always names its level (an uncalibrated recording's in dBFS).
-                return { channelIndex, values: spec.values[at], minDb: spec.minDb, maxDb: spec.maxDb, unit: spec.unit ?? 'dBFS' };
+                return { channelIndex, values: spec.values[at], bins: spec.values[at], minDb: spec.minDb, maxDb: spec.maxDb, unit: spec.unit ?? 'dBFS' };
             });
             const first = result.channels[0].spectrogram;
             env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
@@ -2316,7 +2316,7 @@ test('renderScript: playback spectrum redraw waits for the latest backend respon
         settingsSignature: request.settingsSignature,
         trackIndex: request.trackIndex,
         filePath: request.filePath,
-        channels: [{ channelIndex: 0, values: [-30, -10], minDb: -90, maxDb: 0 }],
+        channels: [{ channelIndex: 0, values: [-30, -10], bins: [-30, -10], minDb: -90, maxDb: 0 }],
         frequencyBins: 2,
         maxFrequencyHz: 22050,
     } }));
@@ -2346,7 +2346,7 @@ test('renderScript: playback spectrum scheduler keeps the next rAF cursor desire
         settingsSignature: first.settingsSignature,
         trackIndex: first.trackIndex,
         filePath: first.filePath,
-        channels: [{ channelIndex: 0, values: [-30, -10], minDb: -90, maxDb: 0 }],
+        channels: [{ channelIndex: 0, values: [-30, -10], bins: [-30, -10], minDb: -90, maxDb: 0 }],
         frequencyBins: 2,
         maxFrequencyHz: 22050,
     } }));
@@ -2571,7 +2571,7 @@ async function answerCsvSpectrumRequests(env: any, stateJson: string, done: () =
             const result = state.results[request.trackIndex];
             const channels = result.channels.map((channel: any, channelIndex: number) => {
                 const values = channel.spectrogram.values[0];
-                return { channelIndex, values, minDb: Math.min(...values), maxDb: Math.max(...values) };
+                return { channelIndex, values, bins: values, minDb: Math.min(...values), maxDb: Math.max(...values) };
             });
             env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
                 type: 'spectrum-slice-result',
@@ -2692,7 +2692,7 @@ test('renderScript: export-csv leaves out a track whose every-bin spectrum faile
                 const data = request.trackIndex === 1
                     ? { ...identity, type: 'spectrum-slice-error', error: 'backend failed' }
                     : { ...identity, type: 'spectrum-slice-result', frequencyBins: 4, maxFrequencyHz: 22050,
-                        channels: [{ channelIndex: 0, values: state.results[0].channels[0].spectrogram.values[0], minDb: -90, maxDb: 0 }] };
+                        channels: [{ channelIndex: 0, values: state.results[0].channels[0].spectrogram.values[0], bins: state.results[0].channels[0].spectrogram.values[0], minDb: -90, maxDb: 0 }] };
                 env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data }));
             });
             await new Promise(resolve => env.dom.window.setTimeout(resolve, 30));

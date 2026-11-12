@@ -110,6 +110,7 @@ export function spectrumSlicesFromResult(msg: SpectrumSliceResultMessage, cursor
         cursorNorm,
         channelIndex: channel.channelIndex,
         values: channel.values,
+        ...(channel.bins ? { bins: channel.bins } : {}),
         frequencyBins: msg.frequencyBins,
         originalMaxFrequencyHz: msg.maxFrequencyHz,
         maxFrequencyHz: msg.maxFrequencyHz,

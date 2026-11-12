@@ -8,7 +8,7 @@ import type { StageView } from '../shared/protocol/backendProtocol';
 import type { SpectrumSlice } from '../webview/runtime/types';
 
 function slice(values: number[], overrides: Partial<SpectrumSlice> = {}): SpectrumSlice {
-    return { values, frequencyBins: values.length, maxFrequencyHz: 1000, minDb: -100, maxDb: 0, ...overrides };
+    return { values, bins: values, frequencyBins: values.length, maxFrequencyHz: 1000, minDb: -100, maxDb: 0, ...overrides };
 }
 
 const layerOf = (values: number[], overrides: Partial<SpectrumSlice> = {}, cutoffHz = 1000) =>

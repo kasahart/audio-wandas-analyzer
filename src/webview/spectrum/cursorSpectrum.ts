@@ -4,8 +4,10 @@ import type { SpectrumStandIn } from '../runtime/types';
 import { spectrogramTimeBinAt, spectrogramTimeBinEdges } from './spectrogramTimeBins';
 
 export interface SpectrumSlice {
-    /** As drawn: every bin when the slice has no `frequenciesHz`, else cut for display (wholeAnswers.ts everyBin). */
+    /** As drawn: every bin when the slice has no `frequenciesHz`, else cut for display; never read (x-drawn). */
     values: Drawn[];
+    /** Every bin (or band), sent only for a slice not cut for display (x-whole): what is read (wholeAnswers.ts everyBin). */
+    bins?: number[];
     frequencyBins: number;
     maxFrequencyHz: number;
     minDb: number;

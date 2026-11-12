@@ -6,7 +6,7 @@ import { assertNotDrawn } from './fullNotDrawn';
 import { P, T } from './helpers/figure';
 
 const slice = (values: number[], extra: Partial<SpectrumSlice> = {}): SpectrumSlice => ({
-    values, frequencyBins: values.length, maxFrequencyHz: 1000, minDb: -100, maxDb: 0, ...extra,
+    values, bins: values, frequencyBins: values.length, maxFrequencyHz: 1000, minDb: -100, maxDb: 0, ...extra,
 });
 
 test('spectrum CSV pairs a frequency and a level column per track, each named as its axis is (C5), and pads shorter tracks', () => {

@@ -380,7 +380,7 @@
 - テスト: `src/test/fullRead.test.ts` › a level asked for while a read is on its way is never dropped for a newer read: the pointer's latest goes next, then the latest level (R6, R7)
 - テスト: `src/test/fullRead.test.ts` › a spectrogram is read at its real cells, never the cells averaged to draw it, and stepped a frame at a time (R7)
 - テスト: `src/test/fullRead.test.ts` › every layer a plot draws is given its full data, held or fetched: one given none is marked and reads no number, bars too (R7)
-- テスト: `src/test/fullRead.test.ts` › a picture's full data is held or fetched, never its drawn points: a band table without a key reads its every band at once, a line without one has none (R7)
+- テスト: `src/test/fullRead.test.ts` › a picture's full data is fetched by its key, never its drawn points: a band table is read as a line is, and without a key neither has any (R7)
 - テスト: `src/test/fullRead.test.ts` › a window too dense to send whole is read where the pointer is: the point nearest it on screen, by its true distance, as brute force finds it; elsewhere, or at another level, its readout is empty until that place's points come; zoomed in further it is asked anew (R7)
 - テスト: `python-backend/test_full_read.py` › test_a_dense_window_sends_the_point_nearest_the_pointer_on_screen_as_brute_force_finds_it
 - テスト: `src/test/fullRead.test.ts` › a source read on another axis gets the pointer's place and the screen's scale on its own axis, so a dense window there is read nearest the pointer (R7)
@@ -407,6 +407,22 @@
 - テスト: `src/test/stageViewKinds.test.ts` › every Frame kind a step from ＋ can give that the app draws has its backend picture in the fixture the plot contract is run on (R7)
 - テスト: `python-backend/test_stage_view_kinds.py` › test_the_frame_kinds_fixture_is_what_the_backend_draws_now
 - テスト: `src/test/uiSmoke/plotContract.spec.ts` › a ${kind} reached from ＋ answers the same gestures as every plot, overlaid, as its Δ and in lanes (R7)
+
+
+全データの集まり（線の全部の値、マスの全部の行、全データから計算した 1 つの数）は、作る関数だけが作ります（a whole collection is made only by its producers。`src/shared/provenance.ts` の `WholeLine`・`WholeCells`・`Derived`）。読み値・← / →・重ね順・CSV が全データとして読むのはこれだけです。各値が全データでも、集まりが全部であるとは限らないからです（`filter` や 1 つおきに取った配列は、値はどれも本物でも、間引いた線と同じです）。
+
+- 線（`WholeLine`）を作るのは、スキーマが `x-whole` と分類した backend の配列（`wholeAnswers.ts`）と、ほかの `WholeLine` を値ごとに写す `computedLine(from, (value, index) => …)` だけです。写した線は `from` とちょうど同じ長さです。長さや値の配列を渡す口はありません。ほかの線をいっしょに使うとき（2 本の Δ、録音の中央値）は、写す関数の中で同じ `index` を読みます。
+- マス（`WholeCells`）も同じです。作るのは `x-whole` の配列の配列と、行と列を保つ `computedCells` だけで、`localCells` は `WholeCells` しか受けません。行ごとに全データでも、行を間引いた `WholeLine[]` は受けません。
+- 1 つの数（`Derived`）は `computedWhole([a, b], (a, b) => …)` だけが作ります。計算する関数には値そのものが渡され、その答えが数になります。
+- 写す関数・計算する関数は、呼ぶところに書き、渡された値を使います。関数を外から渡すことと、値を使わずに定数や別の配列から作ることは、`provenanceBoundary.test.ts` が規則 `computed-unused` として拒みます。
+- 描く点（`x-drawn`）の配列を「たまたま全部だから」と全データにする口はありません。カーソルスペクトルは、backend が行を表示用に切らなかったときだけ、全ビン（帯）を `x-whole` の `bins` として送り（`analysis_service.spectrum_slice`）、読み値と CSV はそれだけを読みます（`wholeAnswers.everyBin`）。比較台の棒（帯の表）は、ほかの絵と同じく段の鍵（`data`）で全データを取り寄せて読みます（`stageReader`）。鍵のない絵は全データがなく、読み値を出しません。
+- この規則のテストが失敗したら、型か口を広げて通すのではなく、上の作る関数のどれかで全データを作ってください。何をすればよいかは `docs/plot-contracts-guide.md`（"Adding a number a user reads"）にあります。
+- テスト: `src/test/provenanceBoundary.test.ts` › a whole line, whole cells and a computed whole number are made only by their producers: a thinned, filtered or handed-in line, rows not known to be every row, and a number beside its values do not compile (R7)
+- テスト: `src/test/provenanceBoundary.test.ts` › a whole result computed with a function that is not written at the call, or that ignores the values it is handed, is refused by the scan (R7)
+- テスト: `src/test/guideExamples.test.ts` › every code block of the plot contracts guide compiles against the code as it is, and each line it says the compiler refuses is refused
+- テスト: `src/test/overlaySpectrumPainter.test.ts` › a cursor slice is read from its every bin as the backend sends it (bins, x-whole), never from its drawn values; one without bins has nothing to read (R7)
+- テスト: `python-backend/test_analysis_service.py` › test_a_cursor_slice_sends_its_every_bin_as_bins_only_when_its_row_is_not_cut
+- テスト: `src/test/fullRead.test.ts` › a picture's full data is fetched by its key, never its drawn points: a band table is read as a line is, and without a key neither has any (R7)
 
 表示（窓・帯・設定）が変わらない間は、マウスを動かしても、取り寄せたものの中にいるかぎりバックエンドには何も頼みません。読み値はその場で読み、空になりません。スペクトログラムのマスは、マウスのまわりの列と上下 16 行をまとめて取り寄せ（`fullRead.ts` の `HOVER_CELLS`、バックエンドは `full_read.read_cells` の `rows`）、取り寄せたマスがマウスの位置に答えるかどうかは、行の中心ではなく、マウスのあるセル（描く絵・読み値と同じ区切りの `cellIndex`）が、上下にも取り寄せた行があるセルかどうかで決めます。帯で拡大したレーンは、軸の両端が範囲の入力欄の数（R9）なので、マウスの周波数がビンの中心からわずかにずれます。行の中心で比べると、そのずれだけで取り寄せた端の行を「外」と見て、同じマスを何度も頼み、そのたびに読み値が空になるからです。帯の絵（帯のビン）は帯を決めたときに 1 回だけ頼み、マウスの動きでは頼み直しません。テストの代わりのバックエンドも、`rows` をバックエンドと同じに受けます（2 行しか返さないと、本物では起きない頼み直しをテストが作るからです）。
 - テスト: `src/test/fullRead.test.ts` › a spectrogram's hover asks the backend once for a block around the pointer: moving across frames and bins reads what came (R7)

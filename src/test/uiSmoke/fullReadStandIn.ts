@@ -137,7 +137,7 @@ function uiSmokeSliceAnswer(message) {
             var away = Math.abs(time - message.cursorNorm * duration);
             if (away < best) { best = away; at = column; }
         }
-        return { channelIndex: channelIndex, values: spec.values[at], minDb: spec.minDb, maxDb: spec.maxDb, unit: spec.unit, axisLabel: spec.axisLabel };
+        return { channelIndex: channelIndex, values: spec.values[at], bins: spec.values[at], minDb: spec.minDb, maxDb: spec.maxDb, unit: spec.unit, axisLabel: spec.axisLabel };
     });
     if (channels.some(function(channel) { return !channel; })) return null;
     var first = result.channels[0].spectrogram;

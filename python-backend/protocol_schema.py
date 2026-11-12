@@ -371,7 +371,11 @@ DEFINITIONS: dict[str, Schema] = {
         "required": ["channelIndex", "values", "minDb", "maxDb"],
         "properties": {
             "channelIndex": {"type": "integer"},
+            # As drawn: every bin (or band) when the result has no ``frequenciesHz``, else cut for display.
             "values": _DRAWN_LINE,
+            # Every bin (or band) of the row, sent only when the row is not cut for display
+            # (analysis_service.spectrum_slice): what the webview reads, orders and exports (R7).
+            "bins": _WHOLE_LINE,
             "minDb": _NUMBER,
             "maxDb": _NUMBER,
             "unit": {"type": "string"},

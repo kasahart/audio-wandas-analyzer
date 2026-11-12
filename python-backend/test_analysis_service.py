@@ -133,6 +133,32 @@ def test_cursor_spectrum_level_range_is_every_bins_not_the_row_cut_for_display(t
         assert_not_drawn(cut["maxDb"], float(averaged.max()))
 
 
+def test_a_cursor_slice_sends_its_every_bin_as_bins_only_when_its_row_is_not_cut(tmp_path: Path) -> None:
+    # R7: ``bins`` (x-whole) is what the webview reads; ``values`` (x-drawn) only what it draws. A row cut for display
+    # has no ``bins``; every other row (full resolution, short enough not to be cut, octave bands) sends them, the
+    # same numbers as its uncut values and as many as its bins.
+    rate = 48000
+    rng = np.random.default_rng(5)
+    audio = tmp_path / "noise.wav"
+    sf.write(audio, 0.01 * rng.standard_normal((rate, 2)), rate, subtype="FLOAT")
+    service = AnalysisService(AnalysisEngine())
+    wide = {"nFft": 16384, "overlapPercent": 75, "window": "hann"}
+    narrow = {"nFft": 1024, "overlapPercent": 75, "window": "hann"}
+
+    cut = service.spectrum_slice(audio, cursor_norm=0.5, stft_options=wide)
+    assert "frequenciesHz" in cut
+    assert all("bins" not in channel for channel in cut["channels"])
+    for every in [
+        service.spectrum_slice(audio, cursor_norm=0.5, stft_options=wide, full_resolution=True),
+        service.spectrum_slice(audio, cursor_norm=0.5, stft_options=narrow),
+        service.spectrum_slice(audio, cursor_norm=0.5, stft_options=narrow, bands_per_octave=3),
+    ]:
+        assert "frequenciesHz" not in every
+        for channel in every["channels"]:
+            assert len(channel["bins"]) == every["frequencyBins"]
+            assert channel["bins"] == channel["values"]
+
+
 def test_service_exposes_all_use_cases_without_server_loop(tmp_path: Path) -> None:
     audio = tmp_path / "tone.wav"
     _write_sine_wav(audio)

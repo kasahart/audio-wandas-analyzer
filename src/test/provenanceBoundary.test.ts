@@ -8,10 +8,14 @@
  *    own way of making a `Whole` lives.
  * 2. No code casts a value to a type that holds `Whole` (`3 as Whole`, `as unknown as FullPoints`), and none
  *    declares a type predicate that would (`value is Whole`). The entries that hold a line or cells whole
- *    (fullRead.ts localLine, localCells) take `Whole` values, so an array reaches them only from a mint module: a
- *    backend field the protocol marks `x-whole` (wholeAnswers.ts), or a number computed of such values
- *    (computedWhole). The one entry that takes plain numbers, `layoutLine` (numbers a figure is laid out with, not
- *    measurements), is used only by the layout modules (LAYOUT_MODULES).
+ *    (fullRead.ts localLine, localCells) take `WholeLine` / `WholeCells`, so an array reaches them only from a mint
+ *    module: a backend field the protocol marks `x-whole` (wholeAnswers.ts), or a line or cells mapped value by
+ *    value of such (computedLine, computedCells; one number: computedWhole). The one entry that takes plain numbers,
+ *    `layoutLine` (numbers a figure is laid out with, not measurements), is used only by the layout modules
+ *    (LAYOUT_MODULES).
+ *    The map a whole line or cells are computed with, and the compute of a whole number, are written at the call and
+ *    use every value they are handed (rule `computed-unused`): a result named whole is made of the whole values the
+ *    call names, never of a plain array read by index or a constant (display rules R7).
  *    A full-data source (FullSource) is made only by fullRead.ts: one written by hand or by spreading another does
  *    not compile, so the only source that reads nothing is the named `NO_FULL_DATA`.
  * 3. Only the drawing modules (DRAWING_MODULES) refer to drawnPoints.ts, where a `Drawn` becomes a number.
@@ -136,7 +140,7 @@ function holds(type: ts.Type, brand: string, checker: ts.TypeChecker, depth = 0,
     });
 }
 
-type Rule = 'mint' | 'mint-kept' | 'layout' | 'empty-read' | 'test-code' | 'cast' | 'predicate' | 'unwrap' | 'drawn-cast' | 'drawn-predicate' | 'drawn-coerced' | 'drawn-read';
+type Rule = 'mint' | 'mint-kept' | 'layout' | 'computed-unused' | 'empty-read' | 'test-code' | 'cast' | 'predicate' | 'unwrap' | 'drawn-cast' | 'drawn-predicate' | 'drawn-coerced' | 'drawn-read';
 interface Problem { file: string; line: number; rule: Rule; text: string }
 
 /** Whether a value of `type` is itself a `Drawn` (not a holder of one): what arithmetic and text must not take. */
@@ -198,6 +202,33 @@ function picturePlaces(scanned: ts.Program): Set<ts.Symbol> {
     return found;
 }
 
+/** fullRead.ts's producers of whole collections and numbers, each given the function its result is computed with. */
+const COMPUTED: ReadonlySet<string> = new Set(['computedLine', 'computedCells', 'computedWhole']);
+
+/**
+ * Whether a call of a COMPUTED producer computes its result of what it is handed: its function is written at the
+ * call and uses every parameter it declares, at least one; computedWhole's declares one for each value of `from`
+ * written as a list (or a rest parameter). How the function computes is the reader's (docs/plot-contracts-guide.md).
+ */
+function computesOfItsValues(call: ts.CallExpression, name: string, checker: ts.TypeChecker): boolean {
+    const written = call.arguments[1];
+    if (!written || !(ts.isArrowFunction(written) || ts.isFunctionExpression(written))) return false;
+    const parameters = written.parameters;
+    if (!parameters.length || parameters.some(parameter => !ts.isIdentifier(parameter.name))) return false;
+    const used = new Set<ts.Symbol>();
+    const walk = (node: ts.Node): void => {
+        if (ts.isIdentifier(node)) { const symbol = checker.getSymbolAtLocation(node); if (symbol) used.add(symbol); }
+        ts.forEachChild(node, walk);
+    };
+    walk(written.body);
+    // computedLine / computedCells: the value (the first parameter); the index or row and column are optional.
+    const needed = name === 'computedWhole' ? parameters : parameters.slice(0, 1);
+    if (needed.some(parameter => { const symbol = checker.getSymbolAtLocation(parameter.name); return !symbol || !used.has(symbol); })) return false;
+    const from = call.arguments[0];
+    const rest = parameters.some(parameter => !!parameter.dotDotDotToken);
+    return name !== 'computedWhole' || rest || !from || !ts.isArrayLiteralExpression(from) || from.elements.some(ts.isSpreadElement) || parameters.length >= from.elements.length;
+}
+
 /** Every place that breaks rules 1 to 5 above. */
 function provenanceProblems(scanned: ts.Program): Problem[] {
     const checker = scanned.getTypeChecker();
@@ -247,6 +278,12 @@ function provenanceProblems(scanned: ts.Program): Problem[] {
                     const called = ts.isPropertyAccessExpression(node.parent) && node.parent.expression === node && ts.isCallExpression(node.parent.parent) && node.parent.parent.expression === node.parent;
                     if (holder.name === node ? exported : !called) at(node, 'mint-kept');
                 }
+            }
+            // A whole collection or number computed with a function that is not written at the call, or ignores what
+            // it is handed (rule 2: computed-unused).
+            if (ts.isCallExpression(node)) {
+                const callee = aliased(checker.getSymbolAtLocation(ts.isPropertyAccessExpression(node.expression) ? node.expression.name : node.expression), checker);
+                if (callee && COMPUTED.has(callee.name) && declaredIn(callee, FULL_READ) && !computesOfItsValues(node, callee.name, checker)) at(node, 'computed-unused');
             }
             // A claim is the initializer of a const, so the rule above can follow the mint.
             if (claims(node) && !(ts.isVariableDeclaration(node.parent) && node.parent.initializer === node && ts.isIdentifier(node.parent.name))) at(node, 'mint-kept');
@@ -315,6 +352,7 @@ function provenanceProblems(scanned: ts.Program): Problem[] {
 
 const FIX: Record<Rule, string> = {
     'mint-kept': 'A module that holds the mint of Whole keeps it: `const mint = claimMint(…)` at the top of the module, not exported, and used only as `mint.value(…)`. Handing the mint to other code would let any number become full data. Export a function that reads or adapts one kind of full data instead (as localLine, backendPeak).',
+    'computed-unused': 'Display rules R7 (a whole collection is made only by its producers): computedLine, computedCells and computedWhole name their result full data because it is computed of the whole values they hand their function. Here that function is not written at the call, declares no parameter, or leaves one unused (computedLine / computedCells: the value; computedWhole: each value of `from`), so the result could be made of something else: a plain array read by index, a thinned point, a constant. Write the function at the call and compute the result of the value(s) it is handed; read other whole lines at the same index inside it, next to the value (`computedLine(a, (value, bin) => value - b[bin])`). A line of numbers that are not of the data is layoutLine\'s (LAYOUT_MODULES).',
     layout: 'Only the layout modules (LAYOUT_MODULES in this file) may call layoutLine, which holds plain numbers as a readable line. If these numbers are measurements, take them whole instead: a backend field through wholeAnswers.ts (scanWhole, pairWhole), or computedWhole for a number computed of whole values, then localLine. If they are numbers this module makes to lay a figure out (counts, stacking heights), add the module to LAYOUT_MODULES with what they are.',
     'empty-read': 'A read given to a source here can only answer null (it fails every time), or, outside fullRead.ts, only nothing: the source would count as full data and read none. If the layer has no full data, pass NO_FULL_DATA (fullRead.ts); a picture that must not be read at all (its file changed since it was analysed) is painted with `readout: false`. A stand-in whose real picture is on its way passes PENDING_FULL_DATA. A kind of read the source does not have is left out (it becomes cannotRead). A read that can fail must also be able to answer points on some path.',
     'test-code': 'Product code may not use anything under src/test: the tests\' helpers (such as wholeValue, which makes a Whole of a made-up number) are for tests only. Read the value through a FullSource or an adapter of wholeAnswers.ts.',
@@ -341,14 +379,14 @@ test('every picture place the scan follows (PICTURE_PLACES) is a field of the pr
 // ── The routes are closed: each violation fails the compiler or the scan above ──
 
 const HEAD = [
-    'import type { Derived, Drawn, Whole, WholeLine } from \'../../shared/provenance\';',
+    'import type { Derived, Drawn, Whole, WholeCells, WholeLine } from \'../../shared/provenance\';',
     'import type { FullPoints } from \'./fullRead\';',
     'import type { StageLayer, StageRead } from \'./stagePanes\';',
     'import type { StageView } from \'../../shared/protocol/backendProtocol\';',
     'import type { WaveformEnvelope } from \'../../shared/analysis/analysisTypes\';',
     'import type { SpectrumSlice } from \'./types\';',
-    'import { computedLine, computedWhole, localCells, localLine } from \'./fullRead\';',
-    'export type Used = Derived | Drawn | WholeLine | typeof computedLine | Whole | FullPoints | StageLayer | StageRead | StageView | WaveformEnvelope | SpectrumSlice | typeof localLine | typeof localCells | typeof computedWhole;',
+    'import { computedCells, computedLine, computedWhole, localCells, localLine } from \'./fullRead\';',
+    'export type Used = Derived | Drawn | WholeLine | WholeCells | typeof computedLine | typeof computedCells | Whole | FullPoints | StageLayer | StageRead | StageView | WaveformEnvelope | SpectrumSlice | typeof localLine | typeof localCells | typeof computedWhole;',
 ].join('\n');
 // A drawn point, however it was had (taking one out of a picture is itself refused, rule 5).
 const FIRST = 'declare function first(view: StageView): Drawn;';
@@ -372,19 +410,19 @@ const MUST_NOT_COMPILE: readonly Mutant[] = [
     { what: 'plain numbers held as a line\'s full data', body: 'export const full = (xs: number[], values: number[]) => localLine(xs, values);' },
     { what: 'plain numbers held as cells\' full data', body: 'export const full = (xs: number[], ys: number[], matrix: number[][]) => localCells(xs, ys, matrix);' },
     { what: 'an envelope\'s picked samples (drawn points) held as a line\'s full data', body: 'export const full = (envelope: WaveformEnvelope) => localLine(envelope.samples ?? [], envelope.samples ?? []);' },
-    { what: 'a number computed of drawn points made whole', body: 'export const top = (view: StageView) => computedWhole([(view.values ?? [])[0]], 3);' },
-    { what: 'a number computed of plain numbers made whole', body: 'export const top = (plain: number) => computedWhole([plain], 3);' },
-    { what: 'a number computed of nothing made whole', body: 'export const top = computedWhole([], 123);' },
-    { what: 'a number computed of a list that may be empty made whole', body: 'export const top = (values: Whole[]) => computedWhole(values, 123);' },
-    { what: 'a number computed of gaps alone made whole', body: 'export const top = computedWhole([null], 123);' },
+    { what: 'a number computed of drawn points made whole', body: 'export const top = (view: StageView) => computedWhole([(view.values ?? [])[0]], value => value);' },
+    { what: 'a number computed of plain numbers made whole', body: 'export const top = (plain: number) => computedWhole([plain], value => value);' },
+    { what: 'a number computed of nothing made whole', body: 'export const top = computedWhole([], () => 123);' },
+    { what: 'a number computed of a list that may be empty made whole', body: 'export const top = (values: Whole[]) => computedWhole(values, (...all) => all.length);' },
+    { what: 'a number computed of gaps alone made whole', body: 'export const top = computedWhole([null], value => value ?? 0);' },
     { what: 'a plain number where a computed whole is asked for', body: 'export const top: Derived = 3;' },
     { what: 'a measured whole value passed off as a computed one', body: 'export const top = (value: Whole): Derived => value;' },
     { what: 'whole values filtered, then held as the whole line', body: 'export const full = (xs: number[], line: WholeLine) => localLine(xs, line.filter(value => value !== null));' },
     { what: 'whole values sliced, then held as the whole line', body: 'export const full = (xs: number[], line: WholeLine) => localLine(xs, line.slice(0, 3));' },
     { what: 'an array of whole values, not known to be every one, held as the whole line', body: 'export const full = (xs: number[], values: Whole[]) => localLine(xs, values);' },
-    { what: 'whole values mapped by hand, then held as the whole line', body: 'export const full = (xs: number[], line: WholeLine<Whole>) => localLine(xs, line.map(value => computedWhole([value], value * 2)));' },
+    { what: 'whole values mapped by hand, then held as the whole line', body: 'export const full = (xs: number[], line: WholeLine<Whole>) => localLine(xs, line.map(value => computedWhole([value], whole => whole * 2)));' },
     { what: 'a line computed of no line', body: 'export const line = computedLine([], () => 1);' },
-    { what: 'a line computed of plain arrays', body: 'export const line = (plain: number[]) => computedLine([plain], bin => plain[bin]);' },
+    { what: 'a line computed of a plain array', body: 'export const line = (plain: number[]) => computedLine(plain, value => value);' },
     { what: 'a range taken of values not known to be every one', imports: 'import { heldValueRange } from \'./fullRead\';', body: 'export const range = (values: Whole[]) => heldValueRange(values, false);' },
     { what: 'a range taken of plain numbers', imports: 'import { heldValueRange } from \'./fullRead\';', body: 'export const range = (values: number[]) => heldValueRange(values, false);' },
     { what: 'the order\'s level bins made of plain numbers', imports: 'import { levelBinsOf } from \'./stagePanes\';', body: 'export const bins = (xs: number[], values: number[]) => levelBinsOf(xs, values, [0, 1], false);' },
@@ -402,7 +440,9 @@ const MUST_NOT_COMPILE: readonly Mutant[] = [
 /** The honest forms, which must compile and pass the scan. */
 const ALLOWED: readonly Mutant[] = [
     { what: 'a value read from full points', body: 'export const first = (points: FullPoints): Whole | undefined => points.xs[0];' },
-    { what: 'a whole line held, a line computed of it, and a number computed of two of its values', body: 'export const full = (xs: number[], line: WholeLine<Whole>) => [localLine(xs, line), localLine(xs, computedLine([line], bin => line[bin] * 2))];\nexport const delta = (a: Whole, b: Whole): Derived => computedWhole([a, b], a - b);' },
+    { what: 'a whole line held, a line computed of it, and a number computed of two of its values', body: 'export const full = (xs: number[], line: WholeLine<Whole>) => [localLine(xs, line), localLine(xs, computedLine(line, value => value * 2))];\nexport const delta = (a: Whole, b: Whole): Derived => computedWhole([a, b], (x, y) => x - y);' },
+    { what: 'a Δ of two whole lines, the other read at the same index', body: 'export const delta = (a: WholeLine<Whole>, b: WholeLine<Whole>) => computedLine(a, (value, bin) => value - b[bin]);\nexport const mean = (values: [Whole, ...Whole[]]) => computedWhole(values, (...all) => all.reduce((sum, value) => sum + value, 0) / all.length);' },
+    { what: 'whole cells held, and cells computed of them', body: 'export const full = (xs: number[], ys: number[], cells: WholeCells<Whole>) => [localCells(xs, ys, cells), localCells(xs, ys, computedCells(cells, value => value * 2))];' },
     { what: 'dropping null of what is already whole', body: 'export const kept = (value: Whole | null): Whole => value as Whole;' },
     { what: 'a read that can fail, and answers points otherwise', imports: 'import { fullSource, type FetchedFullSource } from \'./fullRead\';', body: 'export const some = (held: FetchedFullSource, late: boolean) => fullSource(\'fetched\', { line(query, ready) { if (late) return null; return held.line(query, ready); } });' },
     { what: 'a picture passed on, its gaps dropped', body: 'export const copy = (view: StageView): StageView => ({ ...view, values: (view.values ?? []).filter(value => value !== null) });' },
@@ -412,7 +452,7 @@ const ALLOWED: readonly Mutant[] = [
 /** What compiles but the scan must refuse, with the rule it breaks. */
 const MUST_NOT_PASS: ReadonlyArray<Mutant & { rule: Rule; also?: Rule[] }> = [
     { rule: 'mint', what: 'the mint claimed outside the mint modules', imports: 'import { claimMint } from \'../../shared/wholeMint\';', body: 'const mint = claimMint(\'fullRead\');\nexport const made = mint.value(3);' },
-    { rule: 'mint', what: 'the mint reached through a namespace import', imports: 'import * as mints from \'../../shared/wholeMint\';', body: 'const mint = mints.claimMint(\'wholeAnswers\');\nexport const made = mint.everyBin([3]);' },
+    { rule: 'mint', what: 'the mint reached through a namespace import', imports: 'import * as mints from \'../../shared/wholeMint\';', body: 'const mint = mints.claimMint(\'wholeAnswers\');\nexport const made = mint.field({ x: 3 }, \'x\');' },
     { rule: 'mint', also: ['mint-kept'], what: 'a claimed mint exported', imports: 'import { claimMint } from \'../../shared/wholeMint\';', body: 'export const mint = claimMint(\'fullRead\');' },
     { rule: 'mint', also: ['mint-kept'], what: 'a claimed mint handed on as a value', imports: 'import { claimMint } from \'../../shared/wholeMint\';', body: 'const mint = claimMint(\'fullRead\');\nexport const leak = () => mint;' },
     { rule: 'mint', also: ['mint-kept'], what: 'a claimed mint\'s method handed on', imports: 'import { claimMint } from \'../../shared/wholeMint\';', body: 'const mint = claimMint(\'fullRead\');\nexport const make = mint.value;' },
@@ -454,7 +494,40 @@ const MUST_NOT_PASS: ReadonlyArray<Mutant & { rule: Rule; also?: Rule[] }> = [
         { rule: 'drawn-coerced' as const, what: `a drawn point coerced: ${coerced}`, body: `${FIRST}\nexport const made = (view: StageView): number => ${coerced};` })),
 ];
 
-const ALL_MUTANTS: readonly Mutant[] = [...MUST_NOT_COMPILE, ...ALLOWED, ...MUST_NOT_PASS];
+/**
+ * Display rules R7, "a whole collection is made only by its producers": a `WholeLine` is as long as the whole line it
+ * is mapped of (computedLine takes a map, never a length or an array of values), `WholeCells` are every row (rows
+ * each whole are not enough), and a computed whole number is computed of the values it names. The number beside its
+ * value, the thinned line, the line by index of a plain array and the two forms of rows not known to be every row
+ * compiled when computedLine took lines, a callback by index and a length, localCells took rows of WholeLine and
+ * computedWhole took a number; the others guard the same rule another way (there must never be an overload of
+ * computedLine that takes an array of values).
+ */
+const WHOLE_COLLECTIONS_MUST_NOT_COMPILE: readonly Mutant[] = [
+    { what: 'a number named whole beside the whole value it claims to be of, not computed of it', body: 'export const top = (whole: Whole, unrelated: number) => computedWhole([whole], unrelated);' },
+    { what: 'a number named whole of two values whose compute takes only the first', body: 'export const top = (a: Whole, b: Whole) => computedWhole([a, b], x => x * 2);' },
+    { what: 'a line thinned to every other value, named whole by a length of its own', body: 'export const thinned = (line: WholeLine<Whole>) => localLine([], computedLine([line], index => line[index * 2], Math.ceil(line.length / 2)));' },
+    { what: 'a line computed by index of plain arrays, named whole beside a whole one', body: 'export const line = (line: WholeLine<Whole>, plain: number[]) => computedLine([line], bin => plain[bin]);' },
+    { what: 'a line handed in as an array of values, not mapped', body: 'export const line = (line: WholeLine<Whole>, plain: number[]) => computedLine(line, plain);' },
+    { what: 'a whole line\'s values filtered and handed in as the line computed', body: 'export const line = (line: WholeLine<Whole>) => computedLine(line, line.filter((_, index) => index % 2 === 0));' },
+    { what: 'every other row of whole cells, with their places, held as the cells', body: 'export const full = (xs: number[], ys: number[], rows: ReadonlyArray<WholeLine>) => localCells(xs, ys.filter((_, index) => index % 2 === 0), rows.filter((_, index) => index % 2 === 0));' },
+    { what: 'rows each whole, not known to be every row, held as the cells', body: 'export const full = (xs: number[], ys: number[], rows: WholeLine[]) => localCells(xs, ys, rows);' },
+    { what: 'every other row of WholeCells held as the cells', body: 'export const full = (xs: number[], ys: number[], cells: WholeCells) => localCells(xs, ys.filter((_, index) => index % 2 === 0), cells.filter((_, index) => index % 2 === 0));' },
+    { what: 'cells sliced to some columns held as the cells', body: 'export const full = (xs: number[], ys: number[], cells: WholeCells) => localCells(xs, ys, cells.map(row => row.slice(0, 2)));' },
+    { what: 'a picture\'s drawn cells held as the cells', body: 'export const full = (view: StageView) => localCells([], [], view.matrix ?? []);' },
+];
+
+/** The same rule where only the scan can see it: the function a whole result is computed with ignores what it is handed. */
+const WHOLE_COLLECTIONS_MUST_NOT_PASS: ReadonlyArray<Mutant & { rule: Rule }> = [
+    { rule: 'computed-unused', what: 'a number named whole of a whole value its compute ignores', body: 'export const top = (whole: Whole, unrelated: number) => computedWhole([whole], () => unrelated);' },
+    { rule: 'computed-unused', what: 'a number named whole of two values, the first ignored', body: 'export const top = (a: Whole, b: Whole) => computedWhole([a, b], (_x, y) => y * 2);' },
+    { rule: 'computed-unused', what: 'a number named whole by a compute passed in, not written at the call', body: 'export const top = (a: Whole, compute: (value: Whole) => number) => computedWhole([a], compute);' },
+    { rule: 'computed-unused', what: 'a line of a plain array read by index, its whole line\'s values ignored', body: 'export const line = (line: WholeLine<Whole>, plain: number[]) => computedLine(line, (_value, bin) => plain[bin]);' },
+    { rule: 'computed-unused', what: 'a line made with a map passed in, not written at the call', body: 'export const line = (line: WholeLine<Whole>, map: (value: Whole) => number) => computedLine(line, map);' },
+    { rule: 'computed-unused', what: 'cells of a constant, their whole cells ignored', body: 'export const cells = (cells: WholeCells<Whole>) => computedCells(cells, () => 0);' },
+];
+
+const ALL_MUTANTS: readonly Mutant[] = [...MUST_NOT_COMPILE, ...ALLOWED, ...MUST_NOT_PASS, ...WHOLE_COLLECTIONS_MUST_NOT_COMPILE, ...WHOLE_COLLECTIONS_MUST_NOT_PASS];
 const fileOf = (mutant: Mutant): string => `src/webview/runtime/provenanceMutant${ALL_MUTANTS.indexOf(mutant)}.ts`;
 let mutated: ts.Program | undefined;
 /** The product code with every mutant added as a module of its own: compiled once for all the checks below. */
@@ -482,6 +555,19 @@ test('the scan refuses a mint, a cast or a predicate that makes full data, and e
     for (const mutant of MUST_NOT_PASS) {
         assert.deepEqual(compileErrors(mutant), [], `${mutant.what} compiles (the scan, not tsc, must catch it):\n${mutant.body}`);
         assert.deepEqual(scanRules(mutant).sort(), [mutant.rule, ...(mutant.also ?? [])].sort(), `${mutant.what}:\n${mutant.body}`);
+    }
+});
+
+test('a whole line, whole cells and a computed whole number are made only by their producers: a thinned, filtered or handed-in line, rows not known to be every row, and a number beside its values do not compile (R7)', () => {
+    for (const mutant of WHOLE_COLLECTIONS_MUST_NOT_COMPILE) {
+        assert.notDeepEqual(compileErrors(mutant), [], `${mutant.what} must not compile:\n${mutant.body}\nRule: display rules R7, a whole collection is made only by its producers. If a change to fullRead.ts (computedLine, computedCells, computedWhole, localCells) or provenance.ts (WholeLine, WholeCells) let this compile, put back what refused it: a line is mapped of one whole line (no length, no array of values), cells are WholeCells, a computed number is the answer of a compute handed its values.`);
+    }
+});
+
+test('a whole result computed with a function that is not written at the call, or that ignores the values it is handed, is refused by the scan (R7)', () => {
+    for (const mutant of WHOLE_COLLECTIONS_MUST_NOT_PASS) {
+        assert.deepEqual(compileErrors(mutant), [], `${mutant.what} compiles (the scan, not tsc, must catch it):\n${mutant.body}`);
+        assert.deepEqual(scanRules(mutant), [mutant.rule], `${mutant.what}:\n${mutant.body}\nRule: display rules R7; the scan's rule \`computed-unused\` (computesOfItsValues in this file) must find it.`);
     }
 });
 

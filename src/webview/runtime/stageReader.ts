@@ -8,7 +8,6 @@ import type { CompareCombineMessage, ComparePublication } from '../../shared/ana
 import type { StagePoints, StageRead, StageView } from '../../shared/protocol/backendProtocol';
 import { answerKey, createAnswerStore } from './answerStore';
 import { fetchedSource, NO_FULL_DATA, sourceWith, type FullRead, type FullSource } from './fullRead';
-import { wholeBars } from './wholeAnswers';
 
 export interface StageReader {
     /** A recording's own picture's full data, by the key its scan kept it under (a band table's own bars); NO_FULL_DATA without one. */
@@ -41,8 +40,10 @@ export function createStageReader(prefix: string, post: (message: CompareCombine
             return event === undefined ? sourceWith(fetched, { event: (id: number) => source(base, compare, of, id) }) : fetched;
         });
     return {
-        // A band table without a key is sent whole: its bars are read from their every value.
-        of: view => (view?.data ? source([view.data], null, 'base') : wholeBars(view) ?? NO_FULL_DATA),
+        // Every picture, a band table's bars too, is read through the full read of its step's values (its key):
+        // its `values` are drawn points by the schema (x-drawn), never taken as full data, even where they happen
+        // to be every band (display rules R7). A picture without a key has none to read.
+        of: view => (view?.data ? source([view.data], null, 'base') : NO_FULL_DATA),
         combined: (base, compare, of) => source(base, compare, of),
         handle(message) {
             if (message.type !== 'compare-combine-result') return false;

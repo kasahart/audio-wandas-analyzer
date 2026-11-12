@@ -15,7 +15,7 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { recipeKey, recipeNodes, recipeSteps, slotReferenced, timeSignalStep, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { DIFF_COLOR } from '../../shared/gui/roleColors';
-import { deltaViews, sameCondition, type CompareModel, type LevelInput, type PaneRange } from './comparePanes';
+import { bandsDeltaSource, deltaViews, sameCondition, type CompareModel, type LevelInput, type PaneRange } from './comparePanes';
 import type { PlotMargins, PlotWindow } from './plotInteraction';
 import { axisFractionOf, axisValueAt, drawnMargins, paintOverlay, type StagePlot } from './stagePanes';
 import { dataRange, diffRange, emptyFigure, narrowedRange, stageNames, type FigureNames, type FigureRange } from './figureModel';
@@ -24,7 +24,6 @@ import { createCombineSource, createLastFine, noDeltaNote, TOO_LARGE_COMBINED } 
 import { createStageSource, stageBasis, type StageSpec } from './stageSource';
 import { createStageReader } from './stageReader';
 import { localLine, NO_FULL_DATA, type FullRead } from './fullRead';
-import { wholeBars } from './wholeAnswers';
 import { recipeWithout, stepChipLabel, stepLimits } from './stepBar';
 import { withChannel } from '../../shared/recipe/channelSelection';
 
@@ -235,7 +234,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         const { picture, view } = deltaViews(comparison, zoom.x);
         // Read from every bin of the Δ (R7); without the bins, from every band of the table's per-band Δ.
         const bins = comparison.bins?.diff;
-        const full: FullRead = bins?.length && comparison.bins ? localLine(bins.map((_, bin) => bin * (comparison.bins?.hz ?? 0)), bins) : wholeBars(view) ?? NO_FULL_DATA;
+        const full: FullRead = bins?.length && comparison.bins ? localLine(bins.map((_, bin) => bin * (comparison.bins?.hz ?? 0)), bins) : view?.kind === 'bar' ? bandsDeltaSource(comparison) : NO_FULL_DATA;
         paintView(view, picture, diffRange(picture), stageNames(strings, picture, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta, full });
     }
 

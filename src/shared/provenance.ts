@@ -16,6 +16,7 @@
 declare const WHOLE: unique symbol;
 declare const THINNED: unique symbol;
 declare const EVERY: unique symbol;
+declare const EVERY_ROW: unique symbol;
 declare const DERIVED: unique symbol;
 
 /** A number of the full data. Usable wherever a number is; never made from a plain number outside wholeMint.ts. */
@@ -35,15 +36,28 @@ export type Drawn = number | Thinned;
  * what "the line is held whole" means, and it is a different claim from "each value is whole": a `Whole[]` that was
  * filtered or sliced still holds whole values, but it is no longer every one, and it is not a `WholeLine`
  * (`line.filter(…)` answers a plain array). Only the producers make one: a backend array the schema marks
- * `x-whole` (wholeAnswers.ts), and fullRead.ts (`computedLine`: a line computed value by value of whole lines, as
- * long as they are). What holds a line as a plot's full data (fullRead.ts `localLine`) takes only this.
- * It reads as an array of its values.
+ * `x-whole` (wholeAnswers.ts), and fullRead.ts `computedLine(from, map)`, which maps every value of one whole line
+ * (and its index) to one value, so the line it makes is exactly as long as `from`: there is no way to give it a
+ * length or an array of values (display rules R7, "a whole collection is made only by its producers").
+ * What holds a line as a plot's full data (fullRead.ts `localLine`) takes only this. It reads as an array of its values.
  */
 export type WholeLine<V extends Whole | null = Whole | null> = ReadonlyArray<V> & { readonly [EVERY]: 'every value' };
 
 /**
+ * Every row of an image of the full data, each row a `WholeLine`, none left out: what `WholeLine` is to a line, this is
+ * to cells. A `ReadonlyArray<WholeLine>` says only that each row is whole; filtered or sliced rows
+ * (`cells.filter(…)` answers a plain array) are no longer every row, and are not `WholeCells`. Only the producers
+ * make one: a backend array of arrays the schema marks `x-whole` (wholeAnswers.ts), and fullRead.ts
+ * `computedCells(from, map)`, which maps every cell of other `WholeCells` and keeps its rows and columns. What holds
+ * cells as a plot's full data (fullRead.ts `localCells`) takes only this.
+ */
+export type WholeCells<V extends Whole | null = Whole | null> = ReadonlyArray<WholeLine<V>> & { readonly [EVERY_ROW]: 'every row' };
+
+/**
  * A number the webview computed of whole values (a Δ of two bins, a mean over channels): made only by fullRead.ts
- * `computedWhole`, which takes what it was computed of. It is a `Whole` (a readout may write it); the type says it
- * is not a value the backend measured, so a reviewer can find every one.
+ * `computedWhole(from, compute)`, which hands `compute` the values of `from` and names whole what it answers, so the
+ * number is computed of those values (provenanceBoundary.test.ts refuses a `compute` that ignores one). It is a
+ * `Whole` (a readout may write it); the type says it is not a value the backend measured, so a reviewer can find
+ * every one.
  */
 export type Derived = Whole & { readonly [DERIVED]: 'computed of whole values' };

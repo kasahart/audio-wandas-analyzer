@@ -198,30 +198,49 @@ drawn), `x-whole` (every value) or `x-place` (where values sit: frequencies, tim
 `python-backend/test_protocol_schema.py` fails on an array that says none.
 
 If the webview already holds every value (a band table, every bin of a scan), no backend change is needed: hold it
-with `localLine(xs, line)`. `line` must be a `WholeLine` (`src/shared/provenance.ts`): every value of the line, which
-is a stronger claim than "each value is whole". Only the producers make one: the adapters above, and
-`computedLine(from, each)`, which computes a line value by value of whole lines and is as long as they are (a Δ of
-two spectra, a median over recordings). One number computed of whole values is `computedWhole(from, value)`; its
-type is `Derived`, and `from` holds at least one whole value. Plain numbers, a picture's points, and a filtered or
-sliced array of whole values do not compile:
+with `localLine(xs, line)`, or cells with `localCells(xs, ys, cells)`. `line` must be a `WholeLine` and `cells`
+`WholeCells` (`src/shared/provenance.ts`): every value of the line, every row of the cells, which is a stronger
+claim than "each value (each row) is whole". Only the producers make one (display rules R7, "a whole collection is
+made only by its producers"): the adapters above, and three functions of `fullRead.ts` that take a whole one and a
+function written at the call:
+
+- `computedLine(from, (value, index) => …)` maps every value of one whole line (a level in degrees, a Δ of two
+  spectra, a median over recordings). The line made is exactly as long as `from`: there is no length to give and
+  no array of values to hand in. Other lines it is computed of are read at `index` inside the function.
+- `computedCells(from, (value, row, column) => …)` does the same for cells, keeping every row and column.
+- `computedWhole([a, b], (a, b) => …)` makes one number (`Derived`) of at least one whole value: the function is
+  handed those values and its answer is the number.
+
+`provenanceBoundary.test.ts` refuses a function that is passed in rather than written at the call, or that leaves
+unused the value it is handed (rule `computed-unused`), so the result cannot be a plain array read by index or a
+constant beside the whole values it names. Plain numbers, a picture's points, and a filtered or sliced array of whole
+values (or rows) do not compile:
 
 <!-- guide-check file=src/webview/runtime/kurtosisHeld.ts
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { Whole } from '../../shared/provenance';
 import type { Derived, WholeLine } from '../../shared/provenance';
-import { computedLine, computedWhole, localLine } from './fullRead';
+import type { WholeCells } from '../../shared/provenance';
+import { computedLine, computedWhole, localCells, localLine } from './fullRead';
 declare const xs: number[];
+declare const ys: number[];
 declare const base: WholeLine<Whole>;
 declare const compared: WholeLine<Whole>;
+declare const cells: WholeCells;
 declare const view: StageView & { values: NonNullable<StageView['values']> };
 -->
 ```ts
-export const delta = localLine(xs, computedLine([compared, base], bin => compared[bin] - base[bin]));
-export const first: Derived = computedWhole([compared[0], base[0]], compared[0] - base[0]);
+export const delta = localLine(xs, computedLine(compared, (level, bin) => level - base[bin]));
+export const first: Derived = computedWhole([compared[0], base[0]], (a, b) => a - b);
+export const image = localCells(xs, ys, cells);
 export const plain = localLine(xs, [1, 2, 3]);                     // error: plain numbers are not a WholeLine
 export const points = localLine(xs, view.values);                  // error: drawn points are not a WholeLine
 export const some = localLine(xs, base.filter(value => value > 0)); // error: a filtered line is no longer every value
-export const none = computedWhole([], 123);                        // error: computed of nothing
+export const half = computedLine(base, base.slice(0, 3));          // error: a line is mapped, never handed in
+export const thin = computedLine([base], i => base[i * 2], 3);     // error: no length of its own (as long as `from`)
+export const rows = localCells(xs, ys, cells.filter((_, row) => row % 2 === 0)); // error: filtered rows are not every row
+export const none = computedWhole([], () => 123);                  // error: computed of nothing
+export const aside = computedWhole([base[0]], 123);                // error: a number beside the value, not computed of it
 ```
 
 ### The value's type says where it came from
@@ -244,7 +263,7 @@ Read the value through the layer's `FullSource` instead (`layer.full.line(...)` 
 are `Whole`). Arithmetic on whole values gives a plain number: a Δ or a mean that a user reads is computed by the
 backend, or in the webview from whole values and then named whole with `computedWhole` (above).
 
-A number becomes a `Whole` only in `fullRead.ts` (a full read's points; `computedWhole` and `computedLine`; the
+A number becomes a `Whole` only in `fullRead.ts` (a full read's points; `computedWhole`, `computedLine` and `computedCells`; the
 places of a line or cells held whole, `localLine` / `localCells` / `heldCells`) and in `wholeAnswers.ts` (a backend field the protocol
 says is taken of every value, one named function per field). There is no function that turns a number into a `Whole`: each
 of these two modules claims the mint once as it loads (`claimMint`, `src/shared/wholeMint.ts`), a second claim
@@ -411,10 +430,13 @@ They close the routes we know. They do not make a wrong number impossible. Know 
   listed fails. A function already listed can still draw by hand next to the plot component, and the static scan
   does not stop that. The real-browser audit does, for every chart a UI test shows ("Adding a canvas or an SVG"):
   that audit, not the scan, is the guarantee. A chart that no UI test shows is covered by neither.
-- **`computedWhole` and `computedLine` trust the arithmetic.** They take the whole values (or lines) a number was
-  computed of, at least one, so a thinned point, a plain number or nothing at all cannot be named whole through
-  them. They do not check that the number really was computed of them. The result's type (`Derived`, or a
-  `WholeLine` made by `computedLine`) lets you find every call; read each one.
+- **`computedWhole`, `computedLine` and `computedCells` trust the arithmetic.** They take the whole value(s), line
+  or cells a result is computed of, at least one, and hand them to a function written at the call that must use
+  them (rule `computed-unused`); a line or cells keep the length and rows of what they map, by construction. So a
+  thinned point, a plain number, nothing at all, a thinned line or a constant cannot be named whole through them.
+  What is not checked is the arithmetic inside the function, nor other arrays it reads at the same index next to
+  the value it is handed: those should be whole lines too, and nothing but review says so. The result's type
+  (`Derived`, or a `WholeLine` / `WholeCells` they make) lets you find every call; read each one.
 - **The places of a held line are the caller's.** `localLine(xs, line)` takes the line as a `WholeLine` but its
   `xs` as plain numbers (bin × spacing, the band centres): where each value sits is laid out by the caller and is
   not checked against the backend.

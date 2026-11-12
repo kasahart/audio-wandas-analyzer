@@ -3,7 +3,7 @@
  * test can hand them to code that takes only full data. Product code cannot do this: it may not cast to `Whole`,
  * and it may not import anything under src/test (provenanceBoundary.test.ts fails on both).
  */
-import type { Whole, WholeLine } from '../../shared/provenance';
+import type { Whole, WholeCells, WholeLine } from '../../shared/provenance';
 import { localCells, localLine, type InlineFullSource } from '../../webview/runtime/fullRead';
 
 export const wholeValue = (value: number): Whole => value as Whole;
@@ -13,8 +13,8 @@ export function wholeValues(values: readonly (number | null)[]): WholeLine;
 export function wholeValues(values: readonly (number | null)[]): WholeLine {
     return values as unknown as WholeLine;
 }
-/** Rows of made-up numbers, each a whole line. */
-export const wholeRows = (rows: ReadonlyArray<ReadonlyArray<number | null>>): WholeLine[] => rows as unknown as WholeLine[];
+/** Rows of made-up numbers, as every row of cells (`WholeCells`), each a whole line. */
+export const wholeRows = (rows: ReadonlyArray<ReadonlyArray<number | null>>): WholeCells => rows as unknown as WholeCells;
 /** `localLine` of made-up values: a test's stand-in for a line held whole. */
 export const testLine = (xs: readonly number[], values: readonly (number | null)[]): InlineFullSource => localLine(xs, wholeValues(values));
 /** `localCells` of made-up cells. */
