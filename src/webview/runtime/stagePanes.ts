@@ -569,12 +569,13 @@ function axisExtent(view: AxisView): { first: number; second: number | undefined
 function axisScale(view: AxisView): { low: number; high: number; log: boolean; fraction(value: number): number; at(fraction: number): number } {
     const extent = axisExtent(view);
     const limits = view.xLimits;
-    const stated = limits?.length === 2 && limits[0] > 0 && limits[1] > limits[0];
-    const geometric = !!extent && extent.first > 0 && extent.second !== undefined && extent.second > extent.first;
-    const log = view.xScale === 'log' && (stated || geometric);
-    if (log) {
-        const ratio = geometric ? Math.sqrt(extent!.second! / extent!.first) : 1;
-        const low = stated ? limits![0] : extent!.first / ratio, high = stated ? limits![1] : extent!.last * ratio;
+    const stated = limits?.length === 2 && limits[0] > 0 && limits[1] > limits[0] ? { low: limits[0], high: limits[1] } : null;
+    // Half a ratio beyond the first and last source place: a band axis's edges.
+    const ratio = extent && extent.first > 0 && extent.second !== undefined && extent.second > extent.first ? Math.sqrt(extent.second / extent.first) : null;
+    const ends = stated ?? (extent && ratio !== null ? { low: extent.first / ratio, high: extent.last * ratio } : null);
+    const log = view.xScale === 'log' && ends !== null;
+    if (log && ends) {
+        const { low, high } = ends;
         return { low, high, log, fraction: value => Math.log(value / low) / Math.log(high / low), at: fraction => low * (high / low) ** fraction };
     }
     const low = extent?.first ?? 0;
