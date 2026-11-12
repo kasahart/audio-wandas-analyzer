@@ -168,11 +168,11 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     const box = (await plot.boundingBox())!;
     const middle = { x: box.x + box.width * 0.6, y: box.y + box.height * 0.45 };
     // Both axes are named, on screen: each name the plot gives (data-plot-axes) names its quantity and its unit and is
-    // written on the plot or the canvas beside it that holds its value axis with both: whole or, where it does not fit
-    // (axisTitle.ts fitAxisTitle), on two lines or with the quantity shortened to its symbol or first characters, never
-    // the unit alone; or, written
-    // once for plots that share it (the lanes' time axis, the distribution rows' count), whole, on a canvas that is no
-    // plot, on a plot stacked on the same axis, or as text on the page; never borrowed from another plot.
+    // written with both, whole or, where it does not fit (axisTitle.ts fitAxisTitle), on two lines or with the
+    // quantity shortened to its symbol or first characters, never the unit alone: on the plot, or on a canvas the plot
+    // component bound to it as drawing its axes (data-plot-named-by: the canvas beside it that holds its value axis,
+    // the lanes' time axis, the bottom plot of a stack), or as text in the element it names (data-plot-names, the
+    // distribution rows' count). Never borrowed from a canvas it is not bound to.
     const axes = (await plot.getAttribute('data-plot-axes')) ?? '';
     const names = axes.split('|');
     const written = await plot.evaluate((canvas, names) => {
@@ -190,17 +190,13 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
             // On two lines: the quantity and its unit written one after the other (one name), not anywhere apart.
             return oneLine || texts.some((text, index) => isQuantity(text) && (texts[index + 1] === `[${unit}]` || texts[index - 1] === `[${unit}]`));
         };
-        const axisId = canvas.getAttribute('data-plot-axis');
-        const own = [...((canvas as Texted).__plotTexts ?? []), ...((axisId ? (document.getElementById(axisId) as Texted | null)?.__plotTexts : undefined) ?? [])];
-        // Never another plot's own text: only canvases that are no plot (a shared axis strip) or plots stacked on this one's shared axis.
-        const stack = canvas.closest('[data-plot-stack]');
-        const shown = Array.from(document.querySelectorAll<Texted>('canvas'))
-            .filter(other => other !== canvas && other.checkVisibility() && (!other.hasAttribute('data-plot') || (!!stack && stack.contains(other))))
-            .flatMap(other => other.__plotTexts ?? []);
+        const bound = (canvas.getAttribute('data-plot-named-by') ?? '').split(' ').filter(Boolean)
+            .map(id => document.getElementById(id) as Texted | null).filter((other): other is Texted => !!other && other.checkVisibility());
+        const own = [...((canvas as Texted).__plotTexts ?? []), ...bound.flatMap(other => other.__plotTexts ?? [])];
         // As text, only in the element the plot names for its axis names (data-plot-names), never elsewhere on the page (C6).
         const namesHost = canvas.getAttribute('data-plot-names') ? document.getElementById(canvas.getAttribute('data-plot-names') ?? '') : null;
         const pageText = (name: string): boolean => !!namesHost && [namesHost, ...Array.from(namesHost.querySelectorAll<HTMLElement>('*'))].some(element => element.children.length === 0 && element.checkVisibility() && element.textContent?.trim() === name);
-        return names.map(name => NAME.test(name.trim()) && (fits(own, name) || shown.includes(name) || pageText(name)));
+        return names.map(name => NAME.test(name.trim()) && (fits(own, name) || pageText(name)));
     }, names);
     // Both axes, and a right-hand level axis where there is one.
     if (names.length >= 2 && written.every(Boolean)) passed.add('axes');
@@ -1054,6 +1050,39 @@ test('every ui-smoke test fails on a plot on screen whose axis name is in its at
     await expect.poll(() => page.evaluate(() => window.__unitAudit ?? []), { timeout: 15_000 }).toEqual(expect.arrayContaining([expect.stringMatching(/^canvas\.unnamed-axis .*names "Ghost pressure \[Pa\]" but does not draw it$/u)]));
     // Taken away, with the audit's record cleared, so this test itself passes the audit.
     await page.evaluate(() => { document.querySelector('.unnamed-axis')?.remove(); window.__unitAudit?.splice(0); });
+});
+
+test('every ui-smoke test fails on a plot whose axis name is drawn only on a canvas it is not bound to: a name is never borrowed (R4)', async ({ page }) => {
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    // A plot that draws its time axis's name, and a strip beside it, bound to no plot, that draws the pressure name.
+    await page.evaluate(() => {
+        const scope = window as { __plotPainting?: number };
+        const canvasAt = (className: string, top: string): HTMLCanvasElement => {
+            const made = document.createElement('canvas');
+            made.className = className;
+            Object.assign(made.style, { position: 'fixed', left: '0', top, width: '120px', height: '60px' });
+            document.body.append(made);
+            return made;
+        };
+        const plot = canvasAt('borrowing-plot', '0');
+        plot.setAttribute('data-plot', '');
+        plot.setAttribute('data-plot-axes', 'Time [s]|Ghost pressure [Pa]');
+        const strip = canvasAt('borrowed-strip', '70px');
+        strip.id = 'borrowed-strip';
+        strip.setAttribute('data-plot-axis-canvas', '');
+        // Both drawn as the plot component draws (while it says so), so only the borrowing is wrong with them.
+        scope.__plotPainting = (scope.__plotPainting ?? 0) + 1;
+        plot.getContext('2d')?.fillText('Time [s]', 10, 50);
+        strip.getContext('2d')?.fillText('Ghost pressure [Pa]', 10, 30);
+        scope.__plotPainting -= 1;
+    });
+    await expect.poll(() => page.evaluate(() => window.__unitAudit ?? []), { timeout: 15_000 }).toEqual(expect.arrayContaining([expect.stringMatching(/^canvas\.borrowing-plot .*names "Ghost pressure \[Pa\]" but does not draw it$/u)]));
+    // Bound to the strip by id, as the plot component binds a plot's axis canvases, the same name is the plot's own.
+    await page.evaluate(() => { window.__unitAudit?.splice(0); document.querySelector('.borrowing-plot')?.setAttribute('data-plot-named-by', 'borrowed-strip'); });
+    await settled(page);
+    expect(await page.evaluate(() => (window.__unitAudit ?? []).filter(line => line.startsWith('canvas.borrowing-plot')))).toEqual([]);
+    // Taken away, with the audit's record cleared, so this test itself passes the audit.
+    await page.evaluate(() => { document.querySelector('.borrowing-plot')?.remove(); document.querySelector('.borrowed-strip')?.remove(); window.__unitAudit?.splice(0); });
 });
 
 test('every ui-smoke test fails on an axis name drawn outside its canvas, on a plot or a plot\'s axis canvas (R4)', async ({ page }) => {

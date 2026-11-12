@@ -124,6 +124,8 @@ export interface LaneSpectrogramView {
     durationSec: number;
     /** false: the lane gives no readout (its file changed since it was analysed: no cell of it is read, R7). */
     readout?: false;
+    /** The canvas holding the time axis the lanes share (the ruler above them), which names this lane's time axis. */
+    timeAxis?: HTMLCanvasElement | null;
 }
 
 /** The names on a spectrogram lane: what the colour measures (as the comparison's heatmaps name it), its frequency axis, and the time axis. */
@@ -191,7 +193,7 @@ export function paintTrackSpectrogram(
     const cells = full ? mappedSource(full, seconds => seconds - span[0], seconds => seconds + span[0]) : NO_FULL_DATA;
     const plot = paintOverlay(canvas, { layers: [{ view: picture, color: '', span, full: cells }] }, plainRange(view.dbLo, view.dbHi),
         plainNames(titles.time, titles.frequency, titles.colour),
-        { axisCanvas, axisView, heatmapPalette: viridis, ...(view.readout === false ? { readout: false as const } : {}), window: { x: view.window, y: { start: (Math.max(0, view.minFrequencyHz) - low) / rowSpan, end: (view.maxFrequencyHz - low) / rowSpan } } });
+        { axisCanvas, axisView, heatmapPalette: viridis, xAxisCanvas: view.timeAxis ?? null, ...(view.readout === false ? { readout: false as const } : {}), window: { x: view.window, y: { start: (Math.max(0, view.minFrequencyHz) - low) / rowSpan, end: (view.maxFrequencyHz - low) / rowSpan } } });
     return { source: spec, key, full, plot, colourBar: plot?.colourBar ?? { x: 0, y: 0, width: 0, height: 0 }, ticks: plot?.levelTicks ?? [] };
 }
 

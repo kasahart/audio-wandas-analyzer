@@ -379,7 +379,11 @@ export class PairSpectrumPanel {
         const axis = result ? this.frequencyAxis(result) : null;
         const lanes = result && axis && !text ? pairLanes({ frequencyBins: result.frequencyBins, maxFrequencyHz: result.maxFrequencyHz, curves }, axis.visible, this.strings) : [];
         this.drawn.clear();
-        for (const { key, canvas } of this.canvases()) {
+        const bottom = PAIR_LANES[PAIR_LANES.length - 1];
+        const canvases = this.canvases();
+        // The plots above share the bottom one's frequency axis, which it numbers and names.
+        const bottomCanvas = canvases.find(item => item.key === bottom)?.canvas ?? null;
+        for (const { key, canvas } of canvases) {
             const lane = lanes.find(item => item.key === key);
             // Each plot is drawn by the plot component (R13): its axes, its zoom, its cursor and readout. They are laid
             // on the power spectrum's frequency axis, so the same x is the same frequency on both sides, and only the
@@ -388,7 +392,7 @@ export class PairSpectrumPanel {
             const range = lane ? this.levelRange(key, lane.range) : none.range;
             const axisView = lane?.layers[0] && axis ? { ...lane.layers[0].view, xs: [0, axis.maxFrequencyHz], values: [0, 0] } : null;
             const drawn = paintOverlay(canvas, { layers: lane?.layers ?? [] }, range, lane?.axes ?? none.names,
-                { window: { x: axis?.window ?? FULL_PLOT_WINDOW.x }, axisView, margins: pairMargins(key), xAxisLabels: key === PAIR_LANES[PAIR_LANES.length - 1] });
+                { window: { x: axis?.window ?? FULL_PLOT_WINDOW.x }, axisView, margins: pairMargins(key), xAxisLabels: key === bottom, ...(key === bottom ? {} : { xAxisCanvas: bottomCanvas }) });
             this.drawn.set(key, { canvas, plot: drawn, range: lane ? this.wholeHolding(key, lane.range) : range, label: lane?.axes.y ?? '' });
         }
         this.showMarks();

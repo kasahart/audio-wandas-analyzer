@@ -57,7 +57,7 @@ export function resultsPaneHtml(parts: ResultsPaneParts, strings: ResultsPaneStr
         + '    <div id="pair-divider" class="pair-divider" data-action="pair-divider-drag"' + hintAttr(strings.hintPairDivider) + ' role="separator" tabindex="0" aria-orientation="vertical" aria-label="' + escapeHtml(strings.hintPairDivider) + '"></div>'
         + '    <div id="pair-spectrum-wrap" aria-label="' + escapeHtml(strings.pairSectionTitle) + '">'
         + '      <div id="pair-spectrum-header" class="spectrum-pane-header"><span id="pair-spectrum-summary"></span><span id="pair-spectrum-legend"></span><span id="pair-spectrum-readout" class="plot-readout spectrum-readout" data-plot-readout hidden><span class="plot-readout-name"></span><span class="plot-readout-values"></span></span></div>'
-        + '      <div id="pair-spectrum-plot" data-plot-stack>' + ['gain', 'phase', 'coherence'].map(lane => '<canvas class="pair-lane-canvas" id="pair-lane-' + lane + '" data-pair-lane="' + lane + '"' + (lane === 'coherence' ? '' : ' data-plot-x-axis="pair-lane-coherence"') + ' aria-label="' + escapeHtml(strings.pairSectionTitle) + '"' + hintAttr(strings.hintPairPlot) + '></canvas>').join('') + '<div id="pair-spectrum-message" style="display:none"></div></div>'
+        + '      <div id="pair-spectrum-plot" data-plot-stack>' + ['gain', 'phase', 'coherence'].map(lane => '<canvas class="pair-lane-canvas" id="pair-lane-' + lane + '" data-pair-lane="' + lane + '"' + ' aria-label="' + escapeHtml(strings.pairSectionTitle) + '"' + hintAttr(strings.hintPairPlot) + '></canvas>').join('') + '<div id="pair-spectrum-message" style="display:none"></div></div>'
         + '    </div>'
         + '  </div>'
         + '</div>'
