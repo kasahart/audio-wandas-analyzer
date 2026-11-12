@@ -727,6 +727,16 @@ export interface StageLayer {
     /** `step`: for a point of the full data, the spacing of its real neighbours (the digits a place needs, R7). */
     readout?: (index: number, point: { x: Whole; value: Whole; step?: number }) => string[];
     /**
+     * What the point at `index` of the layer's full data is, where its points are things and not places on an axis
+     * (a recording on the distribution: its key). A point kept across a redraw (the one ← / → stepped to, R7) is then
+     * found again by this identity, never by its index or its x: after a redraw the same index or the same x may be
+     * another recording (the order changed, one was removed or added, two share a value). Gone from the new drawing,
+     * the point is let go. Stable for as long as the thing exists and unique among the plot's layers that give one.
+     * Only for a line the webview holds whole (fullRead.ts localLine: its points are numbered). A layer without it is
+     * read again by its x, which is what its points are (a bin, a sample, a frame).
+     */
+    identity?: (index: number) => string;
+    /**
      * Where every number read of this picture comes from (R7, fullRead.ts), required of every layer: a source the
      * webview holds every value of (InlineFullSource: bars, a pair spectrum's bins, a histogram's), or one the backend
      * holds (FetchedFullSource). Nothing is ever read from what the plot draws. A layer given NO_FULL_DATA reads no
@@ -1651,6 +1661,8 @@ export interface StageRead {
     away?: number;
     /** Read from the layer's full data (fullRead.ts), not from what it draws: where it is on its axes and its value. */
     full?: boolean;
+    /** What the point read is (StageLayer.identity), where its layer says: how it is found again after a redraw. */
+    identity?: string;
     at?: Whole;
     row?: Whole;
     value?: Whole;
@@ -1767,7 +1779,7 @@ function fullLineNear(plot: StagePlot, layer: StageLayer, source: FullSource, x:
 /** The readout of `point` of `layer`, as every plot writes it (R7). */
 function lineRead(plot: StagePlot, layer: StageLayer, point: ReadPoint, away?: number): StageRead {
     const view = layer.view;
-    const full = { at: point.at, value: point.value, ...(point.full ? { full: true } : {}) };
+    const full = { at: point.at, value: point.value, ...(point.full ? { full: true } : {}), ...(point.full && point.index >= 0 && layer.identity ? { identity: layer.identity(point.index) } : {}) };
     if (view.waveform) {
         // A signal reads its amplitude in its unit, to 3 figures, where its point is.
         const unit = view.waveform.unit || plot.signal?.unit;
@@ -1818,6 +1830,8 @@ export function stageReadAgain(plot: StagePlot, read: StageRead, ready: () => vo
     if (read.image) return imageReadAgain(plot, read, ready);
     const layer = plot.lines.find(line => line === read.layer) ?? plot.lines.find(line => line.full === read.layer.full)
         ?? plot.lines.find(line => line.label === read.layer.label && line.color === read.layer.color);
+    // A point that is a thing (a recording) is found by what it is, on whichever line of the new drawing holds it now.
+    if (read.identity !== undefined) return identifiedReadAgain(plot, read.identity, layer);
     if (!layer?.full.line) return null;
     const at = read.at;
     const got = layer.full.line({ x0: at, x1: at, beyond: 1 }, ready);
@@ -1825,13 +1839,34 @@ export function stageReadAgain(plot: StagePlot, read: StageRead, ready: () => vo
     // Its read failed on the new drawing (the backend's passing failure): the point is kept, read as failed until it is
     // asked again (`ready`, once the store's pause is over), never let go for a point that is not drawn.
     if (got === null && layer.full.held === 'fetched') return { ...read, layer, failed: true };
-    // Of points sharing this x (two recordings of one value), the very one read, by its place in the data.
-    const place = read.index ?? -1;
-    const placed = got?.offset !== undefined && place >= 0 && got.xs[place - got.offset] === at ? place - got.offset : -1;
-    const index = placed >= 0 ? placed : got?.xs.indexOf(at) ?? -1;
+    const index = got?.xs.indexOf(at) ?? -1;
     const point = got && index >= 0 ? fullPoint(plot, layer, got, index) : null;
     if (!point || point.x < plot.frame.left || point.x > plot.frame.left + plot.frame.width) return null;
     return lineRead(plot, layer, point);
+}
+
+/**
+ * Where the point of identity `identity` (StageLayer.identity) is now: the line of `plot` that holds it and its index
+ * in that line's every point. `first` is looked in first. Null when no line holds it any more.
+ * By identity only, never by the index or the x it had: after a redraw those may be another recording's (R7).
+ */
+function identifiedPlace(plot: StagePlot, identity: string, first?: StageLayer): { layer: StageLayer; points: FullPoints; index: number } | null {
+    for (const layer of [...(first ? [first] : []), ...plot.lines.filter(line => line !== first)]) {
+        if (!layer.identity || layer.full.held !== 'inline' || !layer.full.line) continue;
+        // Every point of the line, which the webview holds (numbered from `offset`).
+        const points = layer.full.line({ x0: -Infinity, x1: Infinity, beyond: 0 }, () => undefined);
+        if (!points || points.offset === undefined) continue;
+        for (let index = 0; index < points.xs.length; index++) if (layer.identity(points.offset + index) === identity) return { layer, points, index };
+    }
+    return null;
+}
+
+/** stageReadAgain for a point with an identity: read where that very thing is now, or let go (null) when it is gone. */
+function identifiedReadAgain(plot: StagePlot, identity: string, first?: StageLayer): StageRead | null {
+    const place = identifiedPlace(plot, identity, first);
+    const point = place ? fullPoint(plot, place.layer, place.points, place.index) : null;
+    if (!place || !point || point.x < plot.frame.left || point.x > plot.frame.left + plot.frame.width) return null;
+    return lineRead(plot, place.layer, point);
 }
 
 /**
@@ -1870,7 +1905,14 @@ export function stageStep(plot: StagePlot, read: StageRead, delta: -1 | 1, ready
         const at = read.at;
         // A source that numbers its points (FullPoints.offset: one the webview holds whole) is stepped by place, so
         // points sharing one x are each visited once, in the data's order (LineQuery.from); see stepStart.
-        const from = read.index !== undefined && read.index >= 0 && source.held === 'inline' ? read.index : undefined;
+        // The place of a point that is a thing (a recording) is where that thing is in the line now, by its identity:
+        // the index it was read at is only a place in the drawing it was read on.
+        let from = read.index !== undefined && read.index >= 0 && source.held === 'inline' ? read.index : undefined;
+        if (read.layer.identity) {
+            const place = read.identity === undefined ? null : identifiedPlace({ ...plot, lines: [read.layer] }, read.identity);
+            if (!place) return null;
+            from = (place.points.offset ?? 0) + place.index;
+        }
         const got = source.line?.({ x0: at, x1: at, beyond: STEP_AHEAD, seek: delta, ...(from !== undefined ? { from } : {}), ...(floorless(read.layer.view, plot.diff) ? { plain: true } : {}) }, ready);
         if (got === undefined) return undefined;
         // The seek failed (not the data's end): the step waits for it to be asked again once the store's pause is over
