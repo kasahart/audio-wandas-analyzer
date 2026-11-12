@@ -58,7 +58,7 @@ declare global {
     interface Window { __canvasAudit?: string[]; __readoutAudit?: string[]; __plotAudit?: string[]; __drawnAudit?: string[]; __svgAudit?: string[]; __orderAudit?: string[]; __fullAudit?: string[]; __unitAudit?: string[]; __tickAudit?: string[]; __titleAudit?: string[]; __plotPainting?: number; __settle?: SettleTracker }
 }
 
-/** What the page still has to do in answer to what it was given: its frames and short timers not yet run (settled()). */
+/** What the page still has to do in answer to what it was given: its frames and short timers not yet run, and what it asked for from outside itself and has not been given (settled()). */
 interface SettleTracker {
     busy(): number;
     frame(callback: () => void): void;
@@ -73,6 +73,12 @@ const SETTLE_TIMER_MS = 1000;
  * Runs in the page, before its own scripts: counts the animation frames it asked for and the short timers it set that
  * have not run yet, so a test waits for the page to finish answering an input (settled()) instead of a fixed time.
  * The audit's own frames are not counted.
+ *
+ * It also counts what the page asked for from outside itself and has not been given yet: a fetch (a test's
+ * page.route answers it from the test's own process, which a loaded machine makes slow) and a read of a file's or a
+ * response's bytes. The page draws again when each arrives, so until then it has not finished answering. Anything new
+ * the page waits on from outside its own thread belongs here too; otherwise settled() ends early on a slow machine
+ * and the test acts on a page that is about to move.
  */
 function installSettleTracker(timerMs: number): void {
     if (window.__settle) return;
@@ -92,6 +98,22 @@ function installSettleTracker(timerMs: number): void {
         return id;
     }) as typeof window.setTimeout;
     window.clearTimeout = ((id?: number): void => { if (id !== undefined) timers.delete(id); nativeClear(id); }) as typeof window.clearTimeout;
+    // A fetch, and a read of the bytes of a file or of a response, until it is given or fails.
+    let outside = 0;
+    const untilGiven = <T>(asked: Promise<T>): Promise<T> => {
+        outside++;
+        const given = (): void => { outside--; };
+        asked.then(given, given);
+        return asked;
+    };
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = (...args: Parameters<typeof window.fetch>) => untilGiven(nativeFetch(...args));
+    for (const owner of [Blob.prototype, Response.prototype] as const) {
+        for (const read of ['arrayBuffer', 'text', 'json'] as const) {
+            const native = (owner as unknown as Record<string, ((this: unknown) => Promise<unknown>) | undefined>)[read];
+            if (native) (owner as unknown as Record<string, unknown>)[read] = function (this: unknown): Promise<unknown> { return untilGiven(native.call(this)); };
+        }
+    }
     // Requests the test answers from outside the page: posted (the stand-in host's __uiSmokePostedMessages) and not answered yet.
     const awaited = new Set<string>(), answered = new Set<string>();
     const unanswered = (): number => {
@@ -100,7 +122,7 @@ function installSettleTracker(timerMs: number): void {
         return posted.filter(message => awaited.has(message.type ?? '') && !answered.has(message.requestId ?? '')).length;
     };
     window.__settle = {
-        busy: () => frames.size + timers.size + unanswered(),
+        busy: () => frames.size + timers.size + outside + unanswered(),
         frame: callback => { nativeFrame(() => callback()); },
         awaitHost: types => { for (const type of types) awaited.add(type); },
         answered: requestId => { answered.add(requestId); },
@@ -525,9 +547,9 @@ export function withAuditFirst(html: string): string {
 }
 
 /**
- * Waits until the page has answered what the test just did: two frames in a row with no frame it asked for and no
+ * Waits until the page has answered what the test just did: two frames in a row with no frame it asked for, no
  * short timer it set still to run (a redraw, a debounce, a reply the stand-in host posts later, the next step of a
- * read). Use it where a test would otherwise wait a fixed time before reading what the page shows: a slow machine
+ * read) and no fetch or file read it is still waiting for. Use it where a test would otherwise wait a fixed time before reading what the page shows: a slow machine
  * then waits longer and a fast one less, and the page read is the one the input led to. A page that keeps drawing
  * (playback) never settles: after `timeoutMs` the wait ends, and the read is the page as it is then.
  */
