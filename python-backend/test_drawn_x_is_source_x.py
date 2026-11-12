@@ -86,9 +86,7 @@ def _source(frame: object) -> tuple[np.ndarray, np.ndarray | None]:
         samples = frame.to_numpy().shape[-1]  # type: ignore[attr-defined]
         return np.arange(samples) / frame[0].sampling_rate - frame.pre, None  # type: ignore[index,attr-defined]
     if name in ("SpectralFrame", "CoherenceFrame", "CrossSpectralFrame", "TransferFunctionFrame"):
-        freqs = np.asarray(frame.freqs, dtype=np.float64)  # type: ignore[attr-defined]
-        # A spectrum is drawn from SPECTRUM_MIN_HZ to its Nyquist frequency.
-        return freqs[freqs >= spec.SPECTRUM_MIN_HZ], None
+        return np.asarray(frame.freqs, dtype=np.float64), None  # type: ignore[attr-defined]
     if name == "NOctFrame":
         return np.asarray(frame.freqs, dtype=np.float64), None  # type: ignore[attr-defined]
     if name == "CepstralFrame":
@@ -169,10 +167,39 @@ def _check_columns(xs: list[float], source: np.ndarray, what: str) -> None:
         )
 
 
+def _check_source_axes(view: dict, source_xs: np.ndarray, source_ys: np.ndarray | None, what: str) -> None:
+    """The picture says where its source data's axes start and end (``xSource``, an image's ``ySource``): the whole
+    source's, whatever part is drawn and however it was thinned. The whole view's range and the axis identity come
+    from these, never from the drawn points (docs/display-rules.md R2)."""
+    for field, source in (("xSource", source_xs), ("ySource", source_ys if view["kind"] == "heatmap" else None)):
+        if source is None:
+            continue
+        sent = view.get(field)
+        assert sent is not None, (
+            f"{what}: the picture has no {field}. Every picture sent must carry its source axes: call "
+            "stage_view.with_source_axes(view, reading) where the picture is finished."
+        )
+        tolerance = _tolerance(source)
+        assert (
+            sent["count"] == source.size
+            and abs(sent["first"] - source[0]) <= tolerance
+            and abs(sent["last"] - source[-1]) <= tolerance
+        ), (
+            f"{what}: {field} is {sent}, but the source data has {source.size} values from {source[0]!r} to "
+            f"{source[-1]!r}. It must be the whole source axis (stage_view.source_axis), not the drawn points' or "
+            "the zoomed part's."
+        )
+
+
 def _check_picture(view: dict, frame: object, bounds: list[float] | None, what: str, own: bool = True) -> None:
     """``view`` (of ``frame``, over ``bounds``) against the Frame's source x. ``own``: the recording's own picture,
     whose waveform values are the Frame's samples (a median's or a difference's are not)."""
     source_xs, source_ys = _source(frame)
+    _check_source_axes(view, source_xs, source_ys, what)
+    if view.get("x") == "frequency" and view["kind"] == "line":
+        # A spectrum is drawn from SPECTRUM_MIN_HZ to its Nyquist frequency.
+        nyquist = frame.sampling_rate / 2  # type: ignore[attr-defined]
+        source_xs = source_xs[(source_xs >= spec.SPECTRUM_MIN_HZ) & (source_xs <= nyquist)]
     source = _inside(source_xs, bounds)
     if view["kind"] == "heatmap":
         _check_columns(view["xs"], source, what)
@@ -245,9 +272,12 @@ def test_a_picture_that_thins_nothing_has_the_sources_own_xs_first_to_last_and_r
     frame = make(_recording(seconds))
     view = stage_view(frame)
     assert view["kind"] != "none", f"{kind} is drawn"
-    source_xs, _ys = _source(frame)
+    source_xs, source_ys = _source(frame)
+    _check_source_axes(view, source_xs, source_ys, kind)
     if kind in ("coherence", "cross spectrum", "transfer function", "spectrum"):
-        source_xs = source_xs[source_xs <= frame.sampling_rate / 2]  # type: ignore[attr-defined]
+        # A spectrum is drawn from SPECTRUM_MIN_HZ to its Nyquist frequency.
+        nyquist = frame.sampling_rate / 2  # type: ignore[attr-defined]
+        source_xs = source_xs[(source_xs >= spec.SPECTRUM_MIN_HZ) & (source_xs <= nyquist)]
     drawn = np.asarray(view["xs"], dtype=np.float64)
     assert drawn.size == source_xs.size, (
         f"{kind}: {drawn.size} points drawn of {source_xs.size} source values; this recording is short enough that "
@@ -270,6 +300,37 @@ def test_a_picture_that_thins_nothing_has_the_sources_own_xs_first_to_last_and_r
         )
 
 
+def test_the_source_axis_tells_recordings_apart_that_thin_to_the_same_drawn_points_and_stays_the_same_zoomed() -> None:
+    """Two cepstra of other lengths are both thinned to the same number of drawn points: only ``xSource`` tells
+    their axes apart. Zoomed, a picture's drawn points change and its ``xSource`` does not."""
+    short, long = (_recording(seconds).cepstrum() for seconds in (1.0, 2.0))
+    drawn_short, drawn_long = stage_view(short), stage_view(long)
+    assert len(drawn_short["xs"]) == len(drawn_long["xs"]), "both are thinned to the picture's point limit"
+    assert drawn_short["xSource"]["count"] != drawn_long["xSource"]["count"]
+    zoomed = stage_view(long, None, _zoom(long))
+    assert zoomed["xs"] != drawn_long["xs"] and zoomed["xSource"] == drawn_long["xSource"]
+
+
+#: The kinds whose x is time: recordings of other lengths are combined over the part they all have.
+_TIMED = ("signal", "metric series", "level series", "spectrogram", "cepstrogram", "roughness")
+
+
+@pytest.mark.parametrize("kind", _TIMED)
+def test_a_median_and_a_difference_say_the_source_axis_of_the_common_part_they_were_taken_over(kind: str) -> None:
+    """Over time, recordings of other lengths are combined over their common part (stage_combine._aligned): the
+    picture of a median or a difference carries that part's source axis, the shorter recording's, whole or zoomed,
+    never the drawn points' ends (docs/display-rules.md R2)."""
+    long, short = (_KINDS[kind](_recording(seconds, seed=seed)) for seconds, seed in ((LONG_S, 5), (1.5, 6)))
+    data, other = stage_data(long, stage_view(long)), stage_data(short, stage_view(short))
+    assert data is not None and other is not None
+    source_xs, source_ys = _source(short)
+    for detail, where in ((None, "whole"), (_zoom(short), "zoomed")):
+        median = combine([data, other], None, detail)  # type: ignore[arg-type]
+        difference = combine([other], data, detail)  # type: ignore[arg-type]
+        _check_source_axes(median["base"], source_xs, source_ys, f"{kind}, a median of two lengths, {where}")
+        _check_source_axes(difference["diff"], source_xs, source_ys, f"{kind}, a difference of two lengths, {where}")
+
+
 def test_four_samples_at_4_hz_are_drawn_at_0_to_0_75_s_not_squeezed_into_a_shorter_span() -> None:
     """The case that was wrong: the waveform's times were fractions i / N scaled by the span (N − 1) / fs, which
     put the last of four samples at 0.5625 s."""
@@ -277,6 +338,7 @@ def test_four_samples_at_4_hz_are_drawn_at_0_to_0_75_s_not_squeezed_into_a_short
     view = stage_view(frame)
     expected = [0.0, 0.25, 0.5, 0.75]
     assert view["xs"] == expected
+    assert view["xSource"] == {"count": 4, "first": 0.0, "last": 0.75, "step": 0.25}
     assert view["waveform"]["minT"] == expected and view["waveform"]["maxT"] == expected, (
         "each waveform point must be at its sample's own time, index / fs (stage_view.samples_waveform)"
     )

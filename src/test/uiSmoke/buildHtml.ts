@@ -41,6 +41,11 @@ function uiSmokeLevelBins(view) {
     powers.forEach(function(value) { if (value !== null && isFinite(value)) { power += value; count += 1; } });
     return { edges: edges, power: [count ? power / count : 0], count: [count] };
 }
+function uiSmokeSourceAxis(places) {
+    const axis = { count: places.length, first: places[0], last: places[places.length - 1] };
+    if (places.length > 1) axis.step = places[1] - places[0];
+    return axis;
+}
 window.addEventListener('message', function(event) {
     const data = event.data;
     const stage = data && data.type === 'compare-scan-result' && data.result && data.result.stage;
@@ -49,6 +54,10 @@ window.addEventListener('message', function(event) {
     stage.data = key;
     const bins = stage.levelBins || uiSmokeLevelBins(stage);
     if (bins) stage.levelBins = bins;
+    // The source axes the backend sends with every picture (stage_view.source_axis): the stand-in thins nothing, so a
+    // whole picture's points are its source, unless the test gave its own. A zoomed part's are not: it says none.
+    if (!stage.detail && !stage.xSource && stage.xs && stage.xs.length) stage.xSource = uiSmokeSourceAxis(stage.xs);
+    if (!stage.detail && stage.kind === 'heatmap' && !stage.ySource && stage.ys && stage.ys.length) stage.ySource = uiSmokeSourceAxis(stage.ys);
     window.__uiSmokeStageData[key] = stage;
 }, true);
 ${UI_SMOKE_READS}

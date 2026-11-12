@@ -355,8 +355,8 @@ function windowed(scale: AxisScale, window: NormalizedRange = FULL_WINDOW): Axis
 }
 
 /** Where a value of the picture's horizontal axis sits on it (0–1 across the whole axis), and back. */
-export function axisFractionOf(view: Pick<StageView, 'xs' | 'xScale' | 'xLimits'>, value: number): number { return axisScale(view).fraction(value); }
-export function axisValueAt(view: Pick<StageView, 'xs' | 'xScale' | 'xLimits'>, fraction: number): number { return axisScale(view).at(fraction); }
+export function axisFractionOf(view: AxisView, value: number): number { return axisScale(view).fraction(value); }
+export function axisValueAt(view: AxisView, fraction: number): number { return axisScale(view).at(fraction); }
 /**
  * Overlaid lines in drawing order by level over the shown part of the axis: the loudest first, the quietest last on
  * top, so a louder recording does not cover a quieter one. A line's level is the power of its every value inside the
@@ -365,7 +365,7 @@ export function axisValueAt(view: Pick<StageView, 'xs' | 'xScale' | 'xLimits'>, 
  * measured. Lines with no level (not a level, or nothing shown) keep their place among themselves after the rest; the
  * colours and the legend are not changed.
  */
-export function byLevel(layers: StageLayer[], axisView: Pick<StageView, 'xs' | 'xScale' | 'xLimits'> | undefined, window: NormalizedRange = FULL_WINDOW, levels: ReadonlyMap<StageLayer, ScreenLevel> = screenLevels(layers, axisView, window)): StageLayer[] {
+export function byLevel(layers: StageLayer[], axisView: AxisView | undefined, window: NormalizedRange = FULL_WINDOW, levels: ReadonlyMap<StageLayer, ScreenLevel> = screenLevels(layers, axisView, window)): StageLayer[] {
     const level = (layer: StageLayer): number => levels.get(layer)?.level ?? -Infinity;
     return layers.map((layer, index) => ({ layer, index, level: level(layer) }))
         .sort((a, b) => (b.level === a.level ? a.index - b.index : b.level - a.level))
@@ -397,8 +397,8 @@ const levelUnsettled = (level: ScreenLevel): boolean => level.state === 'pending
  * are all its points, else every value of the window, read where the data is (`ready` is called once a fetched one is
  * in). A line with no levelBins is measured so only when it says so (`measured`).
  */
-export function screenLevels(layers: readonly StageLayer[], axisView: Pick<StageView, 'xs' | 'xScale' | 'xLimits'> | undefined, window: NormalizedRange = FULL_WINDOW, context: { ready?: () => void } = {}): Map<StageLayer, ScreenLevel> {
-    const scale = axisView?.xs?.length ? axisScale(axisView) : null;
+export function screenLevels(layers: readonly StageLayer[], axisView: AxisView | undefined, window: NormalizedRange = FULL_WINDOW, context: { ready?: () => void } = {}): Map<StageLayer, ScreenLevel> {
+    const scale = axisView && axisExtent(axisView) ? axisScale(axisView) : null;
     const whole = window.start <= 0 && window.end >= 1;
     const dB = (sum: { power: number; count: number }): number => (sum.count && sum.power > 0 ? 10 * Math.log10(sum.power) : -Infinity);
     const levels = new Map<StageLayer, ScreenLevel>();
@@ -433,8 +433,8 @@ export function screenLevels(layers: readonly StageLayer[], axisView: Pick<Stage
             if (!cut) { levels.set(layer, { level: dB({ power: count ? power / count : 0, count }), state: 'exact' }); continue; }
             estimate = dB({ power: shownCount ? shownPower / shownCount : 0, count: shownCount });
         }
-        const xs = view.xs ?? [];
-        const ends: [number, number] | null = scale ? [scale.at(window.start), scale.at(window.end)] : xs.length ? [xs[0], xs[xs.length - 1]] : null;
+        const own = scale ? null : axisExtent(view);
+        const ends: [number, number] | null = scale ? [scale.at(window.start), scale.at(window.end)] : own ? [own.first, own.last] : null;
         const full = layer.full;
         let sum: LevelAnswer = null;
         if (ends && full.level !== cannotRead) sum = full.level({ x0: ends[0], x1: ends[1], square: signal }, context.ready ?? (() => undefined));
@@ -480,7 +480,7 @@ const comparedLine = (layer: StageLayer): boolean =>
  * quietest last on top, in the places the lines held among the caller's pictures; every other picture keeps its own
  * place. Whatever order a caller gives its lines in, the plot draws the quietest on top, in the caller's colours.
  */
-export function overlayOrder(layers: readonly StageLayer[], axisView: Pick<StageView, 'xs' | 'xScale' | 'xLimits'> | undefined, window: NormalizedRange = FULL_WINDOW, levels?: ReadonlyMap<StageLayer, ScreenLevel>): StageLayer[] {
+export function overlayOrder(layers: readonly StageLayer[], axisView: AxisView | undefined, window: NormalizedRange = FULL_WINDOW, levels?: ReadonlyMap<StageLayer, ScreenLevel>): StageLayer[] {
     const places = layers.flatMap((layer, index) => (comparedLine(layer) ? [index] : []));
     if (places.length < 2) return [...layers];
     const lines = places.map(index => layers[index]);
@@ -524,7 +524,7 @@ function settledOrder(canvas: object, axis: 'main' | 'secondary', layers: readon
  * The levels of a plot's compared lines in the order they were drawn, as the plot writes them on its canvas
  * (`data-plot-order`) for the ui-smoke audit (canvasAudit.ts) to check on every plot shown: never rising (R6).
  */
-export function drawnLevelsText(drawn: readonly StageLayer[], axisView: Pick<StageView, 'xs' | 'xScale' | 'xLimits'> | undefined, window: NormalizedRange = FULL_WINDOW, levels?: ReadonlyMap<StageLayer, ScreenLevel>): string {
+export function drawnLevelsText(drawn: readonly StageLayer[], axisView: AxisView | undefined, window: NormalizedRange = FULL_WINDOW, levels?: ReadonlyMap<StageLayer, ScreenLevel>): string {
     const lines = drawn.filter(comparedLine);
     if (lines.length < 2) return '';
     const measured = levels ?? screenLevels(lines, axisView, window);
@@ -542,23 +542,44 @@ export function drawnLevelsText(drawn: readonly StageLayer[], axisView: Pick<Sta
 /** The same for a heatmap's rows (frequency, Bark or quefrency). */
 export function rowFractionOf(view: StageView, value: number): number { return rowScale(view).fraction(value); }
 export function rowValueAt(view: StageView, fraction: number): number { return rowScale(view).at(fraction); }
-const rowScale = (view: StageView): AxisScale => axisScale({ xs: view.ys, xScale: view.yAxis === 'frequency' ? 'log' : 'linear' });
+const rowScale = (view: StageView): AxisScale => axisScale({ xs: view.ys, xSource: view.ySource, xLimits: view.yLimits, xScale: view.yAxis === 'frequency' ? 'log' : 'linear' });
+
+/** What an axis's range is taken from: a picture's source axis, stated limits, and its places for a held picture. */
+type AxisView = Pick<StageView, 'xs' | 'xScale' | 'xLimits' | 'xSource'>;
 
 /**
- * A log axis spans its stated limits (a spectrum drawn as its own bins), or else the edges of its geometric points;
- * a linear one its first to last point.
+ * Where an axis's values start and end, and the second one (for a log axis's ratio): the backend's source axis
+ * (`xSource`, `ySource`), taken of the data before it was thinned and whatever part is drawn (display rules R2). The
+ * first and last drawn points are not the data's ends. A picture with no source axis is one the webview made of every
+ * value it holds (a cursor spectrum's slice, the entry plots): its places are its data, and only for it are they read.
+ * Null for an axis with no values.
  */
-function axisScale(view: Pick<StageView, 'xs' | 'xScale' | 'xLimits'>): { low: number; high: number; log: boolean; fraction(value: number): number; at(fraction: number): number } {
-    const xs = view.xs ?? [];
-    const log = view.xScale === 'log' && xs.length > 1 && xs[0] > 0;
-    if (log) {
-        const ratio = Math.sqrt(xs[1] / xs[0]);
-        const limits = view.xLimits;
-        const stated = limits?.length === 2 && limits[0] > 0 && limits[1] > limits[0];
-        const low = stated ? limits[0] : xs[0] / ratio, high = stated ? limits[1] : xs[xs.length - 1] * ratio;
+function axisExtent(view: AxisView): { first: number; second: number | undefined; last: number } | null {
+    const source = view.xSource;
+    if (source) return { first: source.first, second: source.step !== undefined ? source.first + source.step : undefined, last: source.last };
+    const held = view.xs ?? [];
+    return held.length ? { first: held[0], second: held.length > 1 ? held[1] : undefined, last: held[held.length - 1] } : null;
+}
+
+/**
+ * A log axis spans its stated limits (a spectrum drawn as its own bins, a spectrogram's rows), or else the edges of
+ * its geometric places from the first to the last (half a ratio beyond each); a linear one its first to last value.
+ * Both from the axis's source (`axisExtent`), never from the drawn points.
+ */
+function axisScale(view: AxisView): { low: number; high: number; log: boolean; fraction(value: number): number; at(fraction: number): number } {
+    const extent = axisExtent(view);
+    const limits = view.xLimits;
+    const stated = limits?.length === 2 && limits[0] > 0 && limits[1] > limits[0] ? { low: limits[0], high: limits[1] } : null;
+    // Half a ratio beyond the first and last source place: a band axis's edges.
+    const ratio = extent && extent.first > 0 && extent.second !== undefined && extent.second > extent.first ? Math.sqrt(extent.second / extent.first) : null;
+    const ends = stated ?? (extent && ratio !== null ? { low: extent.first / ratio, high: extent.last * ratio } : null);
+    const log = view.xScale === 'log' && ends !== null;
+    if (log && ends) {
+        const { low, high } = ends;
         return { low, high, log, fraction: value => Math.log(value / low) / Math.log(high / low), at: fraction => low * (high / low) ** fraction };
     }
-    const low = xs[0] ?? 0, high = xs.length > 1 ? xs[xs.length - 1] : low + 1;
+    const low = extent?.first ?? 0;
+    const high = extent && extent.last > low ? extent.last : low + 1;
     return { low, high, log, fraction: value => (value - low) / (high - low || 1), at: fraction => low + fraction * (high - low) };
 }
 
@@ -1105,7 +1126,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     const xAt = (value: number): number => left + xAxis.fraction(value) * plotWidth;
     const heatmap = view.kind === 'heatmap';
     // The rows' axis is the picture's own when the whole axes given (a lane's time axis) have no rows.
-    const yAxis = heatmap ? windowed(rowScale(whole.ys?.length ? whole : view), options.window?.y) : null;
+    const yAxis = heatmap ? windowed(rowScale(axisExtent({ xs: whole.ys, xSource: whole.ySource }) ? whole : view), options.window?.y) : null;
     const levelAt = (axis: PaneRange) => (value: number): number => top + (1 - (Math.max(axis.min, Math.min(axis.max, value)) - axis.min) / (axis.max - axis.min)) * plotHeight;
     const yAt = levelAt(range);
     // Ten spans past either end is far outside the plot: a line's slope where it crosses the edge stays right.

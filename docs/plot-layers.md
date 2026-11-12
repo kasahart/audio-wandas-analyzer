@@ -103,6 +103,11 @@ times).
   drawing code and `stage_combine.read_points` both use. So a drawn point and the point read under the pointer have
   the same x.
 
+- Every picture carries the axes of its source data, `xSource` (and an image's `ySource`), made in one place:
+  `stage_view.source_axis` of the reading, before thinning and whatever part is drawn (a median's or a Δ's of the
+  common part `stage_combine._aligned` combined). The webview decides the whole view's range and which pictures share
+  an axis from these alone; a picture's drawn `xs` / `ys` are only painted (display rules R2).
+
 Do not read a Frame's `data`, `freqs` or `times` in a view function or in `stage_combine.py`, and do not compute a
 time or frequency from a count or a fraction: use `x_at`.
 `python-backend/test_drawn_x_is_source_x.py` checks every Frame kind and every thinning routine against the Frame's
@@ -121,6 +126,7 @@ in this order; each test named fails until its step is done, and its message nam
    `bar` or `heatmap`), `x`, `quantity`, `unit`, and the thinned points, all taken from the reading, never from the
    Frame. Thin with a function listed in `SOURCES` (`scripts/check_decimation_flow.py`) and in `decimators` of
    `python-backend/drawn_points_contract.json`; a new thinning function goes in both.
+   `stage_view` gives every picture its source axes (`with_source_axes`); a picture made elsewhere calls it too.
 3. **List it.** Add the class to `STAGE_FRAME_TYPES` (and to `CHART_FRAME_TYPES` when it is drawn as a line, bars or an
    image of its own values). The operation catalogue reads this list to say which steps the app draws: run
    `python python-backend/operation_catalog.py --write` to regenerate `src/shared/recipe/generated/wandasOperations.ts`.

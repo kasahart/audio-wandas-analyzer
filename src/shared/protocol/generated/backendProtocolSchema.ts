@@ -1623,6 +1623,13 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "x-place": true
                     }
                 },
+                "yLimits": {
+                    "type": "array",
+                    "items": {
+                        "type": "number",
+                        "x-place": true
+                    }
+                },
                 "yAxis": {
                     "type": "string",
                     "enum": [
@@ -1834,18 +1841,56 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     },
                     "additionalProperties": false
                 },
-                "timeAxis": {
+                "xSource": {
                     "type": "object",
                     "required": [
-                        "start",
-                        "step"
+                        "count",
+                        "first",
+                        "last"
                     ],
                     "properties": {
-                        "start": {
-                            "type": "number"
+                        "count": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "first": {
+                            "type": "number",
+                            "x-place": true
+                        },
+                        "last": {
+                            "type": "number",
+                            "x-place": true
                         },
                         "step": {
-                            "type": "number"
+                            "type": "number",
+                            "x-place": true
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "ySource": {
+                    "type": "object",
+                    "required": [
+                        "count",
+                        "first",
+                        "last"
+                    ],
+                    "properties": {
+                        "count": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "first": {
+                            "type": "number",
+                            "x-place": true
+                        },
+                        "last": {
+                            "type": "number",
+                            "x-place": true
+                        },
+                        "step": {
+                            "type": "number",
+                            "x-place": true
                         }
                     },
                     "additionalProperties": false
@@ -2751,6 +2796,7 @@ export interface StageView {
     xs?: number[];
     xLimits?: number[];
     ys?: number[];
+    yLimits?: number[];
     yAxis?: "frequency" | "bark" | "quefrency";
     values?: (Drawn | null)[];
     matrix?: ((Drawn | null)[])[];
@@ -2782,9 +2828,17 @@ export interface StageView {
     max: number;
     robust?: number;
 };
-    timeAxis?: {
-    start: number;
-    step: number;
+    xSource?: {
+    count: number;
+    first: number;
+    last: number;
+    step?: number;
+};
+    ySource?: {
+    count: number;
+    first: number;
+    last: number;
+    step?: number;
 };
     peak?: {
     x: number;

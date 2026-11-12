@@ -96,6 +96,8 @@ class StageView(TypedDict):
     xLimits: NotRequired[list[float]]
     #: Heatmap rows: frequencies (Hz, log-spaced), critical-band rates (Bark) or quefrencies (s).
     ys: NotRequired[list[float]]
+    #: An image's rows' ends [low, high] Hz on a log axis when its ys are drawn rows (a spectrogram's), as xLimits.
+    yLimits: NotRequired[list[float]]
     yAxis: NotRequired[Literal["frequency", "bark", "quefrency"]]
     values: NotRequired[list[float | None]]
     matrix: NotRequired[list[list[float | None]]]
@@ -125,14 +127,23 @@ class StageView(TypedDict):
     #: The lowest and highest value of every one of the picture's full-resolution values in the part drawn, before
     #: any is thinned or averaged into a cell (stage_combine.value_range): what its axis or colour range is set from.
     valueRange: NotRequired[StageValueRange]
-    #: A line over time: where its full-resolution values start and their spacing (s), as the median aligns them
-    #: (stage_combine._aligned): pictures of another start or step are on another axis, whatever their length.
-    timeAxis: NotRequired[StageTimeAxis]
+    #: The x axis of the picture's source data, before anything was thinned and whatever part is drawn
+    #: (``source_axis`` of the Frame's reading). The plot takes the whole view's x range from it, and the webview
+    #: decides from it which pictures are on one axis (figureModel.pictureAxis). The drawn ``xs`` are for painting
+    #: only: their count and ends say nothing about the source (docs/display-rules.md R2).
+    xSource: NotRequired[StageSourceAxis]
+    #: An image's rows in the source data (frequencies, Bark bands, quefrencies), likewise.
+    ySource: NotRequired[StageSourceAxis]
 
 
-class StageTimeAxis(TypedDict):
-    start: float
-    step: float
+class StageSourceAxis(TypedDict):
+    """One axis of a picture's source data: how many values it has along it, and where the first and last are."""
+
+    count: int
+    first: float
+    last: float
+    #: With two values or more: the distance from the first to the second (a signal's sample period, an STFT's hop).
+    step: NotRequired[float]
 
 
 class StagePeak(TypedDict):
@@ -428,6 +439,48 @@ def image_rows(reading: FrameReading) -> np.ndarray:
     if reading.ys is None:
         raise ValueError(f"a {reading.mode} reading has no rows: only an image (spectrogram, ...) is drawn by rows")
     return reading.ys
+
+
+def source_axis(reading: FrameReading) -> StageSourceAxis | None:
+    """The reading's x axis as a picture carries it (StageView ``xSource``): how many values it has, where the first
+    and last are, and the step from the first to the second, all asked of ``reading_axis`` (``x_at``). Taken of the
+    whole reading, before any value is thinned and whatever part of it is drawn. None for a reading with no values.
+
+    The only producer of ``xSource``: the webview takes a picture's whole-view x range and which pictures share an
+    axis from it, never from the drawn points (docs/display-rules.md R2)."""
+    count, _x_at, _index_of = reading_axis(reading)
+    if count == 0:
+        return None
+    first, last = (float(value) for value in x_at(reading, [0, count - 1]))
+    axis: StageSourceAxis = {"count": int(count), "first": first, "last": last}
+    if count > 1:
+        axis["step"] = float(x_at(reading, [1])[0]) - first
+    return axis
+
+
+def source_rows(reading: FrameReading) -> StageSourceAxis | None:
+    """An image reading's rows as a picture carries them (StageView ``ySource``), as ``source_axis`` takes its x:
+    the whole reading's rows, whatever rows are drawn. None for a line."""
+    if reading.ys is None or reading.ys.size == 0:
+        return None
+    ys = reading.ys
+    rows: StageSourceAxis = {"count": int(ys.size), "first": float(ys[0]), "last": float(ys[-1])}
+    if ys.size > 1:
+        rows["step"] = float(ys[1] - ys[0])
+    return rows
+
+
+def with_source_axes(view: StageView | dict, reading: FrameReading | None) -> None:
+    """``view`` with the axes of its source data (``xSource``, an image's ``ySource``). Every picture sent gets them
+    here: a recording's own (stage_view, whole or zoomed, from the recording's whole reading) and a median or a
+    difference (stage_combine.draw, from the common part ``_aligned`` combined)."""
+    if reading is None or view.get("kind") == "none":
+        return
+    x_axis, rows = source_axis(reading), source_rows(reading)
+    if x_axis is not None:
+        view["xSource"] = x_axis  # type: ignore[typeddict-unknown-key]
+    if rows is not None and view.get("kind") == "heatmap":
+        view["ySource"] = rows  # type: ignore[typeddict-unknown-key]
 
 
 def x_at(reading: FrameReading, index: Any) -> np.ndarray:
@@ -928,6 +981,7 @@ def _spectrogram_view(frame: SpectrogramFrame, reading: FrameReading) -> StageVi
         "quantity": "level",
         "xs": _axis(_block_centres(reading.xs, blocks)),
         "ys": _axis(centres),
+        "yLimits": [float(spec.SPECTRUM_MIN_HZ), float(nyquist)],
         "yAxis": "frequency",
         # One decimal: an image of a dB level needs no more, and a base sends one per file.
         "matrix": [_json(row) for row in np.round(floored_db(matrix).T, 1)],
@@ -1159,16 +1213,13 @@ def stage_view(frame: object, signal_s: float | None = None, detail: StageDetail
     if view["kind"] in ("line", "bar", "heatmap"):
         # The order overlaid lines are drawn in, and every axis and colour range, come from every value, not the
         # drawn points or the cells averaged to draw them (R1, R2, R6, R9).
-        from stage_combine import stage_data, time_axis, with_level_bins, with_value_range
+        from stage_combine import stage_data, with_level_bins, with_value_range
 
         data = stage_data(frame, coarse, signal_s, reading)
         part = detail if view is not coarse else None
         with_level_bins(view, data, part)
         with_value_range(view, data, part)
-        if data is not None and coarse.get("x") == "time" and view["kind"] == "line":
-            axis = time_axis(data)
-            if axis is not None:
-                view["timeAxis"] = axis
+        with_source_axes(view, reading)
     return view
 
 

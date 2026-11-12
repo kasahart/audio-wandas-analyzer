@@ -187,7 +187,7 @@ test('a stale row is written to the entry CSV with no numbers and is never in a 
 });
 
 test('the step figure\'s set: a member of unknown level or picture still coming is pending, one on another axis is left out, never assumed the compared one\'s (aggregation V3, V4, V8, V9, reference V4)', () => {
-    const view = (xs: number[]): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', xs, values: xs.map(() => 0), data: 'k' });
+    const view = (xs: number[]): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', xs, values: xs.map(() => 0), xSource: { count: xs.length, first: xs[0], last: xs[xs.length - 1] }, data: 'k' });
     const level = scan(0).input!;
     const views: Record<string, StageView | undefined> = { '/a.wav': view([1, 2]), '/b.wav': view([1, 2]), '/c.wav': view([1, 2, 3]), '/u.wav': view([1, 2]) };
     const levels: Record<string, typeof level | undefined> = { '/a.wav': level, '/b.wav': level, '/c.wav': level, '/p.wav': level };
