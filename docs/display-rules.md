@@ -30,6 +30,10 @@
 - テスト: `python-backend/test_stage_combine.py` › test_a_difference_has_no_silent_floor_its_range_and_reads_hold_a_delta_of_minus_260_db
 - テスト: `src/test/unroundedRead.test.ts` › a median and a difference are taken in float64 end to end: of 0.5 and 0.5 + 2⁻²⁴ the median reads 0.5 + 2⁻²⁵, and the Δ of 0.5 + 2⁻²⁴ from it 2⁻²⁵, never 0 (R1)
 - テスト: `python-backend/test_stage_combine.py` › test_a_median_and_a_difference_are_taken_and_kept_in_float64
+- 録音が float32 で読まれていても（16 ビットの WAV など）、比較台が Frame から取る数は、チャンネルをまとめる前に float64（複素数は complex128）に直します。直すのは 1 か所（`stage_view.read_frame` が Frame の配列を取る `_taken`）だけで、平均・パワー平均・中央値などの計算はその後です。`read_frame` は読み取りのすべての配列（値・軸・トリガーのイベントの行、あとから足した欄も）を確かめ、float64 / complex128 でなければその場でエラーにします。ほかの関数（描く関数や `stage_combine.py`）は変換しません。読み取りはもう float64 で、あとで直しても float32 で取ったチャンネルの平均は戻らないからです。float32 のまま平均すると、float32 の 1 段だけ違う 2 つの値の平均がどちらかに丸まります。
+- テスト: `python-backend/test_frame_reading.py` › test_every_array_of_a_reading_is_float64_whatever_the_recordings_dtype
+- テスト: `python-backend/test_frame_reading.py` › test_a_float32_trigger_events_channel_mean_is_taken_in_float64
+- テスト: `python-backend/test_frame_reading.py` › test_read_frame_refuses_a_reading_with_any_array_not_in_float64
 - テスト: `src/test/unroundedRead.test.ts` › a dense window read beyond the pick radius of every point reads the real sample under the pointer, which the backend sends (R7)
 - テスト: `python-backend/test_full_read.py` › test_a_dense_window_sends_the_point_under_the_pointer_and_names_it
 - 設定の初期値にする数も同じです。トリガーを足したときのレベルの初期値は、比較しているチャンネルの、領域の中のピーク（一番大きい |サンプル|）の半分です。このピークは、レーンの読み値と同じ道（`fullRead.ts` の `FullSource.level`、バックエンドは `full_read.read_level` の `peak`）で、元のサンプル全部から読みます（`src/webview/runtime/regionPeak.ts`）。レーンに描く包絡（間引いた最小・最大）からは計算しません。包絡は領域の中の一番大きいサンプルを持っていないことがあるからです。

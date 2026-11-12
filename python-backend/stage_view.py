@@ -13,7 +13,7 @@ Channels are combined as the entry table combines them: levels power-averaged, v
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Any, Literal, NotRequired, TypedDict
 
 import numpy as np
@@ -248,7 +248,8 @@ def _power_mean(levels_db: np.ndarray) -> np.ndarray:
 
 
 def _rows(values: Any, channels: int) -> np.ndarray:
-    return np.asarray(values, dtype=np.float64).reshape(channels, -1)
+    """A Frame's per-channel values (channel x value), taken as the reading holds them (``_taken``)."""
+    return _taken(values).reshape(channels, -1)
 
 
 def _log_points(levels_db: np.ndarray, freqs: np.ndarray, points: int, nyquist: float) -> tuple[np.ndarray, np.ndarray]:
@@ -422,10 +423,17 @@ def reading_axis(reading: FrameReading) -> tuple[int, XAt, IndexOf]:
     return sorted_axis(reading.xs)
 
 
+def image_rows(reading: FrameReading) -> np.ndarray:
+    """An image reading's rows (``ys``). Only an image's view asks, and every image reading has them."""
+    if reading.ys is None:
+        raise ValueError(f"a {reading.mode} reading has no rows: only an image (spectrogram, ...) is drawn by rows")
+    return reading.ys
+
+
 def x_at(reading: FrameReading, index: Any) -> np.ndarray:
     """The x of the reading's values at ``index`` (indices into the values along the x axis): ``reading_axis``'s."""
     _count, axis_x_at, _index_of = reading_axis(reading)
-    return np.asarray(axis_x_at(np.asarray(index, dtype=np.int64)), dtype=np.float64)
+    return np.asarray(axis_x_at(np.asarray(index, dtype=np.int64)))
 
 
 def index_range(reading: FrameReading, bounds: Sequence[float] | None) -> tuple[int, int]:
@@ -438,13 +446,22 @@ def index_range(reading: FrameReading, bounds: Sequence[float] | None) -> tuple[
     return first, max(first, index_of(float(max(bounds)), "right"))
 
 
-def _f64(values: Any) -> np.ndarray:
-    return np.asarray(values, dtype=np.float64)
+def _taken(values: Any) -> np.ndarray:
+    """A Frame's numbers as a reading holds them: float64, or complex128 for complex values, whatever dtype the
+    recording was read in (a 16-bit WAV is float32).
+
+    The one conversion of the comparison's numbers. Only ``_read_frame`` and the helpers it calls use it, on the
+    Frame's own arrays and before any arithmetic on them (a channel mean, a power mean, a median): the mean of two
+    float32 values a float32 step apart lies between them, which float32 cannot hold. Everything computed later is of
+    the reading, which ``read_frame`` has checked, so nothing else converts (docs/display-rules.md R1).
+    """
+    array = np.asarray(values)
+    return array.astype(np.complex128 if np.iscomplexobj(array) else np.float64, copy=False)
 
 
 def _plane(values: Any) -> np.ndarray:
-    """An image Frame's values (channel x row x column) as float64 planes."""
-    data = _f64(values)
+    """An image Frame's values (channel x row x column) as planes, taken as the reading holds them (``_taken``)."""
+    data = _taken(values)
     return data.reshape(-1, data.shape[-2], data.shape[-1])
 
 
@@ -453,35 +470,64 @@ def _stft_whole(frame: Any, columns: int, signal_s: float | None) -> np.ndarray 
     if signal_s is None:
         return None
     # Frame centres are in the file's time: measured from the start of the signal the STFT was taken of.
-    centres = np.atleast_2d(_f64(frame.frame_center_times))[0][:columns] - _offset(frame)
+    centres = np.atleast_2d(_taken(frame.frame_center_times))[0][:columns] - _offset(frame)
     half = float(frame.n_fft) / 2 / float(frame.sampling_rate)
     return (centres >= half - 1e-9) & (centres <= signal_s - half + 1e-9)
 
 
+#: The FrameReading array fields that hold flags, not numbers. Every other array field holds numbers.
+READING_FLAG_FIELDS = ("whole",)
+#: The dtypes a reading's numbers are held in (``_taken``).
+READING_DTYPES = (np.dtype(np.float64), np.dtype(np.complex128))
+
+
 def read_frame(frame: object, signal_s: float | None = None) -> FrameReading | None:
+    """``frame``'s values and axes (``_read_frame``), every number of them float64 (complex128 for complex values)
+    whatever dtype the Frame's data has.
+
+    A recording read as float32 is converted once, as its data is taken (``_taken``), before any channel is averaged,
+    and every array of the reading (values, axes, a trigger's event rows, and any field added later) is checked here:
+    nothing after this computes in float32 (docs/display-rules.md R1)."""
+    reading = _read_frame(frame, signal_s)
+    if reading is None:
+        return None
+    for item in fields(reading):
+        array = getattr(reading, item.name)
+        if not isinstance(array, np.ndarray) or item.name in READING_FLAG_FIELDS:
+            continue
+        if array.dtype not in READING_DTYPES:
+            raise TypeError(
+                f"read_frame: the reading of a {type(frame).__name__} has {item.name} in {array.dtype}, not float64 "
+                "(R1: a reading's numbers are float64). Take the Frame's array with stage_view._taken in its "
+                "branch of _read_frame, before any arithmetic on it."
+            )
+    return reading
+
+
+def _read_frame(frame: object, signal_s: float | None = None) -> FrameReading | None:
     """``frame``'s values and axes, per Frame kind: the only place the comparison interprets a wandas Frame's data.
 
     Channels are combined as the entry table combines them (levels power-averaged, values averaged), a
     cross-channel Frame keeps its one drawn pair, and times are seconds into the file. None for a Frame with
     nothing to draw (a kind the app does not draw, no pair of two channels, a trigger with no event).
 
-    To support a new Frame kind, add its branch here; its picture (``_stage_view``) and its full-resolution values
-    (stage_combine.stage_data) then both take it from the reading. ``signal_s``: the length (s) of the time signal
-    before the step, which an STFT's columns are checked against.
+    To support a new Frame kind, add its branch here, taking its data with ``_taken`` first. Its picture
+    (``_stage_view``) and its full-resolution values (stage_combine.stage_data) then both take it from the reading.
+    ``signal_s``: the length (s) of the time signal before the step, which an STFT's columns are checked against.
     """
     if isinstance(frame, CepstralFrame):
-        return FrameReading("cepstrum", _f64(frame.quefrencies), np.mean(_rows(frame.data, frame.n_channels), axis=0))
+        return FrameReading("cepstrum", _taken(frame.quefrencies), np.mean(_rows(frame.data, frame.n_channels), axis=0))
     if isinstance(frame, CepstrogramFrame):
         plane = np.mean(_plane(frame.data), axis=0)  # (quefrency, time)
-        times = _f64(frame.times)[: plane.shape[1]] + _offset(frame)
+        times = _taken(frame.times)[: plane.shape[1]] + _offset(frame)
         whole = _stft_whole(frame, plane.shape[1], signal_s)
-        return FrameReading("cepstrogram", times, plane, _f64(frame.quefrencies), whole)
+        return FrameReading("cepstrogram", times, plane, _taken(frame.quefrencies), whole)
     if isinstance(frame, CrossCorrelationFrame):
         row = _cross_pair(frame)
         if row is None:
             return None
-        coefficients = _f64(frame.coefficients).reshape(-1, frame.n_lags)[row]
-        return FrameReading("correlation", _f64(frame.lags), coefficients, pair_row=row)
+        coefficients = _taken(frame.coefficients).reshape(-1, frame.n_lags)[row]
+        return FrameReading("correlation", _taken(frame.lags), coefficients, pair_row=row)
     if isinstance(frame, ChannelFrameSegments):
         if not len(frame):
             return None
@@ -491,7 +537,7 @@ def read_frame(frame: object, signal_s: float | None = None) -> FrameReading | N
     if isinstance(frame, ChannelFrame):
         data = _rows(frame.data, frame.n_channels)
         # Seconds into the file, so a region's level reads at the region's times.
-        times = _f64(frame.source_time).reshape(frame.n_channels, -1)[0]
+        times = _taken(frame.source_time).reshape(frame.n_channels, -1)[0]
         if _in_db(frame):
             # Already dB levels (sound_level or rms_trend with dB=True): channels power-averaged, never a level of
             # them.
@@ -517,24 +563,24 @@ def read_frame(frame: object, signal_s: float | None = None) -> FrameReading | N
             if pair_row is None:
                 return None
             rows = rows[pair_row : pair_row + 1]
-        freqs, nyquist = _f64(frame.freqs), float(frame.sampling_rate) / 2
+        freqs, nyquist = _taken(frame.freqs), float(frame.sampling_rate) / 2
         if quantity == "coherence":
             return FrameReading("coherence", freqs, rows[0], nyquist=nyquist, pair_row=pair_row)
         return FrameReading("spectrum", freqs, _power_mean(floored_db(rows)), nyquist=nyquist, pair_row=pair_row)
     if isinstance(frame, NOctFrame):
         levels = _power_mean(floored_db(_rows(frame.dB, frame.n_channels)))
-        return FrameReading("bands", _f64(frame.freqs), levels)
+        return FrameReading("bands", _taken(frame.freqs), levels)
     if isinstance(frame, SpectrogramFrame):
-        plane = _f64(_power_mean(floored_db(_plane(frame.dB))))  # (frequency, time)
-        times = _f64(frame.times)[: plane.shape[1]] + _offset(frame)
+        plane = _power_mean(floored_db(_plane(frame.dB)))  # (frequency, time)
+        times = _taken(frame.times)[: plane.shape[1]] + _offset(frame)
         whole = _stft_whole(frame, plane.shape[1], signal_s)
         return FrameReading(
-            "spectrogram", times, plane, _f64(frame.freqs), whole, nyquist=float(frame.sampling_rate) / 2
+            "spectrogram", times, plane, _taken(frame.freqs), whole, nyquist=float(frame.sampling_rate) / 2
         )
     if isinstance(frame, RoughnessFrame):
         plane = np.mean(_plane(frame.data), axis=0)  # (Bark band, time)
-        times = _f64(frame.time)[: plane.shape[1]] + _offset(frame)
-        return FrameReading("roughness", times, plane, _f64(frame.bark_axis)[: plane.shape[0]])
+        times = _taken(frame.time)[: plane.shape[1]] + _offset(frame)
+        return FrameReading("roughness", times, plane, _taken(frame.bark_axis)[: plane.shape[0]])
     return None
 
 
@@ -543,7 +589,7 @@ def signal_line(reading: FrameReading, first: int, last: int, points: int) -> tu
     drawn sample at its own time, which only the samples drawn are given (no array of every sample's time)."""
     values = reading.values[first:last]
     picked = _envelope_indices(values, points)
-    return x_at(reading, first + picked), _f64(values[picked])
+    return x_at(reading, first + picked), values[picked]
 
 
 def samples_waveform(reading: FrameReading, first: int, last: int, unit: str, ref: float, points: int) -> StageWaveform:
@@ -679,7 +725,9 @@ def _channel_view(frame: ChannelFrame, reading: FrameReading) -> StageView:
 
 def _event_rows(segments: ChannelFrameSegments) -> tuple[np.ndarray, np.ndarray]:
     """Every event's samples with its channels averaged (event × sample), and each sample's time from the trigger."""
-    data = segments.to_numpy()
+    # In float64 before the channels are averaged, as every reading is (read_frame): the mean of two float32
+    # samples a float32 step apart lies between them.
+    data = _taken(segments.to_numpy())
     rows = np.mean(data.reshape(data.shape[0], data.shape[1], -1), axis=1)
     rate = float(segments[0].sampling_rate)
     return rows, np.arange(rows.shape[1]) / rate - float(segments.pre)
@@ -756,7 +804,7 @@ def _spectral_rows(frame: Any) -> tuple[Quantity, np.ndarray]:
         quantity, raw = "level", frame.level_db
     else:
         quantity, raw = "level", frame.dB
-    return quantity, np.asarray(raw, dtype=np.float64).reshape(-1, np.asarray(frame.freqs).size)
+    return quantity, _taken(raw).reshape(-1, np.asarray(frame.freqs).size)
 
 
 def _spectral_quantity(frame: Any) -> Quantity:
@@ -771,7 +819,7 @@ def _transfer_rows(frame: TransferFunctionFrame) -> np.ndarray:
     one unit; else the transfer level in dB re the units' ratio, since a gain of two units is no ratio. gain_db
     refuses a Frame with any such pair, so every row is taken as a transfer level and a dimensionless one's
     reference ratio put back."""
-    levels = np.asarray(frame.transfer_level_db, dtype=np.float64).reshape(len(frame.pair_domains), -1).copy()
+    levels = _taken(frame.transfer_level_db).reshape(len(frame.pair_domains), -1).copy()
     for row, domain in enumerate(frame.pair_domains):
         if domain.unit == "1":
             levels[row] += 20.0 * np.log10(domain.reference)
@@ -839,7 +887,7 @@ def _noct_view(frame: NOctFrame, reading: FrameReading) -> StageView:
 
 def _offset(frame: Any) -> float:
     """Where the frame starts in the file (a region's start), in seconds."""
-    offset = np.asarray(getattr(frame, "source_time_offset", 0.0), dtype=np.float64).reshape(-1)
+    offset = _taken(getattr(frame, "source_time_offset", 0.0)).reshape(-1)
     return float(offset[0]) if offset.size else 0.0
 
 
@@ -866,7 +914,7 @@ def _block_centres(times: np.ndarray, blocks: list[slice]) -> np.ndarray:
 
 
 def _spectrogram_view(frame: SpectrogramFrame, reading: FrameReading) -> StageView:
-    level, freqs, nyquist = reading.values, _f64(reading.ys), reading.nyquist  # level: (freq, time)
+    level, freqs, nyquist = reading.values, image_rows(reading), reading.nyquist  # level: (freq, time)
     if nyquist <= spec.SPECTRUM_MIN_HZ or freqs.size < 2:
         return {"frame": type(frame).__name__, "kind": "none"}
     blocks = _time_blocks(level.shape[1])
@@ -899,7 +947,7 @@ def _roughness_view(frame: RoughnessFrame, reading: FrameReading) -> StageView:
         # Each Bark band's specific roughness (wandas' own plot: "Specific Roughness [Asper/Bark]"), not the total.
         "unit": "asper/Bark",
         "xs": _axis(_block_centres(reading.xs, blocks)),
-        "ys": _axis(_f64(reading.ys)),
+        "ys": _axis(image_rows(reading)),
         "yAxis": "bark",
         "matrix": [_json(np.array([np.mean(row[block]) for block in blocks])) for row in plane],
     }
@@ -975,7 +1023,7 @@ def _cepstrogram_view(frame: CepstrogramFrame, reading: FrameReading) -> StageVi
         "xScale": "linear",
         "quantity": "cepstrum",
         "xs": _axis(_block_centres(reading.xs, blocks)),
-        "ys": _axis(_f64(reading.ys)[starts]),
+        "ys": _axis(image_rows(reading)[starts]),
         "yAxis": "quefrency",
         "matrix": [_json(row) for row in np.round(rows.T, CEPSTRUM_DECIMALS)],
         **_whole_columns(reading, blocks),
@@ -1064,7 +1112,7 @@ def _detail_view(frame: object, reading: FrameReading | None, coarse: StageView,
         return view
     if mode in ("spectrogram", "cepstrogram", "roughness"):
         rows_bounds = [float(value) for value in detail.get("y", [-np.inf, np.inf])]
-        plane, times, rows_axis = reading.values[:, keep], reading.xs[keep], _f64(reading.ys)
+        plane, times, rows_axis = reading.values[:, keep], reading.xs[keep], image_rows(reading)
         edges = bucket_edges(times.size, max(2, points // 2))
         blocks = [slice(a, b) for a, b in zip(edges[:-1], edges[1:], strict=True) if b > a]
         if mode == "spectrogram":
