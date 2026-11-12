@@ -20,6 +20,18 @@ async function leaveEntryTable(page: Page) {
     await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
 }
 
+/**
+ * A folder just opened, once its table has stopped moving. The table is shown at once and then moves: the controls
+ * above it wrap again as the scan recipe (a fetch) and the files' headers (file reads) arrive, and each arrival
+ * shifts every row by a line or two. Use this before a hover on a row (showRow), which needs the rows to stay put.
+ * It is for a page with no track yet: this file's stand-in Worker answers a track's detail with a fixture that is not
+ * that track's, the page keeps asking, and settled() would wait its whole 10 s.
+ */
+async function folderListed(page: Page) {
+    await leaveEntryTable(page);
+    expect(await settled(page), 'the page kept working after the folder was listed: see folderListed() for what it waits for and when it cannot be used').toBe(true);
+}
+
 /** A file's row in the side panel's entry table. */
 /** A mono 16-bit WAV of 28 silent samples: its header says one channel, as the entry table reads it at open. */
 function tinyWav(): Buffer {
@@ -32,7 +44,12 @@ function tinyWav(): Buffer {
 const WAV_BYTES = Array.from(tinyWav());
 const entryRow = (page: Page, filePath: string) => page.locator(`#entry-dock tr[data-file-path="${filePath}"]`);
 
-/** A row's ▶ (shown on the row under the pointer): the file becomes a track. */
+/**
+ * A row's ▶: the file becomes a track. The ▶ exists only on the row under the pointer, and the pointer stays where
+ * hover() put it, so the rows must not move between the hover and the click: after opening a folder, wait with
+ * folderListed() first. If this click times out with another row "intercepting pointer events",
+ * the rows moved after the hover: find what arrived late and make settled() wait for it (canvasAudit.ts).
+ */
 async function showRow(page: Page, filePath: string) {
     await entryRow(page, filePath).hover();
     await entryRow(page, filePath).locator('[data-action="entry-row-play"]').click();
@@ -197,7 +214,7 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     const chooser = page.waitForEvent('filechooser');
     await page.locator('#selection-toolbar [data-action="open-folder"]').click();
     await (await chooser).setFiles(join(folder, 'rec'));
-    await leaveEntryTable(page);
+    await folderListed(page);
     await expect(page.locator('#selection-sidebar')).toBeVisible();
     await expect(page.locator('#entry-dock tr[data-file-path]')).toHaveCount(2);
     await expect(page.locator('#selection-python-environment')).toHaveCount(0);
@@ -306,7 +323,7 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     const nextChooser = page.waitForEvent('filechooser');
     await page.locator('#selection-toolbar [data-action="open-folder"]').click();
     await (await nextChooser).setFiles(join(sameName, 'rec'));
-    await leaveEntryTable(page);
+    await folderListed(page);
     // A second folder joins the table.
     await expect(page.locator('#entry-dock tr[data-file-path]')).toHaveCount(3);
     await showRow(page, '/sources/rec (2)/third.wav');
@@ -319,6 +336,28 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     await expect(entryRow(page, '/sources/single.wav')).toHaveClass(/is-shown/);
     await expect(entryRow(page, '/sources/rec (2)/third.wav')).toHaveClass(/is-shown/);
     await expect(page.locator('.track-row')).toHaveCount(2);
+});
+
+test('settled() waits for a fetch the page is still waiting on, so a row is hovered only once the table has stopped moving', async ({ page }) => {
+    const folder = mkdtempSync(join(tmpdir(), 'awa-folder-'));
+    mkdirSync(join(folder, 'rec'));
+    writeFileSync(join(folder, 'rec', 'first.wav'), tinyWav());
+    writeFileSync(join(folder, 'rec', 'second.wav'), tinyWav());
+    await openStaticPage(page, 'window.showDirectoryPicker = undefined;');
+    // The scan recipe is answered when the test says so: a loaded machine answers it late in the same way.
+    let answerRecipe = (): void => {};
+    const recipeAnswered = new Promise<void>(resolve => { answerRecipe = resolve; });
+    await page.route('http://awa.test/recipes/**', async route => { await recipeAnswered; await route.fallback(); });
+    const chooser = page.waitForEvent('filechooser');
+    await page.locator('#selection-toolbar [data-action="open-folder"]').click();
+    await (await chooser).setFiles(join(folder, 'rec'));
+    await expect(entryRow(page, '/sources/rec/first.wav')).toBeVisible();
+    expect(await settled(page, 500), 'settled() said the page had finished while it was still waiting for a fetch. The page draws again when the fetch arrives, '
+        + 'so a test that acts now acts on a page about to move. Count what the page waits on from outside itself in installSettleTracker (canvasAudit.ts).').toBe(false);
+    answerRecipe();
+    await folderListed(page);
+    await showRow(page, '/sources/rec/first.wav');
+    await expect(page.locator('.track-row')).toHaveCount(1);
 });
 
 test('the head\'s ☐ asks before it shows more than 30 files as tracks', async ({ page }) => {
@@ -601,7 +640,7 @@ test('static page opens a folder through the File System Access picker without t
     };`);
     page.on('filechooser', () => { throw new Error('the folder input must not open when the picker exists'); });
     await page.locator('#selection-toolbar [data-action="open-folder"]').click();
-    await leaveEntryTable(page);
+    await folderListed(page);
     await expect(page.locator('#entry-dock tr[data-file-path]')).toHaveCount(2);
     await showRow(page, '/sources/rec/day2/a.WAV');
     await expect(page.locator('.track-row')).toHaveCount(1);
