@@ -17,6 +17,12 @@
  * 3. Only the drawing modules (DRAWING_MODULES) refer to drawnPoints.ts, where a `Drawn` becomes a number.
  * 4. No code turns a `Drawn` into a number or text another way: a cast that drops it, a predicate that narrows it,
  *    `typeof`, unary `+`, `'' + value`, a template, or passing it where a parameter is `any` (`Number(value)`).
+ * 5. Outside the drawing modules a picture's drawn points are opaque: no code counts them (`.length`), indexes them
+ *    (`[i]`, `.at(i)`), iterates them (`for … of`, `[a, b] = …`) or spreads them (`[...values]`, `f(...values)`).
+ *    That holds of every array of `Drawn` (by type) and of the places they sit at, a picture's `xs` and `ys`
+ *    (PICTURE_PLACES, by symbol, through a local const too). How many points were drawn, and where the first and the
+ *    last sit, are the thinning's, not the data's: an axis, a range or a count comes from the source (the picture's
+ *    source axis, valueRange, the full data), never from them.
  *
  * With these, the compiler's own rules (a plain number is not a `Whole`; a `Drawn` is not a number) mean a number a
  * readout, a headline or an export takes came through a mint module, and a point thinned to be drawn reaches only
@@ -68,6 +74,12 @@ const LAYOUT_MODULES: ReadonlyMap<string, string> = new Map([
     ['src/webview/runtime/entryDistribution.ts', 'a histogram\'s counts, the height each dot is stacked at, and the marks of the slots and the base'],
 ]);
 const FULL_READ = 'src/webview/runtime/fullRead.ts';
+const SCHEMA = 'src/shared/protocol/generated/backendProtocolSchema.ts';
+/**
+ * The places of a picture's drawn points (rule 5): fields of the protocol's StageView, which say where each value of
+ * `values` (`xs`) and each row of `matrix` (`ys`) is drawn. They are as thinned as the points.
+ */
+const PICTURE_PLACES: ReadonlyArray<readonly [string, string]> = [['StageView', 'xs'], ['StageView', 'ys']];
 
 function productSources(): string[] {
     const found: string[] = [];
@@ -124,7 +136,7 @@ function holds(type: ts.Type, brand: string, checker: ts.TypeChecker, depth = 0,
     });
 }
 
-type Rule = 'mint' | 'mint-kept' | 'layout' | 'empty-read' | 'test-code' | 'cast' | 'predicate' | 'unwrap' | 'drawn-cast' | 'drawn-predicate' | 'drawn-coerced';
+type Rule = 'mint' | 'mint-kept' | 'layout' | 'empty-read' | 'test-code' | 'cast' | 'predicate' | 'unwrap' | 'drawn-cast' | 'drawn-predicate' | 'drawn-coerced' | 'drawn-read';
 interface Problem { file: string; line: number; rule: Rule; text: string }
 
 /** Whether a value of `type` is itself a `Drawn` (not a holder of one): what arithmetic and text must not take. */
@@ -170,10 +182,44 @@ function answersOf(read: ts.Symbol, at: ts.Node, checker: ts.TypeChecker): Array
     return checker.getTypeOfSymbolAtLocation(read, at).getCallSignatures().map(signature => answerKinds(signature.getReturnType()));
 }
 
-/** Every place that breaks rules 1 to 4 above. */
+/** The symbols of PICTURE_PLACES in `scanned`: one per entry while the protocol still has the field. */
+function picturePlaces(scanned: ts.Program): Set<ts.Symbol> {
+    const checker = scanned.getTypeChecker();
+    const found = new Set<ts.Symbol>();
+    const schema = scanned.getSourceFile(path.join(repoRoot, SCHEMA));
+    if (schema) ts.forEachChild(schema, node => {
+        if (!ts.isInterfaceDeclaration(node)) return;
+        for (const member of node.members) {
+            if (!member.name || !ts.isIdentifier(member.name) || !PICTURE_PLACES.some(([owner, field]) => owner === node.name.text && field === (member.name as ts.Identifier).text)) continue;
+            const symbol = checker.getSymbolAtLocation(member.name);
+            if (symbol) found.add(symbol);
+        }
+    });
+    return found;
+}
+
+/** Every place that breaks rules 1 to 5 above. */
 function provenanceProblems(scanned: ts.Program): Problem[] {
     const checker = scanned.getTypeChecker();
     const problems: Problem[] = [];
+    const places = picturePlaces(scanned);
+    /**
+     * Whether `type` is an array of drawn points (a line's values, a row of a picture's cells, an envelope), or a union
+     * holding one. An array of such arrays is not: picking one of them (a channel's line, a row) reads no point.
+     */
+    const drawnArray = (type: ts.Type): boolean => (type.isUnion() ? type.types : [type]).some(member => (checker.isArrayType(member) || checker.isTupleType(member))
+        && checker.getTypeArguments(member as ts.TypeReference).some(isDrawn));
+    /** Whether `node` is a picture's places (PICTURE_PLACES), read from the picture or through a local const of them. */
+    const placed = (node: ts.Expression, depth = 0): boolean => {
+        if (depth > 4) return false;
+        if (ts.isParenthesizedExpression(node) || ts.isNonNullExpression(node)) return placed(node.expression, depth);
+        if (ts.isBinaryExpression(node) && [ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken].includes(node.operatorToken.kind)) return placed(node.left, depth);
+        if (ts.isPropertyAccessExpression(node)) { const field = checker.getSymbolAtLocation(node.name); return !!field && places.has(field); }
+        if (!ts.isIdentifier(node)) return false;
+        const local = checker.getSymbolAtLocation(node)?.valueDeclaration;
+        return !!local && ts.isVariableDeclaration(local) && !!local.initializer && ts.isVariableDeclarationList(local.parent) && !!(local.parent.flags & ts.NodeFlags.Const) && placed(local.initializer, depth + 1);
+    };
+    const drawnPoints = (node: ts.Expression): boolean => drawnArray(checker.getTypeAtLocation(node)) || placed(node);
     for (const source of scanned.getSourceFiles()) {
         const file = relative(source);
         if (!file.startsWith('src/') || file.startsWith('src/test/') || file.startsWith('src/e2e/') || file === PROVENANCE || file === MINTS || file === UNWRAPS || file.includes('/generated/')) continue;
@@ -221,6 +267,14 @@ function provenanceProblems(scanned: ts.Program): Problem[] {
             if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.PlusToken && drawn(node.operand)) at(node, 'drawn-coerced');
             if (ts.isBinaryExpression(node) && (node.operatorToken.kind === ts.SyntaxKind.PlusToken || node.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken) && (drawn(node.left) || drawn(node.right))) at(node, 'drawn-coerced');
             if (ts.isTemplateSpan(node) && drawn(node.expression)) at(node, 'drawn-coerced');
+            // Rule 5: a picture's drawn points (and their places) counted, indexed, iterated or spread.
+            if (!DRAWING_MODULES.has(file)) {
+                if (ts.isPropertyAccessExpression(node) && ['length', 'at'].includes(node.name.text) && drawnPoints(node.expression)) at(node, 'drawn-read');
+                if (ts.isElementAccessExpression(node) && drawnPoints(node.expression)) at(node, 'drawn-read');
+                if (ts.isForOfStatement(node) && drawnPoints(node.expression)) at(node.expression, 'drawn-read');
+                if (ts.isSpreadElement(node) && drawnPoints(node.expression)) at(node, 'drawn-read');
+                if (ts.isVariableDeclaration(node) && ts.isArrayBindingPattern(node.name) && node.initializer && drawnPoints(node.initializer)) at(node, 'drawn-read');
+            }
             // A read given to a source (fullSource, sourceWith, or fullRead.ts's own `new Source`) whose every answer is
             // null fails every time: it reads no data, yet the source would count as one that reads (readsFullData).
             // What it answers is taken of its body's returns where the read is written there, so a function typed to
@@ -270,6 +324,7 @@ const FIX: Record<Rule, string> = {
     unwrap: 'Only the drawing modules (DRAWING_MODULES in this file) may call drawnPoints.ts. If this code draws, add its module there with what it draws. If it needs a number to show, compute or export, read it from the full data: the layer\'s FullSource, or the backend\'s valueRange / peak / levelBins.',
     'drawn-cast': 'This cast makes thinned points plain numbers. To draw them, call drawable / drawableLine in a drawing module; to read a value, use the full data (FullSource, wholeAnswers.ts).',
     'drawn-predicate': 'This predicate narrows a thinned point to a number. To draw it, call drawable in a drawing module; to read a value, use the full data.',
+    'drawn-read': 'A picture\'s drawn points, or the places they are drawn at (its xs / ys), are counted, indexed, iterated or spread here, outside the drawing modules. They are as many, and start and end where, the thinning left them: a count, an axis, a range or a value taken of them is of the picture, not the data. Take it from the source instead: the picture\'s source axis for its extent, valueRange / levelBins for its values, its FullSource for a point, a slice\'s frequencyBins for its size. If this code draws, add its module to DRAWING_MODULES with what it draws.',
     'drawn-coerced': 'A thinned point is turned into a number or text here (typeof, unary +, + with text, a template, or an `any` parameter such as Number() or String()). To draw it, call drawable in a drawing module; to show a number, read it from the full data.',
 };
 const told = (problems: readonly Problem[]): string => problems.map(problem => `${problem.file}:${problem.line} ${problem.rule}: ${problem.text}\n    ${FIX[problem.rule]}`).join('\n');
@@ -279,19 +334,24 @@ test('a value of the full data (`Whole`) is made only in the mint modules, and a
     assert.equal(problems.length, 0, `\n${told(problems)}\nSee docs/plot-contracts-guide.md ("Adding a number a user reads").`);
 });
 
+test('every picture place the scan follows (PICTURE_PLACES) is a field of the protocol today', () => {
+    assert.equal(picturePlaces(program()).size, PICTURE_PLACES.length, `PICTURE_PLACES names ${PICTURE_PLACES.map(([owner, field]) => `${owner}.${field}`).join(', ')}; not each is a field of ${SCHEMA} now. Rule: rule 5 follows a picture's places by these fields. Fix: name the fields that now hold where a picture's drawn points sit (regenerate the schema if it moved).`);
+});
+
 // ── The routes are closed: each violation fails the compiler or the scan above ──
 
 const HEAD = [
-    'import type { Derived, Whole, WholeLine } from \'../../shared/provenance\';',
+    'import type { Derived, Drawn, Whole, WholeLine } from \'../../shared/provenance\';',
     'import type { FullPoints } from \'./fullRead\';',
     'import type { StageLayer, StageRead } from \'./stagePanes\';',
     'import type { StageView } from \'../../shared/protocol/backendProtocol\';',
     'import type { WaveformEnvelope } from \'../../shared/analysis/analysisTypes\';',
     'import type { SpectrumSlice } from \'./types\';',
     'import { computedLine, computedWhole, localCells, localLine } from \'./fullRead\';',
-    'export type Used = Derived | WholeLine | typeof computedLine | Whole | FullPoints | StageLayer | StageRead | StageView | WaveformEnvelope | SpectrumSlice | typeof localLine | typeof localCells | typeof computedWhole;',
+    'export type Used = Derived | Drawn | WholeLine | typeof computedLine | Whole | FullPoints | StageLayer | StageRead | StageView | WaveformEnvelope | SpectrumSlice | typeof localLine | typeof localCells | typeof computedWhole;',
 ].join('\n');
-const FIRST = 'const first = (view: StageView) => (view.values ?? [])[0] ?? 0;';
+// A drawn point, however it was had (taking one out of a picture is itself refused, rule 5).
+const FIRST = 'declare function first(view: StageView): Drawn;';
 
 /** A deliberate violation (or an honest form), written as a module of the webview: what it shows and its source. */
 interface Mutant { what: string; body: string; imports?: string }
@@ -345,7 +405,8 @@ const ALLOWED: readonly Mutant[] = [
     { what: 'a whole line held, a line computed of it, and a number computed of two of its values', body: 'export const full = (xs: number[], line: WholeLine<Whole>) => [localLine(xs, line), localLine(xs, computedLine([line], bin => line[bin] * 2))];\nexport const delta = (a: Whole, b: Whole): Derived => computedWhole([a, b], a - b);' },
     { what: 'dropping null of what is already whole', body: 'export const kept = (value: Whole | null): Whole => value as Whole;' },
     { what: 'a read that can fail, and answers points otherwise', imports: 'import { fullSource, type FetchedFullSource } from \'./fullRead\';', body: 'export const some = (held: FetchedFullSource, late: boolean) => fullSource(\'fetched\', { line(query, ready) { if (late) return null; return held.line(query, ready); } });' },
-    { what: 'a picture passed on, its gaps dropped and its points counted', body: 'export const copy = (view: StageView): StageView => ({ ...view, values: (view.values ?? []).filter(value => value !== null) });\nexport const count = (view: StageView): number => (view.values ?? []).length;' },
+    { what: 'a picture passed on, its gaps dropped', body: 'export const copy = (view: StageView): StageView => ({ ...view, values: (view.values ?? []).filter(value => value !== null) });' },
+    { what: 'a picture\'s full points counted and indexed', body: 'export const last = (points: FullPoints): Whole | undefined => points.xs[points.xs.length - 1];' },
 ];
 
 /** What compiles but the scan must refuse, with the rule it breaks. */
@@ -375,6 +436,20 @@ const MUST_NOT_PASS: ReadonlyArray<Mutant & { rule: Rule; also?: Rule[] }> = [
     { rule: 'drawn-cast', what: 'a drawn point cast through unknown', body: `${FIRST}\nexport const made = (view: StageView): number => first(view) as unknown as number;` },
     { rule: 'drawn-cast', what: 'a picture cast to any', body: 'export const made = (view: StageView): number => (view as any).values[0];' },
     { rule: 'drawn-predicate', what: 'a predicate narrowing drawn points to numbers', body: 'export const made = (view: StageView): number[] => (view.values ?? []).filter((value): value is number => value !== null);' },
+    ...([
+        ['its points counted', 'export const count = (view: StageView): number => (view.values ?? []).length;'],
+        ['a point taken by its index', 'export const first = (view: StageView) => (view.values ?? [])[0] ?? null;'],
+        ['its last point taken with at', 'export const last = (view: StageView) => (view.values ?? []).at(-1) ?? null;'],
+        ['its points iterated', 'export const seen = (view: StageView): number => { let n = 0; for (const value of view.values ?? []) if (value !== null) n += 1; return n; };'],
+        ['its points spread into another array', 'export const both = (view: StageView, other: StageView) => [...(view.values ?? []), ...(other.values ?? [])];'],
+        ['its first points destructured', 'export const two = (view: StageView) => { const [a, b] = view.values ?? []; return a === b; };'],
+        ['a row of its cells counted', 'export const width = (view: StageView): number => (view.matrix ?? [[]])[0]?.length ?? 0;'],
+        ['its envelope counted', 'export const count = (view: StageView): number => view.waveform?.min.length ?? 0;'],
+        ['the place of its first point', 'export const start = (view: StageView): number => view.xs?.[0] ?? 0;'],
+        ['the place of its last point, through a const', 'export const end = (view: StageView): number => { const xs = view.xs ?? []; return xs[xs.length - 1] ?? 0; };'],
+        ['how many rows it was drawn with', 'export const rows = (view: StageView): number => (view.ys ?? []).length;'],
+        ['the points of a slice counted', 'export const bins = (slice: SpectrumSlice): number => slice.values.length;'],
+    ] as const).map(([how, body]) => ({ rule: 'drawn-read' as const, what: `a picture's drawn points read outside the drawing modules: ${how}`, body })),
     ...['typeof first(view) === \'number\' ? 1 : 0', '+first(view)', 'Number(first(view))', 'String(first(view)).length', '(\'\' + first(view)).length', '`${first(view)}`.length'].map(coerced => (
         { rule: 'drawn-coerced' as const, what: `a drawn point coerced: ${coerced}`, body: `${FIRST}\nexport const made = (view: StageView): number => ${coerced};` })),
 ];

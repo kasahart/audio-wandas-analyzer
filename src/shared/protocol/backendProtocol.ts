@@ -1,6 +1,7 @@
 import type { UiStrings } from '../i18n/strings';
 import { isCalibrationProfile } from '../analysis/calibrationModel';
 import { BACKEND_PROTOCOL_SCHEMA } from './generated/backendProtocolSchema';
+import type { Drawn } from '../provenance';
 import type {
     AnalyzePayload,
     BackendErrorPayload,
@@ -190,20 +191,27 @@ export function isJsonObject(value: unknown): value is { [key: string]: unknown 
 }
 
 
+/**
+ * A message as it came over the wire, before its numbers are typed (its drawn points `Drawn`, provenance.ts): what the
+ * cross-field checks below read. They compare how long a message's arrays are; none of their values is used, so
+ * they read the message, never a picture.
+ */
+type Wire<T> = T extends Drawn ? unknown : T extends ReadonlyArray<infer Item> ? ReadonlyArray<Wire<Item>> : T extends object ? { readonly [K in keyof T]: Wire<T[K]> } : T;
+
 /** Cross-field invariant the schema cannot express: every per-point array has the same length. */
-function hasAlignedEnvelopeArrays(envelope: WaveformEnvelope): boolean {
+function hasAlignedEnvelopeArrays(envelope: Wire<WaveformEnvelope>): boolean {
     const pointCount = envelope.min.length;
     return [envelope.max, envelope.samples, envelope.minT, envelope.maxT]
         .every(points => points === undefined || points.length === pointCount);
 }
 
 /** Cross-field invariant the schema cannot express: timeBins rows of frequencyBins values. */
-function hasSpectrogramShape(spectrogram: SpectrogramData): boolean {
+function hasSpectrogramShape(spectrogram: Wire<SpectrogramData>): boolean {
     return spectrogram.values.length === spectrogram.timeBins
         && spectrogram.values.every(row => row.length === spectrogram.frequencyBins);
 }
 
-function hasChannelInvariants(channel: ChannelSummary): boolean {
+function hasChannelInvariants(channel: Wire<ChannelSummary>): boolean {
     return hasAlignedEnvelopeArrays(channel.waveform)
         && (channel.spectrogram === null || hasSpectrogramShape(channel.spectrogram));
 }
@@ -211,25 +219,26 @@ function hasChannelInvariants(channel: ChannelSummary): boolean {
 /** Schema plus the channel count and the calibration profile's own checks (calibrationModel.ts). */
 function isAnalysisResult(value: unknown): value is AnalysisResult {
     if (schemaViolation('AnalysisResult', value) !== null) return false;
+    const wire = value as Wire<AnalysisResult>;
     const result = value as AnalysisResult;
-    return result.channels.length === result.channelCount
-        && result.channels.every(hasChannelInvariants)
+    return wire.channels.length === wire.channelCount
+        && wire.channels.every(hasChannelInvariants)
         && (result.calibrationProfile === undefined || isCalibrationProfile(result.calibrationProfile));
 }
 
 function isRangeResult(value: unknown): value is RangeResult {
     return schemaViolation('RangeResult', value) === null
-        && (value as RangeResult).channels.every(hasAlignedEnvelopeArrays);
+        && (value as Wire<RangeResult>).channels.every(hasAlignedEnvelopeArrays);
 }
 
 function isTrackDetailResult(value: unknown): value is TrackDetailResult {
     return schemaViolation('TrackDetailResult', value) === null
-        && (value as TrackDetailResult).channels.every(hasChannelInvariants);
+        && (value as Wire<TrackDetailResult>).channels.every(hasChannelInvariants);
 }
 
 function isSpectrumSliceResult(value: unknown): value is SpectrumSliceResult {
     if (schemaViolation('SpectrumSliceResult', value) !== null) return false;
-    const result = value as SpectrumSliceResult;
+    const result = value as Wire<SpectrumSliceResult>;
     return result.channels.length > 0 && result.channels.every(channel => channel.values.length === result.frequencyBins)
         && (result.bandCentersHz === undefined || result.bandCentersHz.length === result.frequencyBins)
         && (result.frequenciesHz === undefined || (result.bandCentersHz === undefined && result.frequenciesHz.length === result.frequencyBins));

@@ -3512,7 +3512,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const inside = trackLocalCursorNorm(i, viewState.cursor) !== null;
                 const waiting = stale || (inside && (!current || !!cached.frequenciesHz));
                 const name = (result.fileName || ('track' + (i + 1))) + ' ' + channelLabel(result, channelIndex);
-                if (waiting || !slice || !slice.values || slice.values.length === 0) {
+                if (waiting || !slice || !slice.values || !slice.frequencyBins) {
                     missing = missing || waiting || inside;
                     if (waiting || inside) omitted.push(name);
                     return;
@@ -4193,8 +4193,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             // again when its slice comes in under a still pointer, never the pointer's column beside it.
             const follow = (read: StageRead | null): void => {
                 if (spectrumPointer !== pointer) return;
-                const hz = read && !read.pending && !read.failed ? read.full && read.at !== undefined ? read.at
-                    : read.index !== undefined && read.index >= 0 ? read.layer.view.xs?.[read.index] ?? null : null : null;
+                // Only a point of the full data is followed: never the place of a point drawn (R7).
+                const hz = read && !read.pending && !read.failed && read.full && read.at !== undefined ? read.at : null;
                 const changed = hz !== overlayReadHz;
                 overlayReadHz = hz;
                 noteCursorHz(canvas, hz);

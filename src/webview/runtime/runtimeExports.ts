@@ -38,7 +38,7 @@ export function buildSpectrumCsv(tracks: CsvSpectrumTrack[], frequencyTitle: Pla
     });
     const rows = [headers.join(',')];
     const maxBins = tracks.reduce(function (max, t) {
-        return Math.max(max, t.slice.frequencyBins || 0, t.slice.values ? t.slice.values.length : 0);
+        return Math.max(max, t.slice.frequencyBins || 0);
     }, 0);
     for (let bin = 0; bin < maxBins; bin++) {
         const cols: string[] = [];

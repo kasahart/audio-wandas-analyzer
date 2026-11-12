@@ -473,7 +473,8 @@ export function deltaFigure(comparison: Pick<CompareModel, 'bins' | 'bandDeltas'
     const bands = comparison.bandDeltas.flatMap(value => (value !== null && Number.isFinite(value) ? [value] : []));
     const whole = view?.valueRange;
     const valueRange = whole || bands.length ? { min: Math.min(whole?.min ?? Infinity, ...bands), max: Math.max(whole?.max ?? -Infinity, ...bands) } : undefined;
-    const range = diffRange(view && { ...view, values: [...(view.values ?? []), ...comparison.bandDeltas], ...(valueRange ? { valueRange } : {}) });
+    // The range is of every value (valueRange above), never of the points drawn.
+    const range = diffRange(view && { ...view, ...(valueRange ? { valueRange } : {}) });
     return { view, range, binned: !!comparison.bins?.diff };
 }
 
