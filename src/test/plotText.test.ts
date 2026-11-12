@@ -7,7 +7,8 @@ import test from 'node:test';
 import { held } from './helpers/heldSource';
 import { getStrings } from '../shared/i18n/strings';
 import type { StageView } from '../shared/protocol/backendProtocol';
-import { amountText, barkText, fieldNumberText, frequencyText, lagText, levelText, quefrencyText, secondsSpanText, secondsText, signedNumberText, signedText, withMinus } from '../webview/plot/plotText';
+import { amountText, barkText, exactFieldText, frequencyText, lagText, levelText, quefrencyText, secondsSpanText, secondsText, signedNumberText, signedText, withMinus } from '../webview/plot/plotText';
+import { fieldWindow } from '../webview/runtime/figureModel';
 import { pairHeader, type PairCurve, type PairStrings } from '../webview/runtime/pairSpectrum';
 import { formatValue, plotValueText } from '../webview/runtime/entryTableHtml';
 import { spectrumReadoutText } from '../webview/runtime/spectrumRuntime';
@@ -198,9 +199,9 @@ test('every tick and readout takes its digits from the spacing of its neighbours
     }
     // An axis range's field keeps the range it shows: a window of a few samples applied unchanged stays that window.
     const [low, high] = [1.23456, 1.23461];
-    const typed = [fieldNumberText(low, high - low), fieldNumberText(high, high - low)].map(Number);
+    const window = fieldWindow(low, high), typed = [exactFieldText(window.min), exactFieldText(window.max)].map(Number);
     assert.ok(typed[1] > typed[0] && Math.abs(typed[0] - low) < (high - low) / 1000 && Math.abs(typed[1] - high) < (high - low) / 1000, typed.join('–'));
-    assert.equal(fieldNumberText(-12.3456789, 40), '-12.346');
+    assert.equal(exactFieldText(fieldWindow(-12.3456789, 27.6543211).min), '-12.346');
     // Without a finer spacing, the usual digits.
     assert.equal(quefrencyText(0.0025), '0.00250 s');
     assert.equal(lagText(-0.0005), '−0.00050 s');
@@ -228,7 +229,7 @@ test('over every axis kind and zoom level, neighbouring ticks and neighbouring p
                     assert.ok(!alike(ticks.map(tick => tick.text)), `log ${where}: ${ticks.map(tick => tick.text).join(' ')}`);
                 }
             }
-            const fields = [fieldNumberText(low, span), fieldNumberText(high, span)];
+            const ends = fieldWindow(low, high), fields = [exactFieldText(ends.min), exactFieldText(ends.max)];
             assert.ok(Number(fields[1]) > Number(fields[0]), `range field ${where}: ${fields.join('–')}`);
             if (low >= 0 && span >= 1e-5) assert.notEqual(...regionCells({ start: low, end: high }), `region cells ${where}`);
         }

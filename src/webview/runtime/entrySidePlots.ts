@@ -242,9 +242,12 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
                 const zoom = plotWindow(name);
                 if (name === 'overview' && hit.axis === 'y') {
                     // The strip's rows, counted down from the top as its axis counts them: its window runs up from the bottom.
-                    const total = deps.rows().length;
+                    // Its rows as painted (StagePlot.rowRange, minus the row counted down), written exactly (R9).
+                    const total = deps.rows().length, rows = overviewDrawn?.rowRange;
+                    if (!rows) return false;
                     openAxisPart(rangePopover, {
                         mapping: linearAxis(0, total, strings.axisEntryRows), horizontal: false, current: { start: 1 - zoom.y.end, end: 1 - zoom.y.start }, clientX, clientY, invalid: strings.specRangeErrorMinMax,
+                        shown: { min: -rows.max + 0, max: -rows.min + 0 },
                         set(range) { windows.set(name, { ...zoom, y: { start: 1 - range.end, end: 1 - range.start } }); schedule(); },
                     });
                     return true;
@@ -252,11 +255,13 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
                 const picture = deps.heldPicture();
                 const mapping: AxisMapping | null = name === 'held' && picture ? (hit.axis === 'x' ? { at: picture.x, of: picture.ofX, label: picture.xLabel } : linearAxis(picture.range.min, picture.range.max, picture.yLabel))
                     : name === 'overview' ? bandAxis(strings.axisBand) : null;
-                if (!mapping) return false;
+                // The axis's ends as painted, written exactly (R9): across, its window; up, the held step's level axis.
+                const plot = name === 'held' ? picture?.drawn : overviewDrawn;
+                const shown = hit.axis === 'x' ? plot?.xRange : plot?.valueRange;
+                if (!mapping || !shown) return false;
                 openAxisPart(rangePopover, {
                     mapping, horizontal: hit.axis === 'x', current: hit.axis === 'x' ? zoom.x : zoom.y, clientX, clientY, invalid: strings.specRangeErrorMinMax,
-                    // The held step's level axis as painted, written exactly (R9).
-                    shown: name === 'held' && hit.axis === 'y' ? picture?.drawn?.valueRange : undefined,
+                    shown,
                     set(range) { windows.set(name, hit.axis === 'x' ? { ...zoom, x: range } : { ...zoom, y: range }); schedule(); },
                 });
                 return true;

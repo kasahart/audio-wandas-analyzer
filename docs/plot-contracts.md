@@ -113,7 +113,7 @@
 | 自動の範囲 | 振幅の軸の範囲 | `webview/runtime/comparisonRuntime.ts:laneAmplitudeAxis`<br>`webview/runtime/comparisonRuntime.ts:amplitudeScaleFor`<br>`webview/runtime/figureModel.ts:laneAmplitudeRange`<br>`decimator.py:decimated_waveform` | 全データ：absolutePeak（全サンプルの絶対値の最大、間引く前に求める）か、つないだ録音で共有するピークから決める。 | ◆ `test_decimator.py` › test_absolute_peak_is_every_samples_not_a_line_thinned_by_averaging<br>`laneAxes.test.ts` › a waveform lane's amplitude ticks sit where the waveform draws their values, zoomed or not |  |
 | 目盛り | 振幅の目盛り | `webview/runtime/laneAxes.ts:laneAmplitudeTicks`<br>`webview/runtime/stagePanes.ts:valueAxisTicks` | 軸の範囲・窓：範囲から、どのグラフとも同じ規則で決める。 | `laneAxes.test.ts` › a waveform lane's amplitude ticks sit where the waveform draws their values, zoomed or not<br>`laneAxes.test.ts` › the lanes take the ticks and their text from the rules every plot uses |  |
 | 軸の名前 | 振幅の軸の名前 | `webview/runtime/stagePanes.ts:amplitudeAxisTitle`<br>`webview/runtime/comparisonRuntime.ts:laneAmplitudeAxis`<br>`webview/runtime/figureModel.ts:plainNames` | 文字：量・単位・校正を比較台の波形と同じく書く。 | `laneAxes.test.ts` › a lane axis names its quantity, unit and calibration as Compare's waveform axis does |  |
-| 自動の範囲 | 軸のダブルクリックで開く範囲の欄の値（振幅・スペクトログラムの周波数と色） | `webview/runtime/comparisonRuntime.ts:field` | 軸の範囲・窓：今描いている範囲を有効数字 4 桁で書く。 | `uiSmoke/waveformAmplitudeRange.spec.ts` › double-clicking the waveform amplitude axis sets the vertical range from a popover |  |
+| 自動の範囲 | 軸のダブルクリックで開く範囲の欄の値（振幅・スペクトログラムの周波数と色） | `webview/runtime/comparisonRuntime.ts:openWaveformRangePopup`<br>`webview/runtime/comparisonRuntime.ts:openSpectrogramRangePopup`<br>`webview/runtime/comparisonRuntime.ts:zoomLanesToBox` | 軸の範囲・窓：軸を描いた端をそのまま書く（exactFieldText、R9）。自動の振幅の範囲は入力欄の桁まで外へ広げ、拡大の窓の端は入力欄の桁で作って描く（figureModel.fieldWindow）。 | `uiSmoke/waveformAmplitudeRange.spec.ts` › double-clicking the waveform amplitude axis sets the vertical range from a popover |  |
 
 ## トラックのスペクトログラムのレーン
 
@@ -129,7 +129,7 @@
 
 | 値 | 何の数か | 計算する場所 | 出どころ | テスト | 穴 |
 | --- | --- | --- | --- | --- | --- |
-| 目盛り | 時間の目盛り（上の定規）と横の軸のキャンバスの目盛り | `webview/runtime/comparisonRuntime.ts:renderRuler`<br>`webview/runtime/laneAxes.ts:laneTimeTicks`<br>`webview/runtime/stagePanes.ts:paintSideAxis`<br>`webview/runtime/stagePanes.ts:paintTimeAxis` | 軸の範囲・窓：見えている時間の窓から、比較台と同じ規則で決める。 | `laneAxes.test.ts` › the lanes take the ticks and their text from the rules every plot uses |  |
+| 目盛り | 時間の目盛り（上の定規）と横の軸のキャンバスの目盛り | `webview/runtime/comparisonRuntime.ts:renderRuler`<br>`webview/runtime/comparisonRuntime.ts:laneVisibleSeconds`<br>`webview/runtime/laneAxes.ts:laneTimeTicks`<br>`webview/runtime/stagePanes.ts:paintSideAxis`<br>`webview/runtime/stagePanes.ts:paintTimeAxis` | 軸の範囲・窓：見えている時間の窓から、比較台と同じ規則で決める。 | `laneAxes.test.ts` › the lanes take the ticks and their text from the rules every plot uses |  |
 | 軸の名前 | 時間の軸の名前（定規の右端） | `webview/runtime/comparisonRuntime.ts:renderRuler`<br>`webview/runtime/stagePanes.ts:paintTimeAxis` | 文字：「時間 [s]」。部品（paintTimeAxis）が定規に描き、ダブルクリックで時間の範囲を入れる（openTimeRangePopup）。 | `laneAxes.test.ts` › a lane axis names its quantity, unit and calibration as Compare's waveform axis does |  |
 
 ## トラックの見出しとツールバーの数（カーソルの時刻、ずらし、ピーク、解析窓）

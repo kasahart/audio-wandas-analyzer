@@ -182,7 +182,7 @@ test('a value axis\'s range fields are the ends it is painted with, zoomed or ty
             let request: RangePopoverRequest | null = null;
             const popover: RangePopover = { open(given) { request = given; }, close() { /* nothing open */ } };
             const set: Array<{ start: number; end: number }> = [];
-            openAxisPart(popover, { mapping: linearAxis(low, high, 'Level [dBFS]'), horizontal: false, current: part, clientX: 0, clientY: 0, invalid: '', set: next => { set.push(next); }, ...{ shown: plot?.valueRange } });
+            openAxisPart(popover, { mapping: linearAxis(low, high, 'Level [dBFS]'), horizontal: false, current: part, clientX: 0, clientY: 0, invalid: '', set: next => { set.push(next); }, shown: plot?.valueRange ?? { min: NaN, max: NaN } });
             const opened = request as RangePopoverRequest | null;
             if (!opened) { failures.push('no popover'); continue; }
             if (Number(opened.min) !== range.min || Number(opened.max) !== range.max) failures.push(`${low}…${high} part ${part.start}–${part.end}: fields ${opened.min} to ${opened.max}, drawn ${range.min} to ${range.max}`);

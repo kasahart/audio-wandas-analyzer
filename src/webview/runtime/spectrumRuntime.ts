@@ -1,9 +1,9 @@
 import { readoutText } from '../../shared/gui-core/index';
 import { frequencyAtFraction, type SpectrumPlotFrame } from '../draw/canvasDrawers';
-import { frequencyText, levelText } from '../plot/plotText';
+import { fieldDecimals, frequencyText, levelText } from '../plot/plotText';
 import type { HostInboundMessage } from './hostMessaging';
 import type { DragPoint, SpectrumSeries, SpectrumSlice } from './types';
-import { backendTitle, byLevelKey, calibrationWordsBy, levelKeyOf, levelLineRange, shownLevelOf, windowEnds, type FigureTitle } from './figureModel';
+import { backendTitle, byLevelKey, atDecimals, calibrationWordsBy, fieldWindow, levelKeyOf, levelLineRange, shownLevelOf, windowEnds, type FigureTitle } from './figureModel';
 import { type NormalizedRange, zoomNormalizedRange } from './waveformInteraction';
 
 export function zoomSpectrumRange(range: NormalizedRange, factor: number): NormalizedRange {
@@ -27,7 +27,9 @@ export function spectrumDbRangeAfterZoom(
     }
     const center = (lastVisibleDb.min + lastVisibleDb.max) / 2;
     const halfSpan = (lastVisibleDb.max - lastVisibleDb.min) / 2 * factor;
-    return { dbMin: center - halfSpan, dbMax: center + halfSpan };
+    // At the numbers the range popover writes for it (figureModel.fieldWindow, R9): never a float step off them.
+    const ends = fieldWindow(center - halfSpan, center + halfSpan);
+    return { dbMin: ends.min, dbMax: ends.max };
 }
 
 export type { SpectrumPlotFrame };
@@ -166,6 +168,42 @@ export interface OverlayLevelAxis<S> {
     /** The axis' level identity (spectrumLevelKey): what a dB zoom on it is kept by, never its reference's text. */
     key: string;
     visible: SpectrumVisibleWindow;
+    /** The right-hand axis's: the whole ranges it follows the left one's zoom between (secondaryDbWindow). */
+    follow?: RightAxisFollow;
+}
+
+/** The whole ranges of the left level axis and of the right-hand one that follows its zoom as the same part. */
+export interface RightAxisFollow {
+    left: { min: number; max: number };
+    right: { min: number; max: number };
+}
+
+/**
+ * The right-hand level axis's range for the left one's range `left`: the same part of its own whole range, at the
+ * numbers its range popover writes (figureModel.windowEnds, R9), so it is painted from the numbers written.
+ */
+export function secondaryDbWindow(left: { min: number; max: number }, follow: RightAxisFollow): { min: number; max: number } {
+    const span = follow.left.max - follow.left.min || 1;
+    const part = { start: left.min === follow.left.min ? 0 : (left.min - follow.left.min) / span, end: left.max === follow.left.max ? 1 : (left.max - follow.left.min) / span };
+    return windowEnds(follow.right, part);
+}
+
+/**
+ * The left level axis's range that shows `right` on the right-hand axis (a range typed on it): the shortest numbers
+ * (the field's decimals for the left span, then one more at a time) whose right-hand range (secondaryDbWindow) is
+ * `right` itself, so the right axis is painted at the numbers typed and the left one at numbers its field writes.
+ */
+export function rightAxisLeftRange(follow: RightAxisFollow, right: { min: number; max: number }): { min: number; max: number } {
+    const rightSpan = follow.right.max - follow.right.min || 1, leftSpan = follow.left.max - follow.left.min;
+    const kept = { min: right.min === follow.right.min, max: right.max === follow.right.max };
+    const leftOf = (value: number): number => follow.left.min + (value - follow.right.min) / rightSpan * leftSpan;
+    const exact = { min: kept.min ? follow.left.min : leftOf(right.min), max: kept.max ? follow.left.max : leftOf(right.max) };
+    for (let decimals = fieldDecimals(exact.max - exact.min); decimals <= 15; decimals++) {
+        const left = { min: kept.min ? exact.min : atDecimals(exact.min, decimals), max: kept.max ? exact.max : atDecimals(exact.max, decimals) };
+        const shown = left.max > left.min ? secondaryDbWindow(left, follow) : null;
+        if (shown && shown.min === right.min && shown.max === right.max) return left;
+    }
+    return exact;
 }
 
 /** A slice's own range, before a typed spectrogram dB range replaced it. */
@@ -205,14 +243,10 @@ export function overlayLevelAxes<S extends LevelKeyed>(series: readonly S[], vie
         return [axisFor(firstReference, first, primary)];
     }
     const secondRange = autoDbRange(second);
-    const span = firstRange.maxDb - firstRange.minDb || 1;
-    const secondSpan = secondRange.maxDb - secondRange.minDb;
-    const secondary = {
-        ...primary,
-        dbMin: secondRange.minDb + (primary.dbMin - firstRange.minDb) / span * secondSpan,
-        dbMax: secondRange.minDb + (primary.dbMax - firstRange.minDb) / span * secondSpan,
-    };
-    return [axisFor(firstReference, first, primary), axisFor(secondReference, second, secondary)];
+    const follow: RightAxisFollow = { left: { min: firstRange.minDb, max: firstRange.maxDb }, right: { min: secondRange.minDb, max: secondRange.maxDb } };
+    const ends = secondaryDbWindow({ min: primary.dbMin, max: primary.dbMax }, follow);
+    const secondary = { ...primary, dbMin: ends.min, dbMax: ends.max };
+    return [axisFor(firstReference, first, primary), { ...axisFor(secondReference, second, secondary), follow }];
 }
 
 export function overlayPlotPoint(x: number, y: number, width: number, height: number): DragPoint | null {
@@ -287,11 +321,22 @@ export interface SpectrumVisibleWindow {
 /** `logMinFrequencyHz` switches the axis to log from that edge (octave bands); otherwise it is linear from 0 Hz. */
 export function spectrumVisibleWindow(maxFrequencyHz: number, minDb: number, maxDb: number, view: SpectrumViewState, logMinFrequencyHz?: number): SpectrumVisibleWindow {
     const db = { dbMin: view.dbMin != null ? view.dbMin : minDb, dbMax: view.dbMax != null ? view.dbMax : maxDb };
-    if (logMinFrequencyHz === undefined) {
-        return { frequencyMin: view.freqStart * maxFrequencyHz, frequencyMax: view.freqEnd * maxFrequencyHz, ...db };
-    }
-    const axis = { frequencyMin: logMinFrequencyHz, frequencyMax: maxFrequencyHz, logFrequency: true };
-    return { frequencyMin: frequencyAtFraction(view.freqStart, axis), frequencyMax: frequencyAtFraction(view.freqEnd, axis), logFrequency: true, ...db };
+    const shown = frequencyWindowHz({ start: view.freqStart, end: view.freqEnd }, maxFrequencyHz, logMinFrequencyHz);
+    return { ...shown, ...(logMinFrequencyHz === undefined ? {} : { logFrequency: true }), ...db };
+}
+
+/**
+ * The frequencies a spectrum's axis is painted between for the part `window` of its whole axis (0 Hz, or the log
+ * axis's `logMinFrequencyHz`, to `maxFrequencyHz`): a zoomed end at the numbers its range popover writes
+ * (figureModel.fieldWindow, R9), as a plot's windowed axis is (stagePanes.windowed), so the pair view that shares the
+ * axis is painted between the same numbers. The whole axis keeps its own ends.
+ */
+export function frequencyWindowHz(window: NormalizedRange, maxFrequencyHz: number, logMinFrequencyHz?: number): { frequencyMin: number; frequencyMax: number } {
+    const axis = logMinFrequencyHz === undefined ? null : { frequencyMin: logMinFrequencyHz, frequencyMax: maxFrequencyHz, logFrequency: true };
+    const at = (fraction: number): number => (axis ? frequencyAtFraction(fraction, axis) : fraction * maxFrequencyHz);
+    const kept = { min: window.start === 0, max: window.end === 1 };
+    const ends = fieldWindow(kept.min ? (axis ? logMinFrequencyHz as number : 0) : at(window.start), kept.max ? maxFrequencyHz : at(window.end), kept);
+    return { frequencyMin: ends.min, frequencyMax: ends.max };
 }
 
 export function sliceLogMinFrequencyHz(slice: SpectrumSlice): number | undefined {

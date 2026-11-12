@@ -440,7 +440,11 @@
 - 自動の範囲は、範囲を作る 1 か所（`figureModel.colourScale`）で、カラーバーが書く桁まで外へ広げます。桁は幅で決めます（幅 8 以上は整数、それより狭ければ幅の 1/8 を見分けられる桁、最低 1 桁。`plotText.colourDecimals`）。下の端は `floorTo`、上の端は `ceilTo` で広げます。どちらも 10 進の文字で計算するので、すでにその桁で書ける数は動きません（小数 1 桁の −23.5 は −23.5 のまま）。符号つきの絵（差、ケプストラム）は 0 を中心にして、絶対値の最大を同じく外へ広げます。
 - マスの色、カラーバーの帯、両端の数、レーンの範囲の入力欄は、このスケールだけから描いて書きます（`StagePlot.colourScale`）。1000000.5〜1000020.5 の自動の範囲は 1000000〜1000021 で塗り、そう書きます。1000000.5 から塗って「1000001」と書くことはしません。書く関数（`stagePanes.colourEndText`）は書くだけで、数を丸めません。
 - 手で入れた端（⚙ の設定、範囲の入力欄）は、入れたとおりの数で塗ります。書くときは、その数に読み戻せる一番短い書き方にします（「1000000.5」）。どちらの端を手で入れたかは範囲が持ちます（`FigureRange.typed`、`figureModel.typedColourRange`）。
-- 値の軸の範囲の入力欄も、軸を描いた端をそのまま書きます（`StagePlot.valueRange`、`rangePopover.openAxisPart` の `shown`、カーソルスペクトルの dB 軸は `SpectrumView.dbRangeFields`）。拡大した窓の端は、入力欄が書く桁（窓の幅の 1/1000、最低 0.001。`plotText.fieldDecimals`）に丸めてから描きます（`figureModel.windowEnds`）。そのため、拡大した窓に手で入れた数も、その桁までで描いて書きます。窓の幅の 1/1000 より細かい桁は丸めます。
+- 範囲の入力欄はどれも、軸を描いた端をそのまま書きます。書く関数は 1 つ（`plotText.exactFieldText`：読み戻すとその数になる一番短い書き方）です。入力欄は数を入れる所なので、長いことを理由に丸めません。波形の振幅、スペクトログラムの周波数（箱で拡大したときも）と色、レーンの時間、カーソルスペクトルの周波数・dB・右の第 2 のレベル軸、ペアの図、比較台、入口の図と分布図の、横の軸も縦の軸も同じです（`StagePlot.valueRange`・`xRange`・`rowRange`、`rangePopover.openAxisPart` の `shown`、`SpectrumView.dbRangeFields`・`frequencyRangeFieldsHz`、`figureModel.laneAmplitudeRange`）。
+- 書く数が長くなるのは、範囲そのものが計算のかけら（拡大の窓の割合×幅、振幅の割合×ピーク、右の軸が左の軸に合わせて作る範囲、自動の範囲）のときです。そのときは文字ではなく範囲を、作る場所で入力欄の桁にします（`figureModel.fieldWindow`・`windowEnds`・`laneAmplitudeRange`）。自動の振幅の範囲は、入力欄が書く桁まで外へ広げます（ピーク 0.73 なら ±0.830。0.8295454… から描いて「0.8295」と書くことはしません）。拡大した窓の端は、入力欄が書く桁（窓の幅の 1/1000、最低 0.001。`plotText.fieldDecimals`）に丸めてから描きます。グラフの横軸と熱図の行（`stagePanes.windowed`、レーンの時間の目盛りも `stagePanes.linearWindowEnds`）、カーソルスペクトルとペアの図の周波数（`spectrumRuntime.frequencyWindowHz`）、ボタンでの dB の拡大（`spectrumRuntime.spectrumDbRangeAfterZoom`）、スペクトログラムの箱の拡大（`windowEnds`）がそうです。そのため、拡大した窓に手で入れた数も、その桁までで描いて書きます。窓の幅の 1/1000 より細かい桁は丸めます。それでも、書いた数と描いた数は同じです。
+- 右の第 2 のレベル軸（カーソルスペクトル）は、左の軸の拡大と同じ部分を自分の全体の範囲から取り、入力欄の桁で作ります（`spectrumRuntime.secondaryDbWindow`）。右の軸に入れた範囲は、右の軸がちょうど入れた数で描かれる左の軸の範囲にします（`spectrumRuntime.rightAxisLeftRange`：入力欄の桁から 1 桁ずつ増やして、一番短い数）。
+- 入力欄をそのまま適用すると、範囲は変わりません。端ごとに、入れた数が欄に書いた数と同じなら（`value === shown`、文字でなく数で比べる）、その端の設定（自動、拡大の窓、ナイキストに合わせた上の端）をそのまま残します。
+- 範囲の入力欄に数を書くコードは、`exactFieldText` 以外で書かず、そこへ届く数を `figureModel` の外で丸めません（`toFixed`・`toPrecision`・`toExponential`・`Math.round` など）。`src/test/rangeFieldBoundary.test.ts` が型と記号で確かめます。描いた端は `paintOverlay` が `data-plot-ends` に記録し、テストは欄の数をそれと比べます。
 - UI テストではすべての回で、画面に出ている熱図を確かめます。カラーバーの両端の数が、色を塗ったスケール（`data-plot-colour-scale`）と違うと、そのテストは失敗します（`src/test/uiSmoke/canvasAudit.ts`）。
 - テスト: `src/test/colourScale.test.ts` › a colour bar's end numbers are its colour scale: each, read back, is the end the colours are painted from, auto or typed, on the screen and in a report (R9)
 - テスト: `src/test/colourScale.test.ts` › every place that makes a colour range gives a scale whose ends are written exactly: the comparison's images, their differences, the entry strip and the spectrogram lanes (R9)
@@ -449,6 +453,12 @@
 - テスト: `src/test/spectrumView.test.ts` › SpectrumView popover fields prefer overrides and fall back to the painted range, exactly as painted (R9)
 - テスト: `src/test/stagePanes.test.ts` › a colour bar's ends are written as the range they end, never rounded off a typed range: −23.5 reads −23.5, and no −0 (A31, C5)
 - テスト: `src/test/uiSmoke/colourRangeRounding.spec.ts` › a typed colour range is painted, written on the colour bar and offered again exactly as typed: 999990 to 1000000.5 reads 1000000.5, never 1000001 (R9)
+- テスト: `src/test/rangeFieldBoundary.test.ts` › every range box writes the ends it is painted with by exactFieldText, and nothing on their way there rounds them outside figureModel (R9)
+- テスト: `src/test/rangeFieldBoundary.test.ts` › the range field scan finds a rounded end: in the field, in a helper, through a local, a destructured const, a spread, another plotText writer, and in openAxisPart's shown ends (R9)
+- テスト: `src/test/rangeFieldEnds.test.ts` › every lane range box writes the ends its axis is painted with, and applied unchanged paints the same range: amplitude, spectrogram band (box-zoomed too) and the lanes' time (R9)
+- テスト: `src/test/rangeFieldEnds.test.ts` › the cursor spectrum's range boxes write the ends it is painted with, and applied unchanged paint the same: frequency, level and the right-hand level axis (R9)
+- テスト: `src/test/rangeFieldEnds.test.ts` › a range made for a range box is at the numbers it writes: an amplitude typed through any peak, a zoom window, the right-hand level axis typed (R9)
+- テスト: `src/test/rangeFieldEnds.test.ts` › a plot's range boxes write the ends its axes are painted with, across and up, zoomed or not: a time axis, a log frequency axis, a heatmap's rows; applied unchanged, the same (R9)
 
 ## R10 レイアウトが変わったら描き直す
 

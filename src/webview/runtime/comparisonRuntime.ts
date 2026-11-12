@@ -62,7 +62,7 @@ import { syncPanelToggle, syncSpectrumMaximize } from './panelCollapse';
 import { SpectrumView } from './spectrumView';
 import { WaveformView } from './waveformView';
 import { OVERLAY_LEVEL_AXES, paintOverlaySpectrum, renderSpectrumAxisLegend } from './overlaySpectrumPainter';
-import { clearSideAxis, paintOverlay, paintTimeAxis, type StagePlot, type StageRead } from './stagePanes';
+import { clearSideAxis, linearWindowEnds, paintOverlay, paintTimeAxis, type StagePlot, type StageRead } from './stagePanes';
 import { referenceButtonHtml } from './pairSpectrum';
 import { noteCursorHz, PAIR_SPLIT_MAX, PAIR_SPLIT_MIN, PairSpectrumPanel } from './pairSpectrumPanel';
 import { collectSpectrumSeries, type CollectedSpectrumSeries, type SpectrumSeriesSource } from './spectrumSeriesCollector';
@@ -82,8 +82,9 @@ import {
     spectrumZoomFromWindow,
     spectrumSlicesFromResult,
     withCalibrationWords,
+    type RightAxisFollow,
 } from './spectrumRuntime';
-import { amplitudeTitle, axisInputOf, colourScale, typedColourRange, unknownLevelTitle, baseLevelOf, emptyFigure, plainTitle, frequencyTitle, laneAmplitudeRange, levelKeyOfReading, levelTitle as figureLevelTitle, paneNames, plainNames, plainRange, shownLevelOf, titleOf, uncalibratedWord, type FigureTitle } from './figureModel';
+import { amplitudeTitle, axisInputOf, colourScale, typedColourRange, unknownLevelTitle, baseLevelOf, emptyFigure, plainTitle, frequencyTitle, laneAmplitudeRange, levelKeyOfReading, windowEnds, levelTitle as figureLevelTitle, paneNames, plainNames, plainRange, shownLevelOf, titleOf, uncalibratedWord, type FigureTitle } from './figureModel';
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
 import { ComparisonTestBridge } from './testBridge';
 import { RuntimeEventFeed } from './runtimeEvents';
@@ -470,7 +471,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     /** The cursor spectrum's (left) level axis name as last drawn: its range popover names the axis the same way. */
     let spectrumLevelAxisTitle = '';
     /** The right-hand level axis as last drawn (a second reference): its name and the levels on screen, with the left's. */
-    let spectrumRightAxis: { title: string; left: { min: number; max: number }; right: { min: number; max: number } } | null = null;
+    let spectrumRightAxis: { title: string; right: { min: number; max: number }; follow: RightAxisFollow } | null = null;
     /** The frequency the power spectrum's cursor last read under the pointer (R7). */
     let overlayReadHz: number | null = null;
     // ── スペクトルズーム ───────────────────────────────────
@@ -1691,10 +1692,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const unit = ch && typeof ch.unit === 'string' && ch.unit.trim() ? ch.unit.trim() : undefined;
         return { range, ticks: laneAmplitudeTicks(range), title: amplitudeTitle(STR, unit, trackLevelInput([ch], undefined)) };
     }
-    /** The lanes' visible time span in seconds (the ruler's and every lane's time axis). */
+    /**
+     * The lanes' visible time span in seconds (the ruler's and every lane's time axis): the ends each lane is painted
+     * with (paintOverlay's window at the range field's numbers, R9), which the time range popover writes.
+     */
     function laneVisibleSeconds() {
         const gs = trackStore.globalSpan();
-        return { start: gs.startSec + waveformView.start * gs.spanSec, end: gs.startSec + waveformView.end * gs.spanSec };
+        const ends = linearWindowEnds(gs.startSec, gs.startSec + gs.spanSec, waveformView.timeRange());
+        return { start: ends.min, end: ends.max };
     }
     function waveformAxisLabelsForResult(result: ComparisonTrackState, _trackIndex: number) {
         const axis = laneAmplitudeAxis(result, 0);
@@ -3692,16 +3697,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (axis === 'db-right' && spectrumRightAxis) {
             const right = spectrumRightAxis;
             // The right axis follows the left one's levels as the same part of its own range: its range typed here is
-            // the left one's range that shows it.
-            const toLeft = (db: number): number => right.left.min + (db - right.right.min) / ((right.right.max - right.right.min) || 1) * (right.left.max - right.left.min);
+            // the left one's range that shows it (rightAxisLeftRange), and its fields are its ends as painted (R9).
             spectrumRangePopover.open({
                 axisLabel: spectrumRightAxis.title || unknownLevelTitle(STR),
                 horizontal: false,
-                min: String(Math.round(right.right.min)), max: String(Math.round(right.right.max)),
+                min: exactFieldText(right.right.min), max: exactFieldText(right.right.max),
                 clientX, clientY,
                 apply(min, max) {
                     if (min === null || max === null) { spectrumView.setDbRange(null, null); scheduleSpectrumRefresh('immediate'); return; }
-                    spectrumView.setDbRange(toLeft(min), toLeft(max));
+                    spectrumView.applyRightDbFields(right.right, right.follow, min, max);
                     scheduleSpectrumRefresh('immediate');
                 },
                 auto() {
@@ -3719,7 +3723,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 ...spectrumView.dbRangeFields(),
                 clientX, clientY,
                 apply(min, max) {
-                    spectrumView.setDbRange(min, max);
+                    spectrumView.applyDbFields(min, max);
                     scheduleSpectrumRefresh('immediate');
                 },
                 auto() {
@@ -3773,9 +3777,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function openTimeRangePopup(clientX: number, clientY: number): boolean {
         const gs = trackStore.globalSpan();
         if (!(gs.spanSec > 0)) return false;
+        const seconds = laneVisibleSeconds();
         openAxisPart(waveformRangePopover, {
             mapping: linearAxis(gs.startSec, gs.startSec + gs.spanSec, STR.axisTime), horizontal: true,
-            current: waveformView.timeRange(), clientX, clientY, invalid: STR.specRangeErrorMinMax,
+            current: waveformView.timeRange(), shown: { min: seconds.start, max: seconds.end }, clientX, clientY, invalid: STR.specRangeErrorMinMax,
             set: part => setLaneWindow(part.start <= 0 && part.end >= 1 ? null : { x: part, y: FULL_PLOT_WINDOW.y }),
         });
         return true;
@@ -3792,18 +3797,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // What the lane shows (a box zoom's band included), so the popover starts from what is on screen.
         const bounds = shownSpectrogramBounds(spec);
         const zoomed = spectrogramFrequencyView !== null;
-        const field = (value: number) => String(Number(value.toPrecision(4)));
-        // An edge left as shown keeps its setting (auto, or a top clamped to this lane's Nyquist), so the clicked lane's
-        // own range is not set on every lane.
+        // An edge applied as shown (the same number, `value === shown`) keeps its setting (auto, or a top clamped to
+        // this lane's Nyquist), so the clicked lane's own range is not set on every lane.
         // The dB ends are typed for this lane's level identity: another identity's setting is not this lane's (R1).
         const key = levelUnitKey(spec), ownLevels = typedLevelKey() === key;
-        const typed = (value: number | null, shown: number, setting: number | null | undefined) =>
-            value !== null && field(value) === field(shown) ? setting ?? null : value;
+        const kept = (value: number | null, shown: number, setting: number | null | undefined) => (value === shown ? setting ?? null : value);
         if (axis === 'level') {
             // The colour scale the lane is painted from (figureModel.colourScale, as paintOverlay takes it), written
             // exactly: the colour bar writes these numbers too (R9). An end applied as shown keeps its setting.
             const scale = spectrogramPlots.get(element as HTMLCanvasElement)?.colourScale ?? colourScale(typedColourRange(bounds.dbLo, bounds.dbHi, bounds.dbTyped), false);
-            const kept = (value: number | null, shown: number, setting: number | null | undefined) => (value === shown ? setting ?? null : value);
             waveformRangePopover.open({
                 axisLabel: spectrogramLevelTitle(channelsForResult(result as ComparisonTrackState)[channelIndexAttribute(element) ?? 0]),
                 horizontal: false,
@@ -3819,19 +3821,23 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             });
             return true;
         }
+        // The band as the lane painted its rows (StagePlot.rowRange), written exactly (R9).
+        const plot = spectrogramPlots.get(laneOfAxis(element as HTMLElement) ?? (element as HTMLCanvasElement));
+        const band = plot?.rowRange ?? { min: bounds.minFrequencyHz, max: bounds.maxFrequencyHz };
         waveformRangePopover.open({
             axisLabel: STR.axisFrequency,
             horizontal: false,
-            min: field(bounds.minFrequencyHz),
-            max: field(bounds.maxFrequencyHz),
+            min: exactFieldText(band.min),
+            max: exactFieldText(band.max),
             clientX, clientY,
             apply(min, max) {
-                const bottom = min !== null && min > 0 ? min : null;
+                const given = min === band.min ? (zoomed ? min : display.minFrequencyHz ?? null) : min;
+                const bottom = given !== null && given > 0 ? given : null;
                 if (max !== null && max <= (bottom ?? 0)) {
                     return STR.specRangeErrorMinMax;
                 }
                 spectrogramFrequencyView = null;
-                setSpectrogramDisplay({ ...display, minFrequencyHz: bottom, maxFrequencyHz: zoomed ? max : typed(max, bounds.maxFrequencyHz, display.maxFrequencyHz) });
+                setSpectrogramDisplay({ ...display, minFrequencyHz: bottom, maxFrequencyHz: zoomed ? max : kept(max, band.max, display.maxFrequencyHz) });
             },
             auto() {
                 spectrogramFrequencyView = null;
@@ -3851,16 +3857,20 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return false;
         }
         const peak = amplitudeScaleFor(channel);
-        const painted = waveformView.paintedAmplitudeRange();
-        const field = (norm: number) => String(Number((norm * peak).toPrecision(4)));
+        // The lane's amplitude as painted (figureModel.laneAmplitudeRange, at the field's numbers), written exactly (R9).
+        const shown = laneAmplitudeAxis(result as ComparisonTrackState, channelIndexAttribute(axis) ?? 0).range, painted = waveformView.paintedAmplitudeRange();
         waveformRangePopover.open({
             axisLabel: laneAmplitudeAxis(result as ComparisonTrackState, channelIndexAttribute(axis) ?? 0).title,
             horizontal: false,
-            min: field(painted.min),
-            max: field(painted.max),
+            min: exactFieldText(shown.min),
+            max: exactFieldText(shown.max),
             clientX, clientY,
             apply(min, max) {
-                const error = waveformView.setAmplitudeRange(min === null ? null : min / peak, max === null ? null : max / peak);
+                // Applied as shown, the lane keeps its range: an end left so keeps its place (`value === shown`).
+                if (min === shown.min && max === shown.max) return;
+                const zoomed = waveformView.isAmplitudeZoomed();
+                const norm = (value: number | null, end: number, place: number): number | null => (value === null ? null : value === end && zoomed ? place : value / peak);
+                const error = waveformView.setAmplitudeRange(norm(min, shown.min, painted.min), norm(max, shown.max, painted.max));
                 if (error) {
                     return error === 'narrow' ? STR.waveRangeErrorTooNarrow : STR.specRangeErrorMinMax;
                 }
@@ -4046,8 +4056,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const pressed = state.results[trackIndexForId(selection.trackId)];
             const whole = pressed ? channelsForResult(pressed)[0]?.spectrogram : undefined;
             if (whole) {
-                const shown = shownSpectrogramBounds(whole), span = shown.maxFrequencyHz - shown.minFrequencyHz;
-                spectrogramFrequencyView = { lowHz: shown.minFrequencyHz + target.amplitudeMin * span, highHz: shown.minFrequencyHz + target.amplitudeMax * span };
+                const shown = shownSpectrogramBounds(whole);
+                // At the numbers the range popover writes for it (figureModel.windowEnds, R9).
+                const band = windowEnds({ min: shown.minFrequencyHz, max: shown.maxFrequencyHz }, { start: target.amplitudeMin, end: target.amplitudeMax });
+                spectrogramFrequencyView = { lowHz: band.min, highHz: band.max };
             }
         }
         else if (target) {
@@ -4285,7 +4297,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         spectrumDrawn = paint.plot;
         spectrumLevelAxisTitle = paint.levelAxes[0]?.title ?? '';
         const [leftAxis, rightAxis] = paint.levelAxes;
-        spectrumRightAxis = leftAxis?.visible && rightAxis?.visible ? { title: rightAxis.title, left: { min: leftAxis.visible.dbMin, max: leftAxis.visible.dbMax }, right: { min: rightAxis.visible.dbMin, max: rightAxis.visible.dbMax } } : null;
+        spectrumRightAxis = leftAxis?.visible && rightAxis?.visible && rightAxis.follow ? { title: rightAxis.title, right: { min: rightAxis.visible.dbMin, max: rightAxis.visible.dbMax }, follow: rightAxis.follow } : null;
         spectrumView.recordPaint(paint);
         renderSpectrumAxisLegend(document.getElementById('spectrum-axis-legend'), paint.levelAxes);
         showSpectrumMarks();

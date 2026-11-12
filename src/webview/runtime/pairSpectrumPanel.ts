@@ -11,6 +11,7 @@ import { createPlotHoverLayer, type PlotHoverLayer } from './plotHoverLayer';
 import { paintOverlay, STAGE_MARGINS, type StagePlot, type StageRead } from './stagePanes';
 import { dataRange, emptyFigure, plainRange, windowEnds, type FigureRange } from './figureModel';
 import type { NormalizedRange } from './waveformInteraction';
+import { frequencyWindowHz } from './spectrumRuntime';
 import type { TrackId } from './types';
 import { HostRequests } from './hostRequests';
 
@@ -51,7 +52,7 @@ export interface PairPanelHost {
     /** A double-click on the pair view's frequency axis opens the power spectrum's frequency range. */
     openFrequencyRange(clientX: number, clientY: number): void;
     /** A double-click on a pair plot's level axis opens its range (the shared range popover). */
-    openLevelRange(request: { label: string; min: number; max: number; current: NormalizedRange; shown?: { min: number; max: number } | undefined; clientX: number; clientY: number; set(part: NormalizedRange | null): void }): void;
+    openLevelRange(request: { label: string; min: number; max: number; current: NormalizedRange; shown: { min: number; max: number }; clientX: number; clientY: number; set(part: NormalizedRange | null): void }): void;
     /** The plot height the power spectrum next to it has. */
     plotHeight(): number;
     /** The frequency under the cursor on the power spectrum, or null when the cursor is elsewhere. */
@@ -438,7 +439,8 @@ export class PairSpectrumPanel {
         const host = this.host.frequencyAxisHz();
         const maxFrequencyHz = host?.maxFrequencyHz ?? (result.maxFrequencyHz || 1);
         const window = host?.window ?? this.ownWindow;
-        return { maxFrequencyHz, window, shared: !!host, visible: { frequencyMin: window.start * maxFrequencyHz, frequencyMax: window.end * maxFrequencyHz } };
+        // Between the numbers the plots' axis is painted from (the power spectrum's, frequencyWindowHz, R8, R9).
+        return { maxFrequencyHz, window, shared: !!host, visible: frequencyWindowHz(window, maxFrequencyHz) };
     }
 
     /** The frequency at a point across a plot (CSS pixels from its left), on the frequency axis now on screen. */
@@ -587,10 +589,11 @@ export class PairSpectrumPanel {
                 hideBox: () => { this.zoomBox().hidden = true; },
                 openAxisRange: (hit, clientX, clientY) => {
                     if (hit.axis === 'x') { this.host.openFrequencyRange(clientX, clientY); return true; }
-                    const key = laneOf(hit.plot), drawn = this.drawn.get(key);
-                    if (!drawn) return false;
+                    const key = laneOf(hit.plot), drawn = this.drawn.get(key), shown = drawn?.plot?.valueRange;
+                    // The level axis's ends as painted, written exactly (R9): a plot not painted has no range to type.
+                    if (!drawn || !shown) return false;
                     this.host.openLevelRange({
-                        label: drawn.label, min: drawn.range.min, max: drawn.range.max, current: this.levelPart(key), shown: drawn.plot?.valueRange, clientX, clientY,
+                        label: drawn.label, min: drawn.range.min, max: drawn.range.max, current: this.levelPart(key), shown, clientX, clientY,
                         set: part => { this.setLevelPart(key, part); this.render(); },
                     });
                     return true;

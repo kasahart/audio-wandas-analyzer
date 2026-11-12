@@ -170,6 +170,8 @@ test('a spectrogram lane boxed to a narrow band asks for that band\'s own bins a
     let found = '';
     for (let step = 0; step <= 40 && !found; step++) {
         await page.mouse.move(zoomed.x + zoomed.width / 2, zoomed.y + zoomed.height * step / 40);
+        // The read is answered by the host (above, every 20 ms): the row under the pointer is read once it is in.
+        await expect(readout).not.toBeEmpty();
         const text = (await readout.textContent()) ?? '';
         if (/−20\.0 dB/.test(text)) found = text;
     }

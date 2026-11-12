@@ -13,6 +13,7 @@ import {
     setOverlaySecondaryLevelAxis,
     spectrumReadoutValues,
     spectrumSeriesRange,
+    type RightAxisFollow,
     type SpectrumViewState,
     type SpectrumVisibleWindow,
 } from './spectrumRuntime';
@@ -28,7 +29,7 @@ export interface OverlaySpectrumPaint {
     /** Where the plot component put the lines, for the pointer's marks and readout (plotHoverLayer.ts); null when none are drawn. */
     plot: StagePlot | null;
     /** Each level axis with the colours of the lines read on it, left first; one entry when the references agree. */
-    levelAxes: Array<{ title: string; reference: string; colors: string[]; lines: Array<{ color: string; label: string }>; visible?: { dbMin: number; dbMax: number } }>;
+    levelAxes: Array<{ title: string; reference: string; colors: string[]; lines: Array<{ color: string; label: string }>; visible?: { dbMin: number; dbMax: number }; follow?: RightAxisFollow }>;
 }
 
 /**
@@ -129,7 +130,7 @@ export function paintOverlaySpectrum(
     const pad = OVERLAY_SPECTRUM_PAD;
     const vis = axes[0].visible;
     const levelAxes = axes.map(axis => ({
-        title: axis.title, reference: axis.reference, colors: [...new Set(axis.series.map(s => s.color))], visible: { dbMin: axis.visible.dbMin, dbMax: axis.visible.dbMax },
+        title: axis.title, reference: axis.reference, colors: [...new Set(axis.series.map(s => s.color))], visible: { dbMin: axis.visible.dbMin, dbMax: axis.visible.dbMax }, ...(axis.follow ? { follow: axis.follow } : {}),
         lines: axis.series.filter((s, i, all) => all.findIndex(o => o.label === s.label && o.color === s.color) === i).map(s => ({ color: s.color, label: s.label })),
     }));
     const empty = vis.frequencyMax - vis.frequencyMin <= 0;

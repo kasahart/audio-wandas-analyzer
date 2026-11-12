@@ -150,18 +150,32 @@ export function narrowedRange(range: FigureRange, y: { start: number; end: numbe
 
 /**
  * The ends of the part `part` (fractions) of a value axis' range: the range's own ends where the part reaches them,
- * else the place rounded to the decimals a range field writes for the part's span (plotText.fieldDecimals: a
- * thousandth of it). So the numbers the range popover writes for a zoomed value axis are the ends it is painted with
- * (R9), and a zoom typed in it is painted at the typed numbers, not a float step off them.
+ * else the place rounded to the decimals a range field writes for the part's span (fieldWindow). So the numbers the
+ * range popover writes for a zoomed value axis are the ends it is painted with (R9), and a zoom typed in it is painted
+ * at the typed numbers, not a float step off them.
  */
 export function windowEnds(range: PaneRange, part: { start: number; end: number }): { min: number; max: number } {
     const span = range.max - range.min;
-    const low = range.min + part.start * span, high = range.min + part.end * span;
+    const low = part.start === 0 ? range.min : range.min + part.start * span, high = part.end === 1 ? range.max : range.min + part.end * span;
+    return fieldWindow(low, high, { min: part.start === 0, max: part.end === 1 });
+}
+
+/**
+ * A zoom window's ends as it is painted and as its range popover writes them (R9): each at the decimals a range field
+ * writes for the window's span (plotText.fieldDecimals: a thousandth of it, at least 0.001), so the window is painted
+ * from the very numbers the field shows, never a float step (a fraction times a span, a norm times a peak) off them.
+ * A `kept` end (an axis's own end, or a typed one) is as it is. A window finer than the field's last decimal keeps
+ * its own ends rather than closing up. Every window a plot is painted on, across or up, is made here.
+ */
+export function fieldWindow(low: number, high: number, kept: { min: boolean; max: boolean } = { min: false, max: false }): { min: number; max: number } {
     const decimals = fieldDecimals(high - low);
-    const fieldEnd = (value: number): number => (Math.abs(value) < 1e21 ? Number(value.toFixed(decimals)) + 0 : value);
-    const ends = { min: part.start === 0 ? range.min : fieldEnd(low), max: part.end === 1 ? range.max : fieldEnd(high) };
-    // A window finer than the field's last decimal keeps its own ends rather than closing up.
+    const ends = { min: kept.min ? low : atDecimals(low, decimals), max: kept.max ? high : atDecimals(high, decimals) };
     return ends.max > ends.min ? ends : { min: low, max: high };
+}
+
+/** `value` at `decimals` decimals, the nearest such number (never −0); a number too large for decimals as it is. */
+export function atDecimals(value: number, decimals: number): number {
+    return Math.abs(value) < 1e21 ? Number(value.toFixed(decimals)) + 0 : value;
 }
 
 /** A colour range whose ends `typed` were typed by the user (the ⚙ settings or the range popover): kept as typed. */
@@ -215,13 +229,17 @@ export function colourScale(range: Readonly<PaneRange> & Pick<FigureRange, 'type
 }
 
 /**
- * The amplitude a waveform lane shows from its bottom edge to its top, in the channel's unit, as makeCoordTransform
- * places it: unzoomed, the peak at WAVEFORM_HALF_HEIGHT_RATIO of the half height; zoomed, the window's own ends.
+ * The amplitude a waveform lane shows from its bottom edge to its top, in the channel's unit, as it is painted and as
+ * its range popover writes it: unzoomed, the peak at WAVEFORM_HALF_HEIGHT_RATIO of the half height widened out to the
+ * field's decimals; zoomed, the window's ends at the field's decimals (fieldWindow).
  */
 export function laneAmplitudeRange(peak: number, viewport?: { minNorm: number; maxNorm: number }): FigureRange {
-    if (viewport) return ranged({ min: viewport.minNorm * peak, max: viewport.maxNorm * peak });
-    const edge = peak / (2 * WAVEFORM_HALF_HEIGHT_RATIO);
-    return ranged({ min: -edge, max: edge });
+    // A norm times the peak is a float step off the number typed: the window is painted at the field's decimals (R9).
+    if (viewport) return ranged(fieldWindow(viewport.minNorm * peak, viewport.maxNorm * peak));
+    // The automatic range widened out to the decimals its range popover writes (R9), as a colour scale is.
+    const exact = peak / (2 * WAVEFORM_HALF_HEIGHT_RATIO);
+    const edge = ceilTo(exact, fieldDecimals(2 * exact));
+    return ranged({ min: -edge + 0, max: edge });
 }
 
 /** A range made here with its other fields kept (a lane's range carrying its picture's extra). */

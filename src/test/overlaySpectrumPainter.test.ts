@@ -177,7 +177,7 @@ test('paintOverlaySpectrum: a second reference widens the right margin, names it
     assert.ok(['50', '60', '70', '−50', '−40', '−30'].every(value => texts.includes(value)), JSON.stringify(texts));
     assert.deepEqual(paint.levelAxes.map(({ visible: _visible, ...axis }) => axis), [
         { title: SPL, reference: 'dB SPL re 20 µPa', colors: ['#0000ff'], lines: [{ color: '#0000ff', label: 'A' }] },
-        { title: VOLT, reference: 'dB re 1 V', colors: ['#ffff00'], lines: [{ color: '#ffff00', label: 'B' }] },
+        { title: VOLT, reference: 'dB re 1 V', colors: ['#ffff00'], lines: [{ color: '#ffff00', label: 'B' }], follow: { left: { min: 40, max: 80 }, right: { min: -60, max: -20 } } },
     ]);
     // Each axis' levels on screen, the right one's its own (its range popover opens on them, R13).
     assert.deepEqual(paint.levelAxes.map(axis => axis.visible && [axis.visible.dbMin, axis.visible.dbMax]), [[40, 80], [-60, -20]]);

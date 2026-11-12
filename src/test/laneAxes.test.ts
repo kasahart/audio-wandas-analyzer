@@ -17,7 +17,11 @@ test('a waveform lane\'s amplitude ticks sit where the waveform draws their valu
     for (const viewport of [undefined, { minNorm: -0.3, maxNorm: 0.7 }]) {
         for (const peak of [1, 0.005, 16383, 2e-5, 1e-6, 1e-9]) {
             const range = laneAmplitudeRange(peak, viewport);
-            const transform = makeCoordTransform(0, 1, 0, 800, H, peak, 1, viewport);
+            // As the lane paints its signal (waveformLayer over the lane's range, in the channel's unit).
+            const transform = makeCoordTransform(0, 1, 0, 800, H, 1, 1, { minNorm: range.min, maxNorm: range.max });
+            // Unzoomed, the peak is inside it; zoomed, it is the window (at the range field's numbers, R9).
+            if (!viewport) assert.ok(range.max >= peak / 0.88 && range.min === -range.max, `${peak}: ${range.min}…${range.max}`);
+            else assert.ok(Math.abs(range.min - viewport.minNorm * peak) <= (range.max - range.min) / 1000 && Math.abs(range.max - viewport.maxNorm * peak) <= (range.max - range.min) / 1000);
             assert.ok(Math.abs(transform.toY(range.max)) < 1e-9, 'the top edge');
             assert.ok(Math.abs(transform.toY(range.min) - H) < 1e-9, 'the bottom edge');
             const ticks = laneAmplitudeTicks(range);

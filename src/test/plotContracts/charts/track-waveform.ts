@@ -65,8 +65,8 @@ export const trackWaveform: ChartContract = {
         },
         {
             id: 'track-waveform.range-popover', value: 'range', what: '軸のダブルクリックで開く範囲の欄の値（振幅・スペクトログラムの周波数と色）',
-            computedIn: [`${RT}:field`],
-            from: 'axis', trace: '今描いている範囲を有効数字 4 桁で書く。',
+            computedIn: [`${RT}:openWaveformRangePopup`, `${RT}:openSpectrogramRangePopup`, `${RT}:zoomLanesToBox`],
+            from: 'axis', trace: '軸を描いた端をそのまま書く（exactFieldText、R9）。自動の振幅の範囲は入力欄の桁まで外へ広げ、拡大の窓の端は入力欄の桁で作って描く（figureModel.fieldWindow）。',
             tests: [
                 t('src/test/uiSmoke/waveformAmplitudeRange.spec.ts', 'double-clicking the waveform amplitude axis sets the vertical range from a popover'),
             ],

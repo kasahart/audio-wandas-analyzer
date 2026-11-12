@@ -10,7 +10,7 @@ export const trackAxes: ChartContract = {
     rows: [
         {
             id: 'track-axes.ticks', value: 'ticks', what: '時間の目盛り（上の定規）と横の軸のキャンバスの目盛り',
-            computedIn: [`${RT}:renderRuler`, 'src/webview/runtime/laneAxes.ts:laneTimeTicks', `${SP}:paintSideAxis`, `${SP}:paintTimeAxis`],
+            computedIn: [`${RT}:renderRuler`, `${RT}:laneVisibleSeconds`, 'src/webview/runtime/laneAxes.ts:laneTimeTicks', `${SP}:paintSideAxis`, `${SP}:paintTimeAxis`],
             from: 'axis', trace: '見えている時間の窓から、比較台と同じ規則で決める。',
             tests: [
                 t('src/test/laneAxes.test.ts', 'the lanes take the ticks and their text from the rules every plot uses'),

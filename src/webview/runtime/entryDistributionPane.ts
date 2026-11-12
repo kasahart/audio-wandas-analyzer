@@ -16,7 +16,7 @@ import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { DIST_MARGINS, DIST_ROW_MAX, DIST_ROW_MIN, DIST_ROW_PAD, DIST_STRIP_ROW, distributionAxisView, distributionLegendHtml, distributionRows, distributionScale, pickedRange, type DistributionRow, type DistributionScale } from './entryDistribution';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, notePlotWindow, plotPointIn, type PlotMargins, type PlotWindow, type VerticalAxis } from './plotInteraction';
 import { createPlotHoverLayer } from './plotHoverLayer';
-import { paintOverlay, type StagePlot } from './stagePanes';
+import { linearWindowEnds, paintOverlay, type StagePlot } from './stagePanes';
 import { countTitle, csvColumnTitle, plainNames, plainRange, setDrawnCount, setExclusionText, setOver, type FigureSet, type FigureTitle, type PlainTitle } from './figureModel';
 import { NO_POINTS } from './fullRead';
 import { positionPopover } from './settingsPopover';
@@ -334,8 +334,10 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         openAxisRange(hit, clientX, clientY) {
             if (hit.plot !== axisCanvas || !drawn) return false;
             const whole = drawn;
+            // The value axis's ends as its strip and rows are painted (paintOverlay's window on it, R9), written exactly.
+            const shown = linearWindowEnds(whole.low, whole.high, zoomWindow.x);
             openAxisPart(rangePopover, {
-                mapping: linearAxis(whole.low, whole.high, last?.valueLabel ?? ''), horizontal: true, current: zoomWindow.x, clientX, clientY, invalid: strings.specRangeErrorMinMax,
+                mapping: linearAxis(whole.low, whole.high, last?.valueLabel ?? ''), horizontal: true, current: zoomWindow.x, shown, clientX, clientY, invalid: strings.specRangeErrorMinMax,
                 set(part) { setWindow({ x: part, y: FULL_PLOT_WINDOW.y }); },
             });
             return true;

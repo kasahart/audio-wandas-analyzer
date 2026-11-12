@@ -31,15 +31,9 @@ export function stepText(value: number, step: number | undefined): string {
 }
 
 /**
- * An end of a range typed into a field (the axis range popover): to the digits that keep the range `span` wide to a
- * thousandth of itself (spacingDecimals), at least to 0.001, so a range applied unchanged is the range it was
- * (1.23456–1.23461 s stays so, never "1.235"–"1.235"). With a hyphen minus, as a field is typed and parsed.
+ * The decimals a range field's end is made at for a window `span` wide (figureModel.fieldWindow): a thousandth of it,
+ * at least 0.001, so a window applied unchanged is the window it was (1.23456–1.23461 s stays so, never 1.235–1.235).
  */
-export function fieldNumberText(value: number, span: number): string {
-    return String(Number(value.toFixed(fieldDecimals(span))));
-}
-
-/** The decimals a range field writes an end of a range `span` wide to (fieldNumberText): a thousandth of it, at least 0.001. */
 export const fieldDecimals = (span: number): number => spacingDecimals(Math.abs(span) / 1000, 3, 15);
 
 /**

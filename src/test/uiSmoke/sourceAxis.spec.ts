@@ -97,7 +97,7 @@ test('a long recording\'s spectrogram, thinned to columns, has a whole view from
     const { xs, xSource } = answer.stage;
     const digits = (value: number): number => Number(value.toFixed(3));
     expect(digits(xs[0]) !== digits(xSource.first) && digits(xs[xs.length - 1]) !== digits(xSource.last), 'the drawn columns end inside the source, or this test shows nothing').toBe(true);
-    expect(low, `the whole view starts at the first STFT frame, ${xSource.first} s, not at the first drawn column (${xs[0]} s): got ${low} s. Take the range of xSource (stagePanes.axisScale), never of the drawn xs (R2)`).toBe(digits(xSource.first));
-    expect(high, `the whole view ends at the last STFT frame, ${xSource.last} s, not at the last drawn column (${xs[xs.length - 1]} s): got ${high} s. Take the range of xSource (stagePanes.axisScale), never of the drawn xs (R2)`).toBe(digits(xSource.last));
+    expect(low, `the whole view starts at the first STFT frame, ${xSource.first} s, not at the first drawn column (${xs[0]} s): got ${low} s. Take the range of xSource (stagePanes.axisScale), never of the drawn xs (R2); the range box writes it exactly (R9)`).toBe(xSource.first);
+    expect(high, `the whole view ends at the last STFT frame, ${xSource.last} s, not at the last drawn column (${xs[xs.length - 1]} s): got ${high} s. Take the range of xSource (stagePanes.axisScale), never of the drawn xs (R2); the range box writes it exactly (R9)`).toBe(xSource.last);
     await page.keyboard.press('Escape');
 });

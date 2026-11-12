@@ -6,7 +6,7 @@
  * (combineSource.ts) and drawn here like any picture; without one the Δ pane says why it is empty. Pure apart
  * from `paintStage`, which only draws.
  */
-import { colourScale, uncalibratedWord, type FigureAxis, type FigureNames, type FigureRange, type FigureTitle } from './figureModel';
+import { colourScale, fieldWindow, uncalibratedWord, type FigureAxis, type FigureNames, type FigureRange, type FigureTitle } from './figureModel';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { UiStrings } from '../../shared/i18n/strings';
 import { BAND_CENTERS_HZ } from './entryTable';
@@ -346,14 +346,36 @@ type AxisScale = { low: number; high: number; log: boolean; fraction(value: numb
 
 export const FULL_WINDOW: NormalizedRange = { start: 0, end: 1 };
 
-/** The part of an axis on screen: `window` (fractions of the whole axis) stretched across the plot. */
+/**
+ * The part of an axis on screen: `window` (fractions of the whole axis) stretched across the plot. A zoomed window's
+ * ends are made at the decimals its range popover writes (figureModel.fieldWindow, R9): the plot is painted from
+ * `low` and `high`, and the popover writes these very numbers. The whole axis keeps its own ends.
+ */
 function windowed(scale: AxisScale, window: NormalizedRange = FULL_WINDOW): AxisScale {
-    const span = window.end - window.start || 1;
+    const kept = { min: window.start === 0, max: window.end === 1 };
+    const ends = fieldWindow(kept.min ? scale.low : scale.at(window.start), kept.max ? scale.high : scale.at(window.end), kept);
+    const start = kept.min ? 0 : scale.fraction(ends.min), end = kept.max ? 1 : scale.fraction(ends.max);
+    const span = end - start || 1;
     return {
-        low: scale.at(window.start), high: scale.at(window.end), log: scale.log,
-        fraction: value => (scale.fraction(value) - window.start) / span,
-        at: fraction => scale.at(window.start + fraction * span),
+        low: ends.min, high: ends.max, log: scale.log,
+        fraction: value => (scale.fraction(value) - start) / span,
+        at: fraction => (fraction === 0 ? ends.min : fraction === 1 ? ends.max : scale.at(start + fraction * span)),
     };
+}
+
+/**
+ * The ends a linear axis from `low` to `high` is painted with over the part `window` (fractions of it): the numbers
+ * paintOverlay paints such an axis from and records (StagePlot.xRange), for what is drawn beside a plot on the same
+ * axis (the lanes' time ruler) and the range popover that types it.
+ */
+export function linearWindowEnds(low: number, high: number, window: NormalizedRange): { min: number; max: number } {
+    const shown = windowed({ low, high, log: false, fraction: value => (value - low) / (high - low || 1), at: fraction => low + fraction * (high - low) }, window);
+    return { min: shown.low, max: shown.high };
+}
+
+/** The part of the whole axis `scale` a windowed axis paints, as fractions of it: its window at the field's numbers. */
+function paintedPart(scale: AxisScale, shown: AxisScale): NormalizedRange {
+    return { start: shown.low === scale.low ? 0 : scale.fraction(shown.low), end: shown.high === scale.high ? 1 : scale.fraction(shown.high) };
 }
 
 /** Where a value of the picture's horizontal axis sits on it (0–1 across the whole axis), and back. */
@@ -848,6 +870,10 @@ export interface StagePlot {
     colourScale?: { low: number; high: number };
     /** The value range a line plot was painted on (its level axis as drawn, zoomed or not): what its range popover writes. */
     valueRange?: { min: number; max: number };
+    /** The ends of the horizontal axis as painted (its window at the field's numbers, R9): what its range popover writes. */
+    xRange?: { min: number; max: number };
+    /** A heatmap's rows' axis ends as painted (its window up, at the field's numbers): what its range popover writes. */
+    rowRange?: { min: number; max: number };
     /** The value axis' ticks as drawn (a heatmap's rows, a line's levels): a lane kept as painted draws its side axis again from them. */
     levelTicks?: AxisTick[];
     /** Every text drawn for the plot (its ticks' numbers, its axes' names, its colour bar's ends), as drawn: what a test reads of it. */
@@ -1107,6 +1133,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         canvas.dataset.plotColour = '';
         delete canvas.dataset.plotColourScale;
         delete canvas.dataset.plotColourEnds;
+        delete canvas.dataset.plotEnds;
     }
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, width, height);
@@ -1165,8 +1192,11 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         }
         return null;
     }
-    const xWindow = options.window?.x ?? FULL_WINDOW;
     const whole = options.axisView ?? view;
+    const wholeAxis = axisScale(whole);
+    const xAxis = windowed(wholeAxis, options.window?.x ?? FULL_WINDOW);
+    // The part across as painted: the window at the numbers its range popover writes (R9), every use takes this one.
+    const xWindow = paintedPart(wholeAxis, xAxis);
     // Drawn in the plot's own order (R6): the quietest compared line last, on top, on every plot, by every value on
     // screen; a level still being fetched draws the plot again once it is in (`ready`).
     const levelContext = { ready };
@@ -1180,7 +1210,6 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     const drew = (layer: StageLayer): void => { const picture = pictureOf.get(layer) ?? layer; if (drawnPictures[drawnPictures.length - 1] !== picture) drawnPictures.push(picture); };
     const secondLevels = options.secondary ? screenLevels(options.secondary.layers.filter(comparedLine), whole, xWindow, levelContext) : undefined;
     const secondaryOrder = options.secondary && secondLevels ? settledOrder(canvas, 'secondary', options.secondary.layers, overlayOrder(options.secondary.layers, whole, xWindow, secondLevels), secondLevels) : [];
-    const xAxis = windowed(axisScale(whole), xWindow);
     // Zoomed, the pictures run past the plot's edges: they are clipped to it.
     const xAt = (value: number): number => left + xAxis.fraction(value) * plotWidth;
     const heatmap = view.kind === 'heatmap';
@@ -1188,16 +1217,20 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     const yAxis = heatmap ? windowed(rowScale(axisExtent({ xs: whole.ys, xSource: whole.ySource }) ? whole : view), options.window?.y) : null;
     // Each value axis's one value-to-pixel transform (display rules R14): its lines are painted, picked and marked by it.
     const box: PlotBox = { left, top, width: plotWidth, height: plotHeight };
-    const wholeAxis = axisScale(whole);
     const mainAxis = axisTransform({ range }, { box, time: wholeAxis, window: xWindow });
     const yAt = mainAxis.yAt;
 
     let levelTicks: AxisTick[] = [];
     const plot: StagePlot = { frame: { left, top, width: plotWidth, height: plotHeight }, xAt, yAt, xOf: x => xAxis.at((x - left) / plotWidth), xLog: xAxis.log, levelOf: mainAxis.levelOf,
-        lineYAt: mainAxis.lineYAt, ratioStep: 1.12, lines: [], diff: !!options.diff, ...(heatmap ? {} : { valueRange: mainAxis.valueRange }), ...(options.readout === false ? { noReadout: true } : {}), ...levelUnitOf(heatmap ? axes.colour : axes.y) };
+        lineYAt: mainAxis.lineYAt, ratioStep: 1.12, lines: [], diff: !!options.diff, xRange: { min: xAxis.low, max: xAxis.high }, ...(yAxis ? { rowRange: { min: yAxis.low, max: yAxis.high } } : {}), ...(heatmap ? {} : { valueRange: mainAxis.valueRange }), ...(options.readout === false ? { noReadout: true } : {}), ...levelUnitOf(heatmap ? axes.colour : axes.y) };
     // Where its data is drawn on the canvas (CSS pixels: left, top, width, height), so a gesture test can tell what a
     // drag or a wheel at a pixel should show from the pixel alone, not from the plot's own answer (C6).
     if (canvas.dataset) canvas.dataset.plotFrame = [left, top, plotWidth, plotHeight].map(String).join(' ');
+    // The ends its axes are painted with, exactly (across, and up: a heatmap's rows or the level axis), which its range
+    // popovers write (R9): a test compares the fields with these, never with numbers of its own.
+    const paintedEnds = (): string => JSON.stringify({ x: [xAxis.low, xAxis.high], y: yAxis ? [yAxis.low, yAxis.high] : [mainAxis.valueRange.min, mainAxis.valueRange.max],
+        ...(plot.secondary?.valueRange ? { right: [plot.secondary.valueRange.min, plot.secondary.valueRange.max] } : {}) });
+    if (canvas.dataset) canvas.dataset.plotEnds = paintedEnds();
     // Every picture drawn says where its numbers are read (R7): a plot drawing one that does not is marked, and every
     // ui-smoke test fails it (canvasAudit.ts). A figure no pointer reads needs none.
     if (canvas.dataset) {
@@ -1369,6 +1402,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
             const secondPlot: StagePlot = { ...shared, valueRange: rightAxis.valueRange, yAt: rightAxis.yAt, levelOf: rightAxis.levelOf, lineYAt: rightAxis.lineYAt, lines: [],
                 ...(rightSignal ? { signal: signalOn(rightAxis, rightSignal.unit) } : {}), ...levelUnitOf(options.secondary.title) };
             plot.secondary = secondPlot;
+            if (canvas.dataset) canvas.dataset.plotEnds = paintedEnds();
             // A trigger's events on the right-hand axis are drawn one line each, as on the left (A43).
             for (const layer of secondaryOrder.flatMap(eventLayers)) {
                 if (layer.view.kind !== 'line' && layer.view.kind !== 'bar') continue;
