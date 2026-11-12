@@ -368,7 +368,13 @@ calls a decimator, or is handed its result and computes with it, is listed in
   other field, reduced (`max`, `mean`) or used in a decision.
 - `value`: it makes a number of them. Its row is then a gap, and `GAP_CEILING` does not go up.
 
-A new decimator is added to `decimators` in that file and to `SOURCES` in the checker.
+A new decimator is added to `decimators` in that file and to `SOURCES` in the checker. You cannot forget to: the
+checker reads which fields are drawn points from the schema (every array marked `x-drawn`), and fails where a value
+that came from no registered decimator is put in one of them. It does not look for particular ways of thinning (a
+stepped slice, a reshape and a `max`, a resample all fail alike), because what it checks is where the value came
+from. The failure names the line and gives the two fixes: register the function that thins, or, when every value is
+sent and none thinned (a band table, a full read) or the field is another answer's of the same name, list the place
+under `unthinned` in `drawn_points_contract.json` with one sentence saying why.
 
 ## What these checks cannot guarantee
 
@@ -411,3 +417,7 @@ They close the routes we know. They do not make a wrong number impossible. Know 
 - **The backend has no types for this.** Its check follows data flow through the Python source and can miss a flow
   through code it does not model (dynamic attribute access, a new library call). Its unit tests
   (`python-backend/test_decimation_flow_check.py`) show the forms it does catch.
+- **`unthinned` is a list of claims.** A place listed there is not checked further: thinning added later inside a
+  listed function, in the listed field, passes. Keep each entry to one field of one function and read the list when
+  it changes. A value that mixes a registered decimator's result with data thinned some other way counts as
+  registered. Thinned data sent in a field the schema does not mark `x-drawn` is not seen by this rule at all.

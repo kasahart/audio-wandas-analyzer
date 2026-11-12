@@ -28,6 +28,18 @@ module-level stores. A comparison is not a value: it is a decision (``C``), foll
 today are in KNOWN_FLOWS, each with its gap in the contract table (src/test/plotContracts): the list only shrinks.
 A flow not listed fails, and so does a listed one no longer found.
 
+Which fields are drawn points is read from the protocol's schema (python-backend/protocol_schema.py: the arrays
+marked ``x-drawn``), not listed here. And the other way round: every value put in such a field must have come from a
+registered thinning function (SOURCES), or its place is listed in drawn_points_contract.json ('unthinned') with why
+it sends every value. So a new function that thins data and sends it (whatever way it thins: a stepped slice, a
+reshape and a min/max, a resample) fails here until it is registered, and once registered its result is followed.
+
+What this cannot see, stated plainly: thinning added inside a function already listed under 'unthinned' (the list is
+the review point: keep each entry to one field of one function); a value that mixes a registered function's result
+with data thinned some other way (it counts as registered); and thinned data sent in a field the schema does not
+mark ``x-drawn`` at all (test_protocol_schema.py makes every array of numbers say x-drawn, x-whole or x-place, but
+a wrong mark is a reviewer's to catch).
+
 The backend readers classified 'draws' in python-backend/drawn_points_contract.json are checked too: what each
 returns of drawn points carries its name wherever it goes, and the reader fails if its own code, or any code its
 result reaches, makes a flow of it (another field, a reduction, a decision): drawing is only putting it in a picture.
@@ -39,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import importlib.util
 import json
 import re
 import sys
@@ -89,28 +102,57 @@ SOURCES: dict[str, tuple[str, frozenset[str]]] = {
 #: The bucket rule's own functions (decimator.py): positions only, which the contract table does not list.
 BUCKET_RULE = frozenset({"decimator:bucket_starts", "decimator:bucket_edges"})
 
+
+def protocol_definitions() -> dict[str, object]:
+    """The protocol's definitions (python-backend/protocol_schema.py), read as the backend itself declares them."""
+    spec = importlib.util.spec_from_file_location("awa_protocol_schema", BACKEND / "protocol_schema.py")
+    if spec is None or spec.loader is None:
+        raise SystemExit("check_decimation_flow: python-backend/protocol_schema.py cannot be read")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return dict(module.DEFINITIONS)
+
+
+def _marked(node: object, mark: str) -> bool:
+    """Whether ``node`` (a schema, or part of one) says ``mark`` anywhere inside it."""
+    if isinstance(node, dict):
+        return mark in node or any(_marked(value, mark) for value in node.values())
+    return isinstance(node, list) and any(_marked(value, mark) for value in node)
+
+
+def schema_fields(schema: object, mark: str) -> tuple[frozenset[str], frozenset[str]]:
+    """The names of the protocol's fields marked ``mark`` (``x-drawn``, ``x-whole``, ``x-place``): first the arrays
+    whose numbers carry the mark, then the fields that are objects holding such an array (a picture's ``waveform``)."""
+    arrays: set[str] = set()
+    holders: set[str] = set()
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            properties = node.get("properties")
+            for name, child in properties.items() if isinstance(properties, dict) else ():
+                if isinstance(child, dict) and child.get("type") == "array" and _marked(child.get("items"), mark):
+                    arrays.add(name)
+                elif _marked(child, mark):
+                    holders.add(name)
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(schema)
+    return frozenset(arrays), frozenset(holders - arrays)
+
+
+#: The protocol's arrays of points thinned to be drawn (``x-drawn``), and the fields that hold such arrays: read from
+#: the schema, never listed here. Marking a new array ``x-drawn`` in protocol_schema.py is all it takes to put it
+#: under this check.
+DRAWN_ARRAYS, DRAWN_HOLDERS = schema_fields(protocol_definitions(), "x-drawn")
+#: Where a picture's drawn points sit on its axes. The schema marks these ``x-place`` (a place is not a value a user
+#: reads as a level), so they are named here; main() fails if one is not an ``x-place`` array of the schema.
+DRAWN_PLACES = frozenset({"xs", "ys", "frequenciesHz", "timeCentersSec"})
 #: The fields of a picture that carry its drawn points: a drawn value may go here, and only here.
-DRAWN_KEYS = frozenset(
-    {
-        # StageView and its waveform (stage_view.py, stage_combine.py)
-        "xs",
-        "ys",
-        "values",
-        "matrix",
-        "waveform",
-        "events",
-        "min",
-        "max",
-        "minT",
-        "maxT",
-        "samples",
-        # The cursor spectrum's slice and the lanes' spectrogram (analysis_service.py, analyzer.py)
-        "frequenciesHz",
-        "timeCentersSec",
-        # A scan's 192-point spectrum (scan_service.py)
-        "spectrumDb",
-    }
-)
+DRAWN_KEYS = DRAWN_ARRAYS | DRAWN_HOLDERS | DRAWN_PLACES
 
 #: Reductions: a number made of the values given (a median, an extreme, a range, an order, a sum, a readout).
 REDUCERS = frozenset(
@@ -316,6 +358,9 @@ class Program:
         #: The functions whose own code computes with drawn, thinned or decided points (arithmetic, a comparison, a
         #: reduction, a numeric call), by ``module:function``: with the decimators those points came from.
         self.readers: dict[str, set[str]] = {}
+        #: Where a value that no thinning function gave is put in an ``x-drawn`` array of the protocol, by
+        #: ``module:function#field``, with the first line it happens on (see unthinned_problems).
+        self.unthinned: dict[str, int] = {}
 
     def _index(self, module: Module) -> None:
         for node in ast.walk(module.tree):
@@ -620,12 +665,23 @@ class Walker:
 
     def check_field(self, node: ast.AST, key: object, taint: Taint) -> None:
         """A drawn value itself (not a picture holding drawn fields) put under a field that is not a drawn one."""
+        if isinstance(key, str) and key in DRAWN_ARRAYS and not values_of(taint) and not self.nothing(node):
+            where = f"{self.function.name}#{key}"
+            line = getattr(node, "lineno", 0)
+            self.program.unthinned[where] = min(self.program.unthinned.get(where, line), line)
         drawn = bare(values_of(taint))
         if isinstance(key, str) and key not in DRAWN_KEYS and drawn:
             self.flow(node, f"field {key!r} = drawn points", drawn)
         decided = bare(decisions_of(taint))
         if isinstance(key, str) and key not in DRAWN_KEYS and decided:
             self.flow(node, f"field {key!r} = decided by drawn points", decided)
+
+    @staticmethod
+    def nothing(node: ast.AST) -> bool:
+        """An empty list or tuple, or None, written out: a field with no points in it."""
+        if isinstance(node, ast.List | ast.Tuple):
+            return not node.elts
+        return isinstance(node, ast.Constant) and node.value is None
 
     def reduction(self, node: ast.Call, what: str, taint: Taint, along_axis: bool) -> Taint:
         """A reduction of ``taint``: a flow if it reduces drawn points, or thinned ones to one number."""
@@ -1101,6 +1157,61 @@ def contract_decimators(data: dict[str, object]) -> set[str]:
     return {_module_function(str(entry)) for entry in listed}
 
 
+def find_unthinned(sources: dict[str, str]) -> dict[str, int]:
+    """Every place a value that came from no registered thinning function (SOURCES) is put in a field named as an
+    ``x-drawn`` array of the protocol, as ``python-backend/module.py:function#field`` with its line."""
+    program = Program(sources)
+    program.run()
+    out = {}
+    for where, line in program.unthinned.items():
+        name, key = where.rsplit("#", 1)
+        module, function = name.split(":")
+        out[f"python-backend/{module}.py:{function.split('.')[-1]}#{key}"] = line
+    return dict(sorted(out.items()))
+
+
+def contract_unthinned(data: dict[str, object]) -> dict[str, str]:
+    """The contract's 'unthinned' entries (``python-backend/module.py:function#field`` → why)."""
+    listed = data.get("unthinned")
+    if not isinstance(listed, dict):
+        raise SystemExit(f"check_decimation_flow: no 'unthinned' object in {CONTRACT.name}")
+    return {str(entry): str(why) for entry, why in listed.items()}
+
+
+def unthinned_problems(found: dict[str, int], listed: dict[str, str]) -> Iterator[str]:
+    """What fails: a value put in a drawn field that no registered thinning function gave, unless the contract says
+    why it is not thinned; and a contract entry that is no longer found or says no why."""
+    for entry, line in found.items():
+        if entry not in listed:
+            place, key = entry.rsplit("#", 1)
+            path, function = place.rsplit(":", 1)
+            yield (
+                f"{path}:{line} {function}: field {key!r} is an array of drawn points in the protocol (x-drawn), but "
+                "what is put in it here came from no registered thinning function. Rule: every value sent in an "
+                "x-drawn field is the result of a function listed in SOURCES (scripts/check_decimation_flow.py) and "
+                f"'decimators' ({CONTRACT.name}), so that this check follows it. Fix: if the code that made it thins "
+                "data to draw it (a slice with a step, a reshape and a min/max, a resample, picked indices), add "
+                "that function to both lists. If every value is sent, none thinned (a band table, a full read), or "
+                f"the field is another answer's of the same name, add \"{entry}\" to 'unthinned' in {CONTRACT.name} "
+                "with one sentence saying why."
+            )
+    for entry, why in listed.items():
+        if entry not in found:
+            yield f"'unthinned' in {CONTRACT.name} lists a place no longer found (remove its line): {entry}"
+        elif not why.strip():
+            yield f"'unthinned' in {CONTRACT.name}: {entry} says no why"
+
+
+def schema_problems(schema: object) -> Iterator[str]:
+    """What fails: a place of drawn points (DRAWN_PLACES) that the schema does not mark ``x-place``."""
+    places, _ = schema_fields(schema, "x-place")
+    for name in sorted(DRAWN_PLACES - places):
+        yield (
+            f"DRAWN_PLACES names {name!r}, which is no x-place array of python-backend/protocol_schema.py. "
+            "Fix: remove it here, or mark the field's numbers x-place there."
+        )
+
+
 def problems(flows: list[Flow], known: dict[str, str] = KNOWN_FLOWS) -> Iterator[str]:
     """What fails: a flow not in ``known``, and a known one no longer found."""
     keys = {flow.key for flow in flows}
@@ -1135,6 +1246,17 @@ def main(argv: list[str] | None = None) -> int:
             f"only here {sorted(expected - listed)}, only in the contract {sorted(listed - expected)}. "
             "Fix: list every function that thins data to draw it in both.",
             file=sys.stderr,
+        )
+        return 1
+    unregistered = [
+        *schema_problems(protocol_definitions()),
+        *unthinned_problems(find_unthinned(backend_sources()), contract_unthinned(data)),
+    ]
+    for problem in unregistered:
+        print(problem, file=sys.stderr)
+    if unregistered:
+        print(
+            f"check_decimation_flow: {len(unregistered)} problem(s) with what is sent as drawn points.", file=sys.stderr
         )
         return 1
     flows = find_flows(backend_sources())
