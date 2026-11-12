@@ -365,6 +365,38 @@ test('overlaid, a trigger\'s events are split by level identity as any line, and
     assert.equal(b.max, a.min + 0.75 * (a.max - a.min));
 });
 
+test('overlaid with two level axes, each axis is named by its own lines, whichever picture arrived first; an axis with no line of its own is never named by the other\'s (R4, A43)', () => {
+    const { lane } = page();
+    const fs = { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true } as const;
+    const pa = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: false } as const;
+    // A trigger's events and a waveform, each in its own recording's unit as the backend sends it (view.unit, waveform.unit).
+    const events = (unit: string, scale: number): StageView => ({ frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 1], values: [0, scale], unit,
+        events: [{ id: 0, time: 0.5, xs: [0, 1], values: [-scale, scale] }] } as unknown as StageView);
+    const wave = (unit: string, peak: number): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 1], values: [-peak, peak],
+        waveform: { min: [-peak, -peak], max: [peak, peak], minT: [0, 1], maxT: [0, 1], absolutePeak: peak, unit, ref: unit === 'FS' ? 1 : 2e-5 } } as unknown as StageView);
+    const tracks = ['base.wav', 'one.wav'].map(path => ({ ...lane(path), input: path === 'base.wav' ? fs : pa }));
+    // The names the overlay's axes get, with `first` the picture that arrived first (StageFrame.picture).
+    const names = (views: Record<string, StageView | undefined>, first: 'base.wav' | 'one.wav') => {
+        const frame = frameFor(tracks, views, { picture: views[first] ?? views[first === 'base.wav' ? 'one.wav' : 'base.wav'] ?? null });
+        const result = byReference(frame, overlayLayers(frame, plotsOf(frame.shown, tracks, 'one.wav', ['base.wav'], combined), undefined, 'base.wav'));
+        return { left: result.mainNames.y, right: result.secondary?.title };
+    };
+    for (const [kind, of] of [['events', events], ['waveform', wave]] as const) {
+        const views = { 'base.wav': of('FS', 0.5), 'one.wav': of('Pa', 2) };
+        const fsFirst = names(views, 'base.wav'), paFirst = names(views, 'one.wav');
+        assert.deepEqual(fsFirst, paFirst, `R4 broken: ${kind} on two level axes are named by the picture that arrived first, not by each axis's own lines. Name each axis in figureModel.stageLevelAxes from the lines assigned to it.`);
+        assert.ok(fsFirst.left.endsWith('[FS]'), `R4 broken: the left (base, FS) ${kind} axis is named ${fsFirst.left}; it must name its own lines' unit.`);
+        assert.ok(fsFirst.right?.endsWith('[Pa]'), `R4 broken: the right (Pa) ${kind} axis is named ${fsFirst.right}; it must name its own lines' unit, never the left axis's.`);
+        // One recording still pending: only the other's axis is drawn, named by its own lines, never by the pending one's
+        // picture or another axis's name.
+        for (const [ready, unit] of [['base.wav', '[FS]'], ['one.wav', '[Pa]']] as const) {
+            const only = names({ [ready]: views[ready] }, ready === 'base.wav' ? 'one.wav' : 'base.wav');
+            assert.equal(only.right, undefined, `${kind}: one recording pending, one axis`);
+            assert.ok(only.left.endsWith(unit), `R4 broken: with ${ready === 'base.wav' ? 'one.wav' : 'base.wav'} pending, the ${kind} axis of ${ready} is named ${only.left}; it must be named by its own line (${unit}).`);
+        }
+    }
+});
+
 test('side by side, lanes share a range only with the lanes in their own reference: a dB SPL lane is never on a dBFS lane\'s scale (A32, C1)', () => {
     const { lane } = page();
     const fs = { unit: '', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true } as const;

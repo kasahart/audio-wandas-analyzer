@@ -9,7 +9,7 @@ import type { StageView } from '../../shared/protocol/backendProtocol';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
-import { dataRange, diffRange as figureDiffRange, emptyFigure, levelAxes, levelKeyOf, membersOf, byLevelKey, narrowedRange, stageNames, titleOf, type FigureNames, type FigureRange, type FigureTitle } from './figureModel';
+import { dataRange, diffRange as figureDiffRange, emptyFigure, levelKeyOf, membersOf, byLevelKey, narrowedRange, stageLevelAxes, stageNames, titleOf, type FigureNames, type FigureRange, type FigureTitle } from './figureModel';
 import { type LegendItem, type LevelInput } from './comparePanes';
 import { clearSideAxis, emptyStageText, isEventsView, paintOverlay, paintStage, stageEventCounts, stageHeadline, type StageLayer, type StagePlot } from './stagePanes';
 import type { PlotWindow } from './plotInteraction';
@@ -297,7 +297,7 @@ export function writeStageLegend(legend: HTMLElement, html: string, written: str
  * The overlay's lines by the level identity of their own recordings (R1, levelIdentityOf: unit, reference value,
  * level reference name; C1, as the cursor spectrum's): all on one axis when they share one; with two, the base's on
  * the left and the other's on the right, its lines dashed; with more, none overlaid (`tooMany`). An axis is named by
- * axisInputOf its lines' inputs. An image keeps one axis; a trigger's events are split as any line (A43).
+ * its own lines alone (figureModel.stageLevelAxes: its first line's picture, axisInputOf their inputs). An image keeps one axis; a trigger's events are split as any line (A43).
  */
 export function byReference(frame: Pick<StageFrame, 'strings' | 'picture' | 'allTracks' | 'tracks' | 'role'> & Partial<Pick<StageFrame, 'window' | 'levelOf' | 'comparePath'>>, layers: readonly StageLayer[]): {
     mainLayers: StageLayer[]; secondary?: { layers: StageLayer[]; range: FigureRange; title: FigureTitle }; secondWhole?: FigureRange; mainInput: StageTrack['input']; mainNames: FigureNames; tooMany: boolean;
@@ -309,15 +309,15 @@ export function byReference(frame: Pick<StageFrame, 'strings' | 'picture' | 'all
     const inputOf = (layer: StageLayer): StageTrack['input'] => layer.levelInput ?? trackInput(layer.recording);
     const base = layers.find(layer => layer.recording !== undefined && frame.role(layer.recording) === 0);
     // An image has one colour bar; a trigger's events are their recordings' lines, split by identity as any line (A43).
-    const { axes, tooMany } = levelAxes(layers, {
+    // Each axis is named in figureModel by the lines assigned to it, never by the first picture in (R4).
+    const { axes, tooMany, pendingNames } = stageLevelAxes(strings, layers, {
         inputOf, ...(base ? { first: base } : {}), one: picture?.kind === 'heatmap',
-        names: input => stageNames(strings, picture, input),
         range: members => dataRange(members.map(layer => layer.view)),
-    });
+    }, picture);
     // No line drawn (too many references, or none): the axis names no reference, since it holds no line's (R4).
-    if (tooMany) return { mainLayers: [], mainInput: undefined, mainNames: stageNames(strings, picture, undefined), tooMany: true };
+    if (tooMany) return { mainLayers: [], mainInput: undefined, mainNames: pendingNames, tooMany: true };
     const [main, second] = axes;
-    if (!main) return { mainLayers: [], mainInput: undefined, mainNames: stageNames(strings, picture, undefined), tooMany: false };
+    if (!main) return { mainLayers: [], mainInput: undefined, mainNames: pendingNames, tooMany: false };
     if (!second) return { mainLayers: main.lines, mainInput: main.input, mainNames: main.names, tooMany: false };
     // A vertical zoom narrows the right-hand axis by the same part of it as the left (A45, R13), as the cursor spectrum's.
     return {

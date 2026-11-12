@@ -272,6 +272,12 @@ const GUARDED_FUNCTIONS: Readonly<Record<string, readonly string[]>> = {
     'axis-builder': ['webview/runtime/comparePanes.ts:paneAxes', 'webview/runtime/stagePanes.ts:stageAxes', 'webview/runtime/figureModel.ts:calibrationWords'],
     /** Lines or files keyed by level identity. */
     'identity': ['webview/runtime/comparePanes.ts:levelIdentityOf', 'webview/runtime/figureModel.ts:levelIdentity'],
+    /**
+     * A picture's axis names (stageNames) or level axes named by their caller (levelAxes' `names`): each listed site
+     * names one picture by itself (a lane, a Δ, a held plot). The stage overlay's two level axes are named in
+     * figureModel.stageLevelAxes by each axis's own lines, so trackStagePainter.byReference is never a site (R4).
+     */
+    'axis-namer': ['webview/runtime/figureModel.ts:stageNames', 'webview/runtime/figureModel.ts:levelAxes'],
     /** R9's range rules. */
     'range-rule': ['shared/utils/ticks.ts:niceRange', 'shared/utils/ticks.ts:heatmapDbRange', 'webview/runtime/stagePanes.ts:stageRange', 'webview/runtime/stagePanes.ts:stageDiffRange'],
 };
@@ -336,8 +342,13 @@ const ALLOWED: Sites = {
     // paneAxes and levelIdentityOf, defined (figureModel.ts paneNames and levelKeyOf wrap them); the Δ headline's
     // signed "Leq +1.2 dB" (a Δ).
     'webview/runtime/comparePanes.ts': { 'axis-name': ['levelsHeadline.word', 'paneAxes.delta.y', 'paneAxes.y'], 'bare-db': ['diffHeadline'], 'identity': ['levelIdentityOf'] },
-    // "Δ max band dB" (a Δ).
-    'webview/runtime/compareReport.ts': { 'bare-db': ['reportCsv.header'] },
+    // "Δ max band dB" (a Δ); a report figure's level axes, each named by its own sides' input (reportLevelAxes).
+    'webview/runtime/compareReport.ts': { 'axis-namer': ['reportLevelAxes'], 'bare-db': ['reportCsv.header'] },
+    // A held plot names the one picture it draws (its step's, its Δ's), with its own recording's input.
+    'webview/runtime/entryHeldPlot.ts': { 'axis-namer': ['createHeldPlot.paint', 'createHeldPlot.paintDelta', 'createHeldPlot.paintSlot', 'createHeldPlot.paintStep'] },
+    // A lane names its own picture by its own track's input; the Δ pane its difference by the compared recording's.
+    // The overlay's level axes are not here: figureModel.stageLevelAxes names each by its own lines (R4).
+    'webview/runtime/trackStagePainter.ts': { 'axis-namer': ['paintStageLanes.axes', 'paintStageOverlay.diffAxes'] },
     // The CSV match's "{matched} of {total}" files (the folder's count) and the test snapshot's scanned count.
     'webview/runtime/entryRuntime.ts': { 'file-count': ['createEntryScreen.paint', 'createEntryScreen.readCsvFile', 'createEntryScreen.snapshot.scanned'] },
     // "Δ max band dB" (a Δ); which part of a ≠ row's identity differs, said once figureModel.scanLevelKey found it differs.
@@ -345,13 +356,14 @@ const ALLOWED: Sites = {
     // stageAxes and stageRange / stageDiffRange, defined (figureModel.ts stageNames, dataRange, diffRange wrap them).
     'webview/runtime/stagePanes.ts': { 'axis-builder': ['stageAxes.colour', 'stageAxes.y'], 'axis-name': ['amplitudeAxisTitle', 'metricName', 'stageAxes.colour', 'stageAxes.y', 'timeLevelTitle', 'timeLevelTitle.name'], 'range-rule': ['roundEdge', 'stageRange'] },
     // The gate's "analyse the base group's n recordings": how many would be scanned, not a figure's n.
-    'webview/runtime/trackStageMode.ts': { 'file-count': ['createTrackStageMode.paintNow.count', 'createTrackStageMode.paintNow.items.count'] },
+    // A drawn lane's names for the readout: its own picture by its own track's input.
+    'webview/runtime/trackStageMode.ts': { 'axis-namer': ['createTrackStageMode.paintNow.lanesDrawn.axes'], 'file-count': ['createTrackStageMode.paintNow.count', 'createTrackStageMode.paintNow.items.count'] },
     // figureModel.ts itself, looked at too: the rules it defines and wraps (its own builders, keys and range rules),
     // and never a default reference ('default-reference'): a guessed reference here would be every figure's.
     // Its definitions: stageAxes/paneAxes/calibrationWords wrapped; the level strings its titles are made of; its CSV
     // columns; medianInputOf, the one place a line of several recordings is calibrated only when every one is; R9's
     // rules wrapped; levelIdentityOf wrapped by levelKeyOf; calibrationWordsBy's and a folder reference's any.
-    'webview/runtime/figureModel.ts': { 'axis-builder': ['legendWords.word', 'paneNames', 'paneNames.axes', 'stageNames'], 'axis-name': ['gainAxisName.name', 'levelTitle', 'uncalibratedWord', 'unknownLevelTitle'], 'csv-column': ['bandLevelColumns', 'bandLevelColumns.level', 'baseLevelColumns', 'levelColumns'], 'every-calibrated': ['calibrationWordsBy', 'folderReference.calibrated', 'medianInputOf.calibrationStatus'], 'identity': ['levelKeyOf.identity', 'pictureSet.of'], 'range-rule': ['dataRange', 'diffRange', 'heatmapRange', 'levelLineRange.auto', 'roundedRange.nice'] },
+    'webview/runtime/figureModel.ts': { 'axis-namer': ['stageLevelAxes', 'stageLevelAxes.names', 'stageLevelAxes.pendingNames'], 'axis-builder': ['legendWords.word', 'paneNames', 'paneNames.axes', 'stageNames'], 'axis-name': ['gainAxisName.name', 'levelTitle', 'uncalibratedWord', 'unknownLevelTitle'], 'csv-column': ['bandLevelColumns', 'bandLevelColumns.level', 'baseLevelColumns', 'levelColumns'], 'every-calibrated': ['calibrationWordsBy', 'folderReference.calibrated', 'medianInputOf.calibrationStatus'], 'identity': ['levelKeyOf.identity', 'pictureSet.of'], 'range-rule': ['dataRange', 'diffRange', 'heatmapRange', 'levelLineRange.auto', 'roundedRange.nice'] },
 };
 
 function each(node: ts.Node, visit: (node: ts.Node) => void): void {
@@ -462,7 +474,7 @@ const INJECTED_USES = [
     "import * as panes from './stagePanes';",
     "import { niceRange as nice, heatmapDbRange } from '../../shared/utils/ticks';",
     "import { levelIdentityOf as keyOf, paneAxes } from './comparePanes';",
-    "import { calibrationWords as words } from './figureModel';",
+    "import { calibrationWords as words, stageNames as named, levelAxes } from './figureModel';",
     'export const renamed = (low: number, high: number) => nice(low, high);',
     'export const spaced = () => panes.stageRange([]);',
     'export const handedOn = [heatmapDbRange].map(rule => rule(0, 1));',
@@ -471,6 +483,8 @@ const INJECTED_USES = [
     'export const axes = paneAxes;',
     'export const builder = panes.stageAxes;',
     'export const calibration = words;',
+    'export const overlayNames = (strings: Parameters<typeof named>[0]) => named(strings, null, undefined);',
+    'export const ownAxes = levelAxes;',
 ].join('\n');
 
 test('outside figureModel.ts nothing builds an axis name, calls an axis builder, keys by level identity, applies a range rule, counts files for n or defaults a reference, but the exact list; figureModel.ts only its own definitions (docs/plot-layers.md)', () => {
@@ -485,13 +499,13 @@ test('outside figureModel.ts nothing builds an axis name, calls an axis builder,
     for (const rel of new Set([...Object.keys(sites), ...Object.keys(ALLOWED)])) {
         for (const group of new Set([...Object.keys(sites[rel] ?? {}), ...Object.keys(ALLOWED[rel] ?? {})])) {
             const found = sites[rel]?.[group] ?? [], allowed = ALLOWED[rel]?.[group] ?? [];
-            for (const site of found.filter(name => !allowed.includes(name))) problems.push(group === 'unit-edit' ? `src/${rel}: ${site} writes an exponent onto a unit (R4): the unit of a picture's values is sent raised by the backend (stage_view.signal_unit); show view.unit as it is, through figureModel's names.` : `src/${rel}: ${site} does what only the figure layer may (${group}). Take the name, range, identity or count from src/webview/runtime/figureModel.ts (docs/plot-layers.md). If this is not a figure's (say, a definition figureModel.ts wraps), add '${site}' to ALLOWED['${rel}']['${group}'] in src/test/figureModel.test.ts with a comment saying why.`);
+            for (const site of found.filter(name => !allowed.includes(name))) problems.push(group === 'axis-namer' ? `src/${rel}: ${site} names an axis by a picture or names level axes itself (axis-namer, R4). A plot of two level axes takes each axis's name from figureModel.stageLevelAxes, which names it by the lines assigned to it, never by the first picture in. If ${site} names one picture by itself (a lane, a Δ), add '${site}' to ALLOWED['${rel}']['axis-namer'] in src/test/figureModel.test.ts with a comment saying why.` : group === 'unit-edit' ? `src/${rel}: ${site} writes an exponent onto a unit (R4): the unit of a picture's values is sent raised by the backend (stage_view.signal_unit); show view.unit as it is, through figureModel's names.` : `src/${rel}: ${site} does what only the figure layer may (${group}). Take the name, range, identity or count from src/webview/runtime/figureModel.ts (docs/plot-layers.md). If this is not a figure's (say, a definition figureModel.ts wraps), add '${site}' to ALLOWED['${rel}']['${group}'] in src/test/figureModel.test.ts with a comment saying why.`);
             for (const site of allowed.filter(name => !found.includes(name))) problems.push(`src/${rel}: ${site} no longer matches ${group}: take it off ALLOWED in src/test/figureModel.test.ts (the list only shrinks).`);
         }
     }
     assert.deepEqual(problems, []);
     // The same scan finds a guarded function used under another name, through a namespace, or handed on as a value.
-    assert.deepEqual(injected, { 'axis-builder': ['axes', 'builder', 'calibration'], 'identity': ['identity'], 'range-rule': ['diff', 'handedOn', 'renamed', 'spaced'] });
+    assert.deepEqual(injected, { 'axis-builder': ['axes', 'builder', 'calibration'], 'axis-namer': ['overlayNames', 'ownAxes'], 'identity': ['identity'], 'range-rule': ['diff', 'handedOn', 'renamed', 'spaced'] });
 });
 
 test('the structural check fails on each injected bug: every violation of class sweep 1 (reference, aggregation) and the first ones (an axis name, pending in n, two identities on one axis, a CSV header without its reference)', () => {

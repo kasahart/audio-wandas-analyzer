@@ -514,6 +514,17 @@ export function levelAxes<L>(lines: readonly L[], spec: LevelAxesSpec<L>): { axe
     return { axes, tooMany: false };
 }
 
+/**
+ * The stage overlay's level axes (levelAxes), each named here by the lines assigned to it: its first line's picture
+ * and its lines' input, never another axis's lines or the picture that arrived first (R4). Where no axis has a line
+ * (nothing drawn yet, or too many references) the plot gets the pending name: `pending`'s horizontal axis, a level
+ * axis naming no reference (unit unknown), never a guessed one.
+ */
+export function stageLevelAxes<L extends { view: StageView }>(strings: StageStrings, lines: readonly L[], spec: Omit<LevelAxesSpec<L>, 'names' | 'fallback'>, pending: StageView | null): { axes: FigureAxis<L>[]; tooMany: boolean; pendingNames: FigureNames } {
+    const { axes, tooMany } = levelAxes(lines, { ...spec, names: (input, own) => stageNames(strings, own[0]?.view ?? pending, own.length ? input : undefined) });
+    return { axes, tooMany, pendingNames: stageNames(strings, pending, undefined) };
+}
+
 // ── Which files a figure counts ───────────────────────────────────────────────────────────────────────────────────
 
 /**
