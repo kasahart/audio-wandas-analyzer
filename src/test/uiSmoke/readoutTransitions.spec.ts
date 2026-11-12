@@ -954,6 +954,60 @@ const ROWS: Row[] = [
         },
     },
     {
+        // docs/display-rules.md R7, "選択は見た目だけを変える": a picked range colours the recordings inside it; the keys
+        // still pass every recording drawn, into the range and out of it.
+        chart: 'entry distribution', event: '← / → with a range picked: every recording is read once, inside the range and outside it', backend: true,
+        async run(page) {
+            await page.setViewportSize({ width: 1280, height: 900 });
+            await openEntry(page, scanned!, { language: 'en' });
+            // The fixture's CSV with two columns added: the first five recordings are lot T and score 1 to 5.
+            const lines = entry100Metadata().replace(/^﻿/u, '').trimEnd().split(/\r?\n/u);
+            const csv = [`${lines[0]},lot,score`, ...lines.slice(1).map((line, index) => `${line},${index < 5 ? 'T' : 'U'},${index < 5 ? index + 1 : 9}`)].join('\n');
+            await pickCsv(page, 'motor.csv', csv);
+            await page.locator('[data-action="entry-value"]').selectOption('csv:score');
+            await page.locator('[data-action="entry-group"]').selectOption('csv:lot');
+            const dotCanvas = page.locator('[data-dist-group="T"] [data-dist-canvas]');
+            const dots = async (): Promise<Array<{ key: string; x: number; y: number }>> => ((await dotCanvas.getAttribute('data-dots')) ?? '').split('\n').filter(Boolean)
+                .map(line => { const [key, x, y] = line.split('\t'); return { key, x: Number(x), y: Number(y) }; });
+            await expect.poll(async () => (await dots()).length, { message: 'lot T is drawn as five dots' }).toBe(5);
+            const drawn = (await dots()).sort((a, b) => a.x - b.x);
+            const at = (await dotCanvas.boundingBox())!;
+            // Alt+drag picks the range holding the third and fourth recordings (from between the 2nd and 3rd dots to
+            // between the 4th and 5th), away from the dots themselves.
+            const y = at.y + Math.min(at.height - 3, Math.max(3, drawn[0].y > at.height / 2 ? 4 : at.height - 4));
+            await page.keyboard.down('Alt');
+            await page.mouse.move(at.x + (drawn[1].x + drawn[2].x) / 2, y);
+            await page.mouse.down();
+            await page.mouse.move(at.x + (drawn[3].x + drawn[4].x) / 2, y, { steps: 6 });
+            await page.mouse.up();
+            await page.keyboard.up('Alt');
+            await expect.poll(async () => (await snapshotUi(page)).entry?.dist?.range ?? null, { message: 'Alt+drag picks a range on the distribution (if the gesture changed, pick the range as a user now does)' }).not.toBeNull();
+            await settled(page);
+            await expect.poll(async () => (await dots()).length, { message: 'the five recordings stay drawn with a range picked' }).toBe(5);
+            const now = (await dots()).sort((a, b) => a.x - b.x);
+            const box = (await dotCanvas.boundingBox())!;
+            const text = (): Promise<string> => dotCanvas.evaluate(canvas => (canvas as HTMLElement & { __plotRead?: { text?: string } | null }).__plotRead?.text ?? '');
+            await page.mouse.move(box.x + now[0].x, box.y + now[0].y);
+            await readFull(dotCanvas);
+            const fix = 'With a range picked ← / → must still pass every recording drawn, inside the range and outside it (docs/display-rules.md R7). '
+                + 'Fix: keep the recordings on one layer and show the range with StageLayer.colorAt (entryDistribution.ts distributionRows), never as a layer of their own.';
+            const forward = [await text()];
+            for (let step = 1; step < now.length; step++) {
+                await page.keyboard.press('ArrowRight');
+                await expect.poll(text, { message: `→ from "${forward.at(-1)}" (recording ${step} of 5) reads no further recording: it cannot cross the range's edge. ${fix}` }).not.toBe(forward.at(-1));
+                forward.push(await text());
+            }
+            expect(new Set(forward).size, `→ read ${new Set(forward).size} of the 5 recordings: ${forward.join(' | ')}. ${fix}`).toBe(5);
+            const backward = [await text()];
+            for (let step = 1; step < now.length; step++) {
+                await page.keyboard.press('ArrowLeft');
+                await expect.poll(text, { message: `← from "${backward.at(-1)}" reads no further recording. ${fix}` }).not.toBe(backward.at(-1));
+                backward.push(await text());
+            }
+            expect(backward, `← must pass the recordings → passed, in reverse. ${fix}`).toEqual([...forward].reverse());
+        },
+    },
+    {
         chart: 'entry distribution', event: 'a double click on a dot resets the zoom only: the table stays on its row', backend: true,
         async run(page) {
             await page.setViewportSize({ width: 1280, height: 900 });
@@ -1014,5 +1068,5 @@ test('the browser table holds a row for each chart the readout runs on, by its f
     // Each chart is stepped (→) or zoomed (+) under a still pointer in at least one of its rows.
     for (const chart of CHARTS) expect(ROWS.some(row => row.chart === chart && /→|\+/u.test(row.event)), `${chart}: a step or a zoom`).toBe(true);
     const events = ROWS.map(row => row.event).join(' | ');
-    for (const path of ['scroll', 'Tab', 'then +', 'pending', 'failed', '(a redraw)', 'add up', 'off the window', 'seek', 'double click', 'drag', 'the surface from under', 'double-click wait', 'event-line click', 'header', 'resize', 'no slice drawn yet', 'drag threshold', 'picture is made anew', 'on a dot', 'let go there', 'recordings of the same value', 'a redraw without another recording']) expect(events, path).toContain(path);
+    for (const path of ['scroll', 'Tab', 'then +', 'pending', 'failed', '(a redraw)', 'add up', 'off the window', 'seek', 'double click', 'drag', 'the surface from under', 'double-click wait', 'event-line click', 'header', 'resize', 'no slice drawn yet', 'drag threshold', 'picture is made anew', 'on a dot', 'let go there', 'recordings of the same value', 'a redraw without another recording', 'with a range picked']) expect(events, path).toContain(path);
 });

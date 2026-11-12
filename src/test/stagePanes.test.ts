@@ -1027,3 +1027,65 @@ test('a recording stepped to stays that recording after a redraw that reorders, 
         assert.equal(named(there ? stageStep(inserted, there, -1) ?? null : null), 't-a', `${kind}: ← after a redraw must step from the kept recording (t-b → t-a). ${fix}`);
     }
 });
+
+/**
+ * docs/display-rules.md R7, "選択は見た目だけを変える": a picked range (or any other state of some points) changes how
+ * points look, never what ← / → visit. With a range picked on the distribution the keys still pass every recording
+ * drawn, inside and outside the range, once each, in the same order as with none picked.
+ */
+test('with a range picked on the distribution ← / → still visit every recording and every bar once, in and out of the range, in the order they have with none picked (R7)', () => {
+    const fix = 'Fix: a state of some points (inside a picked range) must not put them on a layer of their own; keep one layer of every point and show the state with StageLayer.colorAt (dots) or StageLayer.share (bars) '
+        + '(entryDistribution.ts distributionRows). See docs/display-rules.md R7.';
+    const range = { low: 4, high: 8 };
+    const pictured = (picked: boolean): DistributionPicture => ({
+        width: 400, rowHeight: 40, strip: false, range: picked ? range : null, slots: [], base: null, labels: new Map(), groupPrefix: '', axisLabel: 'score', unitLabel: 'recordings',
+        format: value => String(value), name: key => key, countOf: (_group, drawn) => String(drawn),
+    });
+    const named = (read: NonNullable<ReturnType<typeof stageHover>>): string => /\b[to]-[\w]+/u.exec(read.text)?.[0] ?? read.text;
+    const walk = (plot: StagePlot, start: NonNullable<ReturnType<typeof stageHover>>, delta: -1 | 1, limit: number, what: (read: NonNullable<ReturnType<typeof stageHover>>) => string): string[] => {
+        const seen = [what(start)];
+        let read = start;
+        for (let next = stageStep(plot, read, delta); next; next = stageStep(plot, read, delta)) { read = next; seen.push(what(read)); assert.ok(seen.length <= limit, `the keys never reach the end: a point is visited twice. ${fix}`); }
+        return seen;
+    };
+    for (const [kind, count] of [['dots', 8], ['rug', 20]] as const) {
+        // Recordings below, inside (three of them at one value) and above the range.
+        const members = (picked: boolean): Array<{ key: string; filePath: string; value: number; inRange: boolean }> => [
+            ...['t-b', 't-c', 't-a'].map(key => ({ key, value: 5 })),
+            ...Array.from({ length: count - 3 }, (_, index) => ({ key: `o-${String(index).padStart(2, '0')}`, value: 1 + index * (10 / (count - 3)) })),
+        ].map(member => ({ ...member, filePath: `/${member.key}.wav`, inRange: !picked || (member.value >= range.low && member.value <= range.high) }));
+        const drawing = (picked: boolean): { plot: StagePlot; layers: StageLayer[] } => {
+            const row = distributionRows({ groups: [{ name: 'g', members: members(picked) }], low: 0, high: 12, missing: 0, apart: 0, unit: 'recording' }, pictured(picked), { bar: 'grey', barIn: 'silver', slots: [] }, getStrings('en'))[0];
+            const of = row.layers.filter(candidate => candidate.marks === kind);
+            return { layers: row.layers, plot: { frame: { left: 0, top: 0, width: 240, height: 100 }, xAt: value => value * 20, xOf: x => x / 20, yAt: value => 100 - value * 10, ratioStep: 1.12, lines: of, diff: false } };
+        };
+        const orders = [false, true].map(picked => {
+            const { plot, layers } = drawing(picked);
+            assert.equal(plot.lines.length, 1, `${kind}, range ${picked ? 'picked' : 'not picked'}: the recordings are drawn as ${plot.lines.length} layers; they must be one, or the keys cannot cross from one to the other. ${fix}`);
+            assert.equal(layers.filter(layer => layer.view.kind === 'bar').length, kind === 'rug' ? 1 : 0, `${kind}, range ${picked ? 'picked' : 'not picked'}: the bars must be one layer of every bin (the part in the range is StageLayer.share). ${fix}`);
+            const first = stageHover(plot, plot.xAt(1), plot.yAt(kind === 'dots' ? 0.5 : 0));
+            assert.ok(first?.full, `${kind}: the pointer on the first recording reads nothing`);
+            const forward = walk(plot, first, 1, count, named);
+            const last = stageHover(plot, plot.xAt(Math.max(...members(picked).map(member => member.value))), plot.yAt(kind === 'dots' ? 0.5 : 0));
+            assert.ok(last?.full, `${kind}: the pointer on the last recording reads nothing`);
+            assert.deepEqual(walk(plot, last, -1, count, named), [...forward].reverse(), `${kind}, range ${picked ? 'picked' : 'not picked'}: ← must pass the recordings → passed, in reverse. ${fix}`);
+            return forward;
+        });
+        const expected = members(false).sort((a, b) => a.value - b.value || (a.key < b.key ? -1 : 1)).map(member => member.key);
+        assert.deepEqual(orders[0], expected, `${kind}, no range picked: → must visit every recording once, by value then key. ${fix}`);
+        assert.deepEqual(orders[1], expected, `${kind}, with a range picked (4–8): → must visit the same recordings in the same order as with none picked, crossing into the range and out of it. ${fix}`);
+    }
+    // The bars of a large group: every bin with a count, whether the range is picked or not.
+    const bins = [false, true].map(picked => {
+        const row = distributionRows({ groups: [{ name: 'g', members: Array.from({ length: 40 }, (_, index) => ({ key: `o-${index}`, filePath: `/o-${index}.wav`, value: 1 + index * 0.25, inRange: !picked || (1 + index * 0.25 >= range.low && 1 + index * 0.25 <= range.high) })) }], low: 0, high: 12, missing: 0, apart: 0, unit: 'recording' },
+            pictured(picked), { bar: 'grey', barIn: 'silver', slots: [] }, getStrings('en'))[0];
+        const bars = row.layers.filter(layer => layer.view.kind === 'bar');
+        assert.equal(bars.length, 1, `range ${picked ? 'picked' : 'not picked'}: ${bars.length} bar layers. ${fix}`);
+        const plot: StagePlot = { frame: { left: 0, top: 0, width: 240, height: 100 }, xAt: value => value * 20, xOf: x => x / 20, yAt: value => 100 - value * 10, ratioStep: 1.12, lines: bars, diff: false };
+        const first = stageHover(plot, plot.xAt(1.1), plot.yAt(1));
+        assert.ok(first?.full, 'the pointer on the first bar reads nothing');
+        return walk(plot, first, 1, 60, read => String(read.at));
+    });
+    assert.ok(bins[0].length > 10, 'the bars are stepped');
+    assert.deepEqual(bins[1], bins[0], `with a range picked the keys must pass the same bars as with none picked. ${fix}`);
+});
