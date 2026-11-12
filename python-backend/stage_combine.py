@@ -35,7 +35,6 @@ from stage_view import (
     StageDetail,
     StageLevelBins,
     StagePeak,
-    StageTimeAxis,
     StageValueRange,
     StageView,
 )
@@ -519,6 +518,8 @@ def draw(data: StageData, detail: StageDetail | None = None, *, diff: bool = Fal
     if not diff:
         with_level_bins(view, data, detail)
     with_value_range(view, data, detail, diff=diff)
+    # The axes of the data combined (the recordings' common part), whatever part of it is drawn.
+    sv.with_source_axes(view, data)
     return view  # type: ignore[return-value]
 
 
@@ -655,16 +656,6 @@ def _aligned(items: list[StageData]) -> list[StageData] | None:
         return replace(item, xs=item.xs[:n], values=item.values[..., :n], whole=whole)
 
     return [cut(item) for item in items]
-
-
-def time_axis(item: StageData) -> StageTimeAxis | None:
-    """Where a line over time starts and its spacing, as _aligned compares them: a signal's start and sample
-    period, else its first value's time and the step to the next; None for a line of one point."""
-    if item.mode == "signal":
-        return {"start": float(item.start), "step": 1.0 / float(item.rate)} if item.rate > 0 else None
-    if item.xs.size < 2:
-        return None
-    return {"start": float(item.xs[0]), "step": float(item.xs[1] - item.xs[0])}
 
 
 def _median(items: list[StageData]) -> np.ndarray:

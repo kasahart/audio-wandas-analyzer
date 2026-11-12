@@ -100,6 +100,11 @@ times).
   drawing code and `stage_combine.read_points` both use. So a drawn point and the point read under the pointer have
   the same x.
 
+- Every picture carries the axes of its source data, `xSource` (and an image's `ySource`), made in one place:
+  `stage_view.source_axis` of the reading, before thinning and whatever part is drawn (a median's or a Δ's of the
+  common part `stage_combine._aligned` combined). The webview decides the whole view's range and which pictures share
+  an axis from these alone; a picture's drawn `xs` / `ys` are only painted (display rules R2).
+
 To draw a new Frame kind, add a branch to `read_frame`. Do not read a Frame's `data`, `freqs` or `times` in a view
 function or in `stage_combine.py`, and do not compute a time or frequency from a count or a fraction: use `x_at`.
 `python-backend/test_drawn_x_is_source_x.py` checks every Frame kind and every thinning routine against the Frame's

@@ -27,10 +27,9 @@ from stage_combine import (
     level_bins,
     read_points,
     stage_data,
-    time_axis,
     value_range,
 )
-from stage_view import stage_view
+from stage_view import source_axis, stage_view
 
 RATE = 16000
 ENTRY_RECIPE = json.loads((Path(__file__).parent / "recipes" / "entry-scan.recipe.json").read_text())
@@ -770,8 +769,16 @@ def test_zoomed_the_headlines_peak_is_looked_for_in_the_window_on_screen_alone_n
     assert shown["diff"]["xs"] == margin["diff"]["xs"]
 
 
+def _time_key(data: StageData) -> tuple[int, float]:
+    """A time axis's identity as the webview takes it of ``xSource`` (figureModel.pictureAxis): where it starts, in
+    steps, and its step."""
+    axis = source_axis(data)
+    assert axis is not None
+    return round(axis["first"] / axis["step"]), axis["step"]
+
+
 def test_a_time_axis_key_agrees_with_what_aligned_combines() -> None:
-    """The webview counts time lines on one axis by ``timeAxis`` (pictureAxis): exactly those ``_aligned`` combines,
+    """The webview counts time lines on one axis by ``xSource`` (pictureAxis): exactly those ``_aligned`` combines,
     other lengths alike, another step or start apart (class sweep 4, aggregation V6)."""
     view = {"frame": "ChannelFrame", "kind": "line", "x": "time", "xScale": "linear", "quantity": "level"}
 
@@ -781,12 +788,12 @@ def test_a_time_axis_key_agrees_with_what_aligned_combines() -> None:
     hop48, hop44 = 512 / 48_000, 512 / 44_100
     same = [line(hop48, 10), line(hop48, 12)]
     assert _aligned(same) is not None
-    assert time_axis(same[0]) == time_axis(same[1])
+    assert _time_key(same[0]) == _time_key(same[1])
     for other in (line(hop44, 10), line(hop48, 10, start=hop48 / 2)):
         assert _aligned([same[0], other]) is None
-        assert time_axis(same[0]) != time_axis(other)
+        assert _time_key(same[0]) != _time_key(other)
     signal = StageData("signal", np.empty(0), np.zeros(4), view=view, start=0.0, rate=48_000.0)  # type: ignore[arg-type]
-    assert time_axis(signal) == {"start": 0.0, "step": 1 / 48_000}
+    assert source_axis(signal) == {"count": 4, "first": 0.0, "last": 3 / 48_000, "step": 1 / 48_000}
 
 
 def test_a_difference_has_no_silent_floor_its_range_and_reads_hold_a_delta_of_minus_260_db() -> None:

@@ -86,6 +86,12 @@ _WHOLE_LINE: Schema = {"type": "array", "items": _WHOLE}
 _WHOLE_GAPPED: Schema = {"type": "array", "items": {"anyOf": [_WHOLE, _NULL]}}
 _PLACE: Schema = {"type": "number", "x-place": True}
 _PLACES: Schema = {"type": "array", "items": _PLACE}
+# One axis of a picture's source data (stage_view.StageSourceAxis).
+_SOURCE_AXIS: Schema = {
+    "type": "object",
+    "required": ["count", "first", "last"],
+    "properties": {"count": {"type": "integer", "minimum": 1}, "first": _PLACE, "last": _PLACE, "step": _PLACE},
+}
 
 DEFINITIONS: dict[str, Schema] = {
     # Deep calibration validation stays in calibration_profile.py / calibrationModel.ts.
@@ -697,6 +703,8 @@ DEFINITIONS: dict[str, Schema] = {
             # A log axis's ends when its xs are drawn points, not band centres (a spectrum's 20 Hz to Nyquist).
             "xLimits": _PLACES,
             "ys": _PLACES,
+            # An image's rows' ends on a log axis when its ys are drawn rows (a spectrogram's 20 Hz to Nyquist), as xLimits.
+            "yLimits": _PLACES,
             "yAxis": {"type": "string", "enum": ["frequency", "bark", "quefrency"]},
             "values": _DRAWN_GAPPED,
             "matrix": {"type": "array", "items": _DRAWN_GAPPED},
@@ -750,12 +758,10 @@ DEFINITIONS: dict[str, Schema] = {
                 "required": ["min", "max"],
                 "properties": {"min": _NUMBER, "max": _NUMBER, "robust": _NUMBER},
             },
-            # A line over time: its full-resolution values' start and spacing (s), as the median aligns them.
-            "timeAxis": {
-                "type": "object",
-                "required": ["start", "step"],
-                "properties": {"start": _NUMBER, "step": _NUMBER},
-            },
+            # The picture's source data's x axis (and an image's rows), before thinning and whatever part is drawn:
+            # the whole view's x range, and which pictures share an axis. Places along an axis, not data values.
+            "xSource": _SOURCE_AXIS,
+            "ySource": _SOURCE_AXIS,
             # A difference's largest magnitude over the part on screen, from every value before thinning (headline).
             "peak": {
                 "type": "object",

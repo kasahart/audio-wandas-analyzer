@@ -35,7 +35,7 @@ const scan = (levels: number[], input: LevelInput = FS, fs = 48000, channelCalib
     spectrumDb: levels.map(level => [level, level]), thirdOctDb: levels.map(level => [level, level + 1]), specVersion: 5,
 });
 
-const gain = (pair: StageView['pair'], unit?: string): StageView => ({ frame: 'TransferFunctionFrame', kind: 'line', x: 'frequency', quantity: 'gain', pair, ...(unit ? { unit } : {}), xs: [1, 2], values: [0, 1], data: 'k' });
+const gain = (pair: StageView['pair'], unit?: string): StageView => ({ frame: 'TransferFunctionFrame', kind: 'line', x: 'frequency', quantity: 'gain', pair, ...(unit ? { unit } : {}), xs: [1, 2], values: [0, 1], xSource: { count: 2, first: 1, last: 2, step: 1 }, data: 'k' });
 
 test('a pair is calibrated only when both of its sides are, and its axis says so (reference #2, #3, #4)', () => {
     // Within one recording: ch1 gain-corrected, ch2 not: the gain ch2 / ch1 is uncalibrated, though the file's dBFS matches.
@@ -74,7 +74,7 @@ test('a pair step\'s member whose picture is not in is pending, and one the tabl
 });
 
 test('time lines of another step are on another axis, as the backend\'s _aligned (aggregation V6)', () => {
-    const line = (start: number, step: number, n: number): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'level', xs: Array.from({ length: n }, (_, i) => start + i * step), values: Array(n).fill(0), timeAxis: { start, step }, data: 'k' });
+    const line = (start: number, step: number, n: number): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'level', xs: Array.from({ length: n }, (_, i) => start + i * step), values: Array(n).fill(0), xSource: { count: n, first: start, last: start + (n - 1) * step, step }, data: 'k' });
     assert.equal(pictureAxis(line(0, 1 / 48000 * 512, 10)), pictureAxis(line(0, 1 / 48000 * 512, 12)), 'other lengths share the axis');
     assert.notEqual(pictureAxis(line(0, 1 / 48000 * 512, 10)), pictureAxis(line(0, 1 / 44100 * 512, 10)), 'another step does not');
     const views: Record<string, StageView> = { '/a.wav': line(0, 512 / 48000, 10), '/b.wav': line(0, 512 / 44100, 10) };

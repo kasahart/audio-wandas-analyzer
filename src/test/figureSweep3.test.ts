@@ -64,7 +64,7 @@ test('every value names its own row\'s reference and calibration, never the fold
 
 test('a transfer function is of its pair\'s unit ratio and a cross spectrum of its pair\'s reference (reference V3, V7, R1)', () => {
     // Gains of one unit compare whatever their channels are calibrated in: a Pa recording's and a full-scale one's are one identity.
-    const gain = (values: number[]): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'gain', pair: { output: 2, input: 1 }, xs: [1, 2], values, data: 'k' });
+    const gain = (values: number[]): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'gain', pair: { output: 2, input: 1 }, xs: [1, 2], values, xSource: { count: 2, first: 1, last: 2, step: 1 }, data: 'k' });
     assert.equal(levelKeyOf(pictureLevelOf(gain([0, 1]), SPL)), levelKeyOf(pictureLevelOf(gain([0, 1]), FS)));
     const views: Record<string, StageView> = { '/a.wav': gain([1, 2]), '/c.wav': gain([3, 4]) };
     const own: Record<string, LevelInput> = { '/a.wav': SPL, '/c.wav': FS, '/b.wav': FS };
@@ -80,7 +80,7 @@ test('a transfer function is of its pair\'s unit ratio and a cross spectrum of i
     assert.equal(gainUnit({ levelReferenceLabel: 'dB re 1 Pa/V' }), 'dB re 1 Pa/V');
     assert.equal(gainUnit(undefined), 'dB', 'a gain of one unit is a plain ratio');
     // V7: a cross spectrum against the base slot is re its pair's reference, as the backend names it, not the compared channel's.
-    const csd: StageView = { frame: 'CrossSpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', pair: { output: 1, input: 1, base: true }, unit: 'dB re 20 µPa·1 FS', xs: [1, 2], values: [0, 0], data: 'k' };
+    const csd: StageView = { frame: 'CrossSpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', pair: { output: 1, input: 1, base: true }, unit: 'dB re 20 µPa·1 FS', xs: [1, 2], values: [0, 0], xSource: { count: 2, first: 1, last: 2, step: 1 }, data: 'k' };
     const named = stageNames(strings, csd, pictureLevelOf(csd, SPL)).y;
     assert.ok(named.includes('dB re 20 µPa·1 FS'), named);
     assert.ok(!named.includes('dB SPL re 20 µPa'), named);
@@ -113,7 +113,7 @@ test('only names made in the layer can be wrapped: a bare level name written els
 });
 
 test('a step picture set has no identity while the compared picture is pending or failed, and a time axis ±1 sample is one axis (aggregation V5, V6)', () => {
-    const view = (n: number): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'level', xs: Array.from({ length: n }, (_, index) => index / 48000), values: Array(n).fill(0), data: 'k' });
+    const view = (n: number): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'level', xs: Array.from({ length: n }, (_, index) => index / 48000), values: Array(n).fill(0), xSource: { count: n, first: 0, last: (n - 1) / 48000, step: 1 / 48000 }, data: 'k' });
     assert.equal(pictureAxis(view(48000)), pictureAxis(view(48001)), 'recordings a sample apart share the time axis');
     const views: Record<string, StageView> = { '/a.wav': view(10), '/b.wav': view(11) };
     for (const compared of [undefined, null]) {

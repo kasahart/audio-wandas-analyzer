@@ -493,6 +493,13 @@ export function levelIdentity<T>(level: LevelOf | null | undefined, axisOf?: (va
 }
 
 /**
+ * The axis key of an answer whose axis is not known (a picture that does not say its source axis, pictureAxis). It
+ * matches no axis, not even itself: a figure whose compared answer is on it counts no other answer as on its axis,
+ * and an answer on it is never on the compared one's (figureUsed). Missing information splits, never merges.
+ */
+export const UNKNOWN_AXIS = '';
+
+/**
  * Which answers a figure's number is of (a median, a Δ, a count n, a heading, the CSV's 基準群 n and files, the drawn
  * member lines): the ready ones of `of`'s level identity and axis. Every other is excluded with why. Nothing pending
  * or stale is ever counted, and with no identity (`of` null) nothing is: the figure waits for its compared answer.
@@ -509,7 +516,8 @@ export function figureUsed<T>(of: FigureIdentity<T> | null, answers: ReadonlyArr
         if (levelKeyOf(answer.identity.level) !== of.level) { excluded.push({ path, reason: 'other-reference' }); continue; }
         // Of another channel count than the compared recording's (read over its channels together): the entry table's ≠ ch.
         if (of.channels !== undefined && of.channels !== null && of.channelsOf && of.channelsOf(answer.value) !== of.channels) { excluded.push({ path, reason: 'other-channels' }); continue; }
-        if (of.axis !== null && of.axisOf && of.axisOf(answer.value) !== of.axis) { excluded.push({ path, reason: 'other-axis' }); continue; }
+        // An axis not known is no answer's axis, not even another unknown one's: what is missing splits, never merges.
+        if (of.axis !== null && of.axisOf && (of.axis === UNKNOWN_AXIS || of.axisOf(answer.value) !== of.axis)) { excluded.push({ path, reason: 'other-axis' }); continue; }
         used.push({ path, value: answer.value, identity: answer.identity });
     }
     return { used, excluded, n: used.length, paths: used.map(item => item.path), level: of?.level ?? null } as unknown as FigureSet<T>;
@@ -630,15 +638,30 @@ export const ofReference = (reference: FolderReference, level: LevelOf | null | 
 
 // ── Step pictures as a figure's answers ─────────────────────────────────────────────────────────────────────────────
 
-/** The axis a step picture is on: its kind, axis and points (a backend median is taken only of aligned pictures). */
+/**
+ * One axis of a picture's source data as a key (the backend's `xSource` / `ySource`, taken of the data before it was
+ * thinned and whatever part of it is drawn). Over time (`timed`), recordings of other lengths share the axis: a median
+ * and a Δ are taken over their common part (R1) when their values start together (to the nearest step) at one step,
+ * as the backend's _aligned combines them. Any other axis is the same only with the same count, first and last value
+ * (to 9 significant digits).
+ */
+function sourceAxisKey(axis: NonNullable<StageView['xSource']>, timed: boolean): string {
+    if (!timed) return `${axis.count}|${axis.first.toPrecision(9)}|${axis.last.toPrecision(9)}`;
+    return axis.step !== undefined && axis.step > 0 ? `${Math.round(axis.first / axis.step)}@${axis.step.toPrecision(9)}` : `${axis.first.toPrecision(9)}`;
+}
+
+/**
+ * The axis a step picture is on: its kind, scale, quantity, unit and the axes of its source data (`xSource`, an
+ * image's `ySource` and row axis). Never the drawn `xs` / `ys`: how many points were kept to draw a picture, and where
+ * the first and last of them are, depend on the thinning and the zoom, not on the recording (display rules R2). A
+ * picture that does not say its source axis is on UNKNOWN_AXIS, which shares an axis with no picture (figureUsed).
+ */
 export function pictureAxis(view: StageView): string {
-    // Over time, recordings of other lengths share the axis: a median and a Δ are taken over their common part (R1),
-    // when their values start together at one step (the backend's _aligned, by the full-resolution timeAxis it sends).
-    const time = view.timeAxis && view.timeAxis.step > 0 ? `${Math.round(view.timeAxis.start / view.timeAxis.step)}@${view.timeAxis.step.toPrecision(9)}` : '';
-    const xs = view.x === 'time' ? time : `${view.xs?.length ?? 0}|${view.xs?.[0] ?? ''}|${view.xs?.at(-1) ?? ''}`;
+    if (!view.xSource || (view.kind === 'heatmap' && !view.ySource)) return UNKNOWN_AXIS;
+    const xs = sourceAxisKey(view.xSource, view.x === 'time');
     // A heatmap's rows are an axis too (its frequencies or bands).
-    const ys = view.kind === 'heatmap' ? `|${view.ys?.length ?? 0}|${view.ys?.[0] ?? ''}|${view.ys?.at(-1) ?? ''}|${view.yAxis ?? ''}` : '';
-    return `${view.kind}|${view.x ?? ''}|${xs}|${view.quantity ?? ''}|${view.unit ?? ''}${ys}`;
+    const ys = view.kind === 'heatmap' && view.ySource ? `|${sourceAxisKey(view.ySource, false)}|${view.yAxis ?? ''}` : '';
+    return `${view.kind}|${view.x ?? ''}|${view.xScale ?? ''}|${xs}|${view.quantity ?? ''}|${view.unit ?? ''}${ys}`;
 }
 
 /**
