@@ -29,8 +29,10 @@
  * plot on screen with two tick labels of one axis (numbers written in one column: the same alignment and x) whose
  * ink overlaps, however short the plot is; so does a heatmap whose colour bar does not draw what its colour measures
  * (`data-plot-colour`), whole or fitted as an axis name is; so does a plot whose axis name, said in its attributes, is
- * not drawn for a while: on the plot, on the canvas holding its value axis, on a canvas that is no plot (the lanes'
- * shared time axis), on a plot stacked on the same axis, or as text on the page. What is checked is what is drawn.
+ * not drawn for a while: on the plot, on a canvas the plot component bound to it as drawing its axes (by id,
+ * `data-plot-named-by`: its value axis's canvas, the time axis the lanes share, the bottom plot of a stack), or as
+ * text in the element it names for its axis names (`data-plot-names`). A name drawn only on some other canvas does
+ * not count, and a plot that binds none must draw its names itself. What is checked is what is drawn.
  */
 import { test as base } from '@playwright/test';
 import { DRAWN_OUTSIDE_PENDING, PLOT_LAYERS, PLOTS_PENDING, SVG_CHARTS_PENDING } from './plotRegistry';
@@ -464,18 +466,14 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
     // Since when each plot on screen has named an axis it does not draw: drawn soon after (its axis canvas painted
     // next), it is not reported; never drawn, it is.
     const undrawnSince = new WeakMap<HTMLCanvasElement, number>();
-    // Whether an axis name is drawn where a reader sees it (as plotContract.spec's 'axes' check reads it).
+    // Whether an axis name is drawn where a reader sees it (as plotContract.spec's 'axes' check reads it): on the plot,
+    // on a canvas the plot component bound to it by id as one drawing its axes (data-plot-named-by: its value axis's
+    // canvas, the horizontal axis it shares with the plots stacked on it), or as text in the element the plot names
+    // for its axis names (data-plot-names). Never on another canvas that happens to draw the same words.
     const nameShown = (canvas: HTMLCanvasElement, name: string): boolean => {
-        const axisId = canvas.dataset.plotAxis;
-        const own = [...((canvas as Texted).__plotTexts ?? []), ...((axisId ? (document.getElementById(axisId) as Texted | null)?.__plotTexts : undefined) ?? [])];
-        if (colourNameDrawn(own, name)) return true;
-        const stack = canvas.closest('[data-plot-stack]');
-        const shared = Array.from(document.querySelectorAll<HTMLCanvasElement>('canvas'))
-            .filter(other => other !== canvas && shownBox(other) && (!other.hasAttribute('data-plot') || (!!stack && stack.contains(other))))
-            .flatMap(other => (other as Texted).__plotTexts ?? []);
-        if (shared.includes(name)) return true;
-        // Written as text only in the element the plot names for its axis names (data-plot-names: the cursor
-        // spectrum's legend of its level axes), never anywhere on the page that happens to read the same (C6).
+        const bound = (canvas.dataset.plotNamedBy ?? '').split(' ').filter(Boolean)
+            .map(id => document.getElementById(id) as Texted | null).filter((other): other is Texted => !!other && !!shownBox(other));
+        if (colourNameDrawn([...((canvas as Texted).__plotTexts ?? []), ...bound.flatMap(other => other.__plotTexts ?? [])], name)) return true;
         const names = canvas.dataset.plotNames ? document.getElementById(canvas.dataset.plotNames) : null;
         return !!names && [names, ...Array.from(names.querySelectorAll<HTMLElement>('*'))].some(element => element.children.length === 0 && element.checkVisibility() && element.textContent?.trim() === name);
     };

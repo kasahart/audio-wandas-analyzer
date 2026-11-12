@@ -913,6 +913,11 @@ export interface StagePaintOptions {
      * there), the plot filling its canvas at the canvas's own size, and no time labels (the ruler above has them).
      */
     axisCanvas?: HTMLCanvasElement | null;
+    /**
+     * The canvas that draws this plot's horizontal axis, numbers and name, for the plots stacked on it, where this
+     * plot draws none of its own (the lanes' ruler, the pair view's γ² plot, the distribution rows' value axis).
+     */
+    xAxisCanvas?: HTMLCanvasElement | null;
     /** A heatmap's level colours (the track spectrogram lanes' viridis); grey levels when not given. */
     heatmapPalette?: Palette;
     /** Each point of a signal's line (CSS pixels on the canvas, its value and time, whether seen), for a pointer that reads them. */
@@ -1033,6 +1038,12 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         canvas.dataset.plot = '';
         // The right-hand level axis's name too, where there is one: it is drawn and audited as the others are (R4).
         canvas.dataset.plotAxes = overlay.layers.length ? [axes.x, axes.y, ...(options.secondary && !overlay.layers.some(layer => layer.view.kind === 'heatmap') ? [options.secondary.title] : [])].join('|') : '';
+        // The canvases that draw its axes' names besides itself, by id (its value axis's, its shared horizontal
+        // axis's): the only other places the audit and the plot contract look for its names (R4). An axis canvas
+        // with no id names no plot.
+        canvas.dataset.plotNamedBy = [options.axisCanvas, options.xAxisCanvas].map(other => other?.id ?? '').filter(Boolean).join(' ');
+        if (options.xAxisCanvas?.id) canvas.dataset.plotXAxis = options.xAxisCanvas.id;
+        else delete canvas.dataset.plotXAxis;
         canvas.dataset.plotOrder = '';
         canvas.dataset.plotFull = '';
         canvas.dataset.plotColour = '';

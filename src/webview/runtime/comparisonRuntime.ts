@@ -2196,6 +2196,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
         const lanePlot = paintOverlay(canvas, lane.overlay, axis.range, plainNames(plainTitle(STR, 'axisTime'), axis.title), {
             axisCanvas: options.drawAxis === false ? null : canvasById(document, trackAxisCanvasId(trackIndex, channelIndex)),
+            // The time axis every lane shares, drawn once above them by the component (paintTimeAxis).
+            xAxisCanvas: canvasById(document, 'ruler-canvas'),
             axisView: lane.axisView,
             window: { x: { start: waveformView.start, end: waveformView.end } },
             ...(laneReadable(trackIndex) ? {} : { readout: false as const }),
@@ -2300,7 +2302,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const title = spectrogramLevelTitle(ch);
         const painted = paintTrackSpectrogram(canvas, axisCanvas, spec, { ...trackStore.globalSpan(), offsetNorm: trackStart, trackDurRatio }, {
             window: { start: waveformView.start, end: waveformView.end }, dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq,
-            durationSec: result.durationSeconds, ...(laneReadable(trackIndex) ? {} : { readout: false as const }),
+            durationSec: result.durationSeconds, timeAxis: canvasById(document, 'ruler-canvas'), ...(laneReadable(trackIndex) ? {} : { readout: false as const }),
         }, spectrogramRasterCache.get(cacheId), { colour: title, frequency: plainTitle(STR, 'axisFrequency'), time: plainTitle(STR, 'axisTime') }, [text, theme.bgColor, theme.lineColor].join(':'),
         laneTrackFull(trackIndex, track => laneReads.spectrogram(track, channelIndex, shown?.window ?? null)));
         spectrogramRasterCache.set(cacheId, painted);

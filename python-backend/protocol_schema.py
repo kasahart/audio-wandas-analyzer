@@ -703,7 +703,7 @@ DEFINITIONS: dict[str, Schema] = {
             # A log axis's ends when its xs are drawn points, not band centres (a spectrum's 20 Hz to Nyquist).
             "xLimits": _PLACES,
             "ys": _PLACES,
-            # An image's rows' ends on a log axis when its ys are drawn rows (a spectrogram's 20 Hz to Nyquist), as xLimits.
+            # An image's rows' ends on a log axis when its ys are drawn rows (a spectrogram's 20 Hz to Nyquist).
             "yLimits": _PLACES,
             "yAxis": {"type": "string", "enum": ["frequency", "bark", "quefrency"]},
             "values": _DRAWN_GAPPED,

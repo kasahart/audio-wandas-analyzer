@@ -73,6 +73,6 @@ test('results pane holds the hidden pair view beside the power spectrum', () => 
     assert.ok(html.indexOf('data-action="pair-divider-drag"') > html.indexOf('id="spectrum-overlay-wrap"'));
     // Three plots on one frequency axis (gain, phase, γ²), each drawn by the plot component, under one readout row.
     // Gain and phase are stacked on the γ² plot's frequency axis, drawn at the bottom of the stack (R13).
-    for (const lane of ['gain', 'phase', 'coherence']) assert.ok(html.includes('<canvas class="pair-lane-canvas" id="pair-lane-' + lane + '" data-pair-lane="' + lane + '"' + (lane === 'coherence' ? '' : ' data-plot-x-axis="pair-lane-coherence"') + ' aria-label="' + strings.pairSectionTitle + '"'));
+    for (const lane of ['gain', 'phase', 'coherence']) assert.ok(html.includes('<canvas class="pair-lane-canvas" id="pair-lane-' + lane + '" data-pair-lane="' + lane + '"' + ' aria-label="' + strings.pairSectionTitle + '"'));
     assert.ok(html.indexOf('id="pair-spectrum-readout"') < html.indexOf('id="pair-spectrum-plot"'));
 });
