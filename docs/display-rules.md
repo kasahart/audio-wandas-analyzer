@@ -406,6 +406,11 @@
 - テスト: `python-backend/test_stage_view_kinds.py` › test_the_frame_kinds_fixture_is_what_the_backend_draws_now
 - テスト: `src/test/uiSmoke/plotContract.spec.ts` › a ${kind} reached from ＋ answers the same gestures as every plot, overlaid, as its Δ and in lanes (R7)
 
+表示（窓・帯・設定）が変わらない間は、マウスを動かしても、取り寄せたものの中にいるかぎりバックエンドには何も頼みません。読み値はその場で読み、空になりません。スペクトログラムのマスは、マウスのまわりの列と上下 16 行をまとめて取り寄せ（`fullRead.ts` の `HOVER_CELLS`、バックエンドは `full_read.read_cells` の `rows`）、取り寄せたマスがマウスの位置に答えるかどうかは、行の中心ではなく、マウスのあるセル（描く絵・読み値と同じ区切りの `cellIndex`）が、上下にも取り寄せた行があるセルかどうかで決めます。帯で拡大したレーンは、軸の両端が範囲の入力欄の数（R9）なので、マウスの周波数がビンの中心からわずかにずれます。行の中心で比べると、そのずれだけで取り寄せた端の行を「外」と見て、同じマスを何度も頼み、そのたびに読み値が空になるからです。帯の絵（帯のビン）は帯を決めたときに 1 回だけ頼み、マウスの動きでは頼み直しません。テストの代わりのバックエンドも、`rows` をバックエンドと同じに受けます（2 行しか返さないと、本物では起きない頼み直しをテストが作るからです）。
+- テスト: `src/test/fullRead.test.ts` › a spectrogram's hover asks the backend once for a block around the pointer: moving across frames and bins reads what came (R7)
+- テスト: `src/test/fullRead.test.ts` › a pointer moving inside the cells a spectrogram's hover kept asks the host nothing new, a hair off a row's centre and in the outer half of the next-to-last kept row too (R7)
+- テスト: `src/test/uiSmoke/spectrogramZoom.spec.ts` › a spectrogram lane boxed to a narrow band asks for that band's own bins and draws and reads them, not the whole range's rows stretched (R3)
+
 ## R8 ＋ で選べる操作は結果を描く
 
 ＋ に出る操作は、選ぶと必ず結果のグラフが出ます。その録音で動かない、または意味のある結果にならない操作は、灰色にして理由を書きます。置いたあとに動かなくなった手順や、実行して失敗した手順は、オレンジで印を付けて理由を書きます。実行して失敗したときは wandas の理由です（R5）。

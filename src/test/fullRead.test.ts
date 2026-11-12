@@ -236,6 +236,50 @@ test('a spectrogram\'s hover asks the backend once for a block around the pointe
     assert.equal(asked[0].rows, 16);
 });
 
+test('a pointer moving inside the cells a spectrogram\'s hover kept asks the host nothing new, a hair off a row\'s centre and in the outer half of the next-to-last kept row too (R7)', () => {
+    // A zoomed band is painted from its ends at the range field's numbers (R9), so the pointer's frequency sits a float
+    // hair off the bins; kept rows answer it by the cell it is in (cellIndex), never by the rows' centres.
+    const columns = 40, ys = Array.from({ length: 64 }, (_, row) => 100 + row * 10);
+    const xs = Array.from({ length: columns }, (_, index) => index * 0.01);
+    const raw = ys.map((_, row) => xs.map((_, column) => -60 + row + column / 100));
+    const asked: FullReadRequest[] = [];
+    const nearest = (axis: number[], value: number): number => axis.reduce((best, at, index) => (Math.abs(at - value) < Math.abs(axis[best] - value) ? index : best), 0);
+    // full_read.read_cells: the cell nearest the place, `beyond` columns and `rows` rows (two unless asked) either side.
+    const source = fetchedSource((read, done) => {
+        asked.push(read);
+        const column = nearest(xs, read.x[0]), row = nearest(ys, read.y?.[0] ?? 0);
+        const beyond = read.beyond ?? 1, either = read.rows ?? 2;
+        const c0 = Math.max(0, column - beyond), c1 = Math.min(xs.length, column + beyond + 1);
+        const r0 = Math.max(0, row - either), r1 = Math.min(ys.length, row + either + 1);
+        done({ xs: xs.slice(c0, c1), ys: ys.slice(r0, r1), matrix: raw.slice(r0, r1).map(line => line.slice(c0, c1)), start: c0 > 0 ? xs[c0] : null, end: c1 < xs.length ? xs[c1 - 1] : null, complete: true });
+    });
+    const view: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', unit: 'dB', xs, ys, matrix: raw };
+    const width = 400, height = 640;
+    const plot: StagePlot = {
+        frame: { left: 0, top: 0, width, height }, xAt: value => value / (columns * 0.01) * width, yAt: () => 0, ratioStep: 1.12, diff: false, lines: [],
+        image: {
+            layer: { view, color: '', full: source },
+            cellAt: () => ({ column: -1, row: -1 }),
+            valueAt: (x, y) => ({ x: x / width * columns * 0.01, y: 100 + (1 - y / height) * 630 }),
+            placeOf: (x, y) => ({ x: x / (columns * 0.01) * width, y: (1 - (y - 100) / 630) * height }),
+            rowLog: false, columnLog: false,
+        },
+    };
+    const at = (column: number, hz: number): [number, number] => { const place = plot.image?.placeOf(xs[column], hz); return [place?.x ?? 0, place?.y ?? 0]; };
+    // The first read keeps rows 14–46 (16 either side of row 30): rows 15–45 are read with a kept row either side.
+    assert.equal(stageHover(plot, ...at(20, ys[30]))?.pending, true);
+    assert.equal(asked.length, 1);
+    for (const [row, hz] of [[30, ys[30] - 3e-4], [15, ys[15] - 3e-4], [15, ys[15] - 4], [45, ys[45] + 4], [45, ys[45] + 3e-4], [22, ys[22] + 4.9]]) {
+        const read = stageHover(plot, ...at(20, hz));
+        assert.equal(read?.pending, undefined, `R7: ${hz} Hz is in kept row ${row}'s cell and is read at once from the kept cells. A kept block answers a place by the cell it is in (fullRead.cellIndex), not by the rows' centres: do not ask the host again for it.`);
+        assert.equal(read?.value, raw[row][20], `R7: ${hz} Hz reads row ${row}'s real cell`);
+    }
+    assert.equal(asked.length, 1, 'R7: moves inside the kept cells ask the host nothing new');
+    // Past the kept rows' inner cells the pointer's own block is asked for, once.
+    assert.equal(stageHover(plot, ...at(20, ys[14] - 1))?.pending, true);
+    assert.equal(asked.length, 2);
+});
+
 test('a spectrogram is read at its real cells, never the cells averaged to draw it, and stepped a frame at a time (R7)', () => {
     const columns = 400, ys = [100, 200, 300, 400];
     const xs = Array.from({ length: columns }, (_, index) => index * 0.01);

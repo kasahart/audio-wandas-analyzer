@@ -72,6 +72,8 @@ export interface CellQuery {
     x: number;
     y: number;
     beyond: number;
+    /** The rows' axis is logarithmic: their cells' edges are geometric (cellEdges), as the plot reads them. */
+    rowLog?: boolean;
 }
 
 /**
@@ -592,7 +594,12 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
             const read: StageRead = { ...extra, x: [query.x], y: [query.y], beyond: hover ? HOVER_CELLS.beyond : query.beyond, ...(hover ? { rows: HOVER_CELLS.rows } : {}) };
             return answer(JSON.stringify(read), read, ready, points => {
                 const xs = points.xs, ys = points.ys ?? [];
-                if (!points.complete || xs.length < 1 || ys.length < 3 || query.y < ys[1] || query.y > ys[ys.length - 2]) return false;
+                // Kept rows answer a place whose cell (by the one cell rule, cellIndex, as the plot reads it) is a kept
+                // row with a kept row either side, for its edges. By the cell, not by the rows' centres: a place in the
+                // outer half of the next-to-last kept row is that row's, and a hair off a row's centre (a zoomed band's
+                // ends at the field's numbers, R9) is no reason to ask again (R7).
+                const row = ys.length >= 3 ? cellIndex(ys, query.y, !!query.rowLog, { low: true, high: true }) : -1;
+                if (!points.complete || xs.length < 1 || row < 1 || row > ys.length - 2) return false;
                 // The column nearest the pointer, with `beyond` (at least one, for the cell's edges) past it each side;
                 // a data end counts as reached.
                 let column = 0;

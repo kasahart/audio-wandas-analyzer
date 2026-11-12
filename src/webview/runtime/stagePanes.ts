@@ -2116,7 +2116,7 @@ function imageHover(plot: StagePlot, image: NonNullable<StagePlot['image']>, x: 
     if (source.cells === cannotRead) return null;
     const place = image.valueAt(x, y);
     if (!place) return null;
-    const got = source.cells({ x: place.x, y: place.y, beyond: 1 }, ready);
+    const got = source.cells({ x: place.x, y: place.y, beyond: 1, rowLog: image.rowLog }, ready);
     if (got === undefined) return pendingRead(layer, x, y, true);
     if (got === null && source.held === 'fetched') return pendingRead(layer, x, y, true, true);
     if (!got?.xs.length || !got.ys?.length) return null;
@@ -2130,7 +2130,7 @@ function imageReadAgain(plot: StagePlot, read: StageRead, ready: () => void): St
     const image = plot.image;
     const source = image?.layer.full;
     if (!image || !source?.cells || read.at === undefined || read.row === undefined) return null;
-    const got = source.cells({ x: read.at, y: read.row, beyond: 1 }, ready);
+    const got = source.cells({ x: read.at, y: read.row, beyond: 1, rowLog: image.rowLog }, ready);
     if (got === undefined) return undefined;
     if (got === null && source.held === 'fetched') return { ...read, layer: image.layer, failed: true };
     if (!got?.xs.length || !got.ys?.length) return null;
@@ -2144,7 +2144,7 @@ function imageReadAgain(plot: StagePlot, read: StageRead, ready: () => void): St
 /** An arrow key on an image with full data: the next real column (time frame) on the row read. */
 function imageStep(plot: StagePlot, image: NonNullable<StagePlot['image']>, source: FullSource, read: StageRead, delta: -1 | 1, ready: () => void): StageRead | null | undefined {
     const at = read.at as number, place = read.row as number;
-    const got = source.cells({ x: at, y: place, beyond: STEP_AHEAD }, ready);
+    const got = source.cells({ x: at, y: place, beyond: STEP_AHEAD, rowLog: image.rowLog }, ready);
     if (got === undefined) return undefined;
     // The next cells' read failed: the step waits, and is taken once they are asked again (`ready`), never dropped.
     if (got === null && source.held === 'fetched') return undefined;
