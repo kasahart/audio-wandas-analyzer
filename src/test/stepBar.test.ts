@@ -116,6 +116,10 @@ test('a trigger added once the tracks\' peak is read starts at half of it; added
     const read = added({ state: 'ready', value: wholeValue(0.734) });
     assert.equal(read.threshold, 0.37, 'half the peak read from every sample, to two figures');
     assert.doesNotMatch(read.footer, /not read yet/u);
+    // Not read because too many recordings would have to be: the step's own level, and the footer says why, with the limit.
+    const many = added({ state: 'tooMany', limit: 30 });
+    assert.equal(many.threshold, initial, 'too many recordings: the step keeps its own initial level');
+    assert.match(many.footer, /more than 30 recordings/u, 'the footer says the peak was not read and why (stepPeakTooMany)');
     for (const state of ['pending', 'failed'] as const) {
         const unread = added({ state });
         assert.equal(unread.threshold, initial, `${state}: no number is made up; the step keeps its own initial level`);

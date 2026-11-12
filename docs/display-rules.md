@@ -35,7 +35,10 @@
 - 設定の初期値にする数も同じです。トリガーを足したときのレベルの初期値は、比較しているチャンネルの、領域の中のピーク（一番大きい |サンプル|）の半分です。このピークは、レーンの読み値と同じ道（`fullRead.ts` の `FullSource.level`、バックエンドは `full_read.read_level` の `peak`）で、元のサンプル全部から読みます（`src/webview/runtime/regionPeak.ts`）。レーンに描く包絡（間引いた最小・最大）からは計算しません。包絡は領域の中の一番大きいサンプルを持っていないことがあるからです。
   - 読んでいる途中（pending）と、読み取りが失敗したとき（failed）は、ピークの数はありません。推し量った値を初期値にしません。そのときに足したトリガーは処理そのものの既定値で始まり、フッターにそう書きます（`stepPeakUnread`）。
   - 答えを覚えておくこと、失敗した読み取りを 5 秒の間を置いて出し直すことは、ほかの読み値と同じ決まり（`fetchedSource`、`answerStore.ts`）に任せます。ここに別のキャッシュや出し直しを足しません。
-  - サンプルを読みに行くのは、トリガーを足せるときだけです。＋ のメニューを開いてトリガーが選べるときと、トリガーを足すときに、ステップバーが読みます（`StepBarState.peak` は値ではなく読む関数です）。グラフを描き直すたびには読みません。読むのは比較しているスロットのチャンネルだけで、トラックに並んでいるほかのファイルは読みません（スロットがないときは、表示中のトラック全部が比較の対象なので、その全部を読みます）。
+  - サンプルを読みに行くのは、トリガーを足せるときだけです。＋ のメニューを開いてトリガーが選べるときと、トリガーを足すときに、ステップバーが読みます（`StepBarState.peak` は値ではなく読む関数です）。グラフを描き直すたびには読みません。読むのは比較しているスロットのチャンネルだけで、トラックに並んでいるほかのファイルは読みません。
+  - 30 本を超える録音を、頼まれずにまとめて計算しない、というこのプロジェクトの決まりは、ここでも同じです。ピークを出すのに 30 本を超える録音のサンプルが要るときは、1 本も読みません（`regionPeak` の `tooMany`。上限は基準の群を止めるのと同じ定数 `trackStageMode.ts` の `LARGE_BASE` で、別の定数は作りません）。そのときに足したトリガーは処理そのものの既定値で始まり、フッターに「録音が多いのでピークを読んでいない」と書きます（`stepPeakTooMany`）。
+- テスト: `src/test/regionPeak.test.ts` › the peak of more recordings than the limit is not read at all: 31 recordings start no read and say so, 30 are read; channels of one recording count once (R1)
+- テスト: `src/test/uiSmoke/triggerDefault.spec.ts` › opened from the tracks with 31 recordings and no slot chosen, the comparison is of two of them and only those two are read for a trigger's level: never all 31 (R1)
 - テスト: `src/test/uiSmoke/triggerDefault.spec.ts` › a trigger added on a region starts at half the region's true peak, read from every sample by the real backend; added while that read is on its way it keeps its own level and the footer says so (R1)
 - テスト: `src/test/uiSmoke/triggerDefault.spec.ts` › with a hundred files open and thirty of them on the tracks, the samples for a trigger's level are asked only when ＋ offers a trigger, and only of the two compared slots (R1)
 - テスト: `src/test/stepBar.test.ts` › a trigger added once the tracks' peak is read starts at half of it; added while the peak is pending or its read failed it keeps its own level and the footer says so (R1)

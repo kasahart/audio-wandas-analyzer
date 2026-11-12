@@ -102,7 +102,7 @@ import { activeSlotReferenced, recipeKey } from '../../shared/recipe/recipeSteps
 import { openedRecipe } from '../../shared/recipe/recipeOpen';
 import { isRecipeDocument } from '../../shared/recipe/recipeSelection';
 import { LIGHT_THEME_BODY_SELECTORS, ROLE_COLORS, ownColor, useLightRoleColors } from '../../shared/gui/roleColors';
-import { createTrackStageMode, type StageTrack, type TrackStageMode } from './trackStageMode';
+import { createTrackStageMode, LARGE_BASE, type StageTrack, type TrackStageMode } from './trackStageMode';
 import { attachRoleChips, roleChipHtml, roleChipText, type RoleChipRole } from './roleChip';
 import { triggerAnchorDownload as downloadEntryCsv } from './exportDownloads';
 import {
@@ -1559,11 +1559,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 channelsForResult(result).forEach((_channel, index) => {
                     if (picked.length && !picked.includes(index)) return;
                     // A file changed since it was analysed has no full data to read (changedSource): its peak is unknown.
-                    windows.push({ full: laneTrackFull(record.protocolIndex, track => laneReads.waveform(track, index)) ?? changedSource, x0, x1 });
+                    windows.push({ filePath: result.filePath, full: laneTrackFull(record.protocolIndex, track => laneReads.waveform(track, index)) ?? changedSource, x0, x1 });
                 });
             }
             // Nothing on screen waits for the answer: the bar reads it again when a trigger is added, so no redraw is asked.
-            return regionPeak(windows, () => undefined);
+            // More recordings than LARGE_BASE (no slots chosen, many tracks shown) are not read unasked.
+            return regionPeak(windows, () => undefined, LARGE_BASE);
         },
         stepFailed: (step, reason) => entryScreen.stepFailed(step, reason),
         channels: () => comparedChannels(),

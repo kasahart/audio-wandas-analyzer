@@ -295,7 +295,9 @@ export function createStepBar(deps: {
         // A trigger added before the tracks' peak is read (or after its read failed) starts at its own initial level,
         // not at half the peak: the footer says so instead of the usual line, so the number is not taken for the data's.
         const unread = peak?.state === 'pending' || peak?.state === 'failed';
-        footer((unread ? strings.stepPeakUnread : strings.stepAdded).replace('{op}', entry.name));
+        // And one whose peak is not read at all, because more recordings than the limit would have to be read for it.
+        const said = peak?.state === 'tooMany' ? strings.stepPeakTooMany.replace('{limit}', String(peak.limit)) : unread ? strings.stepPeakUnread : strings.stepAdded;
+        footer(said.replace('{op}', entry.name));
     }
     function openMenu(after: string | null): void {
         if (!state.recipe) return;

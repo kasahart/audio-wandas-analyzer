@@ -64,6 +64,7 @@ test('a new trigger starts at half the tracks\' peak, to two figures; fix_length
     // A peak still being read, or whose read failed, is no number to start from: the step's own initial value too.
     assert.deepEqual(startValues('wandas.audio.trigger', { peak: { state: 'pending' } }), {}, 'a pending peak gives no threshold');
     assert.deepEqual(startValues('wandas.audio.trigger', { peak: { state: 'failed' } }), {}, 'a failed peak gives no threshold');
+    assert.deepEqual(startValues('wandas.audio.trigger', { peak: { state: 'tooMany', limit: 30 } }), {}, 'a peak not read (too many recordings) gives no threshold');
     assert.deepEqual(startValues('wandas.audio.fix_length', read(1), 2.5), { duration: 2.5 });
     assert.deepEqual(startValues('wandas.audio.highpass_filter', read(1), 2.5), {});
 });

@@ -18,20 +18,30 @@ import type { FullSource } from './fullRead';
  * - 'failed': at least one read failed or the channel has no full data to read. `ready` is called once the answer
  *   store's pause is over, and the read is asked again then.
  *
+ * - 'tooMany': the peak would need the samples of more recordings than `maxFiles` (`limit`, for the message). Nothing is read: the project
+ *   never starts a computation over that many files unasked (display rules R1; the limit is trackStageMode's
+ *   LARGE_BASE, the same one that holds back a large base group).
+ *
  * Only 'ready' carries a number: a caller cannot show an estimate while the others last.
  */
-export type RegionPeak = { state: 'ready'; value: Whole } | { state: 'pending' } | { state: 'failed' };
+export type RegionPeak = { state: 'ready'; value: Whole } | { state: 'pending' } | { state: 'failed' } | { state: 'tooMany'; limit: number };
 
 /** One channel's samples and the stretch of its own axis to measure (a lane's axis is its file's 0..1). */
 export interface PeakWindow {
+    /** The recording the channel is of: recordings, not channels, are counted against `maxFiles`. */
+    filePath: string;
     full: FullSource;
     x0: number;
     x1: number;
 }
 
-/** The peak over every window (see RegionPeak); undefined with no window at all (nothing is compared). */
-export function regionPeak(windows: readonly PeakWindow[], ready: () => void): RegionPeak | undefined {
+/**
+ * The peak over every window (see RegionPeak); undefined with no window at all (nothing is compared). With windows of
+ * more than `maxFiles` recordings no read is started at all ('tooMany').
+ */
+export function regionPeak(windows: readonly PeakWindow[], ready: () => void, maxFiles: number): RegionPeak | undefined {
     if (!windows.length) return undefined;
+    if (new Set(windows.map(window => window.filePath)).size > maxFiles) return { state: 'tooMany', limit: maxFiles };
     // Every window is asked before any answer is judged, so the reads go out together, not one per repaint.
     const answers = windows.map(window => (window.full.level ? window.full.level({ x0: window.x0, x1: window.x1, square: true }, ready) : null));
     const peaks: Whole[] = [];

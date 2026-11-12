@@ -182,7 +182,9 @@ test('a trigger added on a region starts at half the region\'s true peak, read f
     // (The footer names the step as the menu does; the words after its name are the message.)
     await expect(page.locator('#hint-footer')).toContainText(STR.stepPeakUnread.split('{op}')[1]);
     await expect.poll(() => triggerLevel(page)).toBe(0.1);
-    await chip.locator('[data-action="step-delete"]').click();
+    // The bar is drawn again as each scan of the new chain comes in from the backend, so the × is pressed as one
+    // event on the button there now, without waiting for it to stand still.
+    await chip.locator('[data-action="step-delete"]').dispatchEvent('click');
     await expect(chip).toHaveCount(0);
 
     // The real backend answers each read: the region's true peak of each recording.
@@ -237,4 +239,30 @@ test('with a hundred files open and thirty of them on the tracks, the samples fo
     await bar.locator('[data-action="step-add"]').click();
     await page.keyboard.press('Escape');
     expect(await peakReads(page), 'two reads in all, for thirty files on the tracks').toHaveLength(2);
+});
+
+test('opened from the tracks with 31 recordings and no slot chosen, the comparison is of two of them and only those two are read for a trigger\'s level: never all 31 (R1)', async ({ page }) => {
+    // The limit itself (more than 30 recordings start no read, 30 do) is proved where it lives, in
+    // src/test/regionPeak.test.ts: the page cannot be brought to compare more than its slots, as this test shows.
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const entryRecipe = JSON.parse(readFileSync(path.join(repoRoot, 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as Record<string, unknown>;
+    await openEntry(page, scanned!, { language: 'en', recipe: entryRecipe, docked: true });
+    const onTracks = [...new Set(scanned!.map(file => file.filePath))].slice(0, 31);
+    expect(onTracks).toHaveLength(31);
+    const envelope: Envelope = { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 };
+    const results = onTracks.map(filePath => ({
+        filePath, fileName: filePath.split('/').at(-1), audioSource: '', sampleRateHz: 16000, durationSeconds: 2, channelCount: 1, sampleCount: 32_000,
+        channels: [{ label: 'L', peakAbsolute: 0.5, fullScale: true, waveform: envelope }],
+    }));
+    await page.evaluate(results => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results } })), results);
+    await page.locator('[data-action="content-stage"]').click();
+    await expect(page.locator('.track-stage')).toBeVisible();
+    await toTimeSignal(page);
+    await openAdd(page);
+    await expect.poll(async () => (await peakReads(page)).length).toBe(2);
+    await pickTrigger(page);
+    await expect(page.locator('#hint-footer')).toContainText(STR.stepAdded.split('{op}')[1]);
+    expect(new Set((await peakReads(page)).map(read => read.filePath)).size, 'the two recordings compared, of 31 on the tracks').toBe(2);
 });
