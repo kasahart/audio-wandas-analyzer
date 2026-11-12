@@ -2,6 +2,7 @@
   "//": "The backend functions that thin data to draw it (decimators), and every backend function that computes with thinned points (readers) with what it does with them. Read by scripts/check_decimation_flow.py and src/test/plotContracts/values.ts. See docs/plot-contracts-guide.md (\"Reading thinned points in the backend\").",
   "decimators": [
     "python-backend/decimator.py:decimated_waveform",
+    "python-backend/decimator.py:bucket_extremes",
     "python-backend/stage_view.py:min_max_indices",
     "python-backend/stage_view.py:min_max_line",
     "python-backend/stage_view.py:min_max_rows",
@@ -10,6 +11,7 @@
     "python-backend/stage_view.py:_time_blocks",
     "python-backend/stage_view.py:_block_peaks",
     "python-backend/stage_view.py:_signed_peaks",
+    "python-backend/stage_view.py:_envelope_indices",
     "python-backend/stage_view.py:_envelope",
     "python-backend/stage_view.py:_cepstrum_envelope",
     "python-backend/analyzer.py:resample_frequency_bins",
@@ -70,6 +72,14 @@
       "use": "draws",
       "why": "draws the part on screen again finer; every number is read from the full data (full_read)"
     },
+    "python-backend/decimator.py:decimated_waveform": {
+      "use": "draws",
+      "why": "the lanes' waveform: the samples bucket_extremes picks, each with its place in the file"
+    },
+    "python-backend/stage_view.py:_envelope_indices": {
+      "use": "draws",
+      "why": "which values of a line are drawn (min_max_indices), as indices"
+    },
     "python-backend/stage_view.py:_envelope": {
       "use": "draws",
       "why": "a line's drawn envelope (min_max_line)"
@@ -90,9 +100,9 @@
       "use": "draws",
       "why": "draws a spectrum line (spectrum_line); its readout and range are of every bin"
     },
-    "python-backend/stage_view.py:_waveform": {
+    "python-backend/stage_view.py:signal_line": {
       "use": "draws",
-      "why": "draws the signal by the lanes' decimation (samples_waveform); its readout reads the full samples"
+      "why": "picks the samples of a signal to draw (_envelope_indices), each at its own time (x_at); its readout reads the full samples"
     },
     "python-backend/stage_view.py:min_max_line": {
       "use": "draws",

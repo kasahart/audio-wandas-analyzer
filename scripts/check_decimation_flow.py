@@ -59,6 +59,8 @@ DRAWN, POSITIONS, BUCKET, THINNED, DECIDED = "D", "P", "B", "T", "C"
 #: (WHOLE: all of it). Every one but the bucket rule's (BUCKET_RULE) is a decimator of drawn_points_contract.json too.
 SOURCES: dict[str, tuple[str, frozenset[str]]] = {
     "decimator:decimated_waveform": (DRAWN, frozenset({"min", "max", "minT", "maxT", "samples"})),
+    # Per bucket the index of its lowest and of its highest sample: which samples are drawn.
+    "decimator:bucket_extremes": (DRAWN, frozenset({WHOLE})),
     "decimator:bucket_starts": (POSITIONS, frozenset({WHOLE})),
     "decimator:bucket_edges": (POSITIONS, frozenset({WHOLE})),
     **{
@@ -70,6 +72,7 @@ SOURCES: dict[str, tuple[str, frozenset[str]]] = {
             "spectrum_line",
             "_block_peaks",
             "_signed_peaks",
+            "_envelope_indices",
             "_envelope",
             "_cepstrum_envelope",
         )

@@ -89,6 +89,16 @@
 - テスト: `python-backend/test_stage_view.py` › test_more_bins_than_the_screen_shows_keep_each_buckets_lowest_and_highest_bin_at_every_zoom
 - テスト: `python-backend/test_stage_combine.py` › test_a_difference_line_keeps_every_buckets_extremes_at_their_own_places
 - テスト: `python-backend/test_analyzer.py` › test_a_cut_row_keeps_each_buckets_lowest_and_highest_bin_as_compare_does
+- **描いた点の x は、その点が表す元の値の x です。** 間引いて残した点は、元のデータの中の自分の番号（何番目のサンプル・ビン・係数か）から x を求めます。割合（i / N）に幅を掛けて作り直したり、個数から時刻を組み立て直したりしません（4 サンプル・4 Hz の最後の点は 0.75 秒で、0.5625 秒ではありません）。熱図の 1 列は数フレームの平均なので、その列が持つフレームの時刻の平均に置き、列が持つフレームの範囲の外には出ません。
+- バックエンドで wandas の Frame を読むのは 1 か所だけです（`stage_view.read_frame`）。Frame の種類ごとに、値（チャンネルをまとめたもの）と軸（x、行の y、信号なら開始時刻とサンプリング周波数）を `FrameReading` として返します。描く絵（`stage_view`）も、拡大した部分も、読み値・中央値・差が使う全データ（`stage_combine.stage_data`、`read_points`）も、この 1 つの読み取りから作ります。番号から x を出すのも 1 か所（`stage_view.reading_axis` と `x_at`）なので、描いた点の x と、そこで読んだ点の x は同じになります。新しい Frame の種類を足すときは `read_frame` に分岐を足します。絵の側や `stage_combine` で Frame の `data`・`freqs`・`times` を直接読みません。
+- トラックの波形（`decimator.decimated_waveform`）の `minT`・`maxT` はファイル全体の長さ（N / fs）に対する割合です。秒の軸に描く絵はこれを使わず、区間ごとの最小・最大のサンプルの番号（`decimator.bucket_extremes`）と自分の軸から時刻を出します（`stage_view.samples_waveform`）。
+- テスト: `python-backend/test_drawn_x_is_source_x.py` › test_every_drawn_x_is_the_x_of_a_source_value_or_inside_its_bucket
+- テスト: `python-backend/test_drawn_x_is_source_x.py` › test_a_picture_that_thins_nothing_has_the_sources_own_xs_first_to_last_and_reads_back_the_same
+- テスト: `python-backend/test_drawn_x_is_source_x.py` › test_four_samples_at_4_hz_are_drawn_at_0_to_0_75_s_not_squeezed_into_a_shorter_span
+- テスト: `python-backend/test_drawn_x_is_source_x.py` › test_every_line_decimator_gives_source_points_each_value_with_its_own_x
+- テスト: `python-backend/test_drawn_x_is_source_x.py` › test_the_lanes_waveform_places_are_sample_over_samples_so_times_the_duration_they_are_the_samples_times
+- テスト: `python-backend/test_drawn_x_is_source_x.py` › test_every_drawn_frame_kind_is_covered
+- テスト: `python-backend/test_stage_view.py` › test_a_time_signal_carries_its_own_waveform_as_the_lanes_decimate_it
 - スペクトルの間引きは 1 つの関数（`stage_view.min_max_indices`）だけで行い、カーソルスペクトルもこれを使います。webview 側（`comparePanes.minMaxLine`）は同じ事例集で縛ります。
 - テスト: `python-backend/test_stage_view.py` › test_spectrum_decimation_matches_the_shared_cases_the_webview_is_held_to
 - テスト: `src/test/comparePanes.test.ts` › the webview thins a spectrum exactly as the backend does: the shared cases both test suites check (#683)

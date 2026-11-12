@@ -78,6 +78,25 @@ may mint, who may unwrap, casts and coercions).
 The backend has no such types. There, `scripts/check_decimation_flow.py` follows thinned values through the Python
 code and fails where one becomes a number that is sent.
 
+### The backend reads a Frame in one place
+
+`stage_view.read_frame(frame)` is the only function that interprets a wandas Frame for the comparison. For each
+Frame kind it returns a `FrameReading`: the values at full resolution with the channels combined, and the axes they
+are on (each value's x; an image's rows; for a sound signal its start time and sample rate instead of an array of
+times).
+
+- The drawn picture (`stage_view`, whole or zoomed) is thinned from that reading.
+- The full data kept for readouts, medians and differences (`stage_combine.StageData`) is that reading plus the
+  picture's template and the recording's calibration.
+- The x of a value is asked in one place: `stage_view.reading_axis(reading)` (and `x_at(reading, index)`), which the
+  drawing code and `stage_combine.read_points` both use. So a drawn point and the point read under the pointer have
+  the same x.
+
+To draw a new Frame kind, add a branch to `read_frame`. Do not read a Frame's `data`, `freqs` or `times` in a view
+function or in `stage_combine.py`, and do not compute a time or frequency from a count or a fraction: use `x_at`.
+`python-backend/test_drawn_x_is_source_x.py` checks every Frame kind and every thinning routine against the Frame's
+own axis (display rules R2).
+
 ## Where to make a change
 
 | You want to | Change | The check that will tell you if you put it elsewhere |
@@ -87,3 +106,4 @@ code and fails where one becomes a number that is sent.
 | Change how something is drawn or how the pointer picks a point | `stagePanes.ts` | `plotContracts.test.ts` (drawing surfaces) |
 | Show a new number read from the data | a `FullSource` in `fullRead.ts`, or an adapter in `wholeAnswers.ts` | the compiler (`Whole`), `provenanceBoundary.test.ts` |
 | Send a new thinned array from the backend | `protocol_schema.py` with `x-drawn` | the compiler (`Drawn`), `check_decimation_flow.py` |
+| Draw a new Frame kind in the comparison, or change how a Frame's values or axes are taken | `read_frame` in `python-backend/stage_view.py` | `test_drawn_x_is_source_x.py` (it names a kind it does not cover) |
