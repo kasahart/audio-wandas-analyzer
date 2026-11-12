@@ -9,7 +9,7 @@ import type { StageView } from '../../shared/protocol/backendProtocol';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
-import { dataRange, diffRange as figureDiffRange, emptyFigure, levelKeyOf, membersOf, byLevelKey, narrowedRange, stageLevelAxes, stageNames, titleOf, type FigureNames, type FigureRange, type FigureTitle } from './figureModel';
+import { dataRange, diffRange as figureDiffRange, emptyFigure, laneNames, levelKeyOf, membersOf, byLevelKey, narrowedRange, stageLevelAxes, stageNames, titleOf, type FigureNames, type FigureRange, type FigureTitle } from './figureModel';
 import { type LegendItem, type LevelInput } from './comparePanes';
 import { clearSideAxis, emptyStageText, isEventsView, paintOverlay, paintStage, stageEventCounts, stageHeadline, type StageLayer, type StagePlot } from './stagePanes';
 import type { PlotWindow } from './plotInteraction';
@@ -205,7 +205,8 @@ export function paintStageLanes(frame: StageFrame): number {
         const view = shown(track.filePath) ?? null;
         const missing = coarse(track.filePath) === undefined;
         const empty = missing ? '' : emptyStageText(strings, coarse(track.filePath) ?? picture);
-        const axes = stageNames(strings, coarse(track.filePath) ?? picture, track.input);
+        // Named by its own picture alone: until that is in, the pending name, never the first picture's (R4).
+        const axes = laneNames(strings, coarse(track.filePath), track.input, picture);
         // A lane holds one picture, drawn as it is (1/3-octave levels as steps, without a fill).
         const range = rangeOf(track);
         const lanePlot = paintOverlay(track.canvas, { layers: view ? [{ view, color: colorOf(frame.role, track.filePath, track.color), width: widthOf(frame.role, track.filePath, 2), label: frame.named(track.filePath, frame.role(track.filePath)).label, ...eventsOf(frame, track.filePath, view), ...fullOf(frame, view) }] : [] }, heat ? range : narrowedRange(range, window.y), axes,

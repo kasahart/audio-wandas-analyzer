@@ -522,7 +522,27 @@ export function levelAxes<L>(lines: readonly L[], spec: LevelAxesSpec<L>): { axe
  */
 export function stageLevelAxes<L extends { view: StageView }>(strings: StageStrings, lines: readonly L[], spec: Omit<LevelAxesSpec<L>, 'names' | 'fallback'>, pending: StageView | null): { axes: FigureAxis<L>[]; tooMany: boolean; pendingNames: FigureNames } {
     const { axes, tooMany } = levelAxes(lines, { ...spec, names: (input, own) => stageNames(strings, own[0]?.view ?? pending, own.length ? input : undefined) });
-    return { axes, tooMany, pendingNames: stageNames(strings, pending, undefined) };
+    return { axes, tooMany, pendingNames: pendingStageNames(strings, pending) };
+}
+
+/**
+ * The pending name of a plot with no picture of its own yet (R4): the step's horizontal axis and what it measures,
+ * read off `step` (any picture of the step: every recording's has the same axes and quantity), and a level axis in
+ * no unit and no reference ("[unit unknown]"). The units are the recording's (a waveform's Pa, an FS file's FS), so
+ * `step`'s are never read: another recording's unit is never borrowed, nor a guessed one.
+ */
+export function pendingStageNames(strings: StageStrings, step: StageView | null): FigureNames {
+    if (!step) return stageNames(strings, null, undefined);
+    const { unit: _unit, waveform, ...shape } = step;
+    return stageNames(strings, { ...shape, ...(waveform ? { waveform: { ...waveform, unit: '' } } : {}) }, undefined);
+}
+
+/**
+ * A stage lane's names (R4): its own picture's, by its own track's input, once that picture is in; until then the
+ * pending name (pendingStageNames), never the first picture in, which is another recording's.
+ */
+export function laneNames(strings: StageStrings, own: StageView | null | undefined, input: LevelInput | undefined, step: StageView | null): FigureNames {
+    return own ? stageNames(strings, own, input) : pendingStageNames(strings, step);
 }
 
 // ── Which files a figure counts ───────────────────────────────────────────────────────────────────────────────────

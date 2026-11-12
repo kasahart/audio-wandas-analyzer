@@ -397,6 +397,40 @@ test('overlaid with two level axes, each axis is named by its own lines, whichev
     }
 });
 
+test('side by side, a lane is named by its own picture alone: one still pending has the pending name, never the first picture\'s unit, then its own (R4)', () => {
+    const { lane } = page();
+    const fs = { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true } as const;
+    const pa = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: false } as const;
+    // Waveforms and a trigger's events, each in its own recording's unit as the backend sends it (waveform.unit, view.unit).
+    const wave = (unit: string, peak: number): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 1], values: [-peak, peak],
+        waveform: { min: [-peak, -peak], max: [peak, peak], minT: [0, 1], maxT: [0, 1], absolutePeak: peak, unit, ref: unit === 'FS' ? 1 : 2e-5 } } as unknown as StageView);
+    const events = (unit: string, scale: number): StageView => ({ frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 1], values: [0, scale], unit,
+        events: [{ id: 0, time: 0.5, xs: [0, 1], values: [-scale, scale] }] } as unknown as StageView);
+    const tracks = ['base.wav', 'one.wav'].map(path => ({ ...lane(path), input: path === 'base.wav' ? fs : pa }));
+    const units: Record<string, string> = { 'base.wav': '[FS]', 'one.wav': '[Pa]' };
+    const pendingName = `[${strings.axisUnitUnknown}]`;
+    // Each lane's level axis name as drawn, with `first` the picture that arrived first (StageFrame.picture).
+    const laneNames = (views: Record<string, StageView | undefined>, first: string): Record<string, string | undefined> => {
+        const frame = frameFor(tracks, views, { picture: views[first] ?? null });
+        paintStageLanes(frame);
+        return Object.fromEntries(tracks.map(track => [track.filePath, frame.drawnOn.get(track.canvas as Element)?.axes.y]));
+    };
+    for (const [kind, of] of [['waveform', wave], ['events', events]] as const) {
+        const views: Record<string, StageView> = { 'base.wav': of('FS', 0.5), 'one.wav': of('Pa', 2) };
+        // Both arrival orders: the first picture in is either lane's.
+        for (const [ready, waiting] of [['base.wav', 'one.wav'], ['one.wav', 'base.wav']] as const) {
+            const early = laneNames({ [ready]: views[ready] }, ready);
+            assert.ok(early[ready]?.endsWith(units[ready]), `R4 broken: the ${kind} lane of ${ready} is named ${early[ready]}; it must name its own picture's unit ${units[ready]}.`);
+            assert.ok(early[waiting]?.endsWith(pendingName) && !early[waiting]?.includes(units[ready]),
+                `R4 broken: the ${kind} lane of ${waiting}, its picture not in yet, is named ${early[waiting]}, from ${ready}'s picture. A lane is named by its own picture alone (figureModel.laneNames); until it is in, the pending name ${pendingName}.`);
+            const late = laneNames(views, ready);
+            for (const path of [ready, waiting]) {
+                assert.ok(late[path]?.endsWith(units[path]), `R4 broken: once its picture is in, the ${kind} lane of ${path} is named ${late[path]}; it must name its own unit ${units[path]}, whichever picture arrived first.`);
+            }
+        }
+    }
+});
+
 test('side by side, lanes share a range only with the lanes in their own reference: a dB SPL lane is never on a dBFS lane\'s scale (A32, C1)', () => {
     const { lane } = page();
     const fs = { unit: '', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true } as const;

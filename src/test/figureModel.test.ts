@@ -274,8 +274,9 @@ const GUARDED_FUNCTIONS: Readonly<Record<string, readonly string[]>> = {
     'identity': ['webview/runtime/comparePanes.ts:levelIdentityOf', 'webview/runtime/figureModel.ts:levelIdentity'],
     /**
      * A picture's axis names (stageNames) or level axes named by their caller (levelAxes' `names`): each listed site
-     * names one picture by itself (a lane, a Δ, a held plot). The stage overlay's two level axes are named in
-     * figureModel.stageLevelAxes by each axis's own lines, so trackStagePainter.byReference is never a site (R4).
+     * names one picture by itself (a Δ, a held plot). The stage overlay's two level axes are named in
+     * figureModel.stageLevelAxes by each axis's own lines, and a stage lane in figureModel.laneNames by its own
+     * picture or the pending name, so trackStagePainter.byReference and paintStageLanes are never sites (R4).
      */
     'axis-namer': ['webview/runtime/figureModel.ts:stageNames', 'webview/runtime/figureModel.ts:levelAxes'],
     /** R9's range rules. */
@@ -346,9 +347,9 @@ const ALLOWED: Sites = {
     'webview/runtime/compareReport.ts': { 'axis-namer': ['reportLevelAxes'], 'bare-db': ['reportCsv.header'] },
     // A held plot names the one picture it draws (its step's, its Δ's), with its own recording's input.
     'webview/runtime/entryHeldPlot.ts': { 'axis-namer': ['createHeldPlot.paint', 'createHeldPlot.paintDelta', 'createHeldPlot.paintSlot', 'createHeldPlot.paintStep'] },
-    // A lane names its own picture by its own track's input; the Δ pane its difference by the compared recording's.
-    // The overlay's level axes are not here: figureModel.stageLevelAxes names each by its own lines (R4).
-    'webview/runtime/trackStagePainter.ts': { 'axis-namer': ['paintStageLanes.axes', 'paintStageOverlay.diffAxes'] },
+    // The Δ pane names its difference by the compared recording's input. The overlay's level axes and the lanes are
+    // not here: figureModel.stageLevelAxes names each axis by its own lines, laneNames a lane by its own picture (R4).
+    'webview/runtime/trackStagePainter.ts': { 'axis-namer': ['paintStageOverlay.diffAxes'] },
     // The CSV match's "{matched} of {total}" files (the folder's count) and the test snapshot's scanned count.
     'webview/runtime/entryRuntime.ts': { 'file-count': ['createEntryScreen.paint', 'createEntryScreen.readCsvFile', 'createEntryScreen.snapshot.scanned'] },
     // "Δ max band dB" (a Δ); which part of a ≠ row's identity differs, said once figureModel.scanLevelKey found it differs.
@@ -362,8 +363,10 @@ const ALLOWED: Sites = {
     // and never a default reference ('default-reference'): a guessed reference here would be every figure's.
     // Its definitions: stageAxes/paneAxes/calibrationWords wrapped; the level strings its titles are made of; its CSV
     // columns; medianInputOf, the one place a line of several recordings is calibrated only when every one is; R9's
-    // rules wrapped; levelIdentityOf wrapped by levelKeyOf; calibrationWordsBy's and a folder reference's any.
-    'webview/runtime/figureModel.ts': { 'axis-namer': ['stageLevelAxes', 'stageLevelAxes.names', 'stageLevelAxes.pendingNames'], 'axis-builder': ['legendWords.word', 'paneNames', 'paneNames.axes', 'stageNames'], 'axis-name': ['gainAxisName.name', 'levelTitle', 'uncalibratedWord', 'unknownLevelTitle'], 'csv-column': ['bandLevelColumns', 'bandLevelColumns.level', 'baseLevelColumns', 'levelColumns'], 'every-calibrated': ['calibrationWordsBy', 'folderReference.calibrated', 'medianInputOf.calibrationStatus'], 'identity': ['levelKeyOf.identity', 'pictureSet.of'], 'range-rule': ['dataRange', 'diffRange', 'heatmapRange', 'levelLineRange.auto', 'roundedRange.nice'] },
+    // rules wrapped; levelIdentityOf wrapped by levelKeyOf; calibrationWordsBy's and a folder reference's any; the
+    // stage's namers (R4): stageLevelAxes each axis by its own lines, laneNames a lane by its own picture, and
+    // pendingStageNames the pending name in no recording's unit.
+    'webview/runtime/figureModel.ts': { 'axis-namer': ['laneNames', 'pendingStageNames', 'stageLevelAxes', 'stageLevelAxes.names'], 'axis-builder': ['legendWords.word', 'paneNames', 'paneNames.axes', 'stageNames'], 'axis-name': ['gainAxisName.name', 'levelTitle', 'uncalibratedWord', 'unknownLevelTitle'], 'csv-column': ['bandLevelColumns', 'bandLevelColumns.level', 'baseLevelColumns', 'levelColumns'], 'every-calibrated': ['calibrationWordsBy', 'folderReference.calibrated', 'medianInputOf.calibrationStatus'], 'identity': ['levelKeyOf.identity', 'pictureSet.of'], 'range-rule': ['dataRange', 'diffRange', 'heatmapRange', 'levelLineRange.auto', 'roundedRange.nice'] },
 };
 
 function each(node: ts.Node, visit: (node: ts.Node) => void): void {
