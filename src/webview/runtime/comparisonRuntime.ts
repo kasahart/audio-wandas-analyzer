@@ -87,7 +87,7 @@ import { amplitudeTitle, axisInputOf, unknownLevelTitle, baseLevelOf, emptyFigur
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
 import { ComparisonTestBridge } from './testBridge';
 import { RuntimeEventFeed } from './runtimeEvents';
-import { TrackStore, type TrackRecord } from './trackStore';
+import { laneDetailState, TrackStore, type TrackRecord } from './trackStore';
 import { replaceTrackAudio, retireAudio } from './trackAudioHost';
 import { installTrackReorderDrag } from './trackReorderDrag';
 import { installSpectrogramSettingsPopover } from './spectrogramSettingsPopover';
@@ -696,11 +696,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const settingsSignature = currentSettingsSignature();
-        if (record.detail.holds(settingsSignature)) {
-            return;
-        }
-        const pending = record.requests.pending('detail')?.meta;
-        if (pending && pending.settingsSignature === settingsSignature) {
+        // Answered without a spectrogram, failed and pausing, or on its way under these settings: not asked (trackStore.ts laneDetailState).
+        if (laneDetailState(record.detail, settingsSignature, record.requests.pending('detail')?.meta?.settingsSignature) !== 'ask') {
             return;
         }
         // Asked again after a failure's pause: the lane says it is loading, not the failure it may no longer have.
@@ -1074,7 +1071,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             scheduleRender();
             return;
         }
-        record.detail.set(true);
+        record.detail.set(pending.settingsSignature);
         if (state.results[i] && state.results[i].filePath === msg.filePath && Array.isArray(msg.channels)) {
             mergeDetailSpectrograms(state.results[i].channels, msg.channels);
             scheduleRender();
@@ -2267,10 +2264,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const ch = channelsForResult(result)[channelIndex];
         if (!ch || !ch.spectrogram) {
             requestTrackDetail(trackIndex);
-            const failure = trackRecordAtIndex(trackIndex)?.detail.failure(currentSettingsSignature());
+            const detail = trackRecordAtIndex(trackIndex)?.detail;
+            const failure = detail?.failure(currentSettingsSignature());
+            // Answered under these settings with no spectrogram for this channel: the lane says so, never "Loading" for ever.
             const message = trackRecordAtIndex(trackIndex)?.sourceChanged ? STR.sourceChangedLane : failure !== undefined
                 ? spectrogramFailureText(STR, failure)
-                : STR.spectrogramLoading;
+                : detail?.get() === currentSettingsSignature() ? STR.spectrogramNone : STR.spectrogramLoading;
             // An empty plot with its message, drawn by the plot component as an empty pane is: no axes named yet.
             paintOverlay(canvas, { layers: [] }, plainRange(0, 1), plainNames(plainTitle(STR, 'axisTime'), plainTitle(STR, 'axisFrequency')), { axisCanvas: null, empty: message });
             delete canvas.dataset.plotAxis;

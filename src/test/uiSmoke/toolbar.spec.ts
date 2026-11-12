@@ -59,13 +59,15 @@ async function loadUi(page: Page) {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
 }
 
-function staticWorkerInit(): string {
+/** `detail: 'none'`: a track's detail is answered, validly, with no channel (so no spectrogram), as the page must also take. */
+function staticWorkerInit(detail: 'spectrogram' | 'none' = 'spectrogram'): string {
     const fixtures = JSON.parse(readFileSync(join(process.cwd(), 'src/test/fixtures/backendProtocol.json'), 'utf8')).validResponses;
     return `window.prompt = () => '1';
         const fixtures = ${JSON.stringify(fixtures.map(workerFixture))};
         window.Worker = class {
             terminate() {}
             postMessage(command) {
+                if (command.cmd === 'track-detail') window.__detailAsks = (window.__detailAsks ?? 0) + 1;
                 const result = command.cmd === 'load' ? { filePath: '/sources/' + command.sourceId }
                     : command.cmd === 'limits' ? { maxInputBytes: 16777216, maxSources: 8, maxTotalInputBytes: 67108864, maxExportBytes: 33554432 }
                     : ['unload', 'clear', 'export-plan'].includes(command.cmd) ? {}
@@ -76,15 +78,15 @@ function staticWorkerInit(): string {
                             waveform: { min: [-1], max: [1], samples: [0], absolutePeak: 1 }, spectrogram: null }] } : {}),
                         // A track's detail is its channels' spectrograms. A lane asks again, on every frame, for as long as its
                         // channel has none, so an answer without one keeps the page working and settled() never ends.
-                        ...(command.cmd === 'track-detail' ? { channels: fixtures.find(entry => entry.command === 'analyze' && entry.response.channels.some(channel => channel.spectrogram)).response.channels } : {}) };
+                        ...(command.cmd === 'track-detail' && ${detail === 'spectrogram'} ? { channels: fixtures.find(entry => entry.command === 'analyze' && entry.response.channels.some(channel => channel.spectrogram)).response.channels } : {}) };
                 queueMicrotask(() => this.onmessage({ data: { requestId: command.requestId, result } }));
             }
         };`;
 }
 
 /** Serves the Pages build (static host + modular runtime) with a fixture Worker in place of Pyodide. */
-async function openStaticPage(page: Page, extraInit = ''): Promise<void> {
-    const init = staticWorkerInit() + extraInit;
+async function openStaticPage(page: Page, extraInit = '', detail: 'spectrogram' | 'none' = 'spectrogram'): Promise<void> {
+    const init = staticWorkerInit(detail) + extraInit;
     const html = renderComparisonDocument({ mode: 'results', results: [], spectrogramSettings: DEFAULT_SPECTROGRAM_SETTINGS }, {
         waveformScriptUri: './comparisonWaveform.js', runtimeScriptUri: './comparisonRuntime.js', hostScriptUri: './staticHost.js', cspSource: "'self'", language: 'en', appVersion: '0.0.0',
     });
@@ -133,6 +135,21 @@ test('static page: with a track shown the page comes to rest, so settled() can b
     await expect(page.locator('.track-row')).toHaveCount(1);
     expect(await settled(page), 'the page kept working with one track shown and nothing playing. It is asking the stand-in Worker (staticWorkerInit) again for an answer it did not take: '
         + 'make the stand-in answer what the real worker would (a lane asks for its detail until its channel has a spectrogram), or settled() waits its whole 10 s wherever a track is shown').toBe(true);
+});
+
+test('static page: a detail answered with no spectrogram is asked once, and the lane says there is none', async ({ page }) => {
+    // What the lanes write, by canvas.
+    await openStaticPage(page, `window.__drawnText = []; { const fill = CanvasRenderingContext2D.prototype.fillText;
+        CanvasRenderingContext2D.prototype.fillText = function (text, x, y) { window.__drawnText.push({ id: this.canvas.id, text: String(text) }); return fill.apply(this, arguments); }; }`, 'none');
+    await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: tinyWav() });
+    await expect(page.locator('.track-row')).toHaveCount(1);
+    const fix = 'An answer without a spectrogram is the answer under those settings (docs/display-rules.md R3): the lane asks only in laneDetailState\'s "ask" (trackStore.ts)';
+    expect(await settled(page), `the page kept working with one track shown: its lane asks for its detail again on every frame. ${fix}`).toBe(true);
+    await settled(page);
+    expect(await page.evaluate(() => (window as typeof window & { __detailAsks?: number }).__detailAsks), `the track's detail was asked more than once. ${fix}`).toBe(1);
+    // Its last word is that there is none, not "Loading".
+    const written = await page.evaluate(() => (window as typeof window & { __drawnText: Array<{ id: string; text: string }> }).__drawnText.filter(entry => entry.id.startsWith('track-spec-canvas-0')).map(entry => entry.text));
+    expect(written.at(-1), `the spectrogram lane of a track whose detail came without a spectrogram must say so. ${fix}`).toBe(getStrings('en').spectrogramNone);
 });
 
 test('static page: the empty view offers the samples, which load as three tracks, and then is no longer offered', async ({ page }) => {

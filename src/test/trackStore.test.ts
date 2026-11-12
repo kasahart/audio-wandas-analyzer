@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { TrackStore } from '../webview/runtime/trackStore';
+import { createAnswerSlot, FAILED_RETRY_MS } from '../webview/runtime/answerStore';
+import { laneDetailState, TrackStore } from '../webview/runtime/trackStore';
 import type { ComparisonTrackState, TrackRuntimeState } from '../webview/runtime/types';
 
 function result(filePath: string, peakAbsolute = 0.5): ComparisonTrackState {
@@ -227,4 +228,53 @@ test('TrackStore gives each new track the own colour least in use: a file swappe
 test('TrackStore gives a file opened twice two colours', () => {
     const store = new TrackStore([result('/same.wav'), result('/same.wav')], runtime);
     assert.deepEqual(store.activeIds().map((id) => store.require(id).runtime.ownColorIndex), [0, 1]);
+});
+
+test('a detail answered without a spectrogram is asked exactly once: the lane says there is none, and asks again only when the settings change or the file is analysed anew (a failure is asked again after the answer store\'s pause)', () => {
+    let clock = 0;
+    const detail = createAnswerSlot<string>(() => clock);
+    let asks = 0;
+    let askedUnder: string | undefined;
+    // One drawing of a lane whose channel has no spectrogram, as comparisonRuntime.ts requestTrackDetail does it.
+    const draw = (settings: string): string => {
+        const state = laneDetailState(detail, settings, askedUnder);
+        if (state === 'ask') { detail.clear(); asks++; askedUnder = settings; }
+        return state;
+    };
+    const fix = 'A lane asks for its detail only in the state laneDetailState calls "ask" (trackStore.ts). An answer without a spectrogram is the answer under those settings '
+        + '(docs/display-rules.md R3, "届いた答えに絵がないとき"): keep it in the track\'s answer slot (detail.set with the settings it came under), never ask again on the next frame.';
+
+    assert.equal(draw('stft 1024'), 'ask');
+    for (let frame = 0; frame < 100; frame++) assert.equal(draw('stft 1024'), 'pending', fix);
+    assert.equal(asks, 1, `while the answer is on its way the lane asks once. ${fix}`);
+
+    // The valid answer arrives, with no spectrogram for the channel.
+    detail.set(askedUnder!);
+    askedUnder = undefined;
+    for (let frame = 0; frame < 100; frame++) { clock += 1000; assert.equal(draw('stft 1024'), 'empty', fix); }
+    assert.equal(asks, 1, `an answer without a spectrogram was asked again, though nothing it was asked under changed (and time alone does not change it). ${fix}`);
+
+    // Other settings are another answer: asked once.
+    assert.equal(draw('stft 2048'), 'ask');
+    assert.equal(draw('stft 2048'), 'pending');
+    detail.set(askedUnder!);
+    askedUnder = undefined;
+    assert.equal(draw('stft 2048'), 'empty');
+    assert.equal(asks, 2, `a change of the settings asks once more. ${fix}`);
+
+    // A new analysis of the file (a new version, a calibration) clears the track's answers (TrackStore clearAsyncState): asked once.
+    detail.clear();
+    assert.equal(draw('stft 2048'), 'ask');
+    assert.equal(asks, 3, `a new analysis asks once more. ${fix}`);
+
+    // A failure stands for the store's pause, then is asked again: the only thing time changes.
+    detail.fail('backend busy', askedUnder);
+    askedUnder = undefined;
+    assert.equal(draw('stft 2048'), 'failed');
+    assert.equal(detail.failure('stft 2048'), 'backend busy');
+    clock += FAILED_RETRY_MS - 1;
+    assert.equal(draw('stft 2048'), 'failed');
+    clock += 2;
+    assert.equal(draw('stft 2048'), 'ask', 'a failure is asked again once the answer store\'s pause is over');
+    assert.equal(asks, 4);
 });

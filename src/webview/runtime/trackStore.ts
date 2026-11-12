@@ -25,8 +25,11 @@ export interface TrackRecord {
     readonly rangeCache: AnswerSlot<WaveformRangeCache>;
     /** What the track asked the host for: its waveform range ('range'), spectrogram ('detail') and cursor spectrum ('slice'). */
     readonly requests: HostRequests<LazyRequestState | null>;
-    /** The spectrogram's failure under the settings it was asked with: shown in the lane, asked again after the store's pause. */
-    readonly detail: AnswerSlot<true>;
+    /**
+     * The track's spectrogram detail, as answered: the settings its answer came under, or its failure under the
+     * settings it was asked with (shown in the lane, asked again after the store's pause). See laneDetailState.
+     */
+    readonly detail: AnswerSlot<string>;
     /** A zoomed lane's spectrogram window, asked again at full resolution (R3); drawn while it covers the view; its failure waits the pause. */
     readonly spectrogramZoom: AnswerSlot<SpectrogramZoom>;
     /** Each channel's cursor slice last answered (answerStore: one per channel, checked against the cursor by sliceIsCurrentAt). */
@@ -53,6 +56,23 @@ export interface ReconcileResult {
     added: TrackId[];
     removed: TrackId[];
     protocolOrderChanged: boolean;
+}
+
+/**
+ * What a lane whose channel has no spectrogram does about its detail, under the settings shown now (`condition`: the
+ * spectrogram settings' signature; a new analysis of the file, a new version or calibration, clears the slot):
+ * - 'empty': the detail was answered under these settings and brought this channel no spectrogram. That is the
+ *   answer: the lane says there is none, and it is not asked again until the settings or the analysis change.
+ *   Asking again would get the same answer, on every frame the lane is drawn.
+ * - 'failed': it failed under these settings and the answer store's pause is not over; the lane shows why.
+ * - 'pending': it is asked under these settings and not answered yet.
+ * - 'ask': none of these, so the lane asks now.
+ * The states are the answer slot's own (answerStore.ts); nothing else remembers what was asked or answered.
+ */
+export function laneDetailState(detail: AnswerSlot<string>, condition: string, askedUnder: string | undefined): 'empty' | 'failed' | 'pending' | 'ask' {
+    if (detail.get() === condition) return 'empty';
+    if (detail.holds(condition)) return 'failed';
+    return askedUnder === condition ? 'pending' : 'ask';
 }
 
 export class TrackStore {
@@ -277,7 +297,7 @@ export class TrackStore {
             waveformCoverage: null,
             rangeCache: createAnswerSlot<WaveformRangeCache>(undefined, this.retried),
             requests: new HostRequests(),
-            detail: createAnswerSlot<true>(undefined, this.retried),
+            detail: createAnswerSlot<string>(undefined, this.retried),
             spectrogramZoom: createAnswerSlot<SpectrogramZoom>(undefined, this.retried),
             spectrumSliceCache: createLatestAnswers<SpectrumSlice, number>(),
             sourceChanged: false,
