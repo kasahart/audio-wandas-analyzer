@@ -1199,7 +1199,10 @@ def unthinned_problems(found: dict[str, int], listed: dict[str, str]) -> Iterato
         if entry not in found:
             yield f"'unthinned' in {CONTRACT.name} lists a place no longer found (remove its line): {entry}"
         elif not why.strip():
-            yield f"'unthinned' in {CONTRACT.name}: {entry} says no why"
+            yield (
+                f"'unthinned' in {CONTRACT.name}: {entry} says no why. Fix: write one sentence there saying why every "
+                "value is sent in that field (none thinned), or why the field is another answer's of the same name."
+            )
 
 
 def schema_problems(schema: object) -> Iterator[str]:
@@ -1248,15 +1251,20 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    unregistered = [
-        *schema_problems(protocol_definitions()),
-        *unthinned_problems(find_unthinned(backend_sources()), contract_unthinned(data)),
-    ]
-    for problem in unregistered:
+    places = list(schema_problems(protocol_definitions()))
+    unclassified = list(unthinned_problems(find_unthinned(backend_sources()), contract_unthinned(data)))
+    for problem in [*places, *unclassified]:
         print(problem, file=sys.stderr)
-    if unregistered:
+    if places or unclassified:
         print(
-            f"check_decimation_flow: {len(unregistered)} problem(s) with what is sent as drawn points.", file=sys.stderr
+            f"check_decimation_flow: {len(unclassified)} problem(s) with values sent as drawn points and "
+            f"{len(places)} with the places of drawn points. Rule: every value put in an x-drawn field of the protocol "
+            "is classified: either a registered thinning function made it (SOURCES in this script and 'decimators' "
+            f"in {CONTRACT.name}), so this check follows it, or 'unthinned' in {CONTRACT.name} lists the place "
+            "with one sentence saying why every value is sent; and every name in DRAWN_PLACES is an x-place array "
+            "of python-backend/protocol_schema.py. Each line above names its file:line and the fix for it. "
+            "See docs/plot-contracts-guide.md.",
+            file=sys.stderr,
         )
         return 1
     flows = find_flows(backend_sources())

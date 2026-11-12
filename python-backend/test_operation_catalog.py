@@ -38,6 +38,9 @@ def test_the_generated_typescript_is_current(runs: list, needed: dict) -> None:
     # every operation again, so what a new wandas can or cannot do shows here.
     assert TS_TARGET.read_text(encoding="utf-8") == typescript(
         with_refusals(catalog(), refusals(runs), needed), frames()
+    ), (
+        f"{TS_TARGET.name} is not what the catalogue gives now (a wandas upgrade, or a Frame kind added to "
+        "stage_view.STAGE_FRAME_TYPES). Fix: run `python python-backend/operation_catalog.py --write` and commit it."
     )
 
 

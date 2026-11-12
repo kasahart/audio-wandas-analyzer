@@ -456,8 +456,8 @@ test('every drawing surface of the webview (a canvas or an SVG made, or a contex
     assert.deepEqual(unlisted, [], 'Rule: every canvas or SVG the webview makes or draws on is the plot component\'s, a chart\'s, or explained. These functions make one (a context taken, an element created, <canvas>/<svg> markup) and nothing lists them. Fix: if it shows data, draw it with the plot component (paintOverlay) and add the function to its chart\'s paintedBy in src/test/plotContracts/charts; if it only holds a chart\'s canvas, add it to src/test/plotContracts/surfaces.ts as { charts: [...] }; if it draws no data (an icon, a cursor layer), add it there with one sentence saying why. See docs/plot-contracts-guide.md.');
     assert.deepEqual(Object.keys(SURFACES).filter(where => !found.has(where)).sort(), [], 'Rule: surfaces.ts lists only functions that make a drawing surface today. Fix: remove these lines from src/test/plotContracts/surfaces.ts (the function was renamed, moved, or no longer makes a canvas or SVG).');
     for (const [where, whose] of Object.entries(SURFACES)) {
-        if (typeof whose === 'string') assert.ok(whose.trim().length > 0, `${where}: says no why`);
-        else assert.deepEqual(whose.charts.filter(chart => !charts.has(chart)), [], `${where}: no such chart`);
+        if (typeof whose === 'string') assert.ok(whose.trim().length > 0, `${where}: says no why. Rule: a surface that is no chart's says in one sentence why it draws no data. Fix: write that sentence as its entry in src/test/plotContracts/surfaces.ts.`);
+        else assert.deepEqual(whose.charts.filter(chart => !charts.has(chart)), [], `${where}: names charts that do not exist. Rule: a surface that holds a chart's canvas names that chart by its id. Fix: use an id from src/test/plotContracts/charts (the chart's \`id\`), or remove the ones that were renamed or deleted.`);
     }
 });
 
@@ -484,16 +484,16 @@ test('the surface scan finds a chart drawn its own way: a canvas made and drawn,
 test('every test the table names runs and asserts something', () => {
     for (const row of ROWS) {
         for (const named of row.tests) {
-            assert.ok(existsSync(path.join(repoRoot, named.file)), `${row.id}: no file ${named.file}`);
+            assert.ok(existsSync(path.join(repoRoot, named.file)), `${row.id}: names a test in ${named.file}, which does not exist. Rule: every test a row of the contract table names is a test that runs. Fix: give the file's path from the repository root as it is now in that row's tests (src/test/plotContracts/charts/${row.chart}.ts).`);
             const problem = testProblem(named.file, read(named.file), named.name);
-            assert.equal(problem, null, `${row.id}: ${problem}`);
+            assert.equal(problem, null, `${row.id}: ${problem}. Rule: every test a row names runs and asserts something. Fix: name it by its title as written in ${named.file} (src/test/plotContracts/charts/${row.chart}.ts), or make the test assert.`);
         }
     }
 });
 
 test('every function the table names exists, as a function of its file or a def of its Python module', () => {
     const named = [...ROWS.flatMap(row => row.computedIn), ...VALUE_HELPERS, ...Object.keys(NOT_CHART_VALUES)];
-    assert.deepEqual([...new Set(named)].filter(entry => !exists(entry)).sort(), []);
+    assert.deepEqual([...new Set(named)].filter(entry => !exists(entry)).sort(), [], 'Rule: every function the contract table names (a row\'s computedIn in src/test/plotContracts/charts, VALUE_HELPERS or NOT_CHART_VALUES in src/test/plotContracts/values.ts) is a function of that file today, or a def of that Python module. These are not. Fix: if the function was renamed or moved, write its new `file:function` (`python-backend/module.py:def` for Python) where it is listed; if it is gone, remove the entry (and, for a row, name the function that computes the value now).');
 });
 
 test('every function that writes a number in the webview is in the table, a value helper, or not a chart\'s value with why', () => {
@@ -503,7 +503,7 @@ test('every function that writes a number in the webview is in the table, a valu
     assert.deepEqual(unlisted, [], 'Rule: every function that writes a number a user can read belongs to the contract table. These write one (the parentheses say how and where) and nothing lists them. Fix, one of: (1) it is a value of a chart: add the function to computedIn of its row in src/test/plotContracts/charts/<chart>.ts (or add a row); (2) it only formats or computes for others: add it to VALUE_HELPERS in src/test/plotContracts/values.ts; (3) it is not a chart\'s value (a setting\'s field, a test attribute, a CSS size): add it to NOT_CHART_VALUES there with one sentence saying why. See docs/plot-contracts-guide.md.');
     // A function that no longer writes a number is no longer not a chart's value.
     assert.deepEqual(Object.keys(NOT_CHART_VALUES).filter(entry => !writers.has(entry)).sort(), [], 'Rule: NOT_CHART_VALUES lists only functions that write a number today. Fix: remove these lines from src/test/plotContracts/values.ts.');
-    for (const [entry, why] of Object.entries(NOT_CHART_VALUES)) assert.ok(why.trim().length > 0, `${entry}: says no why`);
+    for (const [entry, why] of Object.entries(NOT_CHART_VALUES)) assert.ok(why.trim().length > 0, `${entry}: says no why. Rule: a number writer that is no chart's value says why in one sentence. Fix: write it as its entry in NOT_CHART_VALUES (src/test/plotContracts/values.ts).`);
 });
 
 test('the detector finds a number written by a primitive, a helper imported under another name, a local alias of one, and rounding to decimals by arithmetic', () => {
@@ -1033,16 +1033,16 @@ test('the proof check follows names to what they declare: only a use of the row\
 
 test('every gap is in its chart\'s knownGaps at its severity, and a row is a gap until a test holds it from full data', () => {
     const gaps = Object.fromEntries(ROWS.filter(row => row.gap).map(row => [row.id, row.gap?.severity]));
-    assert.deepEqual(gaps, { ...KNOWN_GAPS });
+    assert.deepEqual(gaps, { ...KNOWN_GAPS }, 'Rule: the rows marked as gaps (a row\'s `gap` in src/test/plotContracts/charts) are exactly KNOWN_GAPS, each at its severity. Fix: a row whose gap you closed: take its `gap` off and its line out of KNOWN_GAPS. A new gap is not allowed (GAP_CEILING): make the row\'s value come from the full data and name the test that tells it from the drawn points instead.');
     for (const row of ROWS) {
         const why = reasons(row);
         if (row.gap) {
-            assert.ok(row.gap.why.trim().length > 0, `${row.id}: a gap says no why`);
+            assert.ok(row.gap.why.trim().length > 0, `${row.id}: its gap says no why. Fix: write in its \`gap.why\` (src/test/plotContracts/charts/${row.chart}.ts) what the value is taken of and why that is not yet the full data.`);
             // Every gap is held by one of these, so taking its mark off fails until it is closed.
-            assert.ok(why.length > 0, `${row.id}: a gap no rule holds (it has a test that tells full from drawn, full data and a whole axis name)`);
-            if (row.from === 'thinned') assert.equal(row.gap.severity, 'P1', `${row.id}: a number shown from averaged or cut points is P1`);
+            assert.ok(why.length > 0, `${row.id}: is marked a gap, but no rule holds it: it is taken from the full data, names a test that tells the full data from the drawn points, and has a whole axis name. Fix: it is no gap any more: take its \`gap\` off (src/test/plotContracts/charts/${row.chart}.ts) and its line out of KNOWN_GAPS.`);
+            if (row.from === 'thinned') assert.equal(row.gap.severity, 'P1', `${row.id}: is taken from averaged or cut points (from: 'thinned'), which is always P1 (docs/display-rules.md R1). Fix: set its gap.severity to 'P1', or take the value from the full data.`);
         } else {
-            assert.deepEqual(why, [], `${row.id} is not a gap, but`);
+            assert.deepEqual(why, [], `${row.id} (src/test/plotContracts/charts/${row.chart}.ts) is not marked a gap, but these say it is one. Fix each, by what it says: "no test holds it": name the test in the row's tests; "computed from thinned points": take the value from the full data before thinning; "no test it names tells …": name (with tt) a test that asserts a case where the full data and the drawn points give different answers (assertNotDrawn); "it breaks Rn": take an exception docs/display-rules.md approves, in its own words, or stop breaking it; "its axis name lacks …": give the row's names its quantity, unit and reference. A gap mark is no way out: GAP_CEILING is 0.`);
         }
     }
 });

@@ -176,7 +176,11 @@ def test_every_wandas_frame_is_drawn() -> None:
     from stage_view import STAGE_FRAME_TYPES
 
     found = [value for value in vars(wandas.frames).values() if inspect.isclass(value) and issubclass(value, BaseFrame)]
-    assert [frame.__name__ for frame in found if not issubclass(frame, STAGE_FRAME_TYPES)] == []
+    missing = [frame.__name__ for frame in found if not issubclass(frame, STAGE_FRAME_TYPES)]
+    assert missing == [], (
+        f"wandas has Frame kinds the comparison does not draw: {missing}. Fix: follow 'Adding a new Frame kind' in "
+        "docs/plot-layers.md (a branch in stage_view._read_frame and _stage_view, then STAGE_FRAME_TYPES)."
+    )
 
 
 def test_an_stft_column_whose_window_sticks_out_of_the_signal_is_marked(signal: wd.ChannelFrame) -> None:

@@ -100,10 +100,41 @@ times).
   drawing code and `stage_combine.read_points` both use. So a drawn point and the point read under the pointer have
   the same x.
 
-To draw a new Frame kind, add a branch to `read_frame`. Do not read a Frame's `data`, `freqs` or `times` in a view
-function or in `stage_combine.py`, and do not compute a time or frequency from a count or a fraction: use `x_at`.
+Do not read a Frame's `data`, `freqs` or `times` in a view function or in `stage_combine.py`, and do not compute a
+time or frequency from a count or a fraction: use `x_at`.
 `python-backend/test_drawn_x_is_source_x.py` checks every Frame kind and every thinning routine against the Frame's
 own axis (display rules R2).
+
+### Adding a new Frame kind
+
+A Frame kind is drawn in four places, all in `python-backend/stage_view.py`, and five tests ask for it. Do the steps
+in this order; each test named fails until its step is done, and its message names the step.
+
+1. **Read it.** Add a branch to `_read_frame` (called through `read_frame`) that returns its `FrameReading`: its
+   values with the channels combined, and its axes. Take every array of the Frame with `_taken`, before any
+   arithmetic, so it is float64. If its values are not one of the reading modes `reading_axis` knows, add the mode
+   there too, so `x_at` gives each value's x.
+2. **Draw it.** Add a branch to `_stage_view` that returns its picture (a `_<kind>_view` function): `kind` (`line`,
+   `bar` or `heatmap`), `x`, `quantity`, `unit`, and the thinned points, all taken from the reading, never from the
+   Frame. Thin with a function listed in `SOURCES` (`scripts/check_decimation_flow.py`) and in `decimators` of
+   `python-backend/drawn_points_contract.json`; a new thinning function goes in both.
+3. **List it.** Add the class to `STAGE_FRAME_TYPES` (and to `CHART_FRAME_TYPES` when it is drawn as a line, bars or an
+   image of its own values). The operation catalogue reads this list to say which steps the app draws: run
+   `python python-backend/operation_catalog.py --write` to regenerate `src/shared/recipe/generated/wandasOperations.ts`.
+   If it is drawn as an image, add its name to `IMAGE_FRAMES` in `src/webview/runtime/trackStageMode.ts`, so it
+   stays in its track's lane.
+4. **Write its fixture.** Add it to `_kinds` in `python-backend/test_stage_view_kinds.py` and run
+   `python python-backend/test_stage_view_kinds.py --write`, which writes `src/test/fixtures/stageViewKinds.json`.
+   The plot contract (`plotContract.spec.ts`) and the readout transitions (`readoutTransitions.test.ts`) draw every
+   kind in it, so the new one gets the same gestures and readouts as every plot.
+5. **Check its x.** Add it to `_KINDS` and `_source` in `python-backend/test_drawn_x_is_source_x.py`, so its drawn x
+   is checked against the Frame's own axis, whole, zoomed, as a median and as a Δ.
+
+The tests that ask: `test_stage_view.py` › `test_every_wandas_frame_is_drawn` (a wandas Frame class not in
+`STAGE_FRAME_TYPES`), `test_drawn_x_is_source_x.py` › `test_every_drawn_frame_kind_is_covered` (a kind missing from
+`_KINDS`), `test_operation_catalog.py` › `test_the_generated_typescript_is_current` (the catalogue not regenerated),
+`src/test/stageViewKinds.test.ts` (a kind a step can give that the fixture does not hold), and
+`test_frame_reading.py` (an array of its reading not in float64).
 
 ## Where to make a change
 
