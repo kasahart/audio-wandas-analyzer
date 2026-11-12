@@ -1,3 +1,4 @@
+import { testLine } from './helpers/whole';
 import assert from 'node:assert/strict';
 import { N, R, T } from './helpers/figure';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -5,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import type { StageView } from '../shared/protocol/backendProtocol';
-import { localLine, mappedSource, type FullSource, UNREADABLE, cannotRead } from '../webview/runtime/fullRead';
+import { mappedSource, type FullSource, cannotRead, fullSource, readsFullData, sourceWith } from '../webview/runtime/fullRead';
 import { createPlotHoverLayer } from '../webview/runtime/plotHoverLayer';
 import type { PaneRange } from '../webview/runtime/comparePanes';
 import { floorless, paintOverlay, paintStage, stageRange, type StagePlot } from '../webview/runtime/stagePanes';
@@ -52,8 +53,8 @@ function sourceOf(view: StageView, fetched: boolean): { full: FullSource; releas
     const of = (whole: StageView): FullSource => {
         const inner = held(whole);
         const event = whole.events ? (id: number): FullSource => { const one = whole.events!.find(item => item.id === id)!; return of({ ...whole, events: undefined, xs: one.xs, values: one.values }); } : undefined;
-        if (!fetched) return event ? { ...inner, event } : inner;
-        return { held: 'fetched', ...UNREADABLE, line: wait(inner.line), cells: wait(inner.cells), ...(event ? { event } : {}) };
+        if (!fetched) return event ? sourceWith(inner, { event }) : inner;
+        return fullSource('fetched', { line: wait(inner.line), cells: wait(inner.cells), ...(event ? { event } : {}) });
     };
     return { full: of(view), release: () => { holding = false; for (const ready of waiting.splice(0)) ready(); }, hold: () => { holding = fetched; } };
 }
@@ -150,12 +151,12 @@ const CHARTS: ChartKind[] = [
     },
     {
         name: 'difference', images: true, diff: true,
-        draw: (canvas, view, full, { window, size }) => paintStage(canvas, view, R(stageRange([view])), '#c33', names(view), { diff: true, size, ...(window ? { window: { x: window } } : {}) }, full),
+        draw: (canvas, view, full, { window, size }) => paintStage(canvas, view, R(stageRange([view])), '#c33', names(view), full, { diff: true, size, ...(window ? { window: { x: window } } : {}) }),
     },
     {
         name: 'right-hand level axis', images: false,
         // The left axis holds a line of the other reference, nowhere near the pointer: the one read is on the right.
-        draw: (canvas, view, full, { window, size }) => paintOverlay(canvas, { layers: [{ view: { ...view, xs: (view.xs ?? []).slice(0, 1), values: (view.values ?? []).slice(0, 1), levelBins: undefined, events: undefined }, color: '#c63', label: 'b.wav', full: localLine([], []) }] }, R(stageRange([view])), names(view),
+        draw: (canvas, view, full, { window, size }) => paintOverlay(canvas, { layers: [{ view: { ...view, xs: (view.xs ?? []).slice(0, 1), values: (view.values ?? []).slice(0, 1), levelBins: undefined, events: undefined }, color: '#c63', label: 'b.wav', full: testLine([], []) }] }, R(stageRange([view])), names(view),
             { size, ...(window ? { window: { x: window } } : {}), axisView: view, secondary: { layers: [{ view, color: '#36c', label: 'a.wav', full }], range: R(stageRange([view])), title: T('Level [dB SPL]') } }),
     },
     {
@@ -182,10 +183,10 @@ function stateSource(view: StageView, state: State, mapped: boolean): { full: Fu
             if (failing) { waiting.push(ready); return null; }
             return read(query, ready);
         });
-        const fetched: FullSource = state === 'held' ? source : { held: 'fetched', ...UNREADABLE, line: gate(source.line), cells: gate(source.cells) };
+        const fetched: FullSource = state === 'held' ? source : fullSource('fetched', { line: gate(source.line), cells: gate(source.cells) });
         const event = whole.events ? (id: number): FullSource => { const one = whole.events!.find(item => item.id === id)!; return wrap({ ...whole, events: undefined, xs: one.xs, values: one.values }); } : undefined;
         const onAxis = mapped ? mappedSource(fetched, toFile, fromFile) : fetched;
-        return event ? { ...onAxis, event } : onAxis;
+        return event && readsFullData(onAxis) ? sourceWith(onAxis, { event }) : onAxis;
     };
     const flush = (): void => { for (const ready of waiting.splice(0)) ready(); };
     return { full: wrap(own), release: () => { holding = false; flush(); }, recover: () => { failing = false; flush(); } };
@@ -395,7 +396,7 @@ for (const [kind, view] of Object.entries(KINDS)) {
                 for (const fetched of [false, true]) {
                     // Fetched: answered as fetchedSource answers from what the backend sent (seek: full_read._seek_line).
                     const whole = held(silent.view);
-                    const full: FullSource = fetched ? { held: 'fetched', ...UNREADABLE, line: (query, ready) => whole.line(query, ready) } : whole;
+                    const full: FullSource = fetched ? fullSource('fetched', { line: (query, ready) => whole.line(query, ready) }) : whole;
                     const drawn = chart.draw(canvas, silent.view, full, { size: { width: W, height: H } });
                     assert.ok(drawn);
                     const xs: readonly number[] = silent.view.xs ?? [];

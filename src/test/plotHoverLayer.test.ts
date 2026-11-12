@@ -1,8 +1,9 @@
+import { testLine } from './helpers/whole';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { held } from './helpers/heldSource';
 import { JSDOM } from 'jsdom';
-import { localLine, STEP_AHEAD, type FullSource, UNREADABLE } from '../webview/runtime/fullRead';
+import { STEP_AHEAD, type FullSource, fullSource } from '../webview/runtime/fullRead';
 import { createPlotHoverLayer } from '../webview/runtime/plotHoverLayer';
 import type { StageLayer, StagePlot } from '../webview/runtime/stagePanes';
 
@@ -97,17 +98,16 @@ test('an arrow key steps to a point above or below the level axis as the pointer
 test('a step that waits for its points is taken, once they are in, through the owner\'s hover, so the place it keeps is the new one (R7)', () => {
     const { plot, slot, layer } = setup();
     const xs = Array.from({ length: 10 }, (_, i) => i), values = xs.map(i => i + 0.5);
-    const whole = localLine(xs, values);
+    const whole = testLine(xs, values);
     let later: (() => void) | null = null;
     let held = true;
     // The hover's points are at hand; a step's (STEP_AHEAD) come later.
-    const full: FullSource = {
-        held: 'fetched', ...UNREADABLE,
+    const full: FullSource = fullSource('fetched', {
         line(query, ready) {
             if (query.beyond === STEP_AHEAD && held) { later = ready; return undefined; }
             return whole.line({ ...query, beyond: Math.min(query.beyond, 1) }, ready);
         },
-    };
+    });
     const drawn: StagePlot = { ...plotWith([{ ...line('a', '#f00', values), full }]), xOf: (x: number) => (x - 50) / 10, levelOf: (y: number) => (110 - y) / 10 };
     layer.show(plot, drawn, 80, 75, slot);
     assert.equal(layer.reading()?.at, 3);
@@ -126,16 +126,15 @@ test('keys pressed while a step waits for its next points add up: three keys, th
     for (const keys of [1, 2, 3] as const) {
         const { plot, slot, layer } = setup();
         const xs = Array.from({ length: 10 }, (_, i) => i), values = xs.map(i => i + 0.5);
-        const whole = localLine(xs, values);
+        const whole = testLine(xs, values);
         const later: Array<() => void> = [];
         let held = true;
-        const full: FullSource = {
-            held: 'fetched', ...UNREADABLE,
+        const full: FullSource = fullSource('fetched', {
             line(query, ready) {
                 if (query.beyond === STEP_AHEAD && held) { later.push(ready); return undefined; }
                 return whole.line(query, ready);
             },
-        };
+        });
         const drawn: StagePlot = { ...plotWith([{ ...line('a', '#f00', values), full }]), xOf: (x: number) => (x - 50) / 10, levelOf: (y: number) => (110 - y) / 10 };
         layer.show(plot, drawn, 80, 75, slot);
         assert.equal(layer.reading()?.at, 3);
@@ -155,11 +154,11 @@ test('an arrow key pressed while the readout waits for its points is taken once 
     for (const keys of [1, 2] as const) {
         const { plot, slot, layer } = setup();
         const xs = Array.from({ length: 10 }, (_, i) => i), values = xs.map(i => i + 0.5);
-        const whole = localLine(xs, values);
+        const whole = testLine(xs, values);
         const waiting: Array<() => void> = [];
         let held = true;
         // Every read waits until the points come in.
-        const full: FullSource = { held: 'fetched', ...UNREADABLE, line(query, ready) { if (held) { waiting.push(ready); return undefined; } return whole.line(query, ready); } };
+        const full: FullSource = fullSource('fetched', { line(query, ready) { if (held) { waiting.push(ready); return undefined; } return whole.line(query, ready); } });
         const drawn: StagePlot = { ...plotWith([{ ...line('a', '#f00', values), full }]), xOf: (x: number) => (x - 50) / 10, levelOf: (y: number) => (110 - y) / 10 };
         layer.show(plot, drawn, 80, 75, slot);
         assert.equal(layer.reading(), null, 'pending: no number yet');
@@ -184,10 +183,10 @@ test('an arrow key pressed while the readout waits for its points is taken once 
 test('keys pressed while the readout waits are dropped when the pointer moves on before the points are in (R7)', () => {
     const { plot, slot, layer } = setup();
     const xs = Array.from({ length: 10 }, (_, i) => i), values = xs.map(i => i + 0.5);
-    const whole = localLine(xs, values);
+    const whole = testLine(xs, values);
     const waiting: Array<() => void> = [];
     let held = true;
-    const full: FullSource = { held: 'fetched', ...UNREADABLE, line(query, ready) { if (held) { waiting.push(ready); return undefined; } return whole.line(query, ready); } };
+    const full: FullSource = fullSource('fetched', { line(query, ready) { if (held) { waiting.push(ready); return undefined; } return whole.line(query, ready); } });
     const drawn: StagePlot = { ...plotWith([{ ...line('a', '#f00', values), full }]), xOf: (x: number) => (x - 50) / 10, levelOf: (y: number) => (110 - y) / 10 };
     layer.show(plot, drawn, 80, 75, slot);
     layer.stepFrom(plot, drawn, 1);
@@ -228,17 +227,16 @@ test('a point stepped to above the level axis stays read when the plot is drawn 
 /** A line over 0..9 whose full data is held, on its way (`pending`) or failed (`failed`, its readers told once it recovers). */
 function gatedLine(values: number[]) {
     const xs = values.map((_, i) => i);
-    const whole = localLine(xs, values);
+    const whole = testLine(xs, values);
     const waiting: Array<() => void> = [];
     const gate = { mode: 'held' as 'held' | 'pending' | 'failed' };
-    const full: FullSource = {
-        held: 'fetched', ...UNREADABLE,
+    const full: FullSource = fullSource('fetched', {
         line(query, ready) {
             if (gate.mode === 'pending') { waiting.push(ready); return undefined; }
             if (gate.mode === 'failed') { waiting.push(ready); return null; }
             return whole.line(query, ready);
         },
-    };
+    });
     const set = (mode: typeof gate.mode): void => { gate.mode = mode; if (mode === 'held') for (const ready of waiting.splice(0)) ready(); };
     const draw = (): StagePlot => ({ ...plotWith([{ ...line('a', '#f00', values), full }]), xOf: (x: number) => (x - 50) / 10, levelOf: (y: number) => (110 - y) / 10 });
     return { draw, set, waiting };

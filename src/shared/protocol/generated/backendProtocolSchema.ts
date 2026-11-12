@@ -88,7 +88,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "samples": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-drawn": true
                     }
                 },
                 "absolutePeak": {
@@ -254,7 +255,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "timeCentersSec": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "bandLowHz": {
@@ -733,7 +735,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "bandCentersHz": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "minFrequencyHz": {
@@ -742,7 +745,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "frequenciesHz": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "windowStartNorm": {
@@ -893,7 +897,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "items": {
                         "anyOf": [
                             {
-                                "type": "number"
+                                "type": "number",
+                                "x-whole": true
                             },
                             {
                                 "type": "null"
@@ -906,7 +911,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "items": {
                         "anyOf": [
                             {
-                                "type": "number"
+                                "type": "number",
+                                "x-whole": true
                             },
                             {
                                 "type": "null"
@@ -919,7 +925,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "items": {
                         "anyOf": [
                             {
-                                "type": "number"
+                                "type": "number",
+                                "x-whole": true
                             },
                             {
                                 "type": "null"
@@ -1300,13 +1307,15 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "x": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "y": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "points": {
@@ -1317,13 +1326,15 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "peakX": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "peakY": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 }
             },
@@ -1338,13 +1349,15 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "x": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "y": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "beyond": {
@@ -1374,13 +1387,15 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "pixels": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "shown": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "seek": {
@@ -1430,7 +1445,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "xs": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-whole": true
                     }
                 },
                 "values": {
@@ -1438,7 +1454,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "items": {
                         "anyOf": [
                             {
-                                "type": "number"
+                                "type": "number",
+                                "x-whole": true
                             },
                             {
                                 "type": "null"
@@ -1449,7 +1466,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "ys": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-whole": true
                     }
                 },
                 "matrix": {
@@ -1459,7 +1477,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "items": {
                             "anyOf": [
                                 {
-                                    "type": "number"
+                                    "type": "number",
+                                    "x-whole": true
                                 },
                                 {
                                     "type": "null"
@@ -1500,7 +1519,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "items": {
                         "anyOf": [
                             {
-                                "type": "number"
+                                "type": "number",
+                                "x-place": true
                             },
                             {
                                 "type": "null"
@@ -1585,19 +1605,22 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "xs": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "xLimits": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "ys": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "yAxis": {
@@ -1771,13 +1794,15 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "edges": {
                             "type": "array",
                             "items": {
-                                "type": "number"
+                                "type": "number",
+                                "x-place": true
                             }
                         },
                         "power": {
                             "type": "array",
                             "items": {
-                                "type": "number"
+                                "type": "number",
+                                "x-whole": true
                             }
                         },
                         "count": {
@@ -1871,7 +1896,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                             "xs": {
                                 "type": "array",
                                 "items": {
-                                    "type": "number"
+                                    "type": "number",
+                                    "x-place": true
                                 }
                             },
                             "values": {
@@ -2058,13 +2084,15 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "leqDbA": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-whole": true
                     }
                 },
                 "peakHz": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-whole": true
                     }
                 },
                 "spectrumDb": {
@@ -2082,7 +2110,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "number"
+                            "type": "number",
+                            "x-whole": true
                         }
                     }
                 },
@@ -2096,7 +2125,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "items": {
                             "anyOf": [
                                 {
-                                    "type": "number"
+                                    "type": "number",
+                                    "x-whole": true
                                 },
                                 {
                                     "type": "null"
@@ -2108,7 +2138,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "crest": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-whole": true
                     }
                 },
                 "specVersion": {
@@ -2352,7 +2383,7 @@ export interface WaveformEnvelope {
     max: Drawn[];
     minT?: Drawn[];
     maxT?: Drawn[];
-    samples: number[];
+    samples: Drawn[];
     absolutePeak: number;
 }
 
@@ -2854,4 +2885,11 @@ export interface BrowserLimits {
     maxSources: number;
     maxTotalInputBytes: number;
     maxExportBytes: number;
+}
+
+/** The array fields that hold every value of the data (protocol_schema.py `x-whole`), by the type they are of. */
+export interface WholeFields {
+    PairSpectrumResponse: Pick<PairSpectrumResponse, 'gainDb' | 'phaseRad' | 'coherence'>;
+    StagePoints: Pick<StagePoints, 'xs' | 'values' | 'ys' | 'matrix'>;
+    ScanResult: Pick<ScanResult, 'leqDbA' | 'peakHz' | 'spectrumBinsDb' | 'thirdOctDb' | 'crest'>;
 }

@@ -394,9 +394,12 @@ test('every call of the plot component, and every plot plotRegistry.ts lists, is
  * createElementNS with the SVG namespace, new OffscreenCanvas), or written as markup (`<canvas`, `<svg` in a string or
  * a template). A function that makes a surface and is not listed fails, so a new chart drawn its own way is found.
  *
- * What this does not do: look inside a function that is already listed. A registered painter that also draws on
- * its canvas by hand is not stopped here. What holds there is the types: whatever draws is given `Drawn` points,
- * which it can only draw (drawnPoints.ts, in the drawing modules), and whatever writes a number is given `Whole`.
+ * This scan is a ledger of where surfaces are made. It is NOT the guarantee that every chart is drawn by the plot
+ * component, and it does not look inside a function that is already listed: a registered painter that also draws
+ * on its canvas by hand passes here. The guarantee is the audit every UI test runs in a real browser
+ * (src/test/uiSmoke/canvasAudit.ts): a canvas on screen that the component did not mark, and any 2D drawing call
+ * made into a plot's canvas while the component is not painting, fail the test. See "Adding a canvas or an SVG" in
+ * docs/plot-contracts-guide.md for what the audit sees and what it cannot.
  */
 function drawingSurfaces(program: ts.Program, files: readonly string[]): Map<string, Set<string>> {
     const checker = program.getTypeChecker();

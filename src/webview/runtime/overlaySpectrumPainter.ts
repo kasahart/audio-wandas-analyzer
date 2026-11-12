@@ -6,7 +6,7 @@ import { drawableLine } from '../../shared/drawnPoints';
 import type { Drawn } from '../../shared/provenance';
 import { everyBin } from './wholeAnswers';
 import { minMaxLine } from './comparePanes';
-import { localLine, NO_FULL_DATA, NO_LEVEL, type FullSource, UNREADABLE } from './fullRead';
+import { localLine, NO_FULL_DATA, NO_LEVEL, type FullSource, fullSource } from './fullRead';
 import {
     OVERLAY_SPECTRUM_PAD,
     overlayLevelAxes,
@@ -37,9 +37,9 @@ export interface OverlaySpectrumPaint {
  * the track's end there is no point to read, and silence has no power (the quietest, drawn last on top, R6).
  */
 const STAND_IN_READ: Record<NonNullable<SpectrumSeries['slice']['standIn']>, FullSource> = {
-    pending: { held: 'fetched', ...UNREADABLE, line: () => undefined, level: () => undefined },
+    pending: fullSource('fetched', { line: () => undefined, level: () => undefined }),
     // No point to read there: an empty window (null would be a read that failed, which no other line stands in for).
-    silence: { held: 'fetched', ...UNREADABLE, line: () => ({ xs: [], values: [], start: null, end: null, complete: true }), level: () => NO_LEVEL },
+    silence: fullSource('fetched', { line: () => ({ xs: [], values: [], start: null, end: null, complete: true }), level: () => NO_LEVEL }),
 };
 
 /** Marks the right-hand axis in the legend. */

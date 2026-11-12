@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { assertNotDrawn, nearestOf } from './fullNotDrawn';
 import { FAILED_RETRY_MS as FAILED_HOLD_MS } from '../webview/runtime/answerStore';
-import { fetchedSource, localCells, localLine, mappedSource, NO_FULL_DATA, STEP_AHEAD, type FullSource, type LineQuery, UNREADABLE } from '../webview/runtime/fullRead';
-import { wholeValue } from './helpers/whole';
+import { fetchedSource, mappedSource, NO_FULL_DATA, STEP_AHEAD, type FullSource, type LineQuery, fullSource, cannotRead, readsFullData, sourceWith } from '../webview/runtime/fullRead';
+import { wholeValue, testLine, testCells } from './helpers/whole';
 import { wholeBars } from '../webview/runtime/wholeAnswers';
 import { declaresFullRead, stageHover, stageStep, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
 import { HOVER_PICK_RADIUS_PX } from '../webview/runtime/plotHover';
@@ -15,7 +15,7 @@ import type { StageRead as FullReadRequest, StageView } from '../shared/protocol
 function heldBackend(xs: number[], values: number[]): { source: FullSource; flush(): void; asked: FullReadRequest[] } {
     const queue: Array<() => void> = [];
     const asked: FullReadRequest[] = [];
-    const whole = localLine(xs, values);
+    const whole = testLine(xs, values);
     const source = fetchedSource((read, done) => {
         asked.push(read);
         queue.push(() => done(whole.line({ x0: Math.min(...read.x), x1: Math.max(...read.x), beyond: read.beyond ?? 1 }, () => undefined)));
@@ -244,7 +244,7 @@ test('a spectrogram is read at its real cells, never the cells averaged to draw 
     const drawnXs = Array.from({ length: columns / 4 }, (_, cell) => (cell * 4 + 1.5) * 0.01);
     const drawn = raw.map(line => drawnXs.map((_, cell) => line.slice(cell * 4, cell * 4 + 4).reduce((sum, value) => sum + value, 0) / 4));
     const view: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', unit: 'dB', xs: drawnXs, ys, matrix: drawn };
-    const layer = { view, color: '', full: localCells(xs, ys, raw) };
+    const layer = { view, color: '', full: testCells(xs, ys, raw) };
     const width = 200, height = 100;
     const timeAt = (x: number): number => x / width * columns * 0.01;
     const rowAt = (y: number): number => 100 + (1 - y / height) * 300;
@@ -279,7 +279,7 @@ test('every layer a plot draws is given its full data, held or fetched: one give
     const bars: StageView = { ...line, kind: 'bar' };
     assert.equal(declaresFullRead({ view: line, color: '', full: NO_FULL_DATA }), false);
     assert.equal(declaresFullRead({ view: bars, color: '', full: NO_FULL_DATA }), false, 'bars are not taken as whole for being bars');
-    assert.equal(declaresFullRead({ view: line, color: '', full: localLine([1, 2], [0, 1]) }), true);
+    assert.equal(declaresFullRead({ view: line, color: '', full: testLine([1, 2], [0, 1]) }), true);
     assert.equal(declaresFullRead({ view: bars, color: '', full: wholeBars(bars) ?? NO_FULL_DATA }), true);
     assert.equal(wholeBars(line), undefined, 'a line is never read from what it draws');
     // Given none, the pointer reads no number off it, not the point drawn under it.
@@ -289,9 +289,9 @@ test('every layer a plot draws is given its full data, held or fetched: one give
     // A line thinned to be drawn (its 1.5 peak left out) is never taken whole: its full data is read, not its points.
     const thinned: StageView = { ...line, values: [0, 0] };
     const over = (full: FullSource): number | undefined => stageHover({ ...plot(full), lines: [{ view: thinned, color: '', full }] }, 50, 0)?.value;
-    const full = wholeBars(thinned) ?? localLine([1, 1.5, 2], [0, 1, 0]);
+    const full = wholeBars(thinned) ?? testLine([1, 1.5, 2], [0, 1, 0]);
     assert.equal(over(full), 1);
-    assert.notEqual(over(wholeBars(thinned) ?? full), over(localLine([1, 2], [0, 0])), 'not the value of the points drawn');
+    assert.notEqual(over(wholeBars(thinned) ?? full), over(testLine([1, 2], [0, 0])), 'not the value of the points drawn');
 });
 
 test('a picture\'s full data is held or fetched, never its drawn points: a band table without a key reads its every band at once, a line without one has none (R7)', () => {
@@ -302,7 +302,24 @@ test('a picture\'s full data is held or fetched, never its drawn points: a band 
     const whole = reader.of(bands);
     assert.equal(whole?.held, 'inline');
     assert.deepEqual(whole?.line({ x0: 125, x1: 125, beyond: 1 }, () => undefined)?.values, [-40, -12, -33]);
-    assert.equal(reader.of({ frame: 'SpectralFrame', kind: 'line', xs: [0, 1], values: [0, 0] }), undefined, 'a thinned line is never read as if whole');
+    assert.equal(reader.of({ frame: 'SpectralFrame', kind: 'line', xs: [0, 1], values: [0, 0] }), NO_FULL_DATA, 'a thinned line is never read as if whole: it has no full data, by name');
+});
+
+test('the only source that reads nothing is NO_FULL_DATA: a source is made with a read, and one whose every read is "cannot" is refused', () => {
+    assert.equal(readsFullData(NO_FULL_DATA), false);
+    assert.equal(NO_FULL_DATA.line, cannotRead);
+    assert.equal(NO_FULL_DATA.cells, cannotRead);
+    assert.equal(NO_FULL_DATA.level, cannotRead);
+    assert.equal(NO_FULL_DATA.event(0), NO_FULL_DATA);
+    const cells = fullSource('inline', { cells: () => null });
+    assert.equal(readsFullData(cells), true);
+    assert.equal(cells.line, cannotRead, 'a read not given cannot be read');
+    // A read passed on from another source can be "cannot": the source it would make reads nothing, and is refused.
+    assert.throws(() => fullSource('fetched', { line: cells.line }), /would read nothing\. Pass NO_FULL_DATA/u);
+    assert.throws(() => sourceWith(cells, { cells: cannotRead }), /would read nothing/u);
+    assert.equal(sourceWith(cells, { line: () => null }).cells, cells.cells, 'the reads not replaced are kept');
+    // No full data on one axis is no full data on another: never a new source that reads nothing.
+    assert.equal(mappedSource(NO_FULL_DATA, x => x, x => x), NO_FULL_DATA);
 });
 
 test('a read of values the backend let go is not kept as empty: their pictures are scanned again, and the read is asked again (R7)', () => {
@@ -310,7 +327,7 @@ test('a read of values the backend let go is not kept as empty: their pictures a
     const lost: string[][] = [];
     const reader = createStageReader('read-test', message => posts.push(message), keys => lost.push([...keys]));
     const view: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', xs: [0, 1], values: [0, 0], data: 'k1' };
-    const source = reader.of(view) as FullSource;
+    const source = reader.of(view);
     const query = { x0: 0.4, x1: 0.6, beyond: 1 };
     assert.equal(source.line(query, () => undefined), undefined);
     assert.equal(posts.length, 1);
@@ -336,7 +353,7 @@ test('an arrow key crosses silent points past one fetched window to the next poi
     // 1000 bins, readable at 0 and 600, silent (−300 dB) between: more than one step's window apart.
     const xs = Array.from({ length: 1000 }, (_, bin) => bin);
     const values = xs.map(bin => (bin === 0 || bin === 600 ? -20 : -300));
-    const source = localLine(xs, values);
+    const source = testLine(xs, values);
     const view: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', unit: 'dB', xs: [0, 999], values: [-20, -300] };
     const plot: StagePlot = {
         frame: { left: 0, top: 0, width: 1000, height: 100 }, xAt: value => value, xOf: x => x, yAt: value => -value, levelOf: y => -y,
@@ -355,7 +372,7 @@ test('an arrow key crosses a silence of any length in one read the backend answe
     const count = 2_000_000;
     const xs = Array.from({ length: count }, (_, index) => index);
     const values = xs.map(index => (index === 10 || index >= 1_999_000 && index < 1_999_300 ? -20 : -300));
-    const whole = localLine(xs, values);
+    const whole = testLine(xs, values);
     const asked: FullReadRequest[] = [];
     const source = fetchedSource((read, done) => {
         asked.push(read);
@@ -403,7 +420,7 @@ test('an arrow key crosses a silence of any length in one read the backend answe
 test('a source read on another axis gets the pointer\'s place and the screen\'s scale on its own axis, so a dense window there is read nearest the pointer (R7)', () => {
     // A file's 0..1 drawn over 10..30 s of the lanes' axis: 20 s to the file's whole.
     const asked: LineQuery[] = [];
-    const file: FullSource = { held: 'fetched', ...UNREADABLE, line: query => { asked.push(query); return { xs: [], values: [], complete: true, start: null, end: null }; } };
+    const file: FullSource = fullSource('fetched', { line: query => { asked.push(query); return { xs: [], values: [], complete: true, start: null, end: null }; } });
     const toNorm = (seconds: number): number => (seconds - 10) / 20, toSec = (norm: number): number => 10 + norm * 20;
     mappedSource(file, toNorm, toSec).line({ x0: 12, x1: 18, at: 15, pixels: [40, 3], beyond: 1 }, () => undefined);
     assert.equal(asked.length, 1);
@@ -438,7 +455,7 @@ test('a failed full read is held a while, then asked again: a passing failure do
 test('a seek on plain values (a signal, a metric over time) reads −250 and below as values, one point at a time, and → and ← agree; a level crosses its floor in one (R7)', () => {
     const xs = [0, 1, 2, 3, 4, 5, 6, 7];
     const values = [1, 2, -300, -300, -300, -300, 10, 11];
-    const source = localLine(xs, values);
+    const source = testLine(xs, values);
     const seek = (x: number, seek: -1 | 1, plain: boolean): number => {
         const got = source.line({ x0: x, x1: x, beyond: 0, seek, ...(plain ? { plain: true } : {}) }, () => undefined);
         const past = (got?.xs ?? []).filter((at, index) => (seek > 0 ? at > x : at < x) && (plain || (got?.values?.[index] ?? -Infinity) > -250));
@@ -465,7 +482,7 @@ test('a read the backend failed is no line read: the readout reads nothing, neve
     let clock = 0;
     const source = fetchedSource((_read, done) => { done(null); }, {}, () => clock);
     const view: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', unit: 'dB', xs: [0, 9], values: [-20, -20] };
-    const beside = localLine([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], [-21, -21, -21, -21, -21, -21, -21, -21, -21, -21]);
+    const beside = testLine([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], [-21, -21, -21, -21, -21, -21, -21, -21, -21, -21]);
     const plot: StagePlot = {
         frame: { left: 0, top: 0, width: 900, height: 100 }, xAt: value => value * 100, xOf: x => x / 100, yAt: value => -value, levelOf: y => -y,
         ratioStep: 1.12, diff: false, lines: [{ view, color: 'blue', label: 'base', full: source }, { view, color: 'red', label: 'other', full: beside }],

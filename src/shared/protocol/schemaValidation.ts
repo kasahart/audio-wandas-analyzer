@@ -22,6 +22,10 @@ export interface SchemaNode {
     'x-tsType'?: string;
     /** A number thinned to be drawn: generated as `Drawn` (provenance.ts); it carries no constraint. */
     'x-drawn'?: boolean;
+    /** Every value of the data, none thinned (protocol_schema.py); it carries no constraint. */
+    'x-whole'?: boolean;
+    /** A place along an axis or a limit, not a data value (protocol_schema.py); it carries no constraint. */
+    'x-place'?: boolean;
 }
 
 const DEFINITIONS: Readonly<Record<string, SchemaNode>> = BACKEND_PROTOCOL_SCHEMA.$defs;

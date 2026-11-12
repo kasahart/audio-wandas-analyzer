@@ -1,9 +1,10 @@
+import { testLine, testCells } from './helpers/whole';
 import assert from 'node:assert/strict';
 import { N, P, R, T } from './helpers/figure';
 import test from 'node:test';
 import { assertNotDrawn, nearestOf } from './fullNotDrawn';
 import type { SpectrogramData } from '../shared/analysis/analysisTypes';
-import { localCells, localLine } from '../webview/runtime/fullRead';
+
 import { paintOverlay, stageHover, stageStep, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
 import { laneWaveformOverlay, paintTrackSpectrogram } from '../webview/runtime/trackCanvasPainter';
 import { laneReadoutText, spectrogramReadoutText } from '../webview/runtime/trackLaneHover';
@@ -50,7 +51,7 @@ test('the pointer on a track lane reads the file\'s own sample nearest it, not t
         drawn.add(low).add(high);
     }
     const lane = laneWaveformOverlay({ waveform: { min, max, minT, maxT, samples: [], absolutePeak: 1 }, dataStart: 0, dataEnd: 1, amplitudeScale: 1 },
-        place, '#00ff00', 'Pa', localLine(norms, samples));
+        place, '#00ff00', 'Pa', testLine(norms, samples));
     const plot = paintOverlay(laneCanvas(400, 100), lane.overlay, R({ min: -1, max: 1 }), N({ x: 'Time [s]', y: 'Amplitude [Pa]' }),
         { axisCanvas: null, axisView: lane.axisView, window: { x: { start: 0, end: 1 } } }) as StagePlot;
     assert.ok(plot);
@@ -95,7 +96,7 @@ test('the pointer on a spectrogram lane reads the real STFT cell under it, not t
     };
     const entry = paintTrackSpectrogram(laneCanvas(400, 90), null, spec, place,
         { window: { start: 0, end: 1 }, dbLo: -80, dbHi: -40, maxFrequencyHz: 4000, minFrequencyHz: 0, durationSec: 2 }, undefined,
-        { colour: T('Level [dBFS]'), frequency: P('Frequency [Hz]'), time: P('Time [s]') }, '', localCells(frames, bins, raw));
+        { colour: T('Level [dBFS]'), frequency: P('Frequency [Hz]'), time: P('Time [s]') }, '', testCells(frames, bins, raw));
     const plot = entry.plot;
     assert.ok(plot?.image);
     let frame = 41;

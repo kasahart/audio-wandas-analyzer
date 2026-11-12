@@ -26,7 +26,7 @@ import { amountText, barkText, frequencyText, lagText, levelText, quefrencyText,
 import type { Whole } from '../../shared/provenance';
 import { drawableLine, drawableRows } from '../../shared/drawnPoints';
 import { backendPeak } from './wholeAnswers';
-import { axisMeasure, cellEdgeValues, cellEdges, cellIndex, NO_FULL_DATA, STEP_AHEAD, type FullPoints, type FullRead, type FullSource, type LevelAnswer, cannotRead } from './fullRead';
+import { axisMeasure, cellEdgeValues, cellEdges, cellIndex, readsFullData, STEP_AHEAD, type FullPoints, type FullRead, type FullSource, type LevelAnswer, cannotRead } from './fullRead';
 
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
@@ -928,9 +928,13 @@ export function wrapLines(text: string, maxWidth: number, measure: (part: string
     return lines.length ? lines : [''];
 }
 
-/** One picture on its own: the base, the compared file or their difference; `full`, where its numbers are read (R7). */
-export function paintStage(canvas: HTMLCanvasElement, view: StageView | null, range: FigureRange, color: string, axes: FigureNames, options: StagePaintOptions = {}, full?: FullRead): StagePlot | null {
-    return paintOverlay(canvas, { layers: view ? [{ view, color, filled: true, full: full ?? NO_FULL_DATA }] : [] }, range, axes, options);
+/**
+ * One picture on its own: the base, the compared file or their difference.
+ * `full` is where its numbers are read (R7) and must be given: the picture's full-data source, or `NO_FULL_DATA`
+ * (fullRead.ts) to say in the call that there is none, which the plot then marks (`data-plot-full`).
+ */
+export function paintStage(canvas: HTMLCanvasElement, view: StageView | null, range: FigureRange, color: string, axes: FigureNames, full: FullRead, options: StagePaintOptions = {}): StagePlot | null {
+    return paintOverlay(canvas, { layers: view ? [{ view, color, filled: true, full }] : [] }, range, axes, options);
 }
 
 /**
@@ -1709,7 +1713,7 @@ type ReadPoint = { index: number; time?: number; x: number; y: number; value: Wh
 
 /** Whether a layer drawn on a plot was given its full data (R7): every one is, held or fetched; nothing to read is none. */
 export function declaresFullRead(layer: StageLayer): boolean {
-    return (!!layer.full && layer.full !== NO_FULL_DATA) || layer.view.kind === 'none';
+    return readsFullData(layer.full) || layer.view.kind === 'none';
 }
 
 /**

@@ -27,10 +27,18 @@ All answers from the host are kept in the answer store and nowhere else. An answ
 file's version and calibration, the full recipe, the region and the analysis condition, plus what was asked. Two
 answers share a key only when every part is the same.
 
-Outside the store, no code keeps a `Map`, `Set` or array of answers that outlives a call, and no code has its own
-pause or retry after a failure. `src/test/answerStoreBoundary.test.ts` finds such a holder by the type of what it
-holds and fails. If the test names your new collection and it holds no answers (a gesture's state, a canvas's
-drawing), list it in `src/test/answerBoundaryAllowlist.ts` with what it holds.
+This is the rule for new code, and it is not yet true of all the old code. The move onto the store is still in
+progress: `src/test/answerBoundaryAllowlist.ts` lists every collection outside the store that outlives a call, and
+marks the ones that still keep answers with their own key rules as `unmigrated`. Their number is
+`UNMIGRATED_CEILING` in that file (the file is the place to read the current count), and it only goes down: a new
+holder of answers outside the store fails `src/test/answerStoreBoundary.test.ts`, and moving a listed one onto the
+store lowers the ceiling. Until the ceiling is 0, an answer read from one of the `unmigrated` places follows that
+place's own rules for keys, pauses and retries, not the store's.
+
+For new code: outside the store, keep no `Map`, `Set` or array of answers that outlives a call, and write no pause or
+retry of your own after a failure. The test finds such a holder by the type of what it holds and fails. If the test
+names your new collection and it holds no answers (a gesture's state, a canvas's drawing), list it in
+`src/test/answerBoundaryAllowlist.ts` as `notAnswer` with what it holds. Never add an `unmigrated` entry.
 
 ## Layer 2: the figure model
 

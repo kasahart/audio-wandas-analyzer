@@ -46,7 +46,7 @@ export interface TriggerLanesFrame {
     window: PlotWindow;
     drawnOn: Map<Element, Drawn>;
     /** Where a recording's numbers are read (R7): its full data, never the signal thinned to be drawn. */
-    fullOf?: (view: StageView | null | undefined) => FullRead | undefined;
+    fullOf: (view: StageView | null | undefined) => FullRead;
 }
 
 const MARKS = 'stage-event-marks';
@@ -91,7 +91,7 @@ export function paintTriggerLanes(frame: TriggerLanesFrame): number {
         const { x, y } = frame.window;
         const narrowed = narrowedRange(range, y);
         const drawnView = (view && frame.detail?.(track.filePath)) || view;
-        const full = (drawnView ? frame.fullOf?.(drawnView) : undefined) ?? NO_FULL_DATA;
+        const full = drawnView ? frame.fullOf(drawnView) : NO_FULL_DATA;
         const plot = paintOverlay(canvas, { layers: drawnView ? [{ view: drawnView, color: frame.color(track.filePath), width: 1.5, full }] : [] }, narrowed, axes, { window: { x }, ...(view ? { axisView: view, guides } : {}) });
         frame.drawnOn.set(canvas, { picture: view, range, axes, plot });
         const marks = marksOf(canvas);

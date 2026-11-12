@@ -63,7 +63,7 @@ export type Pending = { done: number; total: number; label: string };
 export function paintNoStage(dom: StageDom, tracks: readonly StageTrack[], strings: Pick<UiStrings, 'stepOpenCompare'>): void {
     dom.panel.hidden = true;
     const none = emptyFigure();
-    for (const track of tracks) if (track.canvas) paintStage(track.canvas, null, none.range, track.color, none.names, { empty: strings.stepOpenCompare });
+    for (const track of tracks) if (track.canvas) paintStage(track.canvas, null, none.range, track.color, none.names, NO_FULL_DATA, { empty: strings.stepOpenCompare });
 }
 
 /** A step that cannot run, or a base recording to measure against that is not there: the plot says why, and how to fix it. */
@@ -121,7 +121,7 @@ export interface StageFrame {
     /** The first picture in, whose axes the plots use. */
     picture: StageView | null;
     /** Where a picture's numbers are read (R7): its full data, or the median's and the difference's; undefined without any. */
-    fullOf?: (view: StageView | null | undefined) => FullRead | undefined;
+    fullOf: (view: StageView | null | undefined) => FullRead;
     coarsePlots: StagePlots<StageTrack>;
     window: PlotWindow;
     /** The Δ pane's own vertical zoom (its horizontal one is the window's). */
@@ -219,13 +219,13 @@ export function paintStageLanes(frame: StageFrame): number {
     // Its side axis held the waveform's: cleared, as the lanes' are, since the lane draws no picture of its own.
     if (referenceTrack?.axis) clearSideAxis(referenceTrack.axis);
     const none = emptyFigure();
-    if (referencePath && referenceTrack?.canvas) paintStage(referenceTrack.canvas, null, none.range, referenceTrack.color, none.names, { empty: strings.stageBaseLane.replace('{file}', frame.named(referencePath, 0).label) });
+    if (referencePath && referenceTrack?.canvas) paintStage(referenceTrack.canvas, null, none.range, referenceTrack.color, none.names, NO_FULL_DATA, { empty: strings.stageBaseLane.replace('{file}', frame.named(referencePath, 0).label) });
     return drawn;
 }
 
 /** Where a picture's numbers are read (R7): its full data, as the mode gives it. */
 function fullOf(frame: Pick<StageFrame, 'fullOf'>, view: StageView): Pick<StageLayer, 'full'> {
-    return { full: frame.fullOf?.(view) ?? NO_FULL_DATA };
+    return { full: frame.fullOf(view) };
 }
 
 /** A recording's events as a line each can be left out of: whose they are, and those left out. */
@@ -349,7 +349,7 @@ export function paintStageOverlay(dom: StageDom, frame: StageFrame, plots: Stage
     const diffAxes = stageNames(strings, coarsePlots.diff, frame.allTracks.find(track => track.filePath === comparePath)?.input ?? (comparePath ? frame.levelOf?.(comparePath) : undefined), true);
     const diffCanvas = dom.query<HTMLCanvasElement>('[data-stage-canvas="diff"]');
     const diffRange = figureDiffRange(coarsePlots.diff);
-    const diffPlot = paintStage(diffCanvas, plots.diff, narrowedRange(diffRange, frame.diffY), DIFF_COLOR, diffAxes,
-        { diff: true, empty: waiting ? '' : noDeltaNote(frame, strings), window: { x: window.x }, axisView: coarsePlots.diff, ...(pending ? { pending } : {}) }, frame.fullOf?.(plots.diff));
+    const diffPlot = paintStage(diffCanvas, plots.diff, narrowedRange(diffRange, frame.diffY), DIFF_COLOR, diffAxes, frame.fullOf(plots.diff),
+        { diff: true, empty: waiting ? '' : noDeltaNote(frame, strings), window: { x: window.x }, axisView: coarsePlots.diff, ...(pending ? { pending } : {}) });
     frame.drawnOn.set(diffCanvas, { picture: coarsePlots.diff, range: diffRange, axes: diffAxes, plot: diffPlot });
 }

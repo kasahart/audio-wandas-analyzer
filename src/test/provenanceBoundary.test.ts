@@ -7,7 +7,13 @@
  *    holder also throws at run time, wholeMint.ts.) Product code uses nothing under src/test, where the tests'
  *    own way of making a `Whole` lives.
  * 2. No code casts a value to a type that holds `Whole` (`3 as Whole`, `as unknown as FullPoints`), and none
- *    declares a type predicate that would (`value is Whole`).
+ *    declares a type predicate that would (`value is Whole`). The entries that hold a line or cells whole
+ *    (fullRead.ts localLine, localCells) take `Whole` values, so an array reaches them only from a mint module: a
+ *    backend field the protocol marks `x-whole` (wholeAnswers.ts), or a number computed of such values
+ *    (computedWhole). The one entry that takes plain numbers, `layoutLine` (numbers a figure is laid out with, not
+ *    measurements), is used only by the layout modules (LAYOUT_MODULES).
+ *    A full-data source (FullSource) is made only by fullRead.ts: one written by hand or by spreading another does
+ *    not compile, so the only source that reads nothing is the named `NO_FULL_DATA`.
  * 3. Only the drawing modules (DRAWING_MODULES) refer to drawnPoints.ts, where a `Drawn` becomes a number.
  * 4. No code turns a `Drawn` into a number or text another way: a cast that drops it, a predicate that narrows it,
  *    `typeof`, unary `+`, `'' + value`, a template, or passing it where a parameter is `any` (`Number(value)`).
@@ -52,6 +58,16 @@ const DRAWING_MODULES: ReadonlyMap<string, string> = new Map([
     ['src/webview/runtime/overlaySpectrumPainter.ts', 'thins a stand-in spectrum (drawn while the real slice is on its way) as it is drawn'],
     ['src/webview/runtime/pictureSummary.ts', 'the end-to-end tests\' summary of what is on the canvas; shown nowhere'],
 ]);
+
+/**
+ * The modules that may call fullRead.ts `layoutLine`, the one way to hold a line of plain numbers as readable: each
+ * for numbers it makes to lay a figure out, with what they are. A measured value never belongs here: it arrives as
+ * `Whole` from the backend (wholeAnswers.ts) or is computed of whole values (fullRead.ts computedWhole).
+ */
+const LAYOUT_MODULES: ReadonlyMap<string, string> = new Map([
+    ['src/webview/runtime/entryDistribution.ts', 'a histogram\'s counts, the height each dot is stacked at, and the marks of the slots and the base'],
+]);
+const FULL_READ = 'src/webview/runtime/fullRead.ts';
 
 function productSources(): string[] {
     const found: string[] = [];
@@ -108,7 +124,7 @@ function holds(type: ts.Type, brand: string, checker: ts.TypeChecker, depth = 0,
     });
 }
 
-type Rule = 'mint' | 'mint-kept' | 'test-code' | 'cast' | 'predicate' | 'unwrap' | 'drawn-cast' | 'drawn-predicate' | 'drawn-coerced';
+type Rule = 'mint' | 'mint-kept' | 'layout' | 'test-code' | 'cast' | 'predicate' | 'unwrap' | 'drawn-cast' | 'drawn-predicate' | 'drawn-coerced';
 interface Problem { file: string; line: number; rule: Rule; text: string }
 
 /** Whether a value of `type` is itself a `Drawn` (not a holder of one): what arithmetic and text must not take. */
@@ -139,6 +155,7 @@ function provenanceProblems(scanned: ts.Program): Problem[] {
                 const target = found && found.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(found) : found;
                 if (!MINT_MODULES.has(file) && declaredIn(target, MINTS)) at(node, 'mint');
                 if (!DRAWING_MODULES.has(file) && declaredIn(target, UNWRAPS)) at(node, 'unwrap');
+                if (file !== FULL_READ && !LAYOUT_MODULES.has(file) && target?.name === 'layoutLine' && declaredIn(target, FULL_READ)) at(node, 'layout');
                 if (target?.declarations?.some(declaration => relative(declaration.getSourceFile()).startsWith('src/test/'))) at(node, 'test-code');
                 // A claimed mint is only called (`mint.value(…)`): never exported, passed on or stored.
                 const holder = target?.valueDeclaration;
@@ -190,6 +207,7 @@ function provenanceProblems(scanned: ts.Program): Problem[] {
 
 const FIX: Record<Rule, string> = {
     'mint-kept': 'A module that holds the mint of Whole keeps it: `const mint = claimMint(…)` at the top of the module, not exported, and used only as `mint.value(…)`. Handing the mint to other code would let any number become full data. Export a function that reads or adapts one kind of full data instead (as localLine, backendPeak).',
+    layout: 'Only the layout modules (LAYOUT_MODULES in this file) may call layoutLine, which holds plain numbers as a readable line. If these numbers are measurements, take them whole instead: a backend field through wholeAnswers.ts (scanWhole, pairWhole), or computedWhole for a number computed of whole values, then localLine. If they are numbers this module makes to lay a figure out (counts, stacking heights), add the module to LAYOUT_MODULES with what they are.',
     'test-code': 'Product code may not use anything under src/test: the tests\' helpers (such as wholeValue, which makes a Whole of a made-up number) are for tests only. Read the value through a FullSource or an adapter of wholeAnswers.ts.',
     mint: 'Only fullRead.ts and wholeAnswers.ts may use the mint (src/shared/wholeMint.ts). To read a value for a readout, read it through the layer\'s FullSource; for a new backend number taken of every value, add an adapter to wholeAnswers.ts.',
     cast: 'A cast to a type holding `Whole` claims a number is full data without a mint. Take the value from a FullSource or an adapter of wholeAnswers.ts instead.',
@@ -215,8 +233,8 @@ const HEAD = [
     'import type { StageView } from \'../../shared/protocol/backendProtocol\';',
     'import type { WaveformEnvelope } from \'../../shared/analysis/analysisTypes\';',
     'import type { SpectrumSlice } from \'./types\';',
-    'import { localLine } from \'./fullRead\';',
-    'export type Used = Whole | FullPoints | StageLayer | StageRead | StageView | WaveformEnvelope | SpectrumSlice | typeof localLine;',
+    'import { computedWhole, localCells, localLine } from \'./fullRead\';',
+    'export type Used = Whole | FullPoints | StageLayer | StageRead | StageView | WaveformEnvelope | SpectrumSlice | typeof localLine | typeof localCells | typeof computedWhole;',
 ].join('\n');
 const FIRST = 'const first = (view: StageView) => (view.values ?? [])[0] ?? 0;';
 
@@ -236,6 +254,16 @@ const MUST_NOT_COMPILE: readonly Mutant[] = [
     { what: 'a drawn point compared', body: 'export const loud = (view: StageView): boolean => (view.values?.[0] ?? 0) > -20;' },
     { what: 'a drawn cell handed to a readout', body: 'export const text = (layer: StageLayer, view: StageView): string[] => layer.readout?.(0, { x: view.matrix?.[0]?.[0] ?? 0, value: view.matrix?.[0]?.[0] ?? 0 }) ?? [];' },
     { what: 'a picture\'s drawn points given as its full data', body: 'export const full = (view: StageView) => localLine(view.xs ?? [], view.values ?? []);' },
+    { what: 'plain numbers held as a line\'s full data', body: 'export const full = (xs: number[], values: number[]) => localLine(xs, values);' },
+    { what: 'plain numbers held as cells\' full data', body: 'export const full = (xs: number[], ys: number[], matrix: number[][]) => localCells(xs, ys, matrix);' },
+    { what: 'an envelope\'s picked samples (drawn points) held as a line\'s full data', body: 'export const full = (envelope: WaveformEnvelope) => localLine(envelope.samples ?? [], envelope.samples ?? []);' },
+    { what: 'a number computed of drawn points made whole', body: 'export const top = (view: StageView) => computedWhole(view.values ?? [], 3);' },
+    { what: 'a number computed of plain numbers made whole', body: 'export const top = (plain: number[]) => computedWhole(plain, 3);' },
+    { what: 'a full-data source written by hand, which could read nothing', imports: 'import { cannotRead, noEvent, type FullSource } from \'./fullRead\';', body: 'export const none: FullSource = { held: \'fetched\', line: cannotRead, cells: cannotRead, level: cannotRead, event: noEvent };' },
+    { what: 'a full-data source made by spreading another', imports: 'import { NO_FULL_DATA, type FullSource } from \'./fullRead\';', body: 'export const none: FullSource = { ...NO_FULL_DATA, held: \'fetched\' };' },
+    { what: 'a full-data source made with no read', imports: 'import { fullSource } from \'./fullRead\';', body: 'export const none = fullSource(\'fetched\', {});' },
+    { what: 'a picture drawn alone without saying where its numbers are read', imports: 'import { paintStage } from \'./stagePanes\';\nimport { emptyFigure } from \'./figureModel\';', body: 'export const draw = (canvas: HTMLCanvasElement, view: StageView) => paintStage(canvas, view, emptyFigure().range, \'\', emptyFigure().names);' },
+    { what: 'a layer without its full data', body: 'export const layer = (view: StageView): StageLayer => ({ view, color: \'\' });' },
     { what: 'an envelope\'s buckets taken as samples', body: 'export const peak = (envelope: WaveformEnvelope): number => Math.max(...envelope.max);' },
     { what: 'a slice\'s drawn values taken as numbers', body: 'export const bins = (slice: SpectrumSlice): number[] => slice.values;' },
 ];
@@ -243,6 +271,7 @@ const MUST_NOT_COMPILE: readonly Mutant[] = [
 /** The honest forms, which must compile and pass the scan. */
 const ALLOWED: readonly Mutant[] = [
     { what: 'a value read from full points', body: 'export const first = (points: FullPoints): Whole | undefined => points.xs[0];' },
+    { what: 'whole values held as a line, and a number computed of them', body: 'export const full = (xs: number[], values: Whole[]) => localLine(xs, values.map(value => computedWhole([value], value * 2)));' },
     { what: 'dropping null of what is already whole', body: 'export const kept = (value: Whole | null): Whole => value as Whole;' },
     { what: 'a picture passed on, its gaps dropped and its points counted', body: 'export const copy = (view: StageView): StageView => ({ ...view, values: (view.values ?? []).filter(value => value !== null) });\nexport const count = (view: StageView): number => (view.values ?? []).length;' },
 ];
@@ -255,6 +284,7 @@ const MUST_NOT_PASS: ReadonlyArray<Mutant & { rule: Rule; also?: Rule[] }> = [
     { rule: 'mint', also: ['mint-kept'], what: 'a claimed mint handed on as a value', imports: 'import { claimMint } from \'../../shared/wholeMint\';', body: 'const mint = claimMint(\'fullRead\');\nexport const leak = () => mint;' },
     { rule: 'mint', also: ['mint-kept'], what: 'a claimed mint\'s method handed on', imports: 'import { claimMint } from \'../../shared/wholeMint\';', body: 'const mint = claimMint(\'fullRead\');\nexport const make = mint.value;' },
     { rule: 'mint', also: ['mint-kept'], what: 'a claim that is not a const of the module', imports: 'import { claimMint } from \'../../shared/wholeMint\';', body: 'export const made = claimMint(\'fullRead\').value(3);' },
+    { rule: 'layout', what: 'plain numbers held as a readable line outside the layout modules', imports: 'import { layoutLine } from \'./fullRead\';', body: 'export const full = (xs: number[], values: number[]) => layoutLine(xs, values);' },
     { rule: 'test-code', what: 'the tests\' way of making a Whole used in product code', imports: 'import { wholeValue } from \'../../test/helpers/whole\';', body: 'export const made = wholeValue(3);' },
     { rule: 'cast', what: 'a cast to Whole', body: 'export const made = 3 as Whole;' },
     { rule: 'cast', what: 'a cast to Whole through unknown', body: 'export const made = 3 as unknown as Whole;' },

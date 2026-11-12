@@ -4,6 +4,8 @@
  * above them. Each keeps its zoom as the lanes do (box zoom, Ctrl+wheel, Shift+wheel, a double click to reset or
  * to type an axis's range); a press that stays put is still a click: a row gone to on the strip.
  */
+import type { Whole } from '../../shared/provenance';
+import { scanWhole } from './wholeAnswers';
 import { createLatestAnswers, type ScanAnswer } from './answerStore';
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
@@ -113,14 +115,14 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
      * Each scanned recording's bands by table row (a channel's own, keyed as its row: rowKey) and the level reference
      * wandas names its levels by, kept as results arrive so scrolling does not redo them.
      */
-    const levels = createLatestAnswers<(number | null)[]>();
+    const levels = createLatestAnswers<(Whole | null)[]>();
     /** Each scanned recording's rows of `levels`, so a result that replaces it takes all of them away. */
     const scanned = createLatestAnswers<{ rows: string[] }>();
     /** Bumped on every change to them, so the strip knows when to draw its cells again. */
     let version = 0;
     /** Of each fresh recording, whether it is on the folder's reference and its own calibration word: made again with `shared`. */
     const ownMarks = createLatestAnswers<{ on: boolean; word: string; mark: string }>();
-    let shared: { version: number; folder: FolderReference | null; label: string; calibrated: boolean; levels: Map<string, (number | null)[]> } = { version: -1, folder: null, label: '', calibrated: false, levels: new Map() };
+    let shared: { version: number; folder: FolderReference | null; label: string; calibrated: boolean; levels: Map<string, (Whole | null)[]> } = { version: -1, folder: null, label: '', calibrated: false, levels: new Map() };
     /**
      * The folder's reference (deps.reference: the most common one of the fresh answers, chosen once for the header,
      * the overview, the distribution and the table), whether any of its recordings is calibrated, the levels of only
@@ -273,7 +275,8 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         levels: key => reference().levels.get(key),
         noteResult(filePath: string, result: ScanResult): void {
             version++;
-            const bands = result.thirdOctDb;
+            // Every band of each channel, as full data (the schema's x-whole thirdOctDb).
+            const bands = result.ok ? scanWhole(result, 'thirdOctDb') : undefined;
             for (const key of scanned.get(filePath)?.rows ?? []) levels.delete(key);
             // A row per channel, as the table has: each channel's own levels.
             const rows = result.ok && bands?.length ? bands.map((channel, index) => { const key = rowKey(filePath, index + 1, bands.length); levels.set(key, channel); return key; }) : [];
