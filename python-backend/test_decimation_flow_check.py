@@ -265,3 +265,68 @@ def test_a_draws_reader_that_does_not_exist_fails(backend: dict[str, str]) -> No
     assert _draws(backend, {"stage_view:no_such_reader"}) == [
         "python-backend/stage_view.py:no_such_reader: 'draws', but there is no such function"
     ]
+
+
+# ── What is sent as drawn points comes from a registered thinning function ──
+
+
+def test_the_drawn_fields_are_the_schemas_x_drawn_arrays_not_a_list_kept_here() -> None:
+    arrays, holders = check.schema_fields(check.protocol_definitions(), "x-drawn")
+    assert (arrays, holders) == (check.DRAWN_ARRAYS, check.DRAWN_HOLDERS)
+    assert {"values", "matrix", "min", "max", "samples", "spectrumDb"} <= arrays
+    assert "waveform" in holders
+    assert list(check.schema_problems(check.protocol_definitions())) == []
+    # A place of drawn points the schema does not mark x-place is told.
+    assert "'xs'" in "".join(
+        check.schema_problems({"View": {"properties": {"ys": {"type": "array", "items": {"x-place": True}}}}})
+    )
+
+
+def test_every_value_the_backend_sends_as_drawn_points_came_from_a_registered_thinning_function(
+    backend: dict[str, str],
+) -> None:
+    assert (
+        list(check.unthinned_problems(check.find_unthinned(backend), check.contract_unthinned(check.contract()))) == []
+    )
+
+
+def test_a_picture_thinned_by_a_function_that_is_not_registered_fails(backend: dict[str, str]) -> None:
+    # The lanes' spectrogram thinned by a stepped slice written in place, instead of the registered resamplers.
+    mutated = _mutated(
+        backend,
+        "analyzer",
+        "    spectrogram = _resample_time_bins(spectrogram, time_bin_limit)\n"
+        "    spectrogram = resample_frequency_bins(spectrogram, frequency_bin_limit)\n",
+        "    spectrogram = spectrogram[::4, ::2]\n",
+    )
+    found = "\n".join(
+        check.unthinned_problems(check.find_unthinned(mutated), check.contract_unthinned(check.contract()))
+    )
+    assert "_build_spectrogram: field 'values'" in found
+    assert "add that function to both lists" in found
+
+
+@pytest.mark.parametrize(
+    "thinning",
+    [
+        "samples[::8]",
+        "samples.reshape(-1, 8).max(axis=1)",
+        "signal.resample(samples, 200)",
+        "samples[np.linspace(0, samples.size - 1, 200).astype(int)]",
+    ],
+)
+def test_any_way_of_thinning_is_caught_because_what_is_checked_is_where_the_value_came_from(thinning: str) -> None:
+    source = (
+        "import numpy as np\nfrom scipy import signal\n\n"
+        f"def view(samples):\n    thin = {thinning}\n"
+        '    return {"kind": "line", "values": thin.tolist()}\n'
+    )
+    assert check.find_unthinned({"new_view": source}) == {"python-backend/new_view.py:view#values": 6}
+
+
+def test_an_empty_field_is_no_value_and_a_listed_place_needs_a_why_and_must_still_exist() -> None:
+    source = 'def view():\n    return {"values": [], "matrix": None}\n'
+    assert check.find_unthinned({"new_view": source}) == {}
+    told = "\n".join(check.unthinned_problems({"a.py:f#values": 3}, {"a.py:f#values": " ", "a.py:gone#values": "why"}))
+    assert "a.py:f#values says no why" in told
+    assert "no longer found (remove its line): a.py:gone#values" in told

@@ -160,5 +160,15 @@
       "use": "draws",
       "why": "a scan's 192-point spectrum, to draw (log_spectrum); every level, median and Δ is of every Welch bin (spectrumBinsDb) or the scan's own band levels"
     }
+  },
+  "unthinned//": "Places where a value that came from no decimator above is put in a field the protocol names as an array of drawn points (x-drawn), each with why nothing there is thinned. scripts/check_decimation_flow.py fails on a place not listed here: register a new thinning function under decimators instead of listing its caller.",
+  "unthinned": {
+    "python-backend/full_read.py:read_line#values": "a full read's points (StagePoints.values, x-whole): every value around the pointer, none thinned",
+    "python-backend/full_read.py:_seek_line#values": "a full read's points found by seeking to the next value (StagePoints.values, x-whole): none thinned",
+    "python-backend/full_read.py:read_cells#matrix": "a full read's cells (StagePoints.matrix, x-whole): every cell around the pointer, none thinned",
+    "python-backend/stage_view.py:_noct_view#values": "a band table: every band of the NOctFrame is sent, none thinned (the webview reads its bars as full data, wholeBars)",
+    "python-backend/stage_combine.py:value_range#min": "one number, the lowest of every value before thinning (valueRange.min): not the envelope's array of the same name",
+    "python-backend/stage_combine.py:value_range#max": "one number, the highest of every value before thinning (valueRange.max): not the envelope's array of the same name",
+    "python-backend/stage_combine.py:_line_buckets#events": "a table of how many points each kind of picture draws, keyed by the picture's mode: not a picture's events"
   }
 }
