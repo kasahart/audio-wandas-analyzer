@@ -15,7 +15,7 @@ import type { StageView } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
 import { fetchedSource, NO_FULL_DATA } from '../webview/runtime/fullRead';
 import { FAILED_RETRY_MS } from '../webview/runtime/answerStore';
-import { gainAxisName } from '../webview/runtime/figureModel';
+import { gainAxisName, typedColourRange } from '../webview/runtime/figureModel';
 import { distributionRows, type DistributionPicture } from '../webview/runtime/entryDistribution';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ranged({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
@@ -866,7 +866,7 @@ test('a colour bar\'s ends are written as the range they end, never rounded off 
     assert.equal(colourEndText(0.002, 0.004), '0.0020');
     const { canvas, texts } = textCanvas(400, 160);
     const heat: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0, 1], ys: [100, 1000], matrix: [[-40, -40], [-30, -30]] };
-    paintOverlay(canvas, { layers: [{ view: heat, color: '', full: held(heat) }] }, R({ min: -23.5, max: 0 }), N({ x: 'Time [s]', y: 'Frequency [Hz]', colour: 'Level [dBFS]' }));
+    paintOverlay(canvas, { layers: [{ view: heat, color: '', full: held(heat) }] }, typedColourRange(-23.5, 0, { min: true, max: true }), N({ x: 'Time [s]', y: 'Frequency [Hz]', colour: 'Level [dBFS]' }));
     assert.ok(texts.some(item => item.text === '−23.5'), JSON.stringify(texts.map(item => item.text)));
     assert.ok(!texts.some(item => item.text === '−23' || item.text === '−24'), JSON.stringify(texts.map(item => item.text)));
 });

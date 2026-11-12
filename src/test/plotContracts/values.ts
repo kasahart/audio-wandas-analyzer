@@ -12,7 +12,7 @@ import { SP } from './model';
  * primitive: toFixed, toPrecision, toExponential, toLocaleString) is a value-producing path.
  */
 export const VALUE_HELPERS: readonly string[] = [
-    ...['withMinus', 'frequencyText', 'secondsText', 'amountText', 'quefrencyText', 'lagText', 'barkText', 'levelText', 'signedNumberText', 'signedText', 'significant', 'stepText', 'spacingDecimals', 'fieldNumberText'].map(name => `src/webview/plot/plotText.ts:${name}`),
+    ...['withMinus', 'frequencyText', 'secondsText', 'amountText', 'quefrencyText', 'lagText', 'barkText', 'levelText', 'signedNumberText', 'signedText', 'significant', 'stepText', 'spacingDecimals', 'fieldNumberText', 'fieldDecimals', 'colourDecimals', 'exactDecimals', 'exactFieldText'].map(name => `src/webview/plot/plotText.ts:${name}`),
     ...['formatMeasurementNumber', 'formatMeasuredLevel', 'formatClockTime', 'formatReportDuration'].map(name => `src/shared/utils/format.ts:${name}`),
     ...['niceStep', 'niceTicks', 'niceRange', 'widened', 'round'].map(name => `src/shared/utils/ticks.ts:${name}`),
     'src/shared/utils/levels.ts:powerMeanDb', 'src/shared/utils/levels.ts:powerMeanOrNull',
@@ -27,6 +27,7 @@ export const VALUE_HELPERS: readonly string[] = [
     'src/webview/draw/canvasDrawers.ts:formatHz',
     ...['laneAmplitudeTicks', 'laneTimeTicks'].map(name => `src/webview/runtime/laneAxes.ts:${name}`),
     'src/webview/runtime/figureModel.ts:laneAmplitudeRange',
+    ...['floorTo', 'ceilTo', 'colourScale', 'windowEnds', 'fieldEnd'].map(name => `src/webview/runtime/figureModel.ts:${name}`),
     ...['valueTickTexts', 'valueAxisTicks', 'rowAxisTicks', 'alongAxisTicks', 'tickTexts', 'timeDigits', 'colourEndText', 'ticks', 'stageRange', 'stageDiffRange', 'roundEdge', 'robustEdge', 'overlayOrder', 'byLevel', 'levelBinsOf', 'timeText', 'atValue', 'drawnLevelsText', 'readoutOf'].map(name => `${SP}:${name}`),
 ];
 
@@ -61,6 +62,8 @@ export const NOT_CHART_VALUES: Readonly<Record<string, string>> = {
     'src/webview/runtime/stagePanes.ts:paintValueTitle': 'the axis name\'s font size (scaledFont), not a value',
     'src/webview/runtime/stagePanes.ts:paintValueTicks': 'the tick numbers\' font size (scaledFont) to keep clear of the axis name; the numbers are valueTickTexts\'',
     'src/webview/rangePopover.ts:openAxisPart': 'the axis range field\'s starting text (shownNumber), which the user edits',
+    'src/webview/runtime/comparisonRuntime.ts:openSpectrogramRangePopup': 'the spectrogram colour range field\'s starting text (the painted colour scale, exactly), which the user edits',
+    'src/webview/runtime/spectrumView.ts:field': 'the cursor spectrum dB range field\'s starting text (the painted end, exactly), which the user edits',
     'src/webview/runtime/compareReport.ts:reportRecipe': 'the region a report\'s Recipe is cut to, kept to the microsecond: a setting',
     'src/webview/runtime/compareReport.ts:reportDefinitions': 'the report\'s Recipe (reportRecipe): a setting',
     'src/webview/runtime/compareReport.ts:reportOctaveRecipe': 'the report\'s Recipe (reportRecipe): a setting',

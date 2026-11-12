@@ -1,4 +1,5 @@
 import { HEATMAP_DB_SPAN, heatmapDbRange, niceRange } from '../../shared/utils/ticks';
+import { colourDecimals, fieldDecimals } from '../plot/plotText';
 import { WAVEFORM_HALF_HEIGHT_RATIO } from '../waveform/waveformLayout';
 import type { Answer, AnswerIdentity } from './answerTypes';
 import { amplitudeAxisTitle, stageAxes, stageDiffRange, stageRange, type StageAxes, type StageStrings } from './stagePanes';
@@ -18,8 +19,11 @@ import type { UiStrings } from '../../shared/i18n/strings';
 declare const figureBrand: unique symbol;
 /** An axis' names, made only here: paintOverlay and the CSV writers take no other. */
 export type FigureNames = Readonly<StageAxes> & { readonly [figureBrand]: 'names' };
-/** An axis' range, made only here (from the full data by R9's rule, or as a window of one made here). */
-export type FigureRange = Readonly<PaneRange> & { readonly [figureBrand]: 'range' };
+/**
+ * An axis' range, made only here (from the full data by R9's rule, or as a window of one made here). `typed`: which
+ * ends the user typed (a colour scale's typed ends are painted and written exactly as typed, colourScale).
+ */
+export type FigureRange = Readonly<PaneRange> & { readonly typed?: Readonly<{ min: boolean; max: boolean }>; readonly [figureBrand]: 'range' };
 /** A level axis' name on its own (a second level axis', a CSV column's reference). */
 export type FigureTitle = string & { readonly [figureBrand]: 'title' };
 
@@ -136,9 +140,78 @@ export function roundedRange(low: number, high: number): FigureRange {
     return ranged({ min: nice.low, max: nice.high });
 }
 
-/** The part `y` (fractions of it) of a range made here: a vertical zoom (R13). */
+/**
+ * The part `y` (fractions of it) of a range made here: a vertical zoom (R13). Its ends are windowEnds', the numbers
+ * the range popover writes for it.
+ */
 export function narrowedRange(range: FigureRange, y: { start: number; end: number }): FigureRange {
-    return ranged({ min: range.min + y.start * (range.max - range.min), max: range.min + y.end * (range.max - range.min) });
+    return ranged(windowEnds(range, y));
+}
+
+/**
+ * The ends of the part `part` (fractions) of a value axis' range: the range's own ends where the part reaches them,
+ * else the place rounded to the decimals a range field writes for the part's span (plotText.fieldDecimals: a
+ * thousandth of it). So the numbers the range popover writes for a zoomed value axis are the ends it is painted with
+ * (R9), and a zoom typed in it is painted at the typed numbers, not a float step off them.
+ */
+export function windowEnds(range: PaneRange, part: { start: number; end: number }): { min: number; max: number } {
+    const span = range.max - range.min;
+    const low = range.min + part.start * span, high = range.min + part.end * span;
+    const decimals = fieldDecimals(high - low);
+    const fieldEnd = (value: number): number => (Math.abs(value) < 1e21 ? Number(value.toFixed(decimals)) + 0 : value);
+    const ends = { min: part.start === 0 ? range.min : fieldEnd(low), max: part.end === 1 ? range.max : fieldEnd(high) };
+    // A window finer than the field's last decimal keeps its own ends rather than closing up.
+    return ends.max > ends.min ? ends : { min: low, max: high };
+}
+
+/** A colour range whose ends `typed` were typed by the user (the ⚙ settings or the range popover): kept as typed. */
+export function typedColourRange(min: number, max: number, typed: { min: boolean; max: boolean }): FigureRange {
+    return { min, max, ...(typed.min || typed.max ? { typed: { min: typed.min, max: typed.max } } : {}) } as FigureRange;
+}
+
+/** `value` written with `decimals` decimals, moved by `steps` of its last decimal (decimal arithmetic, no float step). */
+function decimalStep(text: string, decimals: number, steps: -1 | 1): number {
+    const negative = text.startsWith('-');
+    const units = BigInt(text.replace('-', '').replace('.', '')) * (negative ? -1n : 1n) + BigInt(steps);
+    const digits = (units < 0n ? -units : units).toString().padStart(decimals + 1, '0');
+    return Number(`${units < 0n ? '-' : ''}${decimals ? `${digits.slice(0, -decimals)}.${digits.slice(-decimals)}` : digits}`) + 0;
+}
+
+/**
+ * The largest number written with `decimals` decimals that is not above `value`; `value` itself when it is written
+ * so already (−23.5 at 1 decimal stays −23.5, 0.3 at 1 stays 0.3 although 3 / 10 is not exact in binary). Decimal
+ * arithmetic on the text, so no float step moves an end that is already there.
+ */
+export function floorTo(value: number, decimals: number): number {
+    if (!Number.isFinite(value) || Math.abs(value) >= 1e21) return value;
+    const text = value.toFixed(decimals), near = Number(text) + 0;
+    return near <= value ? near : decimalStep(text, decimals, -1);
+}
+
+/** The smallest number written with `decimals` decimals that is not below `value` (floorTo's mirror). */
+export function ceilTo(value: number, decimals: number): number {
+    if (!Number.isFinite(value) || Math.abs(value) >= 1e21) return value;
+    const text = value.toFixed(decimals), near = Number(text) + 0;
+    return near >= value ? near : decimalStep(text, decimals, 1);
+}
+
+/**
+ * The colour scale an image is painted with, from its range: a signed picture's (a difference, a cepstrum) about 0
+ * to its largest magnitude. Each automatic end is widened outward to the decimals the colour bar writes for the span
+ * (plotText.colourDecimals), so the bar's end numbers are the scale itself (R9: 1000000.5 is painted from 1000001 and
+ * written so, never painted from 1000000.5 and written 1000001); a typed end is kept exactly. The plot paints its
+ * cells, its colour bar and its end numbers from this one scale, on the screen and in every exported figure.
+ */
+export function colourScale(range: Readonly<PaneRange> & Pick<FigureRange, 'typed'>, signed: boolean): { low: number; high: number } {
+    const typed = range.typed ?? { min: false, max: false };
+    if (signed) {
+        const minEdge = Math.abs(range.min) >= Math.abs(range.max);
+        const edge = Math.max(Math.abs(range.min), Math.abs(range.max));
+        const high = (minEdge ? typed.min : typed.max) ? edge : ceilTo(edge, colourDecimals(2 * edge));
+        return { low: -high + 0, high };
+    }
+    const decimals = colourDecimals(range.max - range.min);
+    return { low: typed.min ? range.min : floorTo(range.min, decimals), high: typed.max ? range.max : ceilTo(range.max, decimals) };
 }
 
 /**

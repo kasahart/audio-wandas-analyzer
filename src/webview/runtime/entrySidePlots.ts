@@ -255,6 +255,8 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
                 if (!mapping) return false;
                 openAxisPart(rangePopover, {
                     mapping, horizontal: hit.axis === 'x', current: hit.axis === 'x' ? zoom.x : zoom.y, clientX, clientY, invalid: strings.specRangeErrorMinMax,
+                    // The held step's level axis as painted, written exactly (R9).
+                    shown: name === 'held' && hit.axis === 'y' ? picture?.drawn?.valueRange : undefined,
                     set(range) { windows.set(name, hit.axis === 'x' ? { ...zoom, x: range } : { ...zoom, y: range }); schedule(); },
                 });
                 return true;

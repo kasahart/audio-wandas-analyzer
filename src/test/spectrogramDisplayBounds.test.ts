@@ -7,14 +7,14 @@ const spec = { minDb: -90, maxDb: -10, maxFrequencyHz: 22050 };
 test('spectrogramDisplayBounds: 表示設定が未指定ならスペクトログラムの範囲をそのまま使う', () => {
     assert.deepEqual(
         spectrogramDisplayBounds(spec, { dbMin: null, dbMax: null, maxFrequencyHz: null }),
-        { dbLo: -90, dbHi: -10, maxFrequencyHz: 22050, minFrequencyHz: 0 },
+        { dbLo: -90, dbHi: -10, dbTyped: { min: false, max: false }, maxFrequencyHz: 22050, minFrequencyHz: 0 },
     );
 });
 
 test('spectrogramDisplayBounds: dB 範囲は表示設定で上書きし、0 dB も有効値として扱う', () => {
     assert.deepEqual(
         spectrogramDisplayBounds(spec, { dbMin: -60, dbMax: 0, maxFrequencyHz: null }),
-        { dbLo: -60, dbHi: 0, maxFrequencyHz: 22050, minFrequencyHz: 0 },
+        { dbLo: -60, dbHi: 0, dbTyped: { min: true, max: true }, maxFrequencyHz: 22050, minFrequencyHz: 0 },
     );
 });
 
@@ -27,7 +27,7 @@ test('spectrogramDisplayBounds: 連動中は共通の自動範囲を使い、ナ
     const shared = { minDb: -110, maxDb: 0, maxFrequencyHz: 24000 };
     assert.deepEqual(
         spectrogramDisplayBounds(spec, { dbMin: null, dbMax: null, maxFrequencyHz: null }, shared),
-        { dbLo: -100, dbHi: 0, maxFrequencyHz: 24000, minFrequencyHz: 0 },
+        { dbLo: -100, dbHi: 0, dbTyped: { min: false, max: false }, maxFrequencyHz: 24000, minFrequencyHz: 0 },
     );
 });
 
@@ -48,7 +48,7 @@ test('spectrogramDisplayBounds: 下限がレーンのナイキスト以上なら
     const narrow = { minDb: -90, maxDb: 0, maxFrequencyHz: 8000 };
     assert.deepEqual(
         spectrogramDisplayBounds(narrow, { dbMin: null, dbMax: null, maxFrequencyHz: 20000, minFrequencyHz: 10000 }),
-        { dbLo: -90, dbHi: 0, maxFrequencyHz: 20000, minFrequencyHz: 10000 },
+        { dbLo: -90, dbHi: 0, dbTyped: { min: false, max: false }, maxFrequencyHz: 20000, minFrequencyHz: 10000 },
     );
 });
 

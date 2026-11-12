@@ -10,10 +10,12 @@ export const colourBar: ChartContract = {
     rows: [
         {
             id: 'colour-bar.ticks', value: 'ticks', what: 'カラーバーの両端の数の書き方',
-            computedIn: [`${SP}:paintPlot`, `${SP}:endText`, `${SP}:colourEndText`],
-            from: 'axis', trace: '呼ぶ側の範囲の両端を書く（範囲の出どころは各熱図の range の行）。',
+            computedIn: [`${SP}:paintPlot`, `${SP}:endText`, `${SP}:colourEndText`, 'src/webview/runtime/figureModel.ts:colourScale'],
+            from: 'axis', trace: '呼ぶ側の範囲から作ったカラースケール（figureModel.colourScale：自動の端は書く桁まで外へ広げ、手で入れた端はそのまま）の両端を、丸めずに書く。色もこのスケールで塗る（R9）。',
             tests: [
                 t('src/test/stagePanes.test.ts', 'a colour or value range not in dB is widened to round ends, as a dB range is'),
+                t('src/test/colourScale.test.ts', 'a colour bar\'s end numbers are its colour scale: each, read back, is the end the colours are painted from, auto or typed, on the screen and in a report (R9)'),
+                t('src/test/colourScale.test.ts', 'every place that makes a colour range gives a scale whose ends are written exactly: the comparison\'s images, their differences, the entry strip and the spectrogram lanes (R9)'),
             ],
         },
         {

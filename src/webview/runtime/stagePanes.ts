@@ -6,7 +6,7 @@
  * (combineSource.ts) and drawn here like any picture; without one the Δ pane says why it is empty. Pure apart
  * from `paintStage`, which only draws.
  */
-import { uncalibratedWord, type FigureNames, type FigureRange, type FigureTitle } from './figureModel';
+import { colourScale, uncalibratedWord, type FigureNames, type FigureRange, type FigureTitle } from './figureModel';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { UiStrings } from '../../shared/i18n/strings';
 import { BAND_CENTERS_HZ } from './entryTable';
@@ -22,7 +22,7 @@ import { packRgb, paletteColour, rasterizeHeatmap, unpackRgb } from '../plot/hea
 import { readoutText, type AxisTick, type Palette } from '../../shared/gui-core/index';
 import { axisName, axisNameParts, fitAxisTitle, fontPixels, scaledFont } from '../plot/axisTitle';
 import { HEATMAP_DB_SPAN, heatmapDbRange, niceRange, niceTicks } from '../../shared/utils/ticks';
-import { amountText, barkText, frequencyText, lagText, levelText, quefrencyText, secondsText, signedText, spacingDecimals, stepText, withMinus } from '../plot/plotText';
+import { amountText, barkText, colourDecimals, exactDecimals, frequencyText, lagText, levelText, quefrencyText, secondsText, signedText, spacingDecimals, stepText, withMinus } from '../plot/plotText';
 import type { Whole, WholeLine } from '../../shared/provenance';
 import { drawableLine, drawableRows } from '../../shared/drawnPoints';
 import { backendPeak } from './wholeAnswers';
@@ -710,14 +710,17 @@ export function tickTexts(values: readonly number[], log: boolean): string[] {
     return values.map(value => (value >= 1000 || allK ? `${stepText(value / 1000, step === undefined ? undefined : step / 1000)}k` : stepText(value, step)));
 }
 /**
- * An end of a colour bar: with as many decimals as its span needs (cepstral coefficients need four or five), and
- * never fewer than the end itself has, so a range typed as −23.5 to 0 reads −23.5, not −23 (A31, C5).
+ * An end of a colour bar, written as the very number the colours are painted from (R9): with as many decimals as its
+ * span needs (colourDecimals: cepstral coefficients need four or five), and never fewer than the end itself has
+ * (exactDecimals), so a range typed as −23.5 to 0 reads −23.5, not −23 (A31, C5), and 1000000.5 reads 1000000.5.
+ * It only writes, it never rounds: an automatic scale's ends are made at the span's decimals where the range is made
+ * (figureModel.colourScale), so they are written no longer than the span needs.
  */
 export function colourEndText(value: number, span: number): string {
-    const spanDecimals = span >= 8 ? 0 : spacingDecimals(span / 8, 1, 12);
-    let own = 0;
-    while (own < 6 && Math.abs(value * 10 ** own - Math.round(value * 10 ** own)) > 1e-6 * Math.max(1, Math.abs(value * 10 ** own))) own++;
-    const text = value.toFixed(Math.max(spanDecimals, own));
+    let decimals = Math.min(100, Math.max(colourDecimals(span), exactDecimals(value)));
+    let text = value.toFixed(decimals);
+    // Written past its shortest digits, an end next to a power of two can land outside its own rounding interval.
+    while (Number(text) !== value && decimals < 100) text = value.toFixed(++decimals);
     return withMinus(Number(text) === 0 ? text.replace(/^-/u, '') : text);
 }
 
@@ -841,6 +844,10 @@ export interface StagePlot {
     };
     /** Where a heatmap's colour bar was painted (CSS pixels on the canvas). */
     colourBar?: ColourBarBox;
+    /** The colour scale a heatmap was painted from (figureModel.colourScale): its bar's end numbers are these (R9). */
+    colourScale?: { low: number; high: number };
+    /** The value range a line plot was painted on (its level axis as drawn, zoomed or not): what its range popover writes. */
+    valueRange?: { min: number; max: number };
     /** The value axis' ticks as drawn (a heatmap's rows, a line's levels): a lane kept as painted draws its side axis again from them. */
     levelTicks?: AxisTick[];
     /** Every text drawn for the plot (its ticks' numbers, its axes' names, its colour bar's ends), as drawn: what a test reads of it. */
@@ -1050,6 +1057,8 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         canvas.dataset.plotOrder = '';
         canvas.dataset.plotFull = '';
         canvas.dataset.plotColour = '';
+        delete canvas.dataset.plotColourScale;
+        delete canvas.dataset.plotColourEnds;
     }
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, width, height);
@@ -1140,7 +1149,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     let levelTicks: AxisTick[] = [];
     const levelOf = (axis: PaneRange) => (y: number): number => axis.min + (1 - (y - top) / plotHeight) * (axis.max - axis.min);
     const plot: StagePlot = { frame: { left, top, width: plotWidth, height: plotHeight }, xAt, yAt, xOf: x => xAxis.at((x - left) / plotWidth), xLog: xAxis.log, levelOf: levelOf(range),
-        lineYAt: looseAt(range), ratioStep: 1.12, lines: [], diff: !!options.diff, ...(options.readout === false ? { noReadout: true } : {}), ...levelUnitOf(heatmap ? axes.colour : axes.y) };
+        lineYAt: looseAt(range), ratioStep: 1.12, lines: [], diff: !!options.diff, ...(heatmap ? {} : { valueRange: { min: range.min, max: range.max } }), ...(options.readout === false ? { noReadout: true } : {}), ...levelUnitOf(heatmap ? axes.colour : axes.y) };
     // Where its data is drawn on the canvas (CSS pixels: left, top, width, height), so a gesture test can tell what a
     // drag or a wheel at a pixel should show from the pixel alone, not from the plot's own answer (C6).
     if (canvas.dataset) canvas.dataset.plotFrame = [left, top, plotWidth, plotHeight].map(String).join(' ');
@@ -1152,10 +1161,13 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     }
     if (heatmap && yAxis && view.matrix) {
         const image = context.createImageData(Math.round(plotWidth * ratio), Math.round(plotHeight * ratio));
-        const extentAbs = Math.max(Math.abs(range.min), Math.abs(range.max), 1e-9);
         const ys = view.ys ?? [], xs = view.xs ?? [];
         // A signed picture (a difference, a cepstrum) shows its largest magnitude; levels, their loudest.
         const signedScale = !!options.diff || view.quantity === 'cepstrum';
+        // The one colour scale its cells, its colour bar and the bar's end numbers are painted from (R9): ends
+        // widened to the numbers the bar writes, so the numbers are the scale (figureModel.colourScale).
+        const { low, high } = colourScale(range, signedScale);
+        const extentAbs = Math.max(Math.abs(low), Math.abs(high), 1e-9);
         // The cells each pixel line covers (none past the picture's ends), worked out once per line, not per pixel,
         // from the axes' values: a detail picture covers only part of them.
         // Both axes by one rule (fullRead.cellEdges): a log axis's cells meet at the geometric mean of their points.
@@ -1184,7 +1196,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
                 const fade = Math.round(255 * (1 - Math.abs(amount)));
                 return amount >= 0 ? packRgb(255, fade, fade) : packRgb(fade, fade, 255);
             }
-            const fraction = Math.max(0, Math.min(1, (cell - range.min) / (range.max - range.min || 1)));
+            const fraction = Math.max(0, Math.min(1, (cell - low) / (high - low || 1)));
             if (options.heatmapPalette) return paletteColour(fraction, options.heatmapPalette);
             const level = Math.round(fraction * 255);
             return packRgb(level, level, level);
@@ -1216,9 +1228,14 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         // A linear row axis (Bark, quefrency, the entry strip's rows) gets as many ticks as the plot is tall for.
         levelTicks = rowAxisTicks(yAxis.low, yAxis.high, yAxis.log, plotHeight, options.yTickText).map(tick => ({ text: tick.text, fraction: yAxis.fraction(tick.value) }));
         // The colour bar, top right inside the plot: what the colour measures, and its ends.
-        const edge = Math.max(Math.abs(range.min), Math.abs(range.max));
-        const low = signedScale ? -edge : range.min, high = signedScale ? edge : range.max;
         const endText = (value: number): string => colourEndText(value, high - low);
+        plot.colourScale = { low, high };
+        // The scale painted and the end numbers written, for every ui-smoke test to hold one to the other (R9,
+        // canvasAudit.ts): exact (the shortest text that parses back), never rounded.
+        if (canvas.dataset) {
+            canvas.dataset.plotColourScale = `${String(low)} ${String(high)}`;
+            canvas.dataset.plotColourEnds = JSON.stringify([endText(low), endText(high)]);
+        }
         // Under the region's corner tag when there is one, as the pending note is.
         // What the colour measures, named on the canvas: every ui-smoke test fails a colour bar that does not draw it (R4).
         if (canvas.dataset) canvas.dataset.plotColour = axes.colour ?? '';
@@ -1311,7 +1328,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         }
         if (options.secondary) {
             const { levelUnit: _main, ...shared } = plot;
-            const secondPlot: StagePlot = { ...shared, yAt: levelAt(options.secondary.range), levelOf: levelOf(options.secondary.range), lineYAt: looseAt(options.secondary.range), lines: [], ...levelUnitOf(options.secondary.title) };
+            const secondPlot: StagePlot = { ...shared, valueRange: { min: options.secondary.range.min, max: options.secondary.range.max }, yAt: levelAt(options.secondary.range), levelOf: levelOf(options.secondary.range), lineYAt: looseAt(options.secondary.range), lines: [], ...levelUnitOf(options.secondary.title) };
             plot.secondary = secondPlot;
             // A trigger's events on the right-hand axis are drawn one line each, as on the left (A43).
             for (const layer of secondaryOrder.flatMap(eventLayers)) {

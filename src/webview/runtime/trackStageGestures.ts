@@ -181,6 +181,8 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
                     : linearAxis(drawn.range.min, drawn.range.max, drawn.axes.y);
             openAxisPart(rangePopover, {
                 mapping, horizontal: hit.axis === 'x', current: hit.axis === 'x' ? windowOf(hit.plot).x : windowOf(hit.plot).y, clientX, clientY, invalid: strings.specRangeErrorMinMax,
+                // A level axis' ends as painted, written exactly (R9): a heatmap's rows and the x axis are no value axis.
+                shown: hit.axis === 'y' && !heat ? (right ? drawn.plot?.secondary?.valueRange : drawn.plot?.valueRange) : undefined,
                 set(part) { const now = windowOf(hit.plot); setWindowOf(hit.plot, hit.axis === 'x' ? { ...now, x: part } : { ...now, y: part }); },
             });
             return true;

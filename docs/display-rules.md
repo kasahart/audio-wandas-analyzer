@@ -435,6 +435,21 @@
 - テスト: `src/test/stagePanes.test.ts` › a colour or value range not in dB is widened to round ends, as a dB range is
 - テスト: `src/test/distribution.test.ts` › the distribution's value axis opens at round ends, as every automatic range does (R9)
 
+カラーバーの両端の数は、そのカラースケールそのものです。書いた数を読み戻した値（本物のマイナス「−」をハイフンに戻して読む）が、色を塗った端と同じ数です。画面でも、書き出す図でも同じです。
+
+- 自動の範囲は、範囲を作る 1 か所（`figureModel.colourScale`）で、カラーバーが書く桁まで外へ広げます。桁は幅で決めます（幅 8 以上は整数、それより狭ければ幅の 1/8 を見分けられる桁、最低 1 桁。`plotText.colourDecimals`）。下の端は `floorTo`、上の端は `ceilTo` で広げます。どちらも 10 進の文字で計算するので、すでにその桁で書ける数は動きません（小数 1 桁の −23.5 は −23.5 のまま）。符号つきの絵（差、ケプストラム）は 0 を中心にして、絶対値の最大を同じく外へ広げます。
+- マスの色、カラーバーの帯、両端の数、レーンの範囲の入力欄は、このスケールだけから描いて書きます（`StagePlot.colourScale`）。1000000.5〜1000020.5 の自動の範囲は 1000000〜1000021 で塗り、そう書きます。1000000.5 から塗って「1000001」と書くことはしません。書く関数（`stagePanes.colourEndText`）は書くだけで、数を丸めません。
+- 手で入れた端（⚙ の設定、範囲の入力欄）は、入れたとおりの数で塗ります。書くときは、その数に読み戻せる一番短い書き方にします（「1000000.5」）。どちらの端を手で入れたかは範囲が持ちます（`FigureRange.typed`、`figureModel.typedColourRange`）。
+- 値の軸の範囲の入力欄も、軸を描いた端をそのまま書きます（`StagePlot.valueRange`、`rangePopover.openAxisPart` の `shown`、カーソルスペクトルの dB 軸は `SpectrumView.dbRangeFields`）。拡大した窓の端は、入力欄が書く桁（窓の幅の 1/1000、最低 0.001。`plotText.fieldDecimals`）に丸めてから描きます（`figureModel.windowEnds`）。そのため、拡大した窓に手で入れた数も、その桁までで描いて書きます。窓の幅の 1/1000 より細かい桁は丸めます。
+- UI テストではすべての回で、画面に出ている熱図を確かめます。カラーバーの両端の数が、色を塗ったスケール（`data-plot-colour-scale`）と違うと、そのテストは失敗します（`src/test/uiSmoke/canvasAudit.ts`）。
+- テスト: `src/test/colourScale.test.ts` › a colour bar's end numbers are its colour scale: each, read back, is the end the colours are painted from, auto or typed, on the screen and in a report (R9)
+- テスト: `src/test/colourScale.test.ts` › every place that makes a colour range gives a scale whose ends are written exactly: the comparison's images, their differences, the entry strip and the spectrogram lanes (R9)
+- テスト: `src/test/colourScale.test.ts` › floorTo and ceilTo leave a number already written with that many decimals as it is, and otherwise step out to the next one (R9)
+- テスト: `src/test/colourScale.test.ts` › a value axis's range fields are the ends it is painted with, zoomed or typed: each, read back, is the end drawn (R9)
+- テスト: `src/test/spectrumView.test.ts` › SpectrumView popover fields prefer overrides and fall back to the painted range, exactly as painted (R9)
+- テスト: `src/test/stagePanes.test.ts` › a colour bar's ends are written as the range they end, never rounded off a typed range: −23.5 reads −23.5, and no −0 (A31, C5)
+- テスト: `src/test/uiSmoke/colourRangeRounding.spec.ts` › a typed colour range is painted, written on the colour bar and offered again exactly as typed: 999990 to 1000000.5 reads 1000000.5, never 1000001 (R9)
+
 ## R10 レイアウトが変わったら描き直す
 
 パネルの大きさが変わったら、グラフをその大きさで描き直します。引き伸ばしたまま残しません。グラフはほかのグラフやレーンに重なりません。トリガーの重ね描きはトラックの上に自分の高さを保ち、トラックはその下でスクロールします。

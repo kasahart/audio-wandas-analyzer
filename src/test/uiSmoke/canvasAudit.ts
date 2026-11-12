@@ -57,7 +57,7 @@ const AUDIT = {
 const SVG_CHART_MIN = { width: 64, height: 40 };
 
 declare global {
-    interface Window { __canvasAudit?: string[]; __readoutAudit?: string[]; __plotAudit?: string[]; __drawnAudit?: string[]; __svgAudit?: string[]; __orderAudit?: string[]; __fullAudit?: string[]; __unitAudit?: string[]; __tickAudit?: string[]; __titleAudit?: string[]; __plotPainting?: number; __settle?: SettleTracker }
+    interface Window { __canvasAudit?: string[]; __readoutAudit?: string[]; __plotAudit?: string[]; __drawnAudit?: string[]; __svgAudit?: string[]; __orderAudit?: string[]; __fullAudit?: string[]; __unitAudit?: string[]; __colourEndAudit?: string[]; __tickAudit?: string[]; __titleAudit?: string[]; __plotPainting?: number; __settle?: SettleTracker }
 }
 
 /** What the page still has to do in answer to what it was given: its frames and short timers not yet run, and what it asked for from outside itself and has not been given (settled()). */
@@ -411,6 +411,8 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
     // Each plot on screen with an axis named without its quantity and unit (R4).
     const unitless: string[] = [];
     window.__unitAudit = unitless;
+    const colourEnds: string[] = [];
+    window.__colourEndAudit = colourEnds;
     // Each plot on screen with two tick labels of one axis whose ink overlaps.
     const crowded: string[] = [];
     window.__tickAudit = crowded;
@@ -518,6 +520,16 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
                 const name = `colour ${canvasName(canvas)}: ${colour}`;
                 if (!reported.has(name)) { reported.add(name); unitless.push(`${canvasName(canvas)} (${canvas.clientWidth}×${canvas.clientHeight}) draws its colour bar without its name "${colour}"`); }
             }
+            // A colour bar's end numbers are its scale (R9): each, read back (true minus undone), is the end its
+            // colours are painted from (data-plot-colour-scale, exact), and is drawn on the canvas.
+            const scale = canvas.getAttribute('data-plot-colour-scale'), ends = canvas.getAttribute('data-plot-colour-ends');
+            if (scale && ends && canvas.hasAttribute('data-plot') && shownBox(canvas)) {
+                const painted = scale.split(' ').map(Number), written = JSON.parse(ends) as string[];
+                const drawnTexts = (canvas as Texted).__plotTexts ?? [];
+                const wrong = written.filter((text, index) => Number(text.replace(/−/gu, '-')) !== painted[index] || !drawnTexts.includes(text));
+                const name = `colour ends ${canvasName(canvas)}: ${ends} ${scale}`;
+                if (wrong.length && !reported.has(name)) { reported.add(name); colourEnds.push(`${canvasName(canvas)} writes its colour bar's ends ${written.map(text => `"${text}"`).join(' and ')} but paints its colours from ${painted.join(' to ')}`); }
+            }
             const full = canvas.getAttribute('data-plot-full');
             if (full?.startsWith('missing') && canvas.hasAttribute('data-plot') && shownBox(canvas)) {
                 const name = `full ${canvasName(canvas)}: ${full}`;
@@ -595,6 +607,9 @@ export const test = base.extend<{ canvasAudit: void }>({
         base.expect.soft(undeclaredFound, 'plots that draw a layer without its full data declared (R7: give the layer `full`, fullRead.ts)').toEqual([]);
         const unitlessFound = await page.evaluate(() => window.__unitAudit ?? []);
         base.expect.soft(unitlessFound, 'plots with an axis or a colour bar named without its quantity and unit (R4: "Quantity [unit]", "[–]" when dimensionless)').toEqual([]);
+        const colourEndsFound = await page.evaluate(() => window.__colourEndAudit ?? []);
+        base.expect.soft(colourEndsFound, 'colour bars whose end numbers are not the scale their colours are painted from (docs/display-rules.md R9: '
+            + 'make the scale where the range is made, figureModel.colourScale, and write it with stagePanes.colourEndText, which never rounds)').toEqual([]);
         const titlesOutside = await page.evaluate(() => window.__titleAudit ?? []);
         base.expect.soft(titlesOutside, 'axis names drawn outside their canvas (docs/display-rules.md R4: every name is fitted inside its canvas by the plot component. '
             + 'Fix in the shared code, not per chart: along the axis, give fitAxisTitle (src/webview/plot/axisTitle.ts) the room the name really has; across it, keep the name between the canvas\'s edge and the plot (stagePanes.ts paintValueTitle\'s gutter, the colour bar\'s box))').toEqual([]);

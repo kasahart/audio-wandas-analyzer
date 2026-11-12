@@ -1,6 +1,6 @@
 // Axis range popover shared by the comparison runtime and the recipe ChartSpec renderer.
 
-import { fieldNumberText } from './plot/plotText';
+import { exactFieldText, fieldNumberText } from './plot/plotText';
 import { keyRouterFor } from './runtime/keyRouter';
 
 export interface RangePopoverStrings {
@@ -51,17 +51,24 @@ export interface AxisMapping {
 export const linearAxis = (low: number, high: number, label: string): AxisMapping => ({ at: f => low + f * (high - low), of: v => (v - low) / (high - low || 1), label });
 
 
-/** Opens `popover` on the part `current` of an axis: typed values become the part `set` receives (blank: that end). */
+/**
+ * Opens `popover` on the part `current` of an axis: typed values become the part `set` receives (blank: that end).
+ * `shown`: a value axis' ends as the plot painted them (StagePlot.valueRange), written exactly, so the numbers in
+ * the fields are the ends the axis is drawn with (R9); without it, the ends at `current` to a thousandth of the span.
+ */
 export function openAxisPart(popover: RangePopover, axis: {
     mapping: AxisMapping; horizontal: boolean; current: { start: number; end: number }; clientX: number; clientY: number;
+    shown?: { min: number; max: number } | undefined;
     /** Shown when the typed minimum is not below the maximum. */
     invalid: string;
     set: (part: { start: number; end: number }) => void;
 }): void {
-    const { mapping, current, set } = axis;
+    const { mapping, current, set, shown } = axis;
+    const span = mapping.at(current.end) - mapping.at(current.start);
     popover.open({
         axisLabel: mapping.label, horizontal: axis.horizontal,
-        min: fieldNumberText(mapping.at(current.start), mapping.at(current.end) - mapping.at(current.start)), max: fieldNumberText(mapping.at(current.end), mapping.at(current.end) - mapping.at(current.start)),
+        min: shown ? exactFieldText(shown.min) : fieldNumberText(mapping.at(current.start), span),
+        max: shown ? exactFieldText(shown.max) : fieldNumberText(mapping.at(current.end), span),
         clientX: axis.clientX, clientY: axis.clientY,
         apply(min, max) {
             const start = min === null ? 0 : mapping.of(min), end = max === null ? 1 : mapping.of(max);

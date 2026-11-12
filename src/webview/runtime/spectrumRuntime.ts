@@ -3,7 +3,7 @@ import { frequencyAtFraction, type SpectrumPlotFrame } from '../draw/canvasDrawe
 import { frequencyText, levelText } from '../plot/plotText';
 import type { HostInboundMessage } from './hostMessaging';
 import type { DragPoint, SpectrumSeries, SpectrumSlice } from './types';
-import { backendTitle, byLevelKey, calibrationWordsBy, levelKeyOf, levelLineRange, shownLevelOf, type FigureTitle } from './figureModel';
+import { backendTitle, byLevelKey, calibrationWordsBy, levelKeyOf, levelLineRange, shownLevelOf, windowEnds, type FigureTitle } from './figureModel';
 import { type NormalizedRange, zoomNormalizedRange } from './waveformInteraction';
 
 export function zoomSpectrumRange(range: NormalizedRange, factor: number): NormalizedRange {
@@ -243,9 +243,10 @@ export interface SpectrumBoxZoom {
 export function spectrumZoomFromWindow(next: { x: { start: number; end: number }; y: { start: number; end: number } }, visibleDb: { min: number; max: number } | null): SpectrumBoxZoom {
     const zoom: SpectrumBoxZoom = { freqStart: next.x.start, freqEnd: next.x.end };
     if (visibleDb && (next.y.start !== 0 || next.y.end !== 1)) {
-        const span = visibleDb.max - visibleDb.min;
-        zoom.dbMin = visibleDb.min + next.y.start * span;
-        zoom.dbMax = visibleDb.min + next.y.end * span;
+        // At the numbers the range popover writes for it (figureModel.windowEnds, R9).
+        const ends = windowEnds(visibleDb, next.y);
+        zoom.dbMin = ends.min;
+        zoom.dbMax = ends.max;
     }
     return zoom;
 }

@@ -16,7 +16,8 @@ export interface SpectrogramRasterView {
     /** Track duration; with the spectrogram's frame centres it places each cell on its STFT window. */
     durationSec?: number;
 }
-export type SpectrogramDisplayBounds = Required<Pick<SpectrogramRasterView, 'dbLo' | 'dbHi' | 'maxFrequencyHz' | 'minFrequencyHz'>>;
+/** `dbTyped`: which colour ends are the typed settings', kept exactly as typed (figureModel.colourScale, R9). */
+export type SpectrogramDisplayBounds = Required<Pick<SpectrogramRasterView, 'dbLo' | 'dbHi' | 'maxFrequencyHz' | 'minFrequencyHz'>> & { dbTyped: { min: boolean; max: boolean } };
 type SpectrogramAutoBounds = Pick<SpectrogramData, 'minDb' | 'maxDb' | 'maxFrequencyHz'>;
 
 /**
@@ -55,6 +56,7 @@ export function spectrogramDisplayBounds(
     return {
         dbLo: display.dbMin != null ? display.dbMin : rounded.min,
         dbHi: display.dbMax != null ? display.dbMax : rounded.max,
+        dbTyped: { min: display.dbMin != null, max: display.dbMax != null },
         maxFrequencyHz: clamp ? Math.min(top, spec.maxFrequencyHz) : top,
         minFrequencyHz: min,
     };

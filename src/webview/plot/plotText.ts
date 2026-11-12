@@ -36,8 +36,34 @@ export function stepText(value: number, step: number | undefined): string {
  * (1.23456–1.23461 s stays so, never "1.235"–"1.235"). With a hyphen minus, as a field is typed and parsed.
  */
 export function fieldNumberText(value: number, span: number): string {
-    return String(Number(value.toFixed(spacingDecimals(Math.abs(span) / 1000, 3, 15))));
+    return String(Number(value.toFixed(fieldDecimals(span))));
 }
+
+/** The decimals a range field writes an end of a range `span` wide to (fieldNumberText): a thousandth of it, at least 0.001. */
+export const fieldDecimals = (span: number): number => spacingDecimals(Math.abs(span) / 1000, 3, 15);
+
+/**
+ * The decimals a colour bar writes its ends to for a scale `span` wide (R9): none from 8 up, else enough to tell an
+ * eighth of it (spacingDecimals), at least one. An automatic colour scale is widened to ends at these decimals
+ * (figureModel.colourScale), so its ends are written as the very numbers its colours are painted from.
+ */
+export const colourDecimals = (span: number): number => (span >= 8 ? 0 : spacingDecimals(span / 8, 1, 12));
+
+/**
+ * The fewest decimals that write `value` exactly, as JavaScript's shortest round-trip text does (−23.5: 1,
+ * 1000000.5: 1, 1e-7: 7): a number written with at least these decimals parses back to itself.
+ */
+export function exactDecimals(value: number): number {
+    if (!Number.isFinite(value)) return 0;
+    const [mantissa, exponent = '0'] = String(Math.abs(value)).split('e');
+    return Math.max(0, (mantissa.split('.')[1]?.length ?? 0) - Number(exponent));
+}
+
+/**
+ * A number for a range field that is exactly the end it shows: the shortest text that parses back to it ("-23.5",
+ * "1000000.5"), with a hyphen minus as a field is typed and parsed. The range popover writes a painted end with it.
+ */
+export const exactFieldText = (value: number): string => String(value + 0);
 
 /** Trailing zeros of a decimal fraction dropped ("3.150" → "3.15", "2.000" → "2"). */
 const trimmed = (text: string): string => (text.includes('.') ? text.replace(/\.?0+$/, '') : text);

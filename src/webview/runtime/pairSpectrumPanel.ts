@@ -9,7 +9,7 @@ import {
 import { attachPlotInteraction, FULL_PLOT_WINDOW, plotPointIn, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { createPlotHoverLayer, type PlotHoverLayer } from './plotHoverLayer';
 import { paintOverlay, STAGE_MARGINS, type StagePlot, type StageRead } from './stagePanes';
-import { dataRange, emptyFigure, plainRange, type FigureRange } from './figureModel';
+import { dataRange, emptyFigure, plainRange, windowEnds, type FigureRange } from './figureModel';
 import type { NormalizedRange } from './waveformInteraction';
 import type { TrackId } from './types';
 import { HostRequests } from './hostRequests';
@@ -51,7 +51,7 @@ export interface PairPanelHost {
     /** A double-click on the pair view's frequency axis opens the power spectrum's frequency range. */
     openFrequencyRange(clientX: number, clientY: number): void;
     /** A double-click on a pair plot's level axis opens its range (the shared range popover). */
-    openLevelRange(request: { label: string; min: number; max: number; current: NormalizedRange; clientX: number; clientY: number; set(part: NormalizedRange | null): void }): void;
+    openLevelRange(request: { label: string; min: number; max: number; current: NormalizedRange; shown?: { min: number; max: number } | undefined; clientX: number; clientY: number; set(part: NormalizedRange | null): void }): void;
     /** The plot height the power spectrum next to it has. */
     plotHeight(): number;
     /** The frequency under the cursor on the power spectrum, or null when the cursor is elsewhere. */
@@ -427,8 +427,8 @@ export class PairSpectrumPanel {
     private setLevelPart(key: PairLaneKey, part: NormalizedRange | null): void {
         const whole = this.drawn.get(key)?.range;
         if (!part || !whole || (part.start <= 0 && part.end >= 1)) { this.levelWindow.delete(key); return; }
-        const span = whole.max - whole.min;
-        this.levelWindow.set(key, { min: whole.min + part.start * span, max: whole.min + part.end * span });
+        // At the numbers the range popover writes for it (figureModel.windowEnds, R9).
+        this.levelWindow.set(key, windowEnds(whole, part));
     }
 
     /** The frequency axis the plots are laid on: the power spectrum's (which may pass the reference's Nyquist) and
@@ -590,7 +590,7 @@ export class PairSpectrumPanel {
                     const key = laneOf(hit.plot), drawn = this.drawn.get(key);
                     if (!drawn) return false;
                     this.host.openLevelRange({
-                        label: drawn.label, min: drawn.range.min, max: drawn.range.max, current: this.levelPart(key), clientX, clientY,
+                        label: drawn.label, min: drawn.range.min, max: drawn.range.max, current: this.levelPart(key), shown: drawn.plot?.valueRange, clientX, clientY,
                         set: part => { this.setLevelPart(key, part); this.render(); },
                     });
                     return true;

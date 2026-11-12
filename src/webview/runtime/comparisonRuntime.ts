@@ -7,7 +7,7 @@ import type { FullSource } from './fullRead';
 import { NO_FULL_DATA } from './fullRead';
 import { stageBasis } from './stageSource';
 import { hidePlotReadout, PLOT_READOUT_ID } from './plotHover';
-import { secondsText, withMinus } from '../plot/plotText';
+import { exactFieldText, secondsText, withMinus } from '../plot/plotText';
 import { trackTimelinePlacement, waveformCoverageFromExtent } from './waveformCoverage';
 import { regionPeak, type PeakWindow } from './regionPeak';
 import { fileOfKey } from '../../shared/dataset/datasetTable';
@@ -83,7 +83,7 @@ import {
     spectrumSlicesFromResult,
     withCalibrationWords,
 } from './spectrumRuntime';
-import { amplitudeTitle, axisInputOf, unknownLevelTitle, baseLevelOf, emptyFigure, plainTitle, frequencyTitle, laneAmplitudeRange, levelKeyOfReading, levelTitle as figureLevelTitle, paneNames, plainNames, plainRange, shownLevelOf, titleOf, uncalibratedWord, type FigureTitle } from './figureModel';
+import { amplitudeTitle, axisInputOf, colourScale, typedColourRange, unknownLevelTitle, baseLevelOf, emptyFigure, plainTitle, frequencyTitle, laneAmplitudeRange, levelKeyOfReading, levelTitle as figureLevelTitle, paneNames, plainNames, plainRange, shownLevelOf, titleOf, uncalibratedWord, type FigureTitle } from './figureModel';
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
 import { ComparisonTestBridge } from './testBridge';
 import { RuntimeEventFeed } from './runtimeEvents';
@@ -596,7 +596,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         openFrequencyRange: (clientX, clientY) => openSpectrumRangePopup('freq', clientX, clientY),
         openLevelRange(request) {
             openAxisPart(spectrumRangePopover, {
-                mapping: linearAxis(request.min, request.max, request.label), horizontal: false, current: request.current,
+                mapping: linearAxis(request.min, request.max, request.label), horizontal: false, current: request.current, shown: request.shown,
                 clientX: request.clientX, clientY: request.clientY, invalid: STR.specRangeErrorMinMax,
                 set: part => request.set(part.start <= 0 && part.end >= 1 ? null : part),
             });
@@ -2292,7 +2292,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const shown = shownSpectrogram(result, trackIndex, channelIndex);
         const spec = shown ? shown.spec : whole;
         const { offsetNorm: trackStart, trackDurRatio } = trackTimelinePlacement(offsetSeconds, result.durationSeconds, trackStore.globalSpan());
-        const { dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq } = shownSpectrogramBounds(whole);
+        const { dbLo, dbHi, dbTyped, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq } = shownSpectrogramBounds(whole);
         const record = trackRecordAtIndex(trackIndex);
         if (!record) {
             return;
@@ -2301,7 +2301,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const theme = drawTheme(), text = getComputedStyle(document.body).getPropertyValue('--text').trim() || '#ddd';
         const title = spectrogramLevelTitle(ch);
         const painted = paintTrackSpectrogram(canvas, axisCanvas, spec, { ...trackStore.globalSpan(), offsetNorm: trackStart, trackDurRatio }, {
-            window: { start: waveformView.start, end: waveformView.end }, dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq,
+            window: { start: waveformView.start, end: waveformView.end }, dbLo, dbHi, dbTyped, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq,
             durationSec: result.durationSeconds, timeAxis: canvasById(document, 'ruler-canvas'), ...(laneReadable(trackIndex) ? {} : { readout: false as const }),
         }, spectrogramRasterCache.get(cacheId), { colour: title, frequency: plainTitle(STR, 'axisFrequency'), time: plainTitle(STR, 'axisTime') }, [text, theme.bgColor, theme.lineColor].join(':'),
         laneTrackFull(trackIndex, track => laneReads.spectrogram(track, channelIndex, shown?.window ?? null)));
@@ -3800,14 +3800,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const typed = (value: number | null, shown: number, setting: number | null | undefined) =>
             value !== null && field(value) === field(shown) ? setting ?? null : value;
         if (axis === 'level') {
+            // The colour scale the lane is painted from (figureModel.colourScale, as paintOverlay takes it), written
+            // exactly: the colour bar writes these numbers too (R9). An end applied as shown keeps its setting.
+            const scale = spectrogramPlots.get(element as HTMLCanvasElement)?.colourScale ?? colourScale(typedColourRange(bounds.dbLo, bounds.dbHi, bounds.dbTyped), false);
+            const kept = (value: number | null, shown: number, setting: number | null | undefined) => (value === shown ? setting ?? null : value);
             waveformRangePopover.open({
                 axisLabel: spectrogramLevelTitle(channelsForResult(result as ComparisonTrackState)[channelIndexAttribute(element) ?? 0]),
                 horizontal: false,
-                min: field(bounds.dbLo),
-                max: field(bounds.dbHi),
+                min: exactFieldText(scale.low),
+                max: exactFieldText(scale.high),
                 clientX, clientY,
                 apply(min, max) {
-                    setSpectrogramDisplay({ ...display, dbMin: typed(min, bounds.dbLo, ownLevels ? display.dbMin : null), dbMax: typed(max, bounds.dbHi, ownLevels ? display.dbMax : null), dbLevelKey: key });
+                    setSpectrogramDisplay({ ...display, dbMin: kept(min, scale.low, ownLevels ? display.dbMin : null), dbMax: kept(max, scale.high, ownLevels ? display.dbMax : null), dbLevelKey: key });
                 },
                 auto() {
                     setSpectrogramDisplay({ ...display, dbMin: null, dbMax: null, dbLevelKey: null });

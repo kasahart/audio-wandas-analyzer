@@ -1,5 +1,6 @@
 import { frequencyAtFraction, frequencyFraction, type FrequencyScale } from '../draw/canvasDrawers';
 import { spectrumDbRangeAfterZoom, zoomSpectrumRange, type SpectrumBoxZoom, type SpectrumViewState } from './spectrumRuntime';
+import { exactFieldText } from '../plot/plotText';
 
 export interface SpectrumPaintedRange {
     maxFrequencyHz: number;
@@ -109,7 +110,8 @@ export class SpectrumView {
     dbRangeFields(): { min: string; max: string } {
         const painted = this.paintedDb();
         const field = (override: number | null, paintedEdge: number | undefined) =>
-            override != null ? String(override) : (paintedEdge != null ? String(Math.round(paintedEdge)) : '');
+            // The end as painted, exactly (R9): a typed or zoomed end as it is, an automatic one as the axis drew it.
+            override != null ? exactFieldText(override) : (paintedEdge != null ? exactFieldText(paintedEdge) : '');
         return { min: field(this.dbMin, painted?.min), max: field(this.dbMax, painted?.max) };
     }
 

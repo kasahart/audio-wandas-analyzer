@@ -5,7 +5,7 @@ import type { SpectrogramData, WaveformEnvelope } from '../../shared/analysis/an
 import { viridis, type AxisTick } from '../../shared/gui-core/index';
 import { spectrogramTimeBinEdges } from '../spectrum/spectrogramTimeBins';
 import { spectrogramRowSpan } from '../spectrum/spectrogramZoom';
-import { plainNames, plainRange, type FigureTitle, type PlainTitle } from './figureModel';
+import { plainNames, typedColourRange, type FigureTitle, type PlainTitle } from './figureModel';
 import { paintOverlay, paintSideAxis, type ColourBarBox, type StageLayer, type StagePlot, type StageOverlay } from './stagePanes';
 import type { NormalizedRange } from './waveformInteraction';
 import type { StageView } from '../../shared/protocol/backendProtocol';
@@ -120,6 +120,8 @@ export interface LaneSpectrogramView {
     maxFrequencyHz: number;
     dbLo: number;
     dbHi: number;
+    /** Which colour ends were typed: kept exactly, the others widened to the numbers the colour bar writes (R9). */
+    dbTyped?: { min: boolean; max: boolean };
     /** The track's duration: with the frame centres it places each cell on its STFT window. */
     durationSec: number;
     /** false: the lane gives no readout (its file changed since it was analysed: no cell of it is read, R7). */
@@ -176,7 +178,7 @@ export function paintTrackSpectrogram(
     full?: FullSource,
 ): SpectrogramRasterCacheEntry {
     const key = [canvas.width, canvas.height, view.window.start, view.window.end, place.startSec, place.spanSec, place.offsetNorm, place.trackDurRatio,
-        view.dbLo, view.dbHi, view.maxFrequencyHz, view.minFrequencyHz, view.durationSec, view.readout ?? '', titles.colour, titles.frequency, look].join(':');
+        view.dbLo, view.dbHi, view.dbTyped?.min ?? false, view.dbTyped?.max ?? false, view.maxFrequencyHz, view.minFrequencyHz, view.durationSec, view.readout ?? '', titles.colour, titles.frequency, look].join(':');
     const colors = sideAxisColors(canvas);
     if (cached && cached.source === spec && cached.key === key && cached.full === full) {
         if (axisCanvas) paintSideAxis(axisCanvas, cached.ticks, titles.frequency, colors);
@@ -191,7 +193,7 @@ export function paintTrackSpectrogram(
     const span: [number, number] = [place.startSec + place.offsetNorm * place.spanSec, place.startSec + (place.offsetNorm + place.trackDurRatio) * place.spanSec];
     // Every number read off the lane is a real STFT cell (R7): its full data in seconds from the file's start.
     const cells = full ? mappedSource(full, seconds => seconds - span[0], seconds => seconds + span[0]) : NO_FULL_DATA;
-    const plot = paintOverlay(canvas, { layers: [{ view: picture, color: '', span, full: cells }] }, plainRange(view.dbLo, view.dbHi),
+    const plot = paintOverlay(canvas, { layers: [{ view: picture, color: '', span, full: cells }] }, typedColourRange(view.dbLo, view.dbHi, view.dbTyped ?? { min: false, max: false }),
         plainNames(titles.time, titles.frequency, titles.colour),
         { axisCanvas, axisView, heatmapPalette: viridis, xAxisCanvas: view.timeAxis ?? null, ...(view.readout === false ? { readout: false as const } : {}), window: { x: view.window, y: { start: (Math.max(0, view.minFrequencyHz) - low) / rowSpan, end: (view.maxFrequencyHz - low) / rowSpan } } });
     return { source: spec, key, full, plot, colourBar: plot?.colourBar ?? { x: 0, y: 0, width: 0, height: 0 }, ticks: plot?.levelTicks ?? [] };

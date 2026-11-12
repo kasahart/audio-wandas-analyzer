@@ -44,7 +44,7 @@ export const pairView: ChartContract = {
         },
         {
             id: 'pair-view.range', value: 'range', what: '利得の軸の自動の範囲',
-            computedIn: ['src/webview/runtime/pairSpectrum.ts:gainRange', 'src/webview/runtime/pairSpectrum.ts:gainSpan', 'src/webview/runtime/pairSpectrumPanel.ts:wholeHolding', 'src/webview/runtime/stagePanes.ts:stageRange', 'src/webview/runtime/figureModel.ts:dataRange', 'src/webview/runtime/figureModel.ts:plainRange'],
+            computedIn: ['src/webview/runtime/pairSpectrum.ts:gainRange', 'src/webview/runtime/pairSpectrum.ts:gainSpan', 'src/webview/runtime/pairSpectrumPanel.ts:wholeHolding', 'src/webview/runtime/pairSpectrumPanel.ts:setLevelPart', 'src/webview/runtime/stagePanes.ts:stageRange', 'src/webview/runtime/figureModel.ts:dataRange', 'src/webview/runtime/figureModel.ts:plainRange'],
             from: 'full', trace: '見えている周波数の全ビンの利得の最小・最大を、比較台の段と同じ dB の線の規則（stageRange: 5・10・20・25 dB の刻み、上から 100 dB まで）で切りのよい値に広げる（R9）。縦に拡大した値が画面のビンの外なら、同じ規則でそれを含むまで広げる。',
             tests: [
                 tt('src/test/pairSpectrum.test.ts', 'the pair view\'s gain axis opens at round ends holding every bin on screen, a one-bin notch too, and only those (R9)'),
