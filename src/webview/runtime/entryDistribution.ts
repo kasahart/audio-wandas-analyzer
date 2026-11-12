@@ -148,22 +148,27 @@ export function distributionRows(dist: Distribution, picture: DistributionPictur
                 dots.push({ key: member.key, value: member.value, level });
             }
             top = Math.max(3, levels.length);
-            // Out of a picked range (or with none picked) in the bars' colour; in it, lighter.
-            const all = members.map((_, index) => index);
-            const parts: Array<[number[], string]> = picture.range
-                ? [[all.filter(index => !members[index].inRange), colours.bar], [all.filter(index => members[index].inRange), colours.barIn]]
-                : [[all, colours.bar]];
-            for (const [these, color] of parts) {
-                if (!these.length) continue;
-                layers.push({ ...line(these.map(index => members[index].value), these.map(index => dots[index].level + 0.5)), color, width: 3.5, marks: 'dots', label, readout: at => memberText(these[at]), identity: at => members[these[at]].key });
-            }
+            // One layer of every member, whatever is picked: ← / → pass every recording, in and out of a picked range,
+            // in the one order (R7). The range only colours them: out of it (or with none picked) in the bars'
+            // colour; in it, lighter (StageLayer.colorAt).
+            layers.push({
+                ...line(members.map(member => member.value), dots.map(dot => dot.level + 0.5)), color: colours.bar, width: 3.5, marks: 'dots', label,
+                ...(picture.range ? { colorAt: (index: number) => (members[index].inRange ? colours.barIn : colours.bar) } : {}),
+                readout: memberText, identity: index => members[index].key,
+            });
         } else {
             const { counts, inRange, max: most } = binCounts(group.members, dist.low, dist.high);
             top = most * 1.08;
             if (!picture.strip) max = strings.dsDistMax.replace('{n}', String(most));
-            const binText = (bin: number, count: number): string[] => [`${picture.format(dist.low + bin * binWidth, binWidth)}–${picture.format(dist.low + (bin + 1) * binWidth, binWidth)}`, `${count} ${unit}`];
-            layers.push({ ...line(centres, counts.map(count => count || null), 'bar'), color: colours.bar, filled: true, fill: 1, label, readout: bin => binText(bin, counts[bin]) });
-            if (picture.range) layers.push({ ...line(centres, inRange.map(count => count || null), 'bar'), color: colours.barIn, filled: true, fill: 1, label, readout: bin => binText(bin, inRange[bin]) });
+            // One layer of every bin, whatever is picked (R7: the keys pass every bar, in and out of the range). With a
+            // range picked, the part of each bar inside it is drawn lighter over it (StageLayer.share), and the readout
+            // says both counts: those in the range of all in the bin.
+            const picked = !!picture.range;
+            const binText = (bin: number): string[] => [`${picture.format(dist.low + bin * binWidth, binWidth)}–${picture.format(dist.low + (bin + 1) * binWidth, binWidth)}`, `${picked ? `${inRange[bin]} / ` : ''}${counts[bin]} ${unit}`];
+            layers.push({
+                ...line(centres, counts.map(count => count || null), 'bar'), color: colours.bar, filled: true, fill: 1, label, readout: binText,
+                ...(picked ? { share: { values: inRange.map(count => count || null), color: colours.barIn } } : {}),
+            });
             // The rug: a tick per member, so a few far from the rest show even where their bar is thin.
             layers.push({ ...line(members.map(member => member.value), members.map(() => 0)), color: colours.barIn, alpha: 0.55, width: 1, marks: 'rug', label, readout: memberText, identity: index => members[index].key });
         }
