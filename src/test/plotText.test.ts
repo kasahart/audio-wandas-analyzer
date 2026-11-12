@@ -1,3 +1,4 @@
+import { Y } from './helpers/figure';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -105,7 +106,7 @@ test('a negative number is written with a true minus sign, its exponent too, nev
 
 test('the same frequency and level read the same on the comparison, the cursor spectrum and a spectrogram lane (R7)', () => {
     const view: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: [1015.625], values: [-42.3] };
-    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: () => 100, xOf: () => 1015.625, yAt: () => 50, ratioStep: 1.12, levelUnit: 'dB', lines: [{ view, color: 'blue', label: 'a.wav', full: held(view) }], diff: false };
+    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: () => 100, xOf: () => 1015.625, ...Y(() => 50, 0), ratioStep: 1.12, levelUnit: 'dB', lines: [{ view, color: 'blue', label: 'a.wav', full: held(view) }], diff: false };
     const comparison = stageHover(plot, 100, 50)!.text;
     const spectrum = spectrumReadoutText('a.wav', { values: [], frequencyBins: 0, maxFrequencyHz: 0, minDb: 0, maxDb: 0, unit: 'dB' }, 1015.625, -42.3);
     const lane = spectrogramReadoutText('a.wav', 1, 0.01, { frequencyHz: 1015.625, level: -42.3 }, 'dB');

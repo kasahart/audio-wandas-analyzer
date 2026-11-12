@@ -1,3 +1,4 @@
+import { Y } from './helpers/figure';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -39,7 +40,7 @@ function plot(): StagePlot {
     const full = fetchedSource((read, done) => { done(backendAnswer(read)); });
     return {
         frame: { left: 0, top: 0, width: 100, height: 100 }, xAt: hz => hz / 10, xOf: x => x * 10,
-        yAt: value => 50 - (value + 10) * 1000, levelOf: y => -10 + (50 - y) / 1000, ratioStep: 1.12, diff: false, levelUnit: 'dB re 20 µPa',
+        ...Y(value => 50 - (value + 10) * 1000, 1000), levelOf: y => -10 + (50 - y) / 1000, ratioStep: 1.12, diff: false, levelUnit: 'dB re 20 µPa',
         lines: [{ view, color: 'blue', full }],
     };
 }
@@ -86,7 +87,7 @@ test('a Δ of −260 dB is a Δ, not silence: the backend\'s difference is read,
     const full = fetchedSource((read, done) => { done(backendAnswer({ ...read, of: 'diff' })); }, { of: 'diff' });
     const drawn: StagePlot = {
         frame: { left: 0, top: 0, width: 100, height: 100 }, xAt: hz => hz / 10, xOf: x => x * 10,
-        yAt: value => -value / 3, levelOf: y => -y * 3, ratioStep: 1.12, diff: true, levelUnit: 'dB',
+        ...Y(value => -value / 3, 1 / 3), levelOf: y => -y * 3, ratioStep: 1.12, diff: true, levelUnit: 'dB',
         lines: [{ view, color: 'red', full }],
     };
     const read = hover(drawn, 30, 86);
@@ -115,7 +116,7 @@ test('a median and a difference are taken in float64 end to end: of 0.5 and 0.5 
         const full = fetchedSource((read, done) => { done(backendAnswer({ ...read, of, fixture: 'signal' })); }, { of });
         // 2⁻²⁵ a pixel about the value read, so the line's points are where the pointer is.
         const centre = of === 'base' ? 0.5 : 0;
-        return { frame: { left: 0, top: 0, width: 100, height: 100 }, xAt: x => x * 10000, xOf: x => x / 10000, yAt: value => 50 - (value - centre) * 2 ** 25, levelOf: y => centre + (50 - y) / 2 ** 25, ratioStep: 1.12, diff: of === 'diff', lines: [{ view, color: 'blue', full }] };
+        return { frame: { left: 0, top: 0, width: 100, height: 100 }, xAt: x => x * 10000, xOf: x => x / 10000, ...Y(value => 50 - (value - centre) * 2 ** 25, 2 ** 25), levelOf: y => centre + (50 - y) / 2 ** 25, ratioStep: 1.12, diff: of === 'diff', lines: [{ view, color: 'blue', full }] };
     };
     assert.equal(hover(plot('base'), 30, 49)?.value, 0.5 + 2 ** -25, 'the median of 0.5 and 0.5 + 2⁻²⁴, which float32 rounds to one of them');
     assert.equal(hover(plot('diff'), 30, 49)?.value, 2 ** -25, 'the Δ of 0.5 + 2⁻²⁴ from that median');
@@ -129,7 +130,7 @@ test('a dense window read beyond the pick radius of every point reads the real s
     const view = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, (count - 1) / 1000], values: [0, 0] } as unknown as StageView;
     const asked: unknown[] = [];
     const full = fetchedSource((read, done) => { asked.push(read); done(backendAnswer({ ...read, fixture: 'dense' })); });
-    const drawn: StagePlot = { frame: { left: 0, top: 0, width: 400, height: 100 }, xAt: s => s * 1000 / 50, xOf: x => x * 50 / 1000, yAt: value => 50 - value * 40, levelOf: y => (50 - y) / 40, ratioStep: 1.12, diff: false, lines: [{ view, color: 'blue', full }] };
+    const drawn: StagePlot = { frame: { left: 0, top: 0, width: 400, height: 100 }, xAt: s => s * 1000 / 50, xOf: x => x * 50 / 1000, ...Y(value => 50 - value * 40, 40), levelOf: y => (50 - y) / 40, ratioStep: 1.12, diff: false, lines: [{ view, color: 'blue', full }] };
     for (const x of [100, 100.3, 257.7]) {
         const read = hover(drawn, x, -60);
         const under = Math.round(x * 50);
@@ -151,7 +152,7 @@ test('on a value axis zoomed in, a dense window reads the nearest sample on scre
     const full = fetchedSource((read, done) => { asked.push(read); done(backendAnswer({ ...read, fixture: 'zoomed' })); });
     const drawn: StagePlot = {
         frame: { left: 0, top: 0, width: 400, height: 100 }, xAt: s => s * 1000 / 50, xOf: x => x * 50 / 1000,
-        yAt: value => (0.9 - value) / 0.019, levelOf: y => 0.9 - y * 0.019, ratioStep: 1.12, diff: false, lines: [{ view, color: 'blue', full }],
+        ...Y(value => (0.9 - value) / 0.019, 1 / 0.019), levelOf: y => 0.9 - y * 0.019, ratioStep: 1.12, diff: false, lines: [{ view, color: 'blue', full }],
     };
     const read = hover(drawn, 5003 / 50, (0.9 - 0.89) / 0.019);
     assert.equal(Math.round((read?.at ?? NaN) * 1000), 5010, 'the nearest sample on screen');
@@ -169,7 +170,7 @@ test('on a value axis zoomed in, with no sample near the pointer the dense windo
     const full = fetchedSource((read, done) => { done(backendAnswer({ ...read, fixture: 'zoomed' })); });
     const drawn: StagePlot = {
         frame: { left: 0, top: 0, width: 400, height: 100 }, xAt: s => s * 1000 / 50, xOf: x => x * 50 / 1000,
-        yAt: value => (0.9 - value) / 0.019, levelOf: y => 0.9 - y * 0.019, ratioStep: 1.12, diff: false, lines: [{ view, color: 'blue', full }],
+        ...Y(value => (0.9 - value) / 0.019, 1 / 0.019), levelOf: y => 0.9 - y * 0.019, ratioStep: 1.12, diff: false, lines: [{ view, color: 'blue', full }],
     };
     const read = hover(drawn, 5003 / 50, (0.9 + 0.9) / 0.019);
     assert.equal(Math.round((read?.at ?? NaN) * 1000), 5003, 'the sample under the pointer, whatever its value (full_read._nearest_along)');

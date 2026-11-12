@@ -846,7 +846,15 @@ export interface StageLayer {
 export interface StagePlot {
     frame: { left: number; top: number; width: number; height: number };
     xAt: (value: number) => number;
+    /** A value's y held inside the plot: where a point's mark is drawn. */
     yAt: (value: number) => number;
+    /**
+     * A value's exact y, never held anywhere (AxisTransform.yOf), and the exact pixels per value unit
+     * (AxisTransform.pixelsPerUnit): what every decision takes, the pointer's pick, the scale sent to the backend,
+     * a hit test, the read mark's place (display rules R14). Never a scale made by differencing two y's.
+     */
+    yOf: (value: number) => number;
+    pixelsPerUnit: number;
     /** The horizontal axis's value at a canvas x, and whether the axis is logarithmic; the level at a canvas y. */
     xOf?: (x: number) => number;
     xLog?: boolean;
@@ -863,10 +871,11 @@ export interface StagePlot {
      */
     signal?: { unit: string; range?: { min: number; max: number }; paint(context: CanvasRenderingContext2D, layer: StageLayer, width: number): void };
     /**
-     * `yAt` without holding the value inside the range, for drawing a line: a stretch past the level axis leaves
-     * the plot where it crosses the axis and is clipped, instead of running along the plot's edge.
+     * A value's y for painting a line only (AxisTransform.paintY): held ten spans past the axis, so a stretch past the
+     * level axis leaves the plot where it crosses the axis and is clipped, instead of running along the plot's edge.
+     * Held, it is no value's true place: only a painting function (paint…, stroke…) calls it (R14, pickScaleBoundary.test.ts).
      */
-    lineYAt?: (value: number) => number;
+    paintY?: (value: number) => number;
     /** The lines read on the right-hand level axis (`StagePaintOptions.secondary`), placed by its range. */
     secondary?: StagePlot;
     /**
@@ -1080,18 +1089,26 @@ const paintedGenerations = new WeakMap<HTMLCanvasElement, number>();
 
 /**
  * A value axis's value-to-pixel transform on a plot (display rules R14), the one every use takes: the lines on the axis
- * are painted by it (a signal by the lanes' waveform pipeline over its range, any other line by `yAt` / `lineYAt`),
- * the pointer picks their points and places the read mark by it, and the values it shows are its range. A plot with a
- * right-hand axis makes one for each axis (FigureModel's axes), and each line takes its own axis's, never the plot's
- * first one.
+ * are painted by it (a signal by the lanes' waveform pipeline over its range, any other line by `paintY`), the
+ * pointer picks their points and places the read mark by it (`yOf`, `pixelsPerUnit`), and the values it shows are its
+ * range. A plot with a right-hand axis makes one for each axis (FigureModel's axes), and each line takes its own
+ * axis's, never the plot's first one.
+ *
+ * Scale for decisions is exact; holding is only for painting (R14): `yOf` and `pixelsPerUnit` come from the range and
+ * the box alone. `paintY` holds a value ten spans past the axis, so the difference of two of its y's is no scale: on
+ * ±0.001 over 100 px, paintY(1) − paintY(0) is 1,050 px where the axis has 50,000 px per unit.
  */
 export interface AxisTransform {
     /** The axis's ends as painted: what it shows of a line's values, and what its range popover writes. */
     valueRange: { min: number; max: number };
     /** A value's y on the canvas, held inside the plot (a point's mark). */
     yAt: (value: number) => number;
-    /** A value's y without holding it inside the plot, for drawing a line: past the axis it leaves the plot and is clipped. */
-    lineYAt: (value: number) => number;
+    /** A value's exact y on the canvas, held nowhere: for every decision (the pick, a hit test, the read mark). */
+    yOf: (value: number) => number;
+    /** The axis's exact pixels per value unit (its box's height over its span): the scale every decision takes. */
+    pixelsPerUnit: number;
+    /** A value's y for painting a line only: held ten spans past the axis, it leaves the plot and is clipped. Painting functions only. */
+    paintY: (value: number) => number;
     /** The value at a canvas y. */
     levelOf: (y: number) => number;
     /** A signal on this axis drawn as itself (its waveform envelope), over this axis's range. */
@@ -1106,11 +1123,14 @@ export function axisTransform(axis: Pick<FigureAxis<unknown>, 'range'> | { reado
     const { min, max } = axis.range;
     const { top, height } = on.box;
     const span = max - min;
+    const yOf = (value: number): number => top + (1 - (value - min) / span) * height;
     return {
         valueRange: { min, max },
-        yAt: value => top + (1 - (Math.max(min, Math.min(max, value)) - min) / span) * height,
+        yAt: value => yOf(Math.max(min, Math.min(max, value))),
+        yOf,
+        pixelsPerUnit: height / span,
         // Ten spans past either end is far outside the plot: a line's slope where it crosses the edge stays right.
-        lineYAt: value => top + (1 - (Math.max(min - 10 * span, Math.min(max + 10 * span, value)) - min) / span) * height,
+        paintY: value => yOf(Math.max(min - 10 * span, Math.min(max + 10 * span, value))),
         levelOf: y => min + (1 - (y - top) / height) * span,
         paintSignal: (context, layer, width, onPoint) => {
             if (!layer.view.waveform) return;
@@ -1243,7 +1263,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
 
     let levelTicks: AxisTick[] = [];
     const plot: StagePlot = { frame: { left, top, width: plotWidth, height: plotHeight }, xAt, yAt, xOf: x => xAxis.at((x - left) / plotWidth), xLog: xAxis.log, levelOf: mainAxis.levelOf,
-        lineYAt: mainAxis.lineYAt, ratioStep: 1.12, lines: [], diff: !!options.diff, xRange: { min: xAxis.low, max: xAxis.high }, ...(yAxis ? { rowRange: { min: yAxis.low, max: yAxis.high } } : {}), ...(heatmap ? {} : { valueRange: mainAxis.valueRange }), ...(options.readout === false ? { noReadout: true } : {}), ...levelUnitOf(heatmap ? axes.colour : axes.y) };
+        yOf: mainAxis.yOf, pixelsPerUnit: mainAxis.pixelsPerUnit, paintY: mainAxis.paintY, ratioStep: 1.12, lines: [], diff: !!options.diff, xRange: { min: xAxis.low, max: xAxis.high }, ...(yAxis ? { rowRange: { min: yAxis.low, max: yAxis.high } } : {}), ...(heatmap ? {} : { valueRange: mainAxis.valueRange }), ...(options.readout === false ? { noReadout: true } : {}), ...levelUnitOf(heatmap ? axes.colour : axes.y) };
     // Where its data is drawn on the canvas (CSS pixels: left, top, width, height), so a gesture test can tell what a
     // drag or a wheel at a pixel should show from the pixel alone, not from the plot's own answer (C6).
     if (canvas.dataset) canvas.dataset.plotFrame = [left, top, plotWidth, plotHeight].map(String).join(' ');
@@ -1420,7 +1440,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
             const { levelUnit: _main, signal: _left, ...shared } = plot;
             const rightAxis = axisTransform(options.secondary, { box, time: wholeAxis, window: xWindow });
             const rightSignal = options.secondary.layers.find(layer => layer.view.waveform)?.view.waveform;
-            const secondPlot: StagePlot = { ...shared, valueRange: rightAxis.valueRange, yAt: rightAxis.yAt, levelOf: rightAxis.levelOf, lineYAt: rightAxis.lineYAt, lines: [],
+            const secondPlot: StagePlot = { ...shared, valueRange: rightAxis.valueRange, yAt: rightAxis.yAt, yOf: rightAxis.yOf, pixelsPerUnit: rightAxis.pixelsPerUnit, levelOf: rightAxis.levelOf, paintY: rightAxis.paintY, lines: [],
                 ...(rightSignal ? { signal: signalOn(rightAxis, rightSignal.unit) } : {}), ...levelUnitOf(options.secondary.title) };
             plot.secondary = secondPlot;
             if (canvas.dataset) canvas.dataset.plotEnds = paintedEnds();
@@ -1750,8 +1770,8 @@ export function barEdges(plot: Pick<StagePlot, 'xAt' | 'xLog'>, xs: readonly num
 export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePlot, layer: StageLayer, width: number): void {
     if (layer.view.waveform) { plot.signal?.paint(context, layer, width); return; }
     const { frame, xAt } = plot;
-    // Past the level axis a line leaves the plot (clipped), not along its edge.
-    const yAt = plot.lineYAt ?? plot.yAt;
+    // Past the level axis a line leaves the plot (clipped), not along its edge: painting is paintY's one use (R14).
+    const yAt = plot.paintY ?? plot.yAt;
     const values = drawableLine(layer.view.values ?? []), xs = layer.view.xs ?? [];
     context.save();
     context.beginPath(); context.rect(frame.left, frame.top, frame.width, frame.height); context.clip();
@@ -1875,7 +1895,8 @@ function fullPoint(plot: StagePlot, layer: StageLayer, points: FullPoints, index
     const at = points.xs[index];
     if (value === null || value === undefined || at === undefined || silent(layer.view, value, plot.diff)) return null;
     const { top, height } = plot.frame;
-    const y = valueOnScreen(plot, layer, value) ? plot.yAt(value) : Math.min(top + height, Math.max(top, plot.yAt(value)));
+    // Its exact place (R14), held at the plot's edge only when its value is past the axis.
+    const y = Math.min(top + height, Math.max(top, plot.yOf(value)));
     const step = points.steps?.[index];
     // Of a source the webview holds, the point's index in its every value (a histogram's bin, for its readout).
     return { index: points.offset !== undefined ? points.offset + index : -1, at, x: plot.xAt(at), y, value, full: true, ...(layer.view.waveform ? { time: at } : {}), ...(step !== null && step !== undefined && step > 0 ? { step } : {}) };
@@ -1918,10 +1939,11 @@ function fullLineNear(plot: StagePlot, layer: StageLayer, source: FullSource, x:
     if (source.line === cannotRead || !plot.xOf) return { near: [], at: null };
     // The pointer's place and the screen's scale there, so a window too dense to send whole holds the point nearest
     // the pointer by its true distance on screen (R7), not only each column's nearest in height.
+    // The value scale is the axis's exact one (R14: pixelsPerUnit), never a difference of two painted y's, which are
+    // held ten spans past the axis and so too small a scale on a narrow axis.
     const place = plot.xOf(x), level = plot.levelOf?.(y);
-    const lineY = plot.lineYAt ?? plot.yAt;
     const pixels: [number, number] | undefined = level === undefined ? undefined
-        : [Math.abs(plot.xLog ? plot.xAt(place * Math.E) - plot.xAt(place) : plot.xAt(place + 1) - plot.xAt(place)), Math.abs(lineY(level + 1) - lineY(level))];
+        : [Math.abs(plot.xLog ? plot.xAt(place * Math.E) - plot.xAt(place) : plot.xAt(place + 1) - plot.xAt(place)), Math.abs(plot.pixelsPerUnit)];
     // The values on screen (a signal's amplitude range, else the level axis's between the plot's edges), so a dense
     // window's nearest point is one of those the plot reads, never one past a zoomed axis that is then left out (R7).
     const shown = shownValues(plot, layer);
@@ -1935,7 +1957,7 @@ function fullLineNear(plot: StagePlot, layer: StageLayer, source: FullSource, x:
     for (let index = 0; index < got.xs.length; index++) {
         const point = fullPoint(plot, layer, got, index);
         if (!point) continue;
-        if (Math.abs(point.x - x) <= radius && valueOnScreen(plot, layer, point.value) && onPlot(plot, point.x, (plot.lineYAt ?? plot.yAt)(point.value))) near.push(point);
+        if (Math.abs(point.x - x) <= radius && valueOnScreen(plot, layer, point.value) && onPlot(plot, point.x, plot.yOf(point.value))) near.push(point);
         if (!at || Math.abs(point.x - x) < Math.abs(at.x - x)) at = point;
     }
     // A window too dense to send whole names the real point under the pointer (`under`, full_read._nearest_along): the

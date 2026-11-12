@@ -1,3 +1,4 @@
+import { Y } from './helpers/figure';
 /**
  * The pointer's one rule for every kind of line (docs/display-rules.md R7), and where a readout's digits come from:
  *
@@ -33,7 +34,7 @@ function plotOf(kind: Kind, full: FullSource = testLine(XS, VALUES)): StagePlot 
     const layer: StageLayer = { view, color: 'blue', full };
     return {
         frame: { left: 0, top: 0, width: 400, height: 100 }, xAt: x => x * 10, xOf: x => x / 10,
-        yAt: value => 50 - value * 5, levelOf: y => (50 - y) / 5, ratioStep: 1.12, diff: kind === 'Δ', levelUnit: kind === 'Δ' ? 'dB' : 'dB re 20 µPa',
+        ...Y(value => 50 - value * 5, 5), levelOf: y => (50 - y) / 5, ratioStep: 1.12, diff: kind === 'Δ', levelUnit: kind === 'Δ' ? 'dB' : 'dB re 20 µPa',
         ...(kind === 'waveform' ? { signal: { unit: 'Pa', range: { min: -10, max: 10 }, paint: () => undefined } } : {}),
         lines: [layer],
     };
@@ -88,7 +89,7 @@ test('a dense window\'s readout takes its digits from the source data\'s own ste
     const rate = 48000, sent = [2.0, 2.05, 2.1];
     const view = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 4], values: [0, 0], waveform: { min: [0, 0], max: [0, 0], minT: [0, 4], maxT: [0, 4], absolutePeak: 1, unit: 'Pa', ref: 2e-5 } } as unknown as StageView;
     const signal = (steps?: number[]): StagePlot => ({
-        frame: { left: 0, top: 0, width: 400, height: 100 }, xAt: s => s * 100, xOf: x => x / 100, yAt: value => 50 - value * 40, levelOf: y => (50 - y) / 40, ratioStep: 1.12, diff: false,
+        frame: { left: 0, top: 0, width: 400, height: 100 }, xAt: s => s * 100, xOf: x => x / 100, ...Y(value => 50 - value * 40, 40), levelOf: y => (50 - y) / 40, ratioStep: 1.12, diff: false,
         signal: { unit: 'Pa', range: { min: -1, max: 1 }, paint: () => undefined },
         lines: [{ view, color: 'blue', full: fetchedSource((_read, done) => { done({ xs: sent, values: [0.1, 0.2, 0.3], start: 0, end: 4, complete: false, under: 1, ...(steps ? { steps } : {}) }); }) }],
     });
@@ -100,7 +101,7 @@ test('a dense window\'s readout takes its digits from the source data\'s own ste
     assert.equal(hover(signal(), 205, 42)?.step, undefined, 'no step is made up from the spacing of the points sent (fullPoint)');
     // A spectrum of bins 0.25 Hz apart, sent 12 Hz apart: its frequency is written to the bins' digits.
     const spectrum: StagePlot = {
-        frame: { left: 0, top: 0, width: 400, height: 100 }, xAt: hz => (hz - 1000) * 10, xOf: x => 1000 + x / 10, yAt: value => -value, levelOf: y => -y, ratioStep: 1.12, diff: false, levelUnit: 'dB re 20 µPa',
+        frame: { left: 0, top: 0, width: 400, height: 100 }, xAt: hz => (hz - 1000) * 10, xOf: x => 1000 + x / 10, ...Y(value => -value, 1), levelOf: y => -y, ratioStep: 1.12, diff: false, levelUnit: 'dB re 20 µPa',
         lines: [{ view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', unit: 'Pa', xs: [1000, 1040], values: [-50, -50] } as unknown as StageView, color: 'blue',
             full: fetchedSource((_read, done) => { done({ xs: [1000.5, 1012.5, 1024.5], values: [-50, -50, -50], start: 0, end: 24000, complete: false, under: 1, steps: [0.25, 0.25, 0.25] }); }) }],
     };

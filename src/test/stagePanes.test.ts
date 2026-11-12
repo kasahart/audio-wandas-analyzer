@@ -1,7 +1,7 @@
 import { testLine, testCells, wholeValues } from './helpers/whole';
 import assert from 'node:assert/strict';
 import { drawableLine, drawableRows } from '../shared/drawnPoints';
-import { N, R, T } from './helpers/figure';
+import { N, R, T, Y } from './helpers/figure';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
@@ -176,7 +176,7 @@ test('a cross-correlation is drawn over a signed lag axis on the fixed [-1, 1] c
     // A delay is read to 10 µs at any lag, and none has no sign.
     const long: StageView = { ...view, xs: [-0.0125, 0, 0.0125, 0.02] };
     // Points 50 px apart, so the pointer over each reads that one.
-    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => (value + 0.0125) * 4000, xOf: x => x / 4000 - 0.0125, yAt: value => -value, ratioStep: 1.12, lines: [{ view: long, color: 'blue', full: held(long) }], diff: false };
+    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => (value + 0.0125) * 4000, xOf: x => x / 4000 - 0.0125, ...Y(value => -value, 1), ratioStep: 1.12, lines: [{ view: long, color: 'blue', full: held(long) }], diff: false };
     assert.match(stageHover(plot, 0, 0)!.text, /^−0\.01250 s/);
     assert.match(stageHover(plot, 50, 0)!.text, /^0\.00000 s/);
 });
@@ -622,7 +622,7 @@ test("a colour bar moves under the region's corner tag, which covers the plot's 
 test('the pointer reads the point nearest it within a few pixels, so a narrow peak beside it is read at its top (R7)', () => {
     const xs = Array.from({ length: 101 }, (_, i) => i), values = xs.map(i => (i === 50 ? 1 : 0));
     const spiky: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'coherence', xs, values };
-    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value * 2, xOf: x => x / 2, yAt: value => 100 - value * 80, ratioStep: 1.12, lines: [{ view: spiky, color: 'blue', full: held(spiky) }], diff: false };
+    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value * 2, xOf: x => x / 2, ...Y(value => 100 - value * 80, 80), ratioStep: 1.12, lines: [{ view: spiky, color: 'blue', full: held(spiky) }], diff: false };
     // 8 px right of the peak and a little under its top: the top.
     assert.deepEqual(pick(stageHover(plot, 108, 25)), { x: 100, y: 20 });
     // Down by the floor at the same place: the floor under the pointer.
@@ -631,7 +631,7 @@ test('the pointer reads the point nearest it within a few pixels, so a narrow pe
     assert.deepEqual(pick(stageHover(plot, 150, 20)), { x: 150, y: 100 });
     // Zoomed into the level axis, the peak past its top is off the plot: the line under the pointer is read, not the clamped peak.
     const clamped = (value: number): number => 100 - Math.min(0.5, Math.max(0, value)) * 200;
-    const zoomed: StagePlot = { ...plot, yAt: clamped, lineYAt: value => 100 - value * 200 };
+    const zoomed: StagePlot = { ...plot, ...Y(value => 100 - value * 200, 200, clamped) };
     assert.deepEqual(pick(stageHover(zoomed, 108, 3)), { x: 108, y: 100 });
 });
 
@@ -640,7 +640,7 @@ test('a signal is read at its sample nearest the pointer within a few pixels, ne
     const wave: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'amplitude', xs: [], values: [],
         waveform: { min: [-0.5, -0.2], max: [0.5, 0.9], minT: [0, 99], maxT: [40, 51] } } as unknown as StageView;
     const samples = testLine([0, 40, 51, 52, 99], [-0.5, 0.5, 0.9, 0.7, -0.2]);
-    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value, xOf: x => x, yAt: value => 50 - value * 50, ratioStep: 1.12, lines: [{ view: wave, color: 'blue', full: samples }], diff: false };
+    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value, xOf: x => x, ...Y(value => 50 - value * 50, 50), ratioStep: 1.12, lines: [{ view: wave, color: 'blue', full: samples }], diff: false };
     // The sample at (51, 5) is 1 px from the pointer; the one at (40, 25) is farther.
     assert.deepEqual(pick(stageHover(plot, 50, 5)), { x: 51, y: 5 });
     // A sample the envelope does not draw (52 s, 0.7) is read where it is nearest.
@@ -655,7 +655,7 @@ test('zoomed in on a signal\'s level axis, the arrow keys still step one sample 
     const samples = testLine([0, 10, 20, 30, 40], [0, 0.5, 0.05, -0.5, 0.02]);
     // The level axis zoomed to ±0.1: the samples at 10 and 30 s are above and below it.
     const range = { min: -0.1, max: 0.1 };
-    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value * 4, xOf: x => x / 4, yAt: value => Math.min(100, Math.max(0, 50 - value * 500)), ratioStep: 1.12,
+    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value * 4, xOf: x => x / 4, ...Y(value => 50 - value * 500, 500, value => Math.min(100, Math.max(0, 50 - value * 500))), ratioStep: 1.12,
         lines: [{ view: wave, color: 'blue', full: samples }], diff: false, signal: { unit: 'FS', range, paint: () => undefined } };
     let read = stageHover(plot, 0, 50);
     assert.ok(read && read.at === 0);
@@ -1016,7 +1016,7 @@ test('← / → visit every point sharing one x exactly once, in one order both 
         const row = distributionRows({ groups: [{ name: 'g', members }], low: 0, high: 12, missing: 0, apart: 0, unit: 'recording' }, picture, { bar: 'grey', barIn: 'silver', slots: [] }, getStrings('en'))[0];
         const layer = row.layers.find(candidate => candidate.marks === kind);
         assert.ok(layer, `the distribution draws no ${kind} layer for a group of ${count}: this test steps the ${kind}; update it if the picture changed`);
-        const plot: StagePlot = { frame: { left: 0, top: 0, width: 240, height: 100 }, xAt: value => value * 20, xOf: x => x / 20, yAt: value => 100 - value * 10, ratioStep: 1.12, lines: [layer], diff: false };
+        const plot: StagePlot = { frame: { left: 0, top: 0, width: 240, height: 100 }, xAt: value => value * 20, xOf: x => x / 20, ...Y(value => 100 - value * 10, 10), ratioStep: 1.12, lines: [layer], diff: false };
         // The recording a readout names (its key, which this test's picture.name writes as it is).
         const names = (read: NonNullable<ReturnType<typeof stageHover>>): string => /\b[to]-[\w]+/u.exec(read.text)?.[0] ?? read.text;
         const expected = [...members].sort((a, b) => a.value - b.value || (a.key < b.key ? -1 : 1)).map(member => member.key);
@@ -1052,7 +1052,7 @@ test('a recording stepped to stays that recording after a redraw that reorders, 
             const row = distributionRows({ groups: [{ name: 'g', members }], low: 0, high: 12, missing: 0, apart: 0, unit: 'recording' }, picture, { bar: 'grey', barIn: 'silver', slots: [] }, getStrings('en'))[0];
             const layer = row.layers.find(candidate => candidate.marks === kind);
             assert.ok(layer, `the distribution draws no ${kind} layer for ${members.length} recordings: this test reads the ${kind}; update it if the picture changed`);
-            return { frame: { left: 0, top: 0, width: 240, height: 100 }, xAt: value => value * 20, xOf: x => x / 20, yAt: value => 100 - value * 10, ratioStep: 1.12, lines: [layer], diff: false };
+            return { frame: { left: 0, top: 0, width: 240, height: 100 }, xAt: value => value * 20, xOf: x => x / 20, ...Y(value => 100 - value * 10, 10), ratioStep: 1.12, lines: [layer], diff: false };
         };
         const tied = [member('t-a', 5), member('t-b', 5), member('t-c', 5)];
         const first = drawing([...others, ...tied]);
@@ -1111,7 +1111,7 @@ test('with a range picked on the distribution ← / → still visit every record
         const drawing = (picked: boolean): { plot: StagePlot; layers: StageLayer[] } => {
             const row = distributionRows({ groups: [{ name: 'g', members: members(picked) }], low: 0, high: 12, missing: 0, apart: 0, unit: 'recording' }, pictured(picked), { bar: 'grey', barIn: 'silver', slots: [] }, getStrings('en'))[0];
             const of = row.layers.filter(candidate => candidate.marks === kind);
-            return { layers: row.layers, plot: { frame: { left: 0, top: 0, width: 240, height: 100 }, xAt: value => value * 20, xOf: x => x / 20, yAt: value => 100 - value * 10, ratioStep: 1.12, lines: of, diff: false } };
+            return { layers: row.layers, plot: { frame: { left: 0, top: 0, width: 240, height: 100 }, xAt: value => value * 20, xOf: x => x / 20, ...Y(value => 100 - value * 10, 10), ratioStep: 1.12, lines: of, diff: false } };
         };
         const orders = [false, true].map(picked => {
             const { plot, layers } = drawing(picked);
@@ -1135,7 +1135,7 @@ test('with a range picked on the distribution ← / → still visit every record
             pictured(picked), { bar: 'grey', barIn: 'silver', slots: [] }, getStrings('en'))[0];
         const bars = row.layers.filter(layer => layer.view.kind === 'bar');
         assert.equal(bars.length, 1, `range ${picked ? 'picked' : 'not picked'}: ${bars.length} bar layers. ${fix}`);
-        const plot: StagePlot = { frame: { left: 0, top: 0, width: 240, height: 100 }, xAt: value => value * 20, xOf: x => x / 20, yAt: value => 100 - value * 10, ratioStep: 1.12, lines: bars, diff: false };
+        const plot: StagePlot = { frame: { left: 0, top: 0, width: 240, height: 100 }, xAt: value => value * 20, xOf: x => x / 20, ...Y(value => 100 - value * 10, 10), ratioStep: 1.12, lines: bars, diff: false };
         const first = stageHover(plot, plot.xAt(1.1), plot.yAt(1));
         assert.ok(first?.full, 'the pointer on the first bar reads nothing');
         return walk(plot, first, 1, 60, read => String(read.at));

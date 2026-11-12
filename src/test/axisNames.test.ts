@@ -1,3 +1,4 @@
+import { Y } from './helpers/figure';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -141,7 +142,7 @@ test('the axis name and the readout of a signal after operations carry the same 
         const wave = { ...series, xs: [], values: [], waveform: { min: [0.25], max: [0.75], minT: [0], maxT: [2], absolutePeak: 0.75, unit, ref: 1 } } as unknown as StageView;
         for (const [shape, view, full] of [['series', series, held(series)], ['waveform', wave, testLine([0, 1, 2], [0.25, 0.5, 0.75])]] as const) {
             const axis = axisNameParts(stageAxes(strings, view, calibrated).y)?.unit;
-            const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value * 100, xOf: x => x / 100, yAt: value => 100 - value * 100, ratioStep: 1.12, lines: [{ view, color: 'blue', full }], diff: false };
+            const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value * 100, xOf: x => x / 100, ...Y(value => 100 - value * 100, 100), ratioStep: 1.12, lines: [{ view, color: 'blue', full }], diff: false };
             const read = stageHover(plot, 100, 50);
             assert.ok(read && read.value === 0.5, `${chain} (${shape}): the pointer reads the middle point`);
             const readUnit = /0\.500\s*(\S*)\s*$/u.exec(read.values)?.[1] ?? '';

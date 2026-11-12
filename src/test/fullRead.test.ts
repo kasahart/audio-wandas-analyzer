@@ -1,3 +1,4 @@
+import { Y } from './helpers/figure';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { assertNotDrawn, nearestOf } from './fullNotDrawn';
@@ -53,7 +54,7 @@ test('a dense waveform is read at its real samples: a sample not drawn, and ever
     const view = envelope();
     const plot: StagePlot = {
         frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value / 100, xOf: x => x * 100,
-        yAt: value => 50 - value * 40, levelOf: y => (50 - y) / 40, ratioStep: 1.12, diff: false,
+        ...Y(value => 50 - value * 40, 40), levelOf: y => (50 - y) / 40, ratioStep: 1.12, diff: false,
         lines: [{ view, color: 'blue', full: backend.source }],
     };
     const drawn = new Set([...(view.waveform?.minT ?? []), ...(view.waveform?.maxT ?? [])]);
@@ -103,7 +104,7 @@ test('a window read is asked for once and kept: the pointer moving inside it ask
     const backend = heldBackend(samples, signal);
     const plot: StagePlot = {
         frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value / 100, xOf: x => x * 100,
-        yAt: value => 50 - value * 40, levelOf: y => (50 - y) / 40, ratioStep: 1.12, diff: false,
+        ...Y(value => 50 - value * 40, 40), levelOf: y => (50 - y) / 40, ratioStep: 1.12, diff: false,
         lines: [{ view: envelope(), color: 'blue', full: backend.source }],
     };
     stageHover(plot, 100, 50);
@@ -151,7 +152,7 @@ test('a window too dense to send whole is read where the pointer is: the point n
     // 50 samples a pixel: a hover window of 41 columns holds 2050 samples, padded to 8200, more than the backend sends whole.
     const plot = (perPixel: number): StagePlot => ({
         frame: { left: 0, top: 0, width: 400, height: 100 }, xAt: value => value / perPixel, xOf: x => x * perPixel,
-        yAt: value => 50 - value * 40, levelOf: y => (50 - y) / 40, ratioStep: 1.12, diff: false,
+        ...Y(value => 50 - value * 40, 40), levelOf: y => (50 - y) / 40, ratioStep: 1.12, diff: false,
         lines: [{ view: envelope(), color: 'blue', full: source }],
     });
     // Brute force: of every sample within the pick radius on screen, the nearest the pointer.
@@ -215,7 +216,7 @@ test('a spectrogram\'s hover asks the backend once for a block around the pointe
     const view: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', unit: 'dB', xs, ys, matrix: raw };
     const width = 400, height = 640;
     const plot: StagePlot = {
-        frame: { left: 0, top: 0, width, height }, xAt: value => value / (columns * 0.01) * width, yAt: () => 0, ratioStep: 1.12, diff: false, lines: [],
+        frame: { left: 0, top: 0, width, height }, xAt: value => value / (columns * 0.01) * width, ...Y(() => 0, 0), ratioStep: 1.12, diff: false, lines: [],
         image: {
             layer: { view, color: '', full: source },
             cellAt: () => ({ column: -1, row: -1 }),
@@ -255,7 +256,7 @@ test('a pointer moving inside the cells a spectrogram\'s hover kept asks the hos
     const view: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', unit: 'dB', xs, ys, matrix: raw };
     const width = 400, height = 640;
     const plot: StagePlot = {
-        frame: { left: 0, top: 0, width, height }, xAt: value => value / (columns * 0.01) * width, yAt: () => 0, ratioStep: 1.12, diff: false, lines: [],
+        frame: { left: 0, top: 0, width, height }, xAt: value => value / (columns * 0.01) * width, ...Y(() => 0, 0), ratioStep: 1.12, diff: false, lines: [],
         image: {
             layer: { view, color: '', full: source },
             cellAt: () => ({ column: -1, row: -1 }),
@@ -292,7 +293,7 @@ test('a spectrogram is read at its real cells, never the cells averaged to draw 
     const timeAt = (x: number): number => x / width * columns * 0.01;
     const rowAt = (y: number): number => 100 + (1 - y / height) * 300;
     const plot: StagePlot = {
-        frame: { left: 0, top: 0, width, height }, xAt: value => value / (columns * 0.01) * width, yAt: () => 0, ratioStep: 1.12, diff: false, lines: [],
+        frame: { left: 0, top: 0, width, height }, xAt: value => value / (columns * 0.01) * width, ...Y(() => 0, 0), ratioStep: 1.12, diff: false, lines: [],
         image: {
             layer,
             cellAt: (x, y) => ({ column: Math.min(drawnXs.length - 1, Math.floor(x / width * drawnXs.length)), row: Math.round((rowAt(y) - 100) / 100) }),
@@ -325,7 +326,7 @@ test('every layer a plot draws is given its full data, held or fetched: one give
     assert.equal(declaresFullRead({ view: line, color: '', full: testLine([1, 2], [0, 1]) }), true);
     assert.equal(declaresFullRead({ view: bars, color: '', full: testLine([1, 2], [0, 1]) }), true);
     // Given none, the pointer reads no number off it, not the point drawn under it.
-    const plot = (full: FullSource): StagePlot => ({ frame: { left: 0, top: 0, width: 100, height: 100 }, xAt: x => (x - 1) * 100, yAt: v => 100 - v * 100, xOf: x => 1 + x / 100, ratioStep: 1.12, lines: [{ view: bars, color: '', full }], diff: false });
+    const plot = (full: FullSource): StagePlot => ({ frame: { left: 0, top: 0, width: 100, height: 100 }, xAt: x => (x - 1) * 100, ...Y(v => 100 - v * 100, 100), xOf: x => 1 + x / 100, ratioStep: 1.12, lines: [{ view: bars, color: '', full }], diff: false });
     assert.equal(stageHover(plot(NO_FULL_DATA), 0, 100), null);
     assert.equal(stageHover(plot(testLine([1, 2], [0, 1])), 0, 100)?.value, 0);
     // A line thinned to be drawn (its 1.5 peak left out) is never taken whole: its full data is read, not its points.
@@ -397,7 +398,7 @@ test('an arrow key crosses silent points past one fetched window to the next poi
     const source = testLine(xs, values);
     const view: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', unit: 'dB', xs: [0, 999], values: [-20, -300] };
     const plot: StagePlot = {
-        frame: { left: 0, top: 0, width: 1000, height: 100 }, xAt: value => value, xOf: x => x, yAt: value => -value, levelOf: y => -y,
+        frame: { left: 0, top: 0, width: 1000, height: 100 }, xAt: value => value, xOf: x => x, ...Y(value => -value, 1), levelOf: y => -y,
         ratioStep: 1.12, diff: false, lines: [{ view, color: 'blue', full: source }],
     };
     const first = stageHover(plot, 0, 20);
@@ -421,7 +422,7 @@ test('an arrow key crosses a silence of any length in one read the backend answe
     });
     const view: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', unit: 'dB', xs: [0, count - 1], values: [-20, -20] };
     const plot: StagePlot = {
-        frame: { left: 0, top: 0, width: 1000, height: 100 }, xAt: value => value / 2000, xOf: x => x * 2000, yAt: value => -value, levelOf: y => -y,
+        frame: { left: 0, top: 0, width: 1000, height: 100 }, xAt: value => value / 2000, xOf: x => x * 2000, ...Y(value => -value, 1), levelOf: y => -y,
         ratioStep: 1.12, diff: false, lines: [{ view, color: 'blue', full: source }],
     };
     const read = (x: number, y: number) => { const first = stageHover(plot, x, y); return first?.pending ? stageHover(plot, x, y) : first; };
@@ -509,7 +510,7 @@ test('a seek on plain values (a signal, a metric over time) reads −250 and bel
     // Through the plot: a waveform's samples are plain, its steps read −300 as a sample.
     const view: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'value', unit: 'Pa', xs: [0, 7], values: [1, 11] };
     const plot: StagePlot = {
-        frame: { left: 0, top: 0, width: 700, height: 100 }, xAt: value => value * 100, xOf: x => x / 100, yAt: value => 50 - value / 10, levelOf: y => (50 - y) * 10,
+        frame: { left: 0, top: 0, width: 700, height: 100 }, xAt: value => value * 100, xOf: x => x / 100, ...Y(value => 50 - value / 10, 0.1), levelOf: y => (50 - y) * 10,
         ratioStep: 1.12, diff: false, lines: [{ view, color: 'blue', full: source }],
     };
     let read = stageHover(plot, 100, 50 - 0.2);
@@ -525,7 +526,7 @@ test('a read the backend failed is no line read: the readout reads nothing, neve
     const view: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', unit: 'dB', xs: [0, 9], values: [-20, -20] };
     const beside = testLine([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], [-21, -21, -21, -21, -21, -21, -21, -21, -21, -21]);
     const plot: StagePlot = {
-        frame: { left: 0, top: 0, width: 900, height: 100 }, xAt: value => value * 100, xOf: x => x / 100, yAt: value => -value, levelOf: y => -y,
+        frame: { left: 0, top: 0, width: 900, height: 100 }, xAt: value => value * 100, xOf: x => x / 100, ...Y(value => -value, 1), levelOf: y => -y,
         ratioStep: 1.12, diff: false, lines: [{ view, color: 'blue', label: 'base', full: source }, { view, color: 'red', label: 'other', full: beside }],
     };
     let woken = 0;

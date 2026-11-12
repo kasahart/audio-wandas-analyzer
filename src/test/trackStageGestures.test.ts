@@ -1,5 +1,5 @@
 import { testLine } from './helpers/whole';
-import { N, R } from './helpers/figure';
+import { N, R, Y } from './helpers/figure';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fetchedSource } from '../webview/runtime/fullRead';
@@ -35,7 +35,7 @@ test('a click on a trigger\'s event line (the plot gestures\' tap: a press that 
     // One event drawn as a flat line across the middle of the plot.
     const event = { id: 2, source: '/d/a.wav', out: false };
     const plot = {
-        frame, xAt: (value: number) => frame.left + value * frame.width, yAt: (value: number) => frame.top + (1 - value) * frame.height,
+        frame, xAt: (value: number) => frame.left + value * frame.width, ...Y(value => frame.top + (1 - value) * frame.height, frame.height),
         xOf: (x: number) => (x - frame.left) / frame.width, ratioStep: 1, diff: false,
         lines: [{ view: { kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 0.5, 1], values: [0.5, 0.5, 0.5] }, color: '#000', event, full: testLine([0, 0.5, 1], [0.5, 0.5, 0.5]) }],
     } as unknown as StagePlot;
@@ -95,7 +95,7 @@ test('a click on a trigger\'s event line while its full data is on its way is de
     const full = fetchedSource((read, done) => { replies.push(() => done(samples.line({ x0: read.x[0], x1: read.x[read.x.length - 1], beyond: read.beyond ?? 1 }, () => undefined))); });
     const event = { id: 2, source: '/d/a.wav', out: false };
     const plot = {
-        frame, xAt: (value: number) => frame.left + value * frame.width, yAt: (value: number) => frame.top + (1 - value) * frame.height,
+        frame, xAt: (value: number) => frame.left + value * frame.width, ...Y(value => frame.top + (1 - value) * frame.height, frame.height),
         xOf: (x: number) => (x - frame.left) / frame.width, ratioStep: 1, diff: false,
         lines: [{ view: { kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 0.5, 1], values: [0.5, 0.5, 0.5] }, color: '#000', event, full }],
     } as unknown as StagePlot;
@@ -153,7 +153,7 @@ test('a click on an event line waiting for its data is decided on the plot it wa
     const full = fetchedSource((read, done) => { replies.push(() => done(samples.line({ x0: read.x[0], x1: read.x[read.x.length - 1], beyond: read.beyond ?? 1 }, () => undefined))); });
     const event = { id: 2, source: '/d/a.wav', out: false };
     const plotOf = (level: number) => ({
-        frame, xAt: (value: number) => frame.left + value * frame.width, yAt: (value: number) => frame.top + (1 - (value - level + 0.5)) * frame.height,
+        frame, xAt: (value: number) => frame.left + value * frame.width, ...Y(value => frame.top + (1 - (value - level + 0.5)) * frame.height, frame.height),
         xOf: (x: number) => (x - frame.left) / frame.width, ratioStep: 1, diff: false,
         lines: [{ view: { kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 0.5, 1], values: [0.5, 0.5, 0.5] }, color: '#000', event, full }],
     } as unknown as StagePlot);

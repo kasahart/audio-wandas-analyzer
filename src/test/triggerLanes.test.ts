@@ -106,7 +106,7 @@ test('a trigger lane is read at every sample: the pointer reads a sample between
     const at = 3005;
     const drawnTimes = new Set([...drawableLine(loud.view.waveform?.minT ?? []), ...drawableLine(loud.view.waveform?.maxT ?? [])]);
     assert.ok(!drawnTimes.has(loud.times[at]), 'the sample is thinned out of the envelope drawn');
-    const read = stageHover(plot, plot.xAt(loud.times[at]), (plot.lineYAt ?? plot.yAt)(loud.samples[at]));
+    const read = stageHover(plot, plot.xAt(loud.times[at]), plot.yOf(loud.samples[at]));
     assert.ok(read && read.full, 'read from every sample');
     let step = read;
     const index = loud.times.indexOf(read.at as number);
