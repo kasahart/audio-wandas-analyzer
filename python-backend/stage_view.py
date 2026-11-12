@@ -487,9 +487,9 @@ def _read_frame(frame: object, signal_s: float | None = None) -> FrameReading | 
     cross-channel Frame keeps its one drawn pair, and times are seconds into the file. None for a Frame with
     nothing to draw (a kind the app does not draw, no pair of two channels, a trigger with no event).
 
-    To support a new Frame kind, add its branch here (converting its data to float64 first); its picture (``_stage_view``) and its full-resolution values
-    (stage_combine.stage_data) then both take it from the reading. ``signal_s``: the length (s) of the time signal
-    before the step, which an STFT's columns are checked against.
+    To support a new Frame kind, add its branch here, converting its data to float64 first. Its picture
+    (``_stage_view``) and its full-resolution values (stage_combine.stage_data) then both take it from the reading.
+    ``signal_s``: the length (s) of the time signal before the step, which an STFT's columns are checked against.
     """
     if isinstance(frame, CepstralFrame):
         return FrameReading("cepstrum", _f64(frame.quefrencies), np.mean(_rows(frame.data, frame.n_channels), axis=0))
