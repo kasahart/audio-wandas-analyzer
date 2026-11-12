@@ -109,9 +109,10 @@ export interface TrackStageDeps {
     basis?(filePath: string): string;
     /**
      * The largest peak of the compared channels over the region, in their unit, read from every sample (regionPeak.ts):
-     * where a new trigger starts (half of it). `ready` is called when a pending or failed read can be asked again.
+     * where a new trigger starts (half of it). Calling it asks the backend for the samples, so it is called only when
+     * the step bar can add a trigger (StepBarState.peak), never on a repaint.
      */
-    peak?(region: EntryRegion | null, ready: () => void): RegionPeak | undefined;
+    peak?(region: EntryRegion | null): RegionPeak | undefined;
     /**
      * A step failed on a file (the scan names it): its chip is marked ⚠ with wandas' reason, as when the entry
      * table's scan fails there, so the plot says why rather than drawing nothing.
@@ -459,7 +460,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const recipe = deps.recipe();
         const id = chosen();
         const shownStage = state.stage && recipe && recipeSteps(recipe.recipe).find(step => step.id === state.stage)?.bypassed ? state.stage : id;
-        stepBar.set({ recipe: recipe?.recipe ?? null, sampleRate: deps.sampleRate(), channels: deps.channels?.(), peak: deps.peak?.(liveRegion(), () => deps.rerender()), stage: shownStage ?? undefined, regionRange: state.regionSet, failed: recipe?.failed });
+        stepBar.set({ recipe: recipe?.recipe ?? null, sampleRate: deps.sampleRate(), channels: deps.channels?.(), peak: deps.peak ? () => deps.peak?.(liveRegion()) : undefined, stage: shownStage ?? undefined, regionRange: state.regionSet, failed: recipe?.failed });
         // The tracks' selection becomes the region chip once the bar has the chain; a region already there stays.
         if (state.pendingRegion) {
             const range = state.pendingRegion;

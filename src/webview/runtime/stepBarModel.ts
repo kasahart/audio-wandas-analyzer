@@ -26,10 +26,13 @@ export interface StepBarState {
     /** Seconds measured (the region's, else the shortest file's): where fix_length starts. */
     lengthS?: number;
     /**
-     * The largest peak of the compared channels over the region, in their unit, read from every sample (regionPeak.ts):
-     * a new trigger fires at half of it. Undefined where nothing is compared (the entry table).
+     * Reads the largest peak of the compared channels over the region, in their unit, from every sample
+     * (regionPeak.ts): a new trigger fires at half of it. Absent where nothing is compared (the entry table).
+     *
+     * It is a function, not a value, because calling it asks the backend for the samples. The bar calls it only when
+     * a trigger can be added (the ＋ menu opens offering one, or one is added): never on a repaint.
      */
-    peak?: RegionPeak;
+    peak?: () => RegionPeak | undefined;
     /** Steps that failed on a file, with wandas' reason: marked and left out. */
     failed?: Readonly<Record<string, string>>;
     /** "0.50–1.50 s"; undefined is the whole file. */
@@ -53,7 +56,7 @@ export interface StepBarState {
  * The peak counts only once it is read from every sample ('ready'). While it is pending or its read failed there is
  * no number to start from: the step keeps its own `initial` value, and the bar says so (stepBar.ts, stepPeakUnread).
  */
-export function startValues(operation: string, state: Pick<StepBarState, 'peak'>, lengthS?: number): Record<string, number> {
+export function startValues(operation: string, state: { peak?: RegionPeak }, lengthS?: number): Record<string, number> {
     if (operation === 'wandas.audio.fix_length' && lengthS) return { duration: Math.round(lengthS * 1000) / 1000 };
     if (operation === TRIGGER && state.peak?.state === 'ready' && Number.isFinite(state.peak.value) && state.peak.value > 0) return { threshold: Number((state.peak.value / 2).toPrecision(2)) };
     return {};

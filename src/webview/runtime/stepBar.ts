@@ -281,7 +281,9 @@ export function createStepBar(deps: {
         // An operation that cannot go there says why instead of being added.
         if (!entry || entry.off) { footer(element.querySelector(`[data-op="${CSS.escape(operationId)}"]`)?.getAttribute('data-hint') ?? ''); return; }
         const length = state.lengthS ?? (state.shortestSamples && state.sampleRate ? state.shortestSamples / state.sampleRate : undefined);
-        let { recipe, id } = withStep(state.recipe, after, operation, startValues(operationId, state, length));
+        // The tracks' peak is read only for a trigger (StepBarState.peak): asked when the menu opened, in hand by now.
+        const peak = operationId === TRIGGER ? state.peak?.() : undefined;
+        let { recipe, id } = withStep(state.recipe, after, operation, startValues(operationId, { peak }, length));
         // A cross-channel step compares one pair, named in the chain: ch2 over the reference ch1 to start with; where
         // there is one channel, the recording over the base slot's.
         const select = PAIRED_ON_ADD.has(operationId) ? catalogOperation(SELECT_PAIR) : undefined;
@@ -292,7 +294,7 @@ export function createStepBar(deps: {
         deps.onStepShown?.(id);
         // A trigger added before the tracks' peak is read (or after its read failed) starts at its own initial level,
         // not at half the peak: the footer says so instead of the usual line, so the number is not taken for the data's.
-        const unread = operationId === TRIGGER && (state.peak?.state === 'pending' || state.peak?.state === 'failed');
+        const unread = peak?.state === 'pending' || peak?.state === 'failed';
         footer((unread ? strings.stepPeakUnread : strings.stepAdded).replace('{op}', entry.name));
     }
     function openMenu(after: string | null): void {
@@ -301,6 +303,9 @@ export function createStepBar(deps: {
         open = null;
         render();
         element.querySelector<HTMLElement>('[data-step-menu-filter]')?.focus();
+        // The menu offers a trigger: its starting level is half the tracks' peak, so the peak is asked for now
+        // (StepBarState.peak) and is in hand by the time the trigger is picked. Not asked for otherwise.
+        if (menu && element.querySelector(`.step-menu-item[data-op="${CSS.escape(TRIGGER)}"]:not(.is-off)`)) state.peak?.();
     }
     /** What the recipe button reads: the preset the chain is, the one it was edited from, or Custom. */
     function presetLabel(): string {

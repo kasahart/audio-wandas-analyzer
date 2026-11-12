@@ -1544,7 +1544,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         basis: stageBasis(path => entryScreen.compareData().results.get(path), path => state.results.find(result => result.filePath === path && !result.error), path => entryScreen.compareData().fileEpoch?.(path) ?? ''),
         // What a trigger sees: the compared slots' channels (a channel row, its own) of the shown tracks, over the region.
         // From every sample of each (the lanes' full data, as their readouts read it), never from the envelopes drawn.
-        peak: (region, ready) => {
+        peak: region => {
             const shown = trackStore.displayOrder.map(trackId => trackStore.require(trackId)).filter(record => !record.runtime.hidden && !record.result.error);
             const compared = entryScreen.compareData().slots.filter((slot): slot is string => !!slot);
             const windows: PeakWindow[] = [];
@@ -1562,7 +1562,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     windows.push({ full: laneTrackFull(record.protocolIndex, track => laneReads.waveform(track, index)) ?? changedSource, x0, x1 });
                 });
             }
-            return regionPeak(windows, ready);
+            // Nothing on screen waits for the answer: the bar reads it again when a trigger is added, so no redraw is asked.
+            return regionPeak(windows, () => undefined);
         },
         stepFailed: (step, reason) => entryScreen.stepFailed(step, reason),
         channels: () => comparedChannels(),
