@@ -252,12 +252,19 @@ def test_a_time_signal_carries_its_own_waveform_as_the_lanes_decimate_it(signal:
     # The lanes' overview: 1200 buckets of min and max, from the same routine.
     expected = decimated_waveform(samples, 1200, 0, samples.size)
     assert waveform["min"] == pytest.approx(expected["min"]) and waveform["max"] == pytest.approx(expected["max"])
-    assert waveform["minT"][0] >= 0 and waveform["maxT"][-1] <= 2.0
+    # Each bucket's lowest and highest sample is drawn at that sample's own time, index / fs: the lanes' place in
+    # the file (index / samples) times the file's duration (samples / fs), never times the span to the last sample.
+    duration = samples.size / RATE
+    assert waveform["minT"] == pytest.approx([place * duration for place in expected["minT"]], abs=1e-12)
+    assert waveform["maxT"] == pytest.approx([place * duration for place in expected["maxT"]], abs=1e-12)
+    at = np.rint(np.asarray(waveform["maxT"]) * RATE).astype(int)
+    assert np.array_equal(samples[at], np.asarray(waveform["max"])), "each maximum is the sample at its drawn time"
     # Its values are the samples themselves, not a level of them.
     assert view["quantity"] == "value"
     # Zoomed into 10 ms: every sample there (160 at 16 kHz), not buckets.
     detail = stage_view(signal, None, {"x": [0.5, 0.51], "points": 2000})
     assert len(detail["waveform"]["min"]) == 161 and detail["waveform"]["min"] == detail["waveform"]["max"]
+    assert detail["waveform"]["minT"] == pytest.approx([0.5 + n / RATE for n in range(161)], abs=1e-12)
 
 
 def test_a_pairwise_frame_draws_one_named_pair_of_two_channels_never_a_channel_with_itself() -> None:

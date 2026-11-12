@@ -406,7 +406,7 @@ def test_a_small_signal_difference_keeps_its_significant_figures() -> None:
     # A difference of 1e-7 Pa is drawn as it is (six significant figures), never rounded to zero by decimals.
     view = {"frame": "ChannelFrame", "kind": "line", "x": "time", "xScale": "linear", "quantity": "value", "unit": "Pa"}
     level = np.full(4096, 1e-4, dtype=np.float32)
-    base = StageData("signal", view, np.empty(0), level, start=0.0, rate=48_000.0)  # type: ignore[arg-type]
+    base = StageData("signal", np.empty(0), level, view=view, start=0.0, rate=48_000.0)  # type: ignore[arg-type]
     compare = replace(base, values=level + np.float32(1e-7))
     diff = combine([base], compare)["diff"]
     assert min(diff["values"]) == pytest.approx(1e-7, rel=1e-2)
@@ -423,7 +423,7 @@ def test_a_long_signals_difference_needs_no_array_of_times_or_float64_copy() -> 
 
     def recording() -> StageData:
         samples = rng.standard_normal(count)
-        return StageData("signal", view, np.empty(0), samples, start=0.0, rate=rate)  # type: ignore[arg-type]
+        return StageData("signal", np.empty(0), samples, view=view, start=0.0, rate=rate)  # type: ignore[arg-type]
 
     base, compare = recording(), recording()
     for detail in (None, {"x": [10.0, 10.01], "points": 800}):
@@ -703,12 +703,12 @@ def test_an_images_headline_copies_only_the_part_on_screen() -> None:
     plane = rng.standard_normal((rows, columns))
     data = StageData(
         "spectrogram",
-        view,  # type: ignore[arg-type]
         np.arange(columns) * 0.01,
         plane,
         np.linspace(0, 8000, rows),
         np.ones(columns, dtype=bool),
         nyquist=8000.0,
+        view=view,  # type: ignore[arg-type]
     )
     plane[200, 4321] = 99.0
     for detail in (None, {"x": [40.0, 42.0], "points": 400}):
@@ -759,8 +759,8 @@ def test_zoomed_the_headlines_peak_is_looked_for_in_the_window_on_screen_alone_n
     base_samples = np.zeros(10_000, dtype=np.float32)
     compare_samples = base_samples.copy()
     compare_samples[3000], compare_samples[7000] = -0.03, 0.5
-    base = StageData("signal", view, np.empty(0), base_samples, start=0.0, rate=rate)  # type: ignore[arg-type]
-    compare = StageData("signal", view, np.empty(0), compare_samples, start=0.0, rate=rate)  # type: ignore[arg-type]
+    base = StageData("signal", np.empty(0), base_samples, view=view, start=0.0, rate=rate)  # type: ignore[arg-type]
+    compare = StageData("signal", np.empty(0), compare_samples, view=view, start=0.0, rate=rate)  # type: ignore[arg-type]
     margin = combine([base], compare, {"x": [0.0, 8.0], "points": 400})  # type: ignore[arg-type]
     assert margin["diff"]["peak"]["x"] == pytest.approx(7.0)
     shown = combine([base], compare, {"x": [0.0, 8.0], "points": 400, "peakX": [2.0, 4.0]})  # type: ignore[arg-type]
@@ -776,7 +776,7 @@ def test_a_time_axis_key_agrees_with_what_aligned_combines() -> None:
     view = {"frame": "ChannelFrame", "kind": "line", "x": "time", "xScale": "linear", "quantity": "level"}
 
     def line(step: float, n: int, start: float = 0.0) -> StageData:
-        return StageData("line", view, start + np.arange(n) * step, np.zeros(n))  # type: ignore[arg-type]
+        return StageData("line", start + np.arange(n) * step, np.zeros(n), view=view)  # type: ignore[arg-type]
 
     hop48, hop44 = 512 / 48_000, 512 / 44_100
     same = [line(hop48, 10), line(hop48, 12)]
@@ -785,7 +785,7 @@ def test_a_time_axis_key_agrees_with_what_aligned_combines() -> None:
     for other in (line(hop44, 10), line(hop48, 10, start=hop48 / 2)):
         assert _aligned([same[0], other]) is None
         assert time_axis(same[0]) != time_axis(other)
-    signal = StageData("signal", view, np.empty(0), np.zeros(4), start=0.0, rate=48_000.0)  # type: ignore[arg-type]
+    signal = StageData("signal", np.empty(0), np.zeros(4), view=view, start=0.0, rate=48_000.0)  # type: ignore[arg-type]
     assert time_axis(signal) == {"start": 0.0, "step": 1 / 48_000}
 
 

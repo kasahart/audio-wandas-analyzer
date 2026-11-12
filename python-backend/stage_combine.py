@@ -17,31 +17,28 @@ import threading
 import warnings
 from collections import OrderedDict
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal, NotRequired, TypedDict
 
 import numpy as np
-from wandas.frames import (
-    CepstralFrame,
-    CepstrogramFrame,
-    ChannelFrame,
-    CoherenceFrame,
-    CrossCorrelationFrame,
-    CrossSpectralFrame,
-    NOctFrame,
-    RoughnessFrame,
-    SpectralFrame,
-    SpectrogramFrame,
-    TransferFunctionFrame,
-)
+from wandas.frames import CrossSpectralFrame, TransferFunctionFrame
 from wandas.frames.segments import ChannelFrameSegments
 
 import analysis_spec as spec
 import stage_view as sv
 from decimator import bucket_edges
-from full_read import SILENT_DB, StagePoints, StageRead, read_cells, read_line, sorted_axis, uniform_axis
+from full_read import SILENT_DB, StagePoints, StageRead, read_cells, read_line
 from level_identity import LevelIdentity, level_identity
-from stage_view import StageDetail, StageLevelBins, StagePeak, StageTimeAxis, StageValueRange, StageView
+from stage_view import (
+    FrameReading,
+    Mode,
+    StageDetail,
+    StageLevelBins,
+    StagePeak,
+    StageTimeAxis,
+    StageValueRange,
+    StageView,
+)
 
 #: How much of the Frames' values the backend keeps for the comparison's medians and differences. The least
 #: recently used go first; a picture asked for again (zooming, another compared recording) uses what is kept.
@@ -52,25 +49,14 @@ STAGE_DATA_BUDGET_BYTES = 768 * 1024 * 1024
 DB_DIFF_DECIMALS = 2
 VALUE_DIFF_DIGITS = 6
 
-Mode = Literal[
-    "series",
-    "signal",
-    "events",
-    "spectrum",
-    "coherence",
-    "bands",
-    "spectrogram",
-    "roughness",
-    "cepstrum",
-    "cepstrogram",
-    "correlation",
-]
 DB_QUANTITIES = ("level", "gain")
 
 
 @dataclass(frozen=True)
-class StageData:
-    """One recording's step at full resolution, channels combined as its picture combines them.
+class StageData(FrameReading):
+    """One recording's step at full resolution, channels combined as its picture combines them: the Frame's reading
+    (stage_view.FrameReading, whose fields and x axis it keeps) with the picture's template and the recording's
+    calibration. A median or a difference is a StageData too: the first recording's, with other ``values``.
 
     ``values`` is a line over ``xs`` or an image (rows over ``ys``, columns over ``xs``). For ``signal`` (the sound
     itself) it is every sample, channels averaged, at ``start + n / rate``, with no ``xs`` (half an hour at 48 kHz
@@ -78,25 +64,11 @@ class StageData:
     would round away a difference of a float32 step (0.5 against 0.5 + 2⁻²⁴).
     """
 
-    mode: Mode
     #: The recording's whole picture: the keys a median or a difference keeps (frame, kind, axes, unit, pair).
-    view: StageView
-    xs: np.ndarray
-    values: np.ndarray
-    ys: np.ndarray | None = None
-    #: Per image column of an STFT: whether its window is inside the signal (stage_view ``whole``).
-    whole: np.ndarray | None = None
-    nyquist: float = 0.0
-    start: float = 0.0
-    rate: float = 0.0
-    #: A signal's reference (its waveform's), for the difference's waveform.
-    ref: float = 1.0
-    #: A trigger's events: each event's own line (event × sample) and its id, which the plot reads under the pointer.
-    rows: np.ndarray | None = None
-    event_ids: tuple[int, ...] = ()
+    view: StageView = field(kw_only=True)
     #: The recording's channel unit and reference, whatever the Frame (a level's dB are re that reference): values
     #: are combined only between recordings calibrated alike.
-    calibration: LevelIdentity = ("", 1.0, "")
+    calibration: LevelIdentity = field(default=("", 1.0, ""), kw_only=True)
 
     @property
     def nbytes(self) -> int:
@@ -175,15 +147,6 @@ def _f64(values: Any) -> np.ndarray:
     return np.asarray(values, dtype=np.float64)
 
 
-def _column_whole(frame: Any, columns: int, signal_s: float | None) -> np.ndarray | None:
-    """Per STFT column, whether its window is inside the signal (as stage_view._whole_columns, column by column)."""
-    if signal_s is None:
-        return None
-    centres = np.atleast_2d(_f64(frame.frame_center_times))[0][:columns] - sv._offset(frame)
-    half = float(frame.n_fft) / 2 / float(frame.sampling_rate)
-    return (centres >= half - 1e-9) & (centres <= signal_s - half + 1e-9)
-
-
 def _calibration(frame: object) -> LevelIdentity:
     """What ``frame``'s values are in (level_identity: unit, reference, its label; a trigger's events: their first
     event's; a transfer function or a cross spectrum: its drawn pair's)."""
@@ -214,79 +177,36 @@ def _channel_identity(first: object) -> LevelIdentity:
     )
 
 
-def stage_data(frame: object, view: StageView, signal_s: float | None = None) -> StageData | None:
-    """The full-resolution values behind ``view`` (stage_view of ``frame``); None for a Frame not drawn."""
-    item = _stage_data(frame, view, signal_s)
-    return None if item is None else replace(item, calibration=_calibration(frame))
+def stage_data(
+    frame: object, view: StageView, signal_s: float | None = None, reading: FrameReading | None = None
+) -> StageData | None:
+    """The full-resolution values behind ``view`` (stage_view of ``frame``); None for a Frame not drawn.
 
-
-def _stage_data(frame: object, view: StageView, signal_s: float | None) -> StageData | None:
+    They are the Frame's reading (stage_view.read_frame), field for field: this function interprets no Frame itself,
+    so what is read here is on the axes the picture was drawn on. ``reading``: the one the picture was drawn from,
+    when the caller has it, so the Frame is not computed again."""
     if view.get("kind") == "none":
         return None
-    template = _template(view)
-    if isinstance(frame, CepstralFrame):
-        coefficients = np.mean(sv._rows(frame.data, frame.n_channels), axis=0)
-        return StageData("cepstrum", template, _f64(frame.quefrencies), coefficients)
-    if isinstance(frame, CepstrogramFrame):
-        data = _f64(frame.data)
-        plane = np.mean(data.reshape(-1, data.shape[-2], data.shape[-1]), axis=0)
-        times = _f64(frame.times)[: plane.shape[1]] + sv._offset(frame)
-        whole = _column_whole(frame, plane.shape[1], signal_s)
-        return StageData("cepstrogram", template, times, plane, _f64(frame.quefrencies), whole)
-    if isinstance(frame, CrossCorrelationFrame):
-        drawn = sv._correlation_rows(frame)
-        return None if drawn is None else StageData("correlation", template, _f64(frame.lags), drawn[1])
-    if isinstance(frame, ChannelFrameSegments):
-        if not len(frame):
-            return None
-        rows, times = sv._event_rows(frame)
-        ids = tuple(int(event_id) for event_id in frame.event_ids)
-        return StageData("events", template, times, np.mean(rows, axis=0), rows=rows, event_ids=ids)
-    if isinstance(frame, ChannelFrame):
-        data = sv._rows(frame.data, frame.n_channels)
-        times = _f64(frame.source_time).reshape(frame.n_channels, -1)[0]
-        if sv._in_db(frame):
-            # Already dB levels: compared as the levels they are, channels power-averaged as the picture averages them.
-            return StageData("series", template, times, sv._power_mean(data))
-        if "waveform" not in view:
-            return StageData("series", template, times, np.mean(data, axis=0))
-        # The sound itself: a difference is compare − base sample by sample (a ChannelFrame subtraction), never a
-        # level the comparison would make of it.
-        start = float(times[0]) if times.size else 0.0
-        samples = np.mean(_f64(data), axis=0)
-        ref = float(frame.channels[0].ref)
-        return StageData(
-            "signal", template, np.empty(0), samples, start=start, rate=float(frame.sampling_rate), ref=ref
-        )
-    if isinstance(frame, (SpectralFrame, CoherenceFrame, CrossSpectralFrame, TransferFunctionFrame)):
-        quantity, rows = sv._spectral_rows(frame)
-        if sv._pairwise(frame):
-            row = sv._cross_pair(frame)
-            if row is None:
-                return None
-            rows = rows[row : row + 1]
-        freqs = _f64(frame.freqs)
-        nyquist = float(frame.sampling_rate) / 2
-        if quantity == "coherence":
-            return StageData("coherence", template, freqs, rows[0], nyquist=nyquist)
-        levels = sv._power_mean(sv.floored_db(rows))
-        return StageData("spectrum", template, freqs, levels, nyquist=nyquist)
-    if isinstance(frame, NOctFrame):
-        levels = sv._power_mean(sv.floored_db(sv._rows(frame.dB, frame.n_channels)))
-        return StageData("bands", template, _f64(frame.freqs), levels)
-    if isinstance(frame, SpectrogramFrame):
-        db = _f64(frame.dB)
-        plane = _f64(sv._power_mean(sv.floored_db(db.reshape(-1, db.shape[-2], db.shape[-1]))))
-        times = _f64(frame.times)[: plane.shape[1]] + sv._offset(frame)
-        whole = _column_whole(frame, plane.shape[1], signal_s)
-        nyquist = float(frame.sampling_rate) / 2
-        return StageData("spectrogram", template, times, plane, _f64(frame.freqs), whole, nyquist=nyquist)
-    if isinstance(frame, RoughnessFrame):
-        data = _f64(frame.data)
-        plane = np.mean(data.reshape(-1, data.shape[-2], data.shape[-1]), axis=0)
-        times = _f64(frame.time)[: plane.shape[1]] + sv._offset(frame)
-        return StageData("roughness", template, times, plane, _f64(frame.bark_axis)[: plane.shape[0]])
-    return None
+    if reading is None:
+        reading = sv.read_frame(frame, signal_s)
+    if reading is None:
+        return None
+    return StageData(
+        mode=reading.mode,
+        xs=reading.xs,
+        values=reading.values,
+        ys=reading.ys,
+        whole=reading.whole,
+        nyquist=reading.nyquist,
+        start=reading.start,
+        rate=reading.rate,
+        ref=reading.ref,
+        rows=reading.rows,
+        event_ids=reading.event_ids,
+        pair_row=reading.pair_row,
+        view=_template(view),
+        calibration=_calibration(frame),
+    )
 
 
 # --- Drawing: what the comparison's lines and images are decimated to -------------------------------------
@@ -402,30 +322,24 @@ def _line(data: StageData, detail: StageDetail | None, diff: bool) -> tuple[np.n
 
 def _signal_range(data: StageData, bounds: Sequence[float] | None) -> tuple[int, int]:
     """The samples of a signal inside ``bounds`` (s), as indices: no array of the samples' times is made."""
-    count = data.values.size
-    if bounds is None:
-        return 0, count
-    low, high = min(bounds), max(bounds)
-    first = max(0, int(np.ceil((low - data.start) * data.rate - 1e-9)))
-    last = min(count, int(np.floor((high - data.start) * data.rate + 1e-9)) + 1)
-    return first, max(first, last)
+    return sv.index_range(data, bounds)
 
 
 def _signal_line(
     data: StageData, bounds: Sequence[float] | None, points: int, diff: bool
 ) -> tuple[np.ndarray, np.ndarray]:
-    """A signal's line as a series over time is drawn (sv._envelope; a difference by difference_line's buckets),
-    taken by index from the samples inside ``bounds``: only the points drawn get a time."""
+    """A signal's line as a series over time is drawn (sv.signal_line; a difference by difference_line's buckets),
+    taken by index from the samples inside ``bounds``: only the points drawn get a time, from the samples' own axis
+    (sv.x_at)."""
     first, last = _signal_range(data, bounds)
+    if not diff:
+        return sv.signal_line(data, first, last, points or sv.LEVEL_SERIES_MIN_SAMPLES)
     values = data.values[first:last]
-    if diff:
-        buckets = _line_buckets("series", points)
-    else:
-        drawn = points or sv.LEVEL_SERIES_MIN_SAMPLES
-        buckets = values.size if values.size <= drawn else max(1, drawn // 2)
     # On a linear axis the buckets are counts of samples (decimator.bucket_starts): no xs are needed.
-    picked = sv.min_max_indices(np.broadcast_to(np.float64(0.0), values.shape), values, buckets, False)
-    return data.start + (first + picked) / data.rate, _f64(values[picked])
+    picked = sv.min_max_indices(
+        np.broadcast_to(np.float64(0.0), values.shape), values, _line_buckets("series", points), False
+    )
+    return sv.x_at(data, first + picked), _f64(values[picked])
 
 
 #: How many stretches of the axis a line's level on screen is kept in (StageView ``levelBins``).
@@ -450,9 +364,9 @@ def level_bins(data: StageData, detail: StageDetail | None = None) -> StageLevel
             finite = block[np.isfinite(block)]
             counts.append(int(finite.size))
             powers.append(float(np.dot(finite, finite) / finite.size) if finite.size else 0.0)
-        times = data.start + edges / data.rate
+        times = sv.x_at(data, edges)
         # The last stretch ends at its last sample's time.
-        times[-1] = data.start + (last - 1) / data.rate
+        times[-1] = sv.x_at(data, last - 1)
         return {"edges": sv._axis(times), "power": powers, "count": counts}
     if data.mode == "events" and data.rows is not None:
         return _event_level_bins(data, bounds)
@@ -603,12 +517,7 @@ def draw(data: StageData, detail: StageDetail | None = None, *, diff: bool = Fal
             first, last = _signal_range(data, bounds)
             unit = str(data.view.get("unit") or "")
             view["waveform"] = sv.samples_waveform(
-                data.values[first:last],
-                data.start + first / data.rate,
-                data.start + (last - 1) / data.rate,
-                unit,
-                data.ref,
-                points or sv.WAVEFORM_OVERVIEW_POINTS,
+                data, first, last, unit, data.ref, points or sv.WAVEFORM_OVERVIEW_POINTS
             )
     if detail is not None:
         view["detail"] = True
@@ -859,7 +768,7 @@ def difference_peak(data: StageData, values: np.ndarray, detail: StageDetail | N
             high, low = int(part.argmax()), int(part.argmin())
         index = high if abs(float(part[high])) >= abs(float(part[low])) else low
         signal_peak: StagePeak = {
-            "x": data.start + (first + index) / data.rate,
+            "x": float(sv.x_at(data, first + index)),
             "value": float(_sent(data, part[index : index + 1], True)[0]),
         }
         if data.rate > 0:
@@ -977,13 +886,10 @@ def read_points(base: list[StageData], compare: StageData | None, read: StageRea
         if len(group) != 1 or diff or first.rows is None or int(read["event"]) not in first.event_ids:
             return None
         row = first.rows[first.event_ids.index(int(read["event"]))]
-        return read_line(sorted_axis(first.xs), lambda a, b: row[a:b], read)
-    if first.mode == "signal":
-        count = min(item.values.size for item in aligned)
-        axis = uniform_axis(count, first.start, 1.0 / first.rate if first.rate > 0 else 0.0)
-    else:
-        axis = sorted_axis(first.xs)
-    return read_line(axis, lambda a, b: combined(lambda item: item.values[a:b]), read)
+        return read_line(sv.reading_axis(first), lambda a, b: row[a:b], read)
+    # The x of every point read is the reading's own axis (sv.reading_axis), which the picture was drawn on: the
+    # recordings combined were cut to the same count of values (_aligned).
+    return read_line(sv.reading_axis(first), lambda a, b: combined(lambda item: item.values[a:b]), read)
 
 
 def combine_keys(

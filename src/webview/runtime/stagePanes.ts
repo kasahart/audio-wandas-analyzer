@@ -750,6 +750,20 @@ export interface StageLayer {
     measured?: boolean;
     /** Drawn as marks, not a line: a dot at each point (`width` its radius), or a rug tick up from the floor at each point's x. */
     marks?: 'dots' | 'rug';
+    /**
+     * How single points look where a state of theirs changes it (a recording inside a picked range): the colour of the
+     * dot at `index` of the drawn points, in place of `color`.
+     * A state of some points is always shown this way (or as `share`), on the one layer that holds every point of the
+     * line, never as a second layer of only those points: a layer is what the pointer and ← / → read, so points split
+     * over two layers could not be stepped across, and each would skip the other's (R7: a selection changes the look,
+     * never what the keys visit).
+     */
+    colorAt?: (index: number) => string;
+    /**
+     * Of filled bars: the part of each bar that is in some state (a bin's count inside a picked range), drawn again
+     * from the floor up to `values[index]` in `color` over the bar. Looks only: the bars are read as the one layer.
+     */
+    share?: { values: readonly (number | null)[]; color: string };
     /** The stretch of the horizontal axis (its values) this picture is drawn over, clipped there: finer data over part of the view. */
     span?: readonly [number, number];
     /** A heatmap whose rows are things, not an axis (the entry strip's recordings): the readout's name for the cell at `row` of `view.ys`, `column` of `view.xs` (a cell may show the loudest of several things). */
@@ -1245,6 +1259,17 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
                     const [x0, x1] = edges[index];
                     context.fillRect(x0, Math.min(floor, yAt(value)), Math.max(1, x1 - x0 - 1), Math.abs(floor - yAt(value)));
                 });
+                // The part of each bar in a state (StageLayer.share), over it, with its own top edge.
+                const share = layer.share;
+                if (share) {
+                    context.fillStyle = share.color;
+                    share.values.forEach((value, index) => {
+                        if (value === null || !edges[index]) return;
+                        const [x0, x1] = edges[index];
+                        context.fillRect(x0, Math.min(floor, yAt(value)), Math.max(1, x1 - x0 - 1), Math.abs(floor - yAt(value)));
+                    });
+                    context.fillStyle = layer.color;
+                }
                 context.globalAlpha = layer.alpha ?? 1;
             }
             strokeStageLine(context, plot, layer, layer.width ?? (layer.view.kind !== 'bar' ? 1.5 : layer.filled ? 1 : 2));
@@ -1591,9 +1616,9 @@ export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePl
     if (layer.dash) context.setLineDash([...layer.dash]);
     if (layer.marks === 'dots') {
         // Each point a dot of the line's colour (its width the radius), the things a few points stand for.
-        context.fillStyle = layer.color;
         values.forEach((value, index) => {
             if (value === null) return;
+            context.fillStyle = layer.colorAt?.(index) ?? layer.color;
             context.beginPath(); context.arc(xAt(xs[index]), yAt(value), width, 0, 2 * Math.PI); context.fill();
         });
     } else if (layer.marks === 'rug') {
