@@ -30,7 +30,7 @@ Fresh setup:
 npm install
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -c python-backend/constraints.txt -e ".[dev]"
 ```
 
 ## 3. The daily workflow

@@ -9,7 +9,7 @@ import { held, ranged } from './helpers/heldSource';
 import { spectrumLayer } from '../webview/runtime/overlaySpectrumPainter';
 import { axisNameParts, fontPixels } from '../webview/plot/axisTitle';
 import { heatmapDbRange, niceRange } from '../shared/utils/ticks';
-import { alongAxisTicks, axisFractionOf, colourEndText, drawnLevelsText, type StageLayer, paintTimeAxis, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, stageStep, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
+import { alongAxisTicks, axisFractionOf, colourEndText, drawnLevelsText, type StageLayer, paintTimeAxis, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, stageReadAgain, stageStep, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
 import { fetchedSource, localCells, localLine, NO_FULL_DATA } from '../webview/runtime/fullRead';
@@ -975,5 +975,55 @@ test('← / → visit every point sharing one x exactly once, in one order both 
         const backward = [names(read)];
         for (let next = stageStep(plot, read, -1); next; next = stageStep(plot, read, -1)) { read = next; backward.push(names(read)); assert.ok(backward.length <= count, `${kind}: ← never reaches the start. ${fix}`); }
         assert.deepEqual(backward, [...expected].reverse(), `${kind}: ← must pass the same recordings → passed, in reverse. ${fix}`);
+    }
+});
+
+/**
+ * docs/display-rules.md R7, "選んだ点は、それが何であるかで覚える": a point the keys stepped to is kept across a redraw
+ * by what it is (StageLayer.identity: on the distribution, the recording's key), never by its index or its x. After
+ * the redraw the same index and the same x may belong to another recording.
+ */
+test('a recording stepped to stays that recording after a redraw that reorders, removes or inserts recordings of the same value; gone, it is let go (R7)', () => {
+    const fix = 'Fix: a kept point must be found again by its identity. Give the layer `identity` (stagePanes.ts StageLayer.identity; entryDistribution.ts gives the recording\'s key) and have stageReadAgain / stageStep '
+        + 'look the point up by it (identifiedPlace), never by read.index or by x alone. See docs/display-rules.md R7.';
+    const picture: DistributionPicture = {
+        width: 400, rowHeight: 40, strip: false, range: null, slots: [], base: null, labels: new Map(), groupPrefix: '', axisLabel: 'score', unitLabel: 'recordings',
+        format: value => String(value), name: key => key, countOf: (_group, drawn) => String(drawn),
+    };
+    const member = (key: string, value: number): { key: string; filePath: string; value: number; inRange: boolean } => ({ key, filePath: `/${key}.wav`, value, inRange: false });
+    const named = (read: ReturnType<typeof stageHover>): string | null => (read ? /\b[tno]-[\w]+/u.exec(read.text)?.[0] ?? read.text : null);
+    for (const [kind, filler] of [['dots', 2], ['rug', 14]] as const) {
+        const others = Array.from({ length: filler }, (_, index) => member(`o-${String(index).padStart(2, '0')}`, index % 2 ? 9 + index * 0.1 : 1 + index * 0.1));
+        const drawing = (members: Array<ReturnType<typeof member>>): StagePlot => {
+            const row = distributionRows({ groups: [{ name: 'g', members }], low: 0, high: 12, missing: 0, apart: 0, unit: 'recording' }, picture, { bar: 'grey', barIn: 'silver', slots: [] }, getStrings('en'))[0];
+            const layer = row.layers.find(candidate => candidate.marks === kind);
+            assert.ok(layer, `the distribution draws no ${kind} layer for ${members.length} recordings: this test reads the ${kind}; update it if the picture changed`);
+            return { frame: { left: 0, top: 0, width: 240, height: 100 }, xAt: value => value * 20, xOf: x => x / 20, yAt: value => 100 - value * 10, ratioStep: 1.12, lines: [layer], diff: false };
+        };
+        const tied = [member('t-a', 5), member('t-b', 5), member('t-c', 5)];
+        const first = drawing([...others, ...tied]);
+        // Step from the first recording onto t-b, the middle one of the three at 5.
+        let read = stageHover(first, first.xAt(1), first.yAt(kind === 'dots' ? 0.5 : 0));
+        while (read && named(read) !== 't-b') read = stageStep(first, read, 1) ?? null;
+        assert.equal(named(read), 't-b', `${kind}: → never reaches t-b`);
+        const kept = read!;
+        const redraws: Array<[string, Array<ReturnType<typeof member>>, string | null]> = [
+            ['the same recordings given in another order', [...tied].reverse().concat(others), 't-b'],
+            ['a recording of the same value removed before it', [...others, tied[1], tied[2]], 't-b'],
+            ['a recording of the same value inserted before it', [...others, member('n-0', 5), ...tied], 't-b'],
+            ['its own value changed, so it sorts elsewhere', [...others, tied[0], member('t-b', 7), tied[2]], 't-b'],
+            ['it was removed', [...others, tied[0], tied[2]], null],
+        ];
+        for (const [what, members, expected] of redraws) {
+            const again = stageReadAgain(drawing(members), kept);
+            assert.equal(named(again ?? null), expected, expected
+                ? `${kind}, redrawn with ${what}: the readout kept for t-b now reads ${named(again ?? null) ?? 'nothing'}, another recording. ${fix}`
+                : `${kind}, redrawn after ${what}: the readout must be let go (nothing read), not moved to ${named(again ?? null)}. ${fix}`);
+        }
+        // And the keys go on from that very recording on the new drawing: the next one after t-b, not after its old place.
+        const inserted = drawing([...others, member('n-0', 5), ...tied]);
+        const there = stageReadAgain(inserted, kept);
+        assert.equal(named(there ? stageStep(inserted, there, 1) ?? null : null), 't-c', `${kind}: → after a redraw must step from the kept recording (t-b → t-c). ${fix}`);
+        assert.equal(named(there ? stageStep(inserted, there, -1) ?? null : null), 't-a', `${kind}: ← after a redraw must step from the kept recording (t-b → t-a). ${fix}`);
     }
 });

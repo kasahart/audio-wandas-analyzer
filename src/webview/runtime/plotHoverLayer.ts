@@ -54,7 +54,7 @@ export interface PlotHoverLayer {
 }
 
 /**
- * Whether two reads are of one point (its line, place, row and index), whichever drawing they were read on: a plot
+ * Whether two reads are of one point (its line and its identity, else its place, row and index), whichever drawing they were read on: a plot
  * drawn anew makes its layers anew (a lane on every frame), so a line is known by its full data, else its name and
  * colour, as stageReadAgain finds it.
  */
@@ -65,7 +65,10 @@ const sameLine = (a: StageRead['layer'], b: StageRead['layer']): boolean => a ==
  */
 export const samePlot = (a: HTMLElement | null | undefined, b: HTMLElement | null | undefined): boolean =>
     !!a && !!b && (a === b || (!!a.dataset?.plotKey && a.dataset.plotKey === b.dataset?.plotKey && (!a.isConnected || !b.isConnected)));
-const samePoint = (a: StageRead, b: StageRead): boolean => sameLine(a.layer, b.layer) && a.at === b.at && a.row === b.row && a.index === b.index;
+// A point that is a thing (StageLayer.identity: a recording) is the same point when it is the same thing, wherever a
+// redraw put it; any other by its place (and, of a line drawn whole, its index there).
+const samePoint = (a: StageRead, b: StageRead): boolean => sameLine(a.layer, b.layer)
+    && (a.identity !== undefined || b.identity !== undefined ? a.identity === b.identity : a.at === b.at && a.row === b.row && a.index === b.index);
 
 /** A read with no number yet: its full data on the way, or its read failed (asked again after a pause). */
 const waits = (read: StageRead | null | undefined): boolean => !!read && (!!read.pending || !!read.failed);

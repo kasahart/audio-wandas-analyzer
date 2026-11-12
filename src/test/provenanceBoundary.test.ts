@@ -50,7 +50,6 @@ const DRAWING_MODULES: ReadonlyMap<string, string> = new Map([
     ['src/webview/plot/waveformLayer.ts', 'draws a signal\'s envelope'],
     ['src/webview/runtime/trackCanvasPainter.ts', 'places a lane\'s envelope on the lanes\' time axis to draw it'],
     ['src/webview/runtime/overlaySpectrumPainter.ts', 'thins a stand-in spectrum (drawn while the real slice is on its way) as it is drawn'],
-    ['src/webview/waveform/envelopePeak.ts', 'the largest sample of a region from the min/max envelope, which keeps every bucket\'s extremes: the bound a trigger level is offered'],
     ['src/webview/runtime/pictureSummary.ts', 'the end-to-end tests\' summary of what is on the canvas; shown nowhere'],
 ]);
 

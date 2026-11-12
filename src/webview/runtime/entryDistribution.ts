@@ -130,6 +130,8 @@ export function distributionRows(dist: Distribution, picture: DistributionPictur
         // By value, then by key: recordings of one value keep one order whatever order the table gave them in, so
         // ← / → pass them in the same order every time (R7).
         const members = [...group.members].sort((a, b) => a.value - b.value || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+        // Each dot and rug tick is a recording (or a channel of one): its key is what it is across redraws (R7,
+        // StageLayer.identity), so the one the keys stepped to stays that recording when the rows are made anew.
         const memberText = (index: number): string[] => [picture.name(members[index].key), picture.format(members[index].value, binWidth)];
         const layers: StageLayer[] = [];
         const dots: DistributionRow['dots'] = [];
@@ -153,7 +155,7 @@ export function distributionRows(dist: Distribution, picture: DistributionPictur
                 : [[all, colours.bar]];
             for (const [these, color] of parts) {
                 if (!these.length) continue;
-                layers.push({ ...line(these.map(index => members[index].value), these.map(index => dots[index].level + 0.5)), color, width: 3.5, marks: 'dots', label, readout: at => memberText(these[at]) });
+                layers.push({ ...line(these.map(index => members[index].value), these.map(index => dots[index].level + 0.5)), color, width: 3.5, marks: 'dots', label, readout: at => memberText(these[at]), identity: at => members[these[at]].key });
             }
         } else {
             const { counts, inRange, max: most } = binCounts(group.members, dist.low, dist.high);
@@ -163,7 +165,7 @@ export function distributionRows(dist: Distribution, picture: DistributionPictur
             layers.push({ ...line(centres, counts.map(count => count || null), 'bar'), color: colours.bar, filled: true, fill: 1, label, readout: bin => binText(bin, counts[bin]) });
             if (picture.range) layers.push({ ...line(centres, inRange.map(count => count || null), 'bar'), color: colours.barIn, filled: true, fill: 1, label, readout: bin => binText(bin, inRange[bin]) });
             // The rug: a tick per member, so a few far from the rest show even where their bar is thin.
-            layers.push({ ...line(members.map(member => member.value), members.map(() => 0)), color: colours.barIn, alpha: 0.55, width: 1, marks: 'rug', label, readout: memberText });
+            layers.push({ ...line(members.map(member => member.value), members.map(() => 0)), color: colours.barIn, alpha: 0.55, width: 1, marks: 'rug', label, readout: memberText, identity: index => members[index].key });
         }
         // A count axis from none (not a level: figureModel.plainRange).
         const range = plainRange(0, top);

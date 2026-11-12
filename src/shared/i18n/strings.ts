@@ -279,6 +279,8 @@ export interface UiStrings {
     entryChainBroken: string;
     stepTapHint: string;
     stepAdded: string;
+    /** A trigger added while the tracks' peak is not read yet, or its read failed: it starts at its own initial level. */
+    stepPeakUnread: string;
     stepRemoved: string;
     dsValue: string;
     dsGroup: string;
@@ -1114,6 +1116,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         entryChainBroken: "The steps cannot run · the table keeps the previous chain's values",
         stepTapHint: "Press: see this step's result · bypass: see it without this step · hold: the same while held",
         stepAdded: 'Added {op}. The files on screen are measured again; Scan all updates the table.',
+        stepPeakUnread: 'Added {op}. The tracks\' peak is not read yet, so its level starts at the step\'s own default, not at half the peak: set the level yourself.',
         stepRemoved: 'Removed {op}. Every file is measured again.',
         dsValue: 'Value',
         dsGroup: 'Group',
@@ -1926,6 +1929,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         entryChainBroken: '手順が成立しません · 表は前の手順の値です',
         stepTapHint: 'クリック: この手順の結果 · バイパス: この手順を飛ばして見る · 長押し: 押している間だけ飛ばして見る',
         stepAdded: '{op} を足しました。表示中のファイルを計算し直します。一覧は「全件を計算」で更新します。',
+        stepPeakUnread: '{op} を足しました。トラックのピークをまだ読めていないため、レベルはピークの半分ではなく、この処理の既定値で始めています。レベルを自分で設定してください。',
         stepRemoved: '{op} を外しました。全ファイルを計算し直します。',
         dsValue: '値',
         dsGroup: '群',

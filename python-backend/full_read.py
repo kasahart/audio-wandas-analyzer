@@ -68,10 +68,12 @@ class StageRead(TypedDict):
 
 
 class StageLevel(TypedDict):
-    """The mean ``power`` of the ``count`` finite values in a window (read_level)."""
+    """The mean ``power`` of the ``count`` finite values in a window (read_level). Of a signal (a "square" read),
+    also its ``peak``: the largest |sample| of those values (0 with none), where a new trigger's level starts."""
 
     power: float
     count: int
+    peak: NotRequired[float]
 
 
 class StagePoints(TypedDict):
@@ -340,12 +342,23 @@ def _nearest_along(
 
 def read_level(values: np.ndarray, kind: Literal["db", "square"]) -> StageLevel:
     """The mean power of every finite value of a window, as the overlay orders its lines by (R6): a level's
-    10^(dB/10), silence (SILENT_DB and below) as none, or a signal's square. Every value is taken, none thinned."""
+    10^(dB/10), silence (SILENT_DB and below) as none, or a signal's square. Every value is taken, none thinned.
+
+    A signal's read ("square") also gives its ``peak``, the largest |sample| of the window: taken here from every
+    sample, because the envelope the webview draws is thinned and is not to be computed with (display rules R1)."""
     block = np.asarray(values, dtype=np.float64)
     finite = block[np.isfinite(block)]
+    if kind == "square":
+        if not finite.size:
+            return {"power": 0.0, "count": 0, "peak": 0.0}
+        return {
+            "power": float(np.mean(np.square(finite))),
+            "count": int(finite.size),
+            "peak": float(np.max(np.abs(finite))),
+        }
     if not finite.size:
         return {"power": 0.0, "count": 0}
-    power = np.square(finite) if kind == "square" else np.where(finite <= SILENT_DB, 0.0, 10.0 ** (finite / 10.0))
+    power = np.where(finite <= SILENT_DB, 0.0, 10.0 ** (finite / 10.0))
     return {"power": float(np.mean(power)), "count": int(finite.size)}
 
 

@@ -273,7 +273,7 @@ They close the routes we know. They do not make a wrong number impossible. Know 
   the Python side of this (a decimator's result must stay in a picture's drawn fields).
 - **Inside a drawing module, an unwrapped point is a plain number.** It still cannot reach a readout (those take
   `Whole`), but it can reach text the module writes itself. Keep drawing modules few and small;
-  `envelopePeak.ts` and `pictureSummary.ts` are on the list for reasons written there, not because they draw.
+  `pictureSummary.ts` is on the list for the reason written there, not because it draws.
 - **`any` hides types.** A value that passes through `any` (a `postMessage` payload, `JSON.parse`, an untyped
   callback such as `values.map(Number)`) loses its brand. The scan catches the direct forms (`Number(v)`,
   `String(v)`, a template, `typeof`, casts); it does not follow a value through an `any`-typed variable.

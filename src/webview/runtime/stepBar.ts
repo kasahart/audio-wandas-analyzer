@@ -13,7 +13,7 @@
  */
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
-import { addableOperations, CROSS_CHANNEL, PAIRED_ON_ADD, SLOT_REFERABLE, SELECT_PAIR, movedStep, recipeNodes, recipeSteps, withStep, withoutSteps, withBypass, withSlotReference, TIME_SLICE, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
+import { addableOperations, CROSS_CHANNEL, PAIRED_ON_ADD, SLOT_REFERABLE, SELECT_PAIR, movedStep, recipeNodes, recipeSteps, withStep, withoutSteps, withBypass, withSlotReference, TIME_SLICE, TRIGGER, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
 import { catalogOperation, INPUT_FRAME } from '../../shared/recipe/recipeCatalog';
 import { keyRouterFor } from './keyRouter';
 import { frameAfter, INPUT_STAGE, orderedSteps, removable, startValues, stepFlow, stepLimits, type RegionRange, type StepBarState } from './stepBarModel';
@@ -290,7 +290,10 @@ export function createStepBar(deps: {
         menu = null;
         emit(recipe);
         deps.onStepShown?.(id);
-        footer(strings.stepAdded.replace('{op}', entry.name));
+        // A trigger added before the tracks' peak is read (or after its read failed) starts at its own initial level,
+        // not at half the peak: the footer says so instead of the usual line, so the number is not taken for the data's.
+        const unread = operationId === TRIGGER && (state.peak?.state === 'pending' || state.peak?.state === 'failed');
+        footer((unread ? strings.stepPeakUnread : strings.stepAdded).replace('{op}', entry.name));
     }
     function openMenu(after: string | null): void {
         if (!state.recipe) return;

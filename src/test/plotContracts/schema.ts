@@ -88,6 +88,7 @@ export const SCHEMA_FIELDS: Readonly<Record<string, readonly string[] | string>>
     'StagePoints.end': ['compare-overlay.step'],
     'StagePoints.level.power': ['compare-overlay.order', 'cursor-spectrum.order'],
     'StagePoints.level.count': ['compare-overlay.order', 'cursor-spectrum.order'],
+    'StagePoints.level.peak': 'the largest sample of a region of a signal, from every sample: where a new trigger\'s level starts (half of it, regionPeak.ts); a setting\'s default, on no chart',
     'StageView.xs': ['compare-overlay.ticks', 'compare-overlay.readout-bands'],
     'StageView.xLimits': ['compare-overlay.ticks', 'compare-overlay.readout-bands'],
     'StageView.ys': ['compare-overlay.ticks', 'compare-overlay.readout-bands'],

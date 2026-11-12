@@ -88,6 +88,8 @@ export interface LevelQuery {
 export interface LevelSum {
     power: Whole;
     count: number;
+    /** Of a signal (`square`): the largest |sample| among those values (0 with none), from every sample. */
+    peak?: Whole;
 }
 
 /** undefined: being fetched (`ready` is called once it is in); null: there is no full data to measure. */
@@ -101,15 +103,16 @@ export function valuePower(value: number, square: boolean): number {
 /** The mean power of `values` (over ascending `xs`) between x0 and x1, every finite value taken (LevelQuery). */
 export function levelOfValues(xs: ArrayLike<number>, values: ArrayLike<number | null>, query: LevelQuery): LevelSum {
     const low = Math.min(query.x0, query.x1), high = Math.max(query.x0, query.x1);
-    let power = 0, count = 0;
+    let power = 0, count = 0, peak = 0;
     for (let index = firstFrom(xs, low), n = Math.min(xs.length, values.length); index < n && xs[index] <= high; index++) {
         const value = values[index];
         if (value === null || value === undefined || !Number.isFinite(value)) continue;
         power += valuePower(value, query.square);
+        peak = Math.max(peak, Math.abs(value));
         count += 1;
     }
-    // The caller holds every value (see localLine): their mean is of the full data.
-    return { power: mint.value(count ? power / count : 0), count };
+    // The caller holds every value (see localLine): their mean, and a signal's peak, are of the full data.
+    return { power: mint.value(count ? power / count : 0), count, ...(query.square ? { peak: mint.value(peak) } : {}) };
 }
 
 /**
@@ -154,7 +157,7 @@ export function fullPointsOf(points: StagePoints & Pick<FullPoints, 'rowNames' |
         ...(points.matrix ? { matrix: mint.rows(points.matrix) } : {}),
         ...(points.under !== undefined ? { under: points.under } : {}),
         ...(points.steps ? { steps: points.steps } : {}),
-        ...(points.level ? { level: { power: mint.value(points.level.power), count: points.level.count } } : {}),
+        ...(points.level ? { level: { power: mint.value(points.level.power), count: points.level.count, ...(points.level.peak !== undefined ? { peak: mint.value(points.level.peak) } : {}) } } : {}),
     };
 }
 

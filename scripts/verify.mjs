@@ -35,7 +35,7 @@ const node = (...args) => [process.execPath, args];
 
 for (const tool of ['ruff', 'pyright']) {
     if (spawnSync(python, ['-m', tool, '--version'], { env, stdio: 'ignore' }).status !== 0) {
-        console.error(`${tool} not found — install dev deps with: pip install -e ".[dev]"`);
+        console.error(`${tool} not found — install dev deps with: pip install -c python-backend/constraints.txt -e ".[dev]"`);
         process.exit(1);
     }
 }
