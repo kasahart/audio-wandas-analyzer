@@ -218,6 +218,12 @@
 - テスト: `src/test/axisNames.test.ts` › a name too long for its axis keeps its quantity and its unit: smaller, on two lines, then its quantity shortened
 - テスト: `src/test/tickLabels.test.ts` › no two tick labels on a value axis overlap, on a plot of any height: a short plot gets fewer ticks
 - テスト: `python-backend/test_stage_view.py` › test_a_time_signal_names_the_measure_a_step_made_of_it
+- 処理のあとの信号の値の単位は、バックエンドが 1 か所（`stage_view.py` の `signal_unit`、`signal_measure` の隣）で決めて `view.unit`（波形は `waveform.unit`）で送ります。チャンネルの単位から操作の履歴を順にたどります。rms_trend・sound_level（dB でないもの）、フィルタ、切り出しなどは単位を変えません（`UNIT_KEEPING_OPERATIONS`）。`power(p)` は単位を p 乗します（`Pa²`、`Pa³`、`Pa^0.5`。p = 1 はそのまま）。連鎖は順に合成します。wandas が自分で単位を付ける操作（dB のレベル、校正、積分）はその単位を使いますが、その前に累乗があれば wandas の単位は値の単位ではないので、単位を名乗りません。単位への効き方が分からない操作（normalize、2 つの信号の積など）のあとは単位 `''`、`measure` なしで送り、軸は「振幅 [単位不明]」と書きます。間違った単位は書きません。wandas は power のあとも入力の単位（`Pa`）を返すので、この計算が要ります。wandas が累乗の単位を返すようになったら、その操作の計算を消して wandas の単位を使います。
+- `measure` は量の名前だけです。rms・時間重み付き rms・power(2) のどれか 1 つだけで値が説明できるときに付けます。webview は単位の文字列を書き換えません（`²` を足さない）。軸名も読み値も、送られた単位をそのまま書きます。`figureModel.test.ts` の構造検査は、式のすぐ後ろに累乗の記号（上付き数字、`^`）を書き足すコードを、構文木でどこでも見つけて失敗します。
+- テスト: `python-backend/test_stage_view.py` › test_the_unit_of_a_signal_after_operations_is_walked_through_its_history
+- テスト: `python-backend/test_stage_view.py` › test_wandas_keeps_the_input_unit_on_a_power_so_the_backend_walks_it
+- テスト: `src/test/axisNames.test.ts` › the axis name and the readout of a signal after operations carry the same unit, the one the backend sent, and none where it sent none (R4, R7)
+- テスト: `src/test/figureModel.test.ts` › the structural check fails on each injected bug: every violation of class sweep 1 (reference, aggregation) and the first ones (an axis name, pending in n, two identities on one axis, a CSV header without its reference)
 - テスト: `src/test/uiSmoke/spectrumOctaveBands.spec.ts` › the cursor spectrum names its level axis as Compare does, uncalibrated, and its lines in a legend
 - テスト: `src/test/overlaySpectrumPainter.test.ts` › renderSpectrumAxisLegend names every line by its colour, grouped by the side it is read on with two axes
 - トラックのレーンの軸（振幅、スペクトログラムの周波数、上の時間の目盛り）も、比較のグラフと同じ目盛りの決め方・数字の書き方・文字・軸の名前で描きます（`laneAxes.ts`）。振幅の目盛りは、波形がその値を描く高さに置きます。

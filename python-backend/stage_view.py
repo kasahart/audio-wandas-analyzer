@@ -12,6 +12,7 @@ Channels are combined as the entry table combines them: levels power-averaged, v
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, fields
 from typing import Any, Literal, NotRequired, TypedDict
@@ -677,6 +678,151 @@ SIGNAL_MEASURES: dict[str, Measure] = {
 }
 
 
+#: Operations that leave a time signal's values in the unit they were in: filters and weightings, cuts, means and
+#: sums of channels, an envelope's magnitude, a transform and its inverse, channel bookkeeping. signal_unit walks
+#: past them.
+UNIT_KEEPING_OPERATIONS = frozenset(
+    {
+        "wandas.audio.a_weighting",
+        "wandas.audio.abs",
+        "wandas.audio.bandpass_filter",
+        "wandas.audio.channel_difference",
+        "wandas.audio.envelope",
+        "wandas.audio.fade",
+        "wandas.audio.fft",
+        "wandas.audio.fix_length",
+        "wandas.audio.highpass_filter",
+        "wandas.audio.hpss_harmonic",
+        "wandas.audio.hpss_percussive",
+        "wandas.audio.lowpass_filter",
+        "wandas.audio.mean",
+        "wandas.audio.noct_spectrum",
+        "wandas.audio.remove_dc",
+        "wandas.audio.resampling",
+        "wandas.audio.segment",
+        "wandas.audio.stft",
+        "wandas.audio.sum",
+        "wandas.audio.trigger",
+        "wandas.audio.trim",
+        "wandas.channel.remove_channel",
+        "wandas.channel.rename_channels",
+        "wandas.frame.astype",
+        "wandas.frame.get_channel",
+        "wandas.frame.index",
+        "wandas.frame.time_slice",
+        "wandas.frame.with_source_time_offset",
+        "wandas.segments.average",
+        "wandas.segments.drop",
+        "wandas.segments.select",
+        "wandas.spectral.ifft",
+        "wandas.spectral.noct_synthesis",
+        "wandas.spectrogram.to_channel_frame",
+        "wandas.spectrogram.trim",
+    }
+)
+#: Operations after which wandas itself names the unit of the values (a calibration, an integral, a level in dB):
+#: its unit is right only when the values it started from were in the channel's unit, not raised to a power.
+UNIT_NAMING_OPERATIONS = frozenset({"wandas.channel.with_calibration", "wandas.audio.integrate"})
+#: An operator with a number keeps the unit (a sum or a scale); one with another Frame (no operand) of a sum keeps
+#: it too, of a product or a quotient does not.
+_SCALAR_KEEPING_OPERATORS = frozenset(
+    {
+        "wandas.operator.add",
+        "wandas.operator.subtract",
+        "wandas.operator.reverse_add",
+        "wandas.operator.reverse_subtract",
+        "wandas.operator.multiply",
+        "wandas.operator.divide",
+        "wandas.operator.reverse_multiply",
+    }
+)
+_FRAME_KEEPING_OPERATORS = frozenset(
+    {
+        "wandas.operator.add",
+        "wandas.operator.subtract",
+        "wandas.operator.reverse_add",
+        "wandas.operator.reverse_subtract",
+    }
+)
+_SUPERSCRIPTS = {2: "\u00b2", 3: "\u00b3", 4: "\u2074", 5: "\u2075", 6: "\u2076", 7: "\u2077", 8: "\u2078", 9: "\u2079"}
+
+
+def _operator_keeps_unit(operation: str, params: dict[str, Any]) -> bool:
+    """Whether an arithmetic operator leaves the unit as it was: with a number, a sum or a scale; with another Frame
+    (no operand recorded), a sum or a difference only."""
+    if isinstance(params.get("operand"), (int, float)):
+        return operation in _SCALAR_KEEPING_OPERATORS
+    return "operand" not in params and operation in _FRAME_KEEPING_OPERATORS
+
+
+def _powered(unit: str, exponent: float) -> str | None:
+    """``unit`` raised to ``exponent`` as the axis and the readout write it (Pa², Pa³, Pa^0.5, (m/s)²), or None when
+    no unit can be claimed: a level in dB raised to a power is in no unit."""
+    if exponent == 1:
+        return unit
+    if not unit:
+        return ""
+    if unit.startswith("dB"):
+        return None
+    base = unit if re.fullmatch(r"[A-Za-z]+", unit) else f"({unit})"
+    if float(exponent).is_integer() and int(exponent) in _SUPERSCRIPTS:
+        return base + _SUPERSCRIPTS[int(exponent)]
+    return f"{base}^{exponent:g}"
+
+
+def _walked_unit(frame: object) -> str | None:
+    """The unit of ``frame``'s values, walked through its operation history from the unit wandas gives its channel,
+    or None where an operation's effect on the unit is not known (signal_unit).
+
+    wandas keeps the channel's unit on a power (``Pa`` for the squared signal), so the walk raises it; it names the
+    unit itself after a calibration, an integral or a level in dB, from the values it was given, which is right only
+    when no power came before. A metric's values are in its own unit (METRIC_SERIES_UNITS), whatever came before.
+    """
+    history = list(getattr(frame, "operation_history", None) or [])
+    channels = getattr(frame, "channels", None) or []
+    unit = str(channels[0].unit or "") if channels else ""
+    exponent = 1.0
+    for item in history:
+        operation = str(item.get("operation", ""))
+        raw = item.get("params")
+        params: dict[str, Any] = raw if isinstance(raw, dict) else {}
+        if METRIC_SERIES_UNITS.get(operation):
+            unit, exponent = METRIC_SERIES_UNITS[operation], 1.0
+        elif operation in ("wandas.audio.rms_trend", "wandas.audio.sound_level"):
+            # A root mean square keeps the unit of what it was taken of; a level in dB is wandas' (re its ref).
+            if params.get("dB"):
+                if exponent != 1:
+                    return None
+                exponent = 1.0
+        elif operation == "wandas.audio.power":
+            exponent *= float(params.get("exponent", 2.0))
+        elif operation == "wandas.operator.power" and isinstance(params.get("operand"), (int, float)):
+            exponent *= float(params["operand"])
+        elif operation in UNIT_NAMING_OPERATIONS:
+            # A unit given with the step (integrate(unit=...)) is the user's word for the result; one wandas infers
+            # or a calibration's factor holds only for values in the channel's own unit.
+            if exponent != 1 and not (operation == "wandas.audio.integrate" and params.get("unit")):
+                return None
+            exponent = 1.0
+        elif _operator_keeps_unit(operation, params):
+            continue
+        elif operation not in UNIT_KEEPING_OPERATIONS:
+            return None
+    if not channels:
+        return None
+    return _powered(unit, exponent)
+
+
+def signal_unit(frame: object) -> str:
+    """The unit of a time signal's values after the operations that made it, as the picture sends it (``view.unit``).
+
+    The one place the unit of a signal is made: the axis name, the readout, the legend, the CSV and the report take
+    it as sent and never edit it. ``""`` where the effect of an operation on the unit is not known (normalize, a
+    product of two signals, an inferred integral of a power): no unit is claimed, and signal_measure names none.
+    """
+    return _walked_unit(frame) or ""
+
+
 def signal_measure(frame: ChannelFrame, in_db: bool = False) -> Measure | None:
     """What rms_trend, sound_level or power made `frame`'s values (SIGNAL_MEASURES), or None.
 
@@ -684,6 +830,8 @@ def signal_measure(frame: ChannelFrame, in_db: bool = False) -> Measure | None:
     after another (an RMS of a power) is in neither's unit. Those are drawn as an amplitude, as before. A level in dB
     (`in_db`) is the level of the RMS it was made from: named by it, its unit the level's (a power in dB is not one).
     """
+    if _walked_unit(frame) is None:
+        return None
     found: list[tuple[str, dict]] = []
     for item in reversed(frame.operation_history):
         operation = str(item.get("operation", ""))
@@ -728,7 +876,7 @@ def _channel_view(frame: ChannelFrame, reading: FrameReading) -> StageView:
             "x": "time",
             "xScale": "linear",
             "quantity": "level",
-            "unit": frame.channels[0].unit or "",
+            "unit": signal_unit(frame),
             "xs": _axis(xs),
             "values": _json(floored_db(values)),
         }
@@ -739,7 +887,6 @@ def _channel_view(frame: ChannelFrame, reading: FrameReading) -> StageView:
         return level
     if reading.mode == "series":
         # A metric (loudness at 500 Hz, …) is its own values however long or short the region: never a level of them.
-        metric = metric_operation(frame)
         xs, values = _envelope(reading.xs, reading.values, LEVEL_SERIES_MIN_SAMPLES)
         series: StageView = {
             "frame": type(frame).__name__,
@@ -747,7 +894,7 @@ def _channel_view(frame: ChannelFrame, reading: FrameReading) -> StageView:
             "x": "time",
             "xScale": "linear",
             "quantity": "value",
-            "unit": (METRIC_SERIES_UNITS[metric] if metric else "") or frame.channels[0].unit or "",
+            "unit": signal_unit(frame),
             "xs": _axis(xs),
             "values": _json(values),
         }
@@ -757,7 +904,7 @@ def _channel_view(frame: ChannelFrame, reading: FrameReading) -> StageView:
     # The sound itself, as wandas gives it, however few samples it has: drawn as its waveform and compared sample by
     # sample (a difference is compare − base, a ChannelFrame subtraction). The comparison makes no level of it: a
     # level is a wandas step's (sound_level, rms_trend), whose window the recipe records.
-    unit = frame.channels[0].unit or ""
+    unit = signal_unit(frame)
     count = reading.values.size
     xs, values = signal_line(reading, 0, count, LEVEL_SERIES_MIN_SAMPLES)
     view: StageView = {
@@ -797,7 +944,7 @@ def _events_view(segments: ChannelFrameSegments, rows: np.ndarray, times: np.nda
         "x": "time",
         "xScale": "linear",
         "quantity": "value",
-        "unit": segments[0].channels[0].unit or "",
+        "unit": signal_unit(segments[0]) if len(segments) else "",
         "xs": _axis(xs),
         "values": _json(mean),
         # Each event's trigger in the file's own time (trigger_times count from the region the events were cut from).

@@ -8,7 +8,9 @@ import { axisNameParts, DIMENSIONLESS, fitAxisTitle, fontPixels, scaledFont, sho
 import { paneAxes, type LevelInput } from '../webview/runtime/comparePanes';
 import { csvAxisName } from '../webview/runtime/entryDistributionPane';
 import { pairLanes } from '../webview/runtime/pairSpectrum';
-import { amplitudeAxisTitle, stageAxes } from '../webview/runtime/stagePanes';
+import { amplitudeAxisTitle, stageAxes, stageHover, type StagePlot } from '../webview/runtime/stagePanes';
+import { held } from './helpers/heldSource';
+import { testLine } from './helpers/whole';
 
 const LOCALES = ['en', 'ja'] as const;
 
@@ -80,10 +82,12 @@ test('every axis a picture is drawn on names its quantity and unit, whatever it 
                 }
             }
         }
-        // A series with no unit and no input says its unit is not known, never an assumed full scale (R4); with an
-        // input it is in the files' own unit.
+        // A series with no unit says its unit is not known, with an input or without, never an assumed full scale
+        // (R4): the unit of a picture's values is the backend's (stage_view.signal_unit), and none sent is none claimed.
         assert.equal(axisNameParts(stageAxes(strings, { frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'value', xs: [0, 1], values: [1, 2] }, undefined).y)?.unit, strings.axisUnitUnknown);
-        assert.equal(axisNameParts(stageAxes(strings, { frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'value', xs: [0, 1], values: [1, 2] }, { ...calibrated, unit: '', fullScale: true, calibrationStatus: 'uncalibrated' }).y)?.unit, 'FS');
+        assert.equal(axisNameParts(stageAxes(strings, { frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'value', xs: [0, 1], values: [1, 2] }, { ...calibrated, unit: '', fullScale: true, calibrationStatus: 'uncalibrated' }).y)?.unit, strings.axisUnitUnknown);
+        // A lane's amplitude axis names its file's channel unit, and full scale for an uncalibrated file of none.
+        assert.equal(axisNameParts(amplitudeAxisTitle(strings, '', { ...calibrated, unit: '', fullScale: true, calibrationStatus: 'uncalibrated' }))?.unit, 'FS');
         for (const measure of [undefined, 'rms', 'timeWeightedRms', 'power'] as const) {
             for (const input of [undefined, calibrated]) named(`${locale} amplitude ${measure}`, amplitudeAxisTitle(strings, input?.unit, input, measure));
         }
@@ -94,6 +98,43 @@ test('every axis a picture is drawn on names its quantity and unit, whatever it 
         const lanes = pairLanes({ frequencyBins: 2, maxFrequencyHz: 1000, curves: [] }, { frequencyMin: 0, frequencyMax: 1000 }, strings);
         for (const lane of lanes) { named(`${locale} pair ${lane.key} x`, lane.axes.x); named(`${locale} pair ${lane.key} y`, lane.axes.y); }
         for (const count of [strings.dsCh, strings.dsUnitRecording]) named(`${locale} distribution count`, strings.dsDistCountAxis.replace('{unit}', count));
+    }
+});
+
+/**
+ * The units the backend sends after a chain of operations (stage_view.signal_unit; the same table is
+ * test_stage_view.py's test_the_unit_of_a_signal_after_operations_is_walked_through_its_history): the webview writes
+ * each as given, on the axis and in the readout, and adds nothing to it.
+ */
+const SENT_UNITS: Array<{ chain: string; unit: string; measure?: StageView['measure'] }> = [
+    { chain: 'power(2)', unit: 'Pa\u00b2', measure: 'power' },
+    { chain: 'power(3)', unit: 'Pa\u00b3' },
+    { chain: 'abs → power(0.5)', unit: 'Pa^0.5' },
+    { chain: 'rms_trend → power(2)', unit: 'Pa\u00b2' },
+    { chain: 'power(2) → rms_trend', unit: 'Pa\u00b2' },
+    { chain: 'rms_trend', unit: 'Pa', measure: 'rms' },
+    { chain: 'normalize (its effect on the unit not known)', unit: '' },
+];
+
+test('the axis name and the readout of a signal after operations carry the same unit, the one the backend sent, and none where it sent none (R4, R7)', () => {
+    const strings = getStrings('en');
+    for (const { chain, unit, measure } of SENT_UNITS) {
+        const series: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit, xs: [0, 1, 2], values: [0.25, 0.5, 0.75], ...(measure ? { measure } : {}) };
+        const wave = { ...series, xs: [], values: [], waveform: { min: [0.25], max: [0.75], minT: [0], maxT: [2], absolutePeak: 0.75, unit, ref: 1 } } as unknown as StageView;
+        for (const [shape, view, full] of [['series', series, held(series)], ['waveform', wave, testLine([0, 1, 2], [0.25, 0.5, 0.75])]] as const) {
+            const axis = axisNameParts(stageAxes(strings, view, calibrated).y)?.unit;
+            const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value * 100, xOf: x => x / 100, yAt: value => 100 - value * 100, ratioStep: 1.12, lines: [{ view, color: 'blue', full }], diff: false };
+            const read = stageHover(plot, 100, 50);
+            assert.ok(read && read.value === 0.5, `${chain} (${shape}): the pointer reads the middle point`);
+            const readUnit = /0\.500\s*(\S*)\s*$/u.exec(read.values)?.[1] ?? '';
+            if (unit) {
+                assert.equal(axis, unit, `${chain} (${shape}): the axis names the unit the backend sent (stage_view.signal_unit), as given. Write view.unit through figureModel's names; never add an exponent to it (R4)`);
+                assert.equal(readUnit, unit, `${chain} (${shape}): the readout "${read.values}" writes the unit the axis names. Take view.unit (or waveform.unit) as sent (R7)`);
+            } else {
+                assert.equal(axis, strings.axisUnitUnknown, `${chain} (${shape}): with no unit sent the axis claims none, not the file's or full scale (R4)`);
+                assert.equal(readUnit, '', `${chain} (${shape}): with no unit sent the readout "${read.values}" writes none (R7)`);
+            }
+        }
     }
 });
 

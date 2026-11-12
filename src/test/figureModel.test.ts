@@ -258,6 +258,9 @@ test('every chart\'s level axis, range and file count row says it is computed in
  *   another name, through a namespace, or handing it on as a value is found all the same.
  * - GUARDED_PROPERTIES: a UI string read off any object (`s.axisGain`, `s['axisGain']`, `const { axisGain } = s`). A
  *   property can only be read by its name, so the name is what is looked for, in the syntax tree.
+ * - UNIT_EDITS: a unit string with an exponent written onto it (`${unit}²`, `unit + '^2'`), found in the syntax tree:
+ *   a template's text or a string added straight after an expression, starting with a power mark. The unit of a
+ *   picture's values is the backend's (stage_view.signal_unit), already raised; nothing here edits it (R4).
  * - TEXT_PATTERNS: a shape of code or of a string's content that has no declaration to follow (a template ending in
  *   " dB", a default of 'dBFS'). These are text, and can be written around; they hold the forms that have been bugs.
  *
@@ -279,6 +282,9 @@ const GUARDED_PROPERTIES: Readonly<Record<string, RegExp>> = {
     /** A CSV level column or reference column named outside the layer. */
     'csv-column': /^(?:reportLevelReference|reportBaseLevelReference|reportBaseLeq|entryColBandLevel)$/u,
 };
+
+/** A power mark at the start of text written onto an expression: a superscript digit or minus, or a caret. */
+const UNIT_EDITS = /^[\u00b2\u00b3\u00b9\u2070-\u207b^]/u;
 
 const TEXT_PATTERNS: Readonly<Record<string, RegExp>> = {
     /** A level named in bare dB by a template ("${band} dB"), not a Δ. */
@@ -375,6 +381,10 @@ function fileSites(rel: string, text: string, sites: Sites = {}): Sites {
         // A property read: `s.name`, `s['name']`, `const { name } = s` (the property's name, whatever it is bound to).
         const bound = ts.isBindingElement(node) && ts.isObjectBindingPattern(node.parent) ? node.propertyName ?? node.name : undefined;
         const read = ts.isPropertyAccessExpression(node) ? node.name : ts.isElementAccessExpression(node) ? node.argumentExpression : bound;
+        // A unit raised by hand: `${unit}²` (a template's text right after an expression) or `unit + '²'`.
+        const after = ts.isTemplateSpan(node) ? node.literal.text
+            : ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken && ts.isStringLiteralLike(node.right) && !ts.isStringLiteralLike(node.left) ? node.right.text : undefined;
+        if (after !== undefined && UNIT_EDITS.test(after)) note(sites, rel, 'unit-edit', siteOf(node));
         if (!read || !(ts.isIdentifier(read) || ts.isStringLiteralLike(read))) return;
         for (const [group, pattern] of Object.entries(GUARDED_PROPERTIES)) if (pattern.test(read.text)) note(sites, rel, group, siteOf(node));
     });
@@ -475,7 +485,7 @@ test('outside figureModel.ts nothing builds an axis name, calls an axis builder,
     for (const rel of new Set([...Object.keys(sites), ...Object.keys(ALLOWED)])) {
         for (const group of new Set([...Object.keys(sites[rel] ?? {}), ...Object.keys(ALLOWED[rel] ?? {})])) {
             const found = sites[rel]?.[group] ?? [], allowed = ALLOWED[rel]?.[group] ?? [];
-            for (const site of found.filter(name => !allowed.includes(name))) problems.push(`src/${rel}: ${site} does what only the figure layer may (${group}). Take the name, range, identity or count from src/webview/runtime/figureModel.ts (docs/plot-layers.md). If this is not a figure's (say, a definition figureModel.ts wraps), add '${site}' to ALLOWED['${rel}']['${group}'] in src/test/figureModel.test.ts with a comment saying why.`);
+            for (const site of found.filter(name => !allowed.includes(name))) problems.push(group === 'unit-edit' ? `src/${rel}: ${site} writes an exponent onto a unit (R4): the unit of a picture's values is sent raised by the backend (stage_view.signal_unit); show view.unit as it is, through figureModel's names.` : `src/${rel}: ${site} does what only the figure layer may (${group}). Take the name, range, identity or count from src/webview/runtime/figureModel.ts (docs/plot-layers.md). If this is not a figure's (say, a definition figureModel.ts wraps), add '${site}' to ALLOWED['${rel}']['${group}'] in src/test/figureModel.test.ts with a comment saying why.`);
             for (const site of allowed.filter(name => !found.includes(name))) problems.push(`src/${rel}: ${site} no longer matches ${group}: take it off ALLOWED in src/test/figureModel.test.ts (the list only shrinks).`);
         }
     }
@@ -528,6 +538,9 @@ test('the structural check fails on each injected bug: every violation of class 
         ['webview/runtime/figureModel.ts', "const gain = { unit: '1', calibrationStatus: 'calibrated' };", 'every-calibrated'],
         ['shared/report/analysisReport.ts', 'const text = measurement.levelReferenceLabel || measurement.levelUnit;', 'bare-level-unit'],
         ['webview/runtime/stagePanes.ts', 'const reference = input ?? { levelReferenceLabel: uncalibratedUnits(true).level };', 'default-reference'],
+        // A power's unit squared in the webview (the axis said Pa², the readout Pa): the backend sends it raised.
+        ['webview/runtime/stagePanes.ts', "const title = `${name} [${measure === 'power' ? `${base}\u00b2` : base}]`;", 'unit-edit'],
+        ['webview/runtime/figureModel.ts', "const shown = view.unit + '^0.5';", 'unit-edit'],
     ];
     for (const [rel, code, pattern] of injected) {
         const before = fileSites(rel, files.get(rel) ?? '')[rel]?.[pattern] ?? [];

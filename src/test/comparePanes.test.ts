@@ -205,14 +205,16 @@ test('the level axis is named by wandas\' level reference, and says uncalibrated
     const view = (unit: string): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0], values: [0], waveform: { ...waveform, unit } });
     // A waveform says it is uncalibrated as the level axis does; a calibrated one names its unit only.
     assert.equal(stageAxes(STR, view('FS'), { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true }).y, 'Amplitude, uncalibrated [FS]');
-    assert.equal(stageAxes(STR, view(''), RAW).y, 'Amplitude, uncalibrated [input unit]');
+    // No unit sent is no unit claimed (stage_view.signal_unit sends '' where an operation's effect on it is not known).
+    assert.equal(stageAxes(STR, view(''), RAW).y, 'Amplitude [unit unknown]');
     assert.equal(stageAxes(STR, view('Pa'), SPL).y, 'Amplitude [Pa]');
     // Its Δ is compare − base sample by sample (a ChannelFrame subtraction), in the same unit: never a level the comparison makes.
     assert.equal(stageAxes(STR, view('Pa'), SPL, true).y, 'Δ Amplitude [Pa]');
     // After rms_trend, sound_level or power the axis names that measure; power is in the unit squared.
     assert.equal(stageAxes(STR, { ...view('Pa'), measure: 'timeWeightedRms' }, SPL).y, 'Time-weighted RMS [Pa]');
-    assert.equal(stageAxes(STR, { ...view(''), measure: 'power' }, FS).y, 'Power, uncalibrated [FS²]');
-    const series: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: '', xs: [0], values: [0], measure: 'rms' };
+    // A power's unit comes raised from the backend (stage_view.signal_unit); the axis writes it as given.
+    assert.equal(stageAxes(STR, { ...view('FS²'), measure: 'power' }, FS).y, 'Power, uncalibrated [FS²]');
+    const series: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'FS', xs: [0], values: [0], measure: 'rms' };
     assert.equal(stageAxes(getStrings('ja'), series, FS).y, '実効値 未校正 [FS]');
 });
 

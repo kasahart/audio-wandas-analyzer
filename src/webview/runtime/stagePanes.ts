@@ -202,7 +202,7 @@ export function stageAxes(strings: StageStrings, view: StageView | null, input: 
     if (diff && (!view || isDb(view))) return { x, y: strings.axisDelta };
     // A time signal is drawn as itself: its amplitude, in its unit (full scale, or raw input units without one), and
     // says it is uncalibrated as the level axis does. After rms_trend, sound_level or power it names that measure.
-    const linear = (unit: string | undefined): string => amplitudeAxisTitle(strings, unit, input, view?.measure);
+    const linear = (unit: string | undefined): string => amplitudeAxisTitle(strings, unit, input, view?.measure, true);
     // Its Δ is compare − base sample by sample (a ChannelFrame subtraction), in the same unit.
     if (view?.waveform) return { x, y: diff ? `Δ ${linear(view.waveform.unit)}` : linear(view.waveform.unit) };
     // A trigger's events are their signals: amplitude in the signal's unit, as a waveform's.
@@ -235,12 +235,14 @@ export function stageAxes(strings: StageStrings, view: StageView | null, input: 
  * calibrated as the level axis does; after rms_trend, sound_level or power it names that measure. Compare's waveform
  * panes and the track lanes name their amplitude axis by it.
  */
-export function amplitudeAxisTitle(strings: Pick<StageStrings, 'axisRms' | 'axisRmsTimeWeighted' | 'axisPower' | 'waveRangeAxisAmplitude' | 'axisUncalibrated' | 'axisUnitUnknown'>, unit: string | undefined, input: LevelInput | undefined, measure?: StageView['measure']): string {
+export function amplitudeAxisTitle(strings: Pick<StageStrings, 'axisRms' | 'axisRmsTimeWeighted' | 'axisPower' | 'waveRangeAxisAmplitude' | 'axisUncalibrated' | 'axisUnitUnknown'>, unit: string | undefined, input: LevelInput | undefined, measure?: StageView['measure'], sent = false): string {
     const name = measure === 'rms' ? strings.axisRms : measure === 'timeWeightedRms' ? strings.axisRmsTimeWeighted : measure === 'power' ? strings.axisPower : strings.waveRangeAxisAmplitude;
     // Without an input nothing says what the values are relative to: the unit is not known, never a guessed FS (R4).
-    if (!unit && !input) return `${name} [${strings.axisUnitUnknown}]`;
-    const base = unit || uncalibratedUnits(!input || input.fullScale).linear;
-    return `${name}${input?.calibrationStatus === 'calibrated' ? '' : strings.axisUncalibrated} [${measure === 'power' ? `${base}²` : base}]`;
+    // A picture's unit is the backend's (stage_view.signal_unit, after every operation): none sent is none claimed.
+    if (!unit && (sent || !input)) return `${name} [${strings.axisUnitUnknown}]`;
+    // The unit is written as given: a power's is already the unit raised (Pa²), never edited here.
+    const shown = unit || uncalibratedUnits(!input || input.fullScale).linear;
+    return `${name}${input?.calibrationStatus === 'calibrated' ? '' : strings.axisUncalibrated} [${shown}]`;
 }
 
 /** Whether a metric's unit names what it measures (loudness in sone, …, a level in dB). */
@@ -1264,8 +1266,8 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
                 // The signal itself, by the track lanes' own pipeline, on the same axes; the pointer picks it as a line.
                 const box = { left, top, width: plotWidth, height: plotHeight };
                 plot.signal ??= {
-                    // An uncalibrated signal's unit: the axis names it when the axis's own signal is uncalibrated, else full scale.
-                    unit: (!layer.view.waveform.unit && /\[([^\]]*)\]$/.exec(axes.y)?.[1]) || uncalibratedUnits(true).linear,
+                    // The signal's unit as the backend sent it (stage_view.signal_unit): none sent, none read out.
+                    unit: layer.view.waveform.unit,
                     range,
                     paint: (ctx, signal, lineWidth) => { if (signal.view.waveform) paintWaveformLayer(ctx, box, signal.view.waveform, wholeAxis, xWindow, range, signal.color, lineWidth, { span: signal.span }); },
                 };

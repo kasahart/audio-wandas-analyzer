@@ -381,6 +381,65 @@ def test_a_time_signal_names_the_measure_a_step_made_of_it() -> None:
     assert "measure" not in stage_view(tone.power().loudness_zwtv())
 
 
+_PA_TONE = wd.from_numpy(
+    (0.3 * np.sin(2 * np.pi * 1000 * np.arange(16000) / 16000))[None], sampling_rate=16000, ch_units="Pa"
+)
+#: A chain of operations, the unit of the values it gives (stage_view.signal_unit) and the quantity it is named
+#: (signal_measure); src/test/axisNames.test.ts's SENT_UNITS holds the webview to writing each unit as sent.
+_UNIT_CHAINS = {
+    "power(2)": (lambda s: s.power(2), "Pa\u00b2", "power"),
+    "power(3)": (lambda s: s.power(exponent=3), "Pa\u00b3", None),
+    "abs -> power(0.5)": (lambda s: s.abs().power(exponent=0.5), "Pa^0.5", None),
+    "power(1)": (lambda s: s.power(exponent=1), "Pa", None),
+    "rms_trend": (lambda s: s.rms_trend(), "Pa", "rms"),
+    "sound_level": (lambda s: s.sound_level(), "Pa", "timeWeightedRms"),
+    "rms_trend -> power(2)": (lambda s: s.rms_trend().power(2), "Pa\u00b2", None),
+    "power(2) -> rms_trend": (lambda s: s.power(2).rms_trend(), "Pa\u00b2", None),
+    "power(2) -> power(0.5)": (lambda s: s.power(2).power(exponent=0.5), "Pa", None),
+    "power(2) -> trim": (lambda s: s.power(2).trim(0.1, 0.5), "Pa\u00b2", "power"),
+    "operator ** 2": (lambda s: s**2, "Pa\u00b2", None),
+    "scaled by 2": (lambda s: s * 2, "Pa", None),
+    "loudness -> power(2)": (lambda s: s.loudness_zwtv().power(2), "sone\u00b2", "power"),
+    # wandas names a level in dB itself; a dB level of a power is in no unit wandas could name.
+    "rms_trend(dB)": (lambda s: s.rms_trend(dB=True), "dB SPL re 2e-05 Pa", "rms"),
+    "power(2) -> rms_trend(dB)": (lambda s: s.power(2).rms_trend(dB=True), "", None),
+    # Operations whose effect on the unit is not known: no unit is claimed, and no quantity named.
+    "normalize": (lambda s: s.normalize(), "", None),
+    "power(2) -> normalize": (lambda s: s.power(2).normalize(), "", None),
+    "a product of two signals": (lambda s: s * s, "", None),
+}
+
+
+@pytest.mark.parametrize("chain", sorted(_UNIT_CHAINS))
+def test_the_unit_of_a_signal_after_operations_is_walked_through_its_history(chain: str) -> None:
+    # R4: the backend sends the unit of a picture's values (view.unit, a waveform's unit), made in one place
+    # (signal_unit) from the channel's unit by the operations after it; the webview writes it as given.
+    make, unit, measure = _UNIT_CHAINS[chain]
+    view = stage_view(make(_PA_TONE))
+    sent = view.get("unit") if view.get("waveform") is None else view["waveform"]["unit"]
+    assert sent == unit, (
+        f"{chain}: the picture's unit is {sent!r}, not {unit!r} (R4). It is made by stage_view.signal_unit, walking"
+        " the operation history: add the operation's effect on the unit there (UNIT_KEEPING_OPERATIONS, a power, or "
+        "one wandas names), or leave it unknown ('') — never send a unit that is not the values'."
+    )
+    if view.get("waveform") is not None:
+        assert view["unit"] == unit, f"{chain}: the picture and its waveform name one unit (stage_view.signal_unit)"
+    assert view.get("measure") == measure, (
+        f"{chain}: the quantity named is {view.get('measure')!r}, not {measure!r} (R4): signal_measure names one only "
+        "when exactly one of rms_trend, sound_level and power(2) explains the values, and none when the unit is unknown"
+    )
+
+
+def test_wandas_keeps_the_input_unit_on_a_power_so_the_backend_walks_it() -> None:
+    # If wandas ever names the unit of a power (Pa² for the squared signal), signal_unit takes wandas' and stops
+    # raising it: then this test fails, and the walk for wandas.audio.power is to be deleted (R4).
+    for frame in (_PA_TONE.power(2), _PA_TONE.power(exponent=3), _PA_TONE**2, _PA_TONE.power(2).rms_trend()):
+        assert frame.channels[0].unit == "Pa", (
+            f"wandas now names the unit after {frame.operation_history[-1]['operation']}: "
+            f"{frame.channels[0].unit!r}. Take wandas' unit in stage_view.signal_unit and remove the walk for it."
+        )
+
+
 def test_spectrum_decimation_matches_the_shared_cases_the_webview_is_held_to() -> None:
     # One rule for thinning a spectrum (unified plot spec, rule 4): Compare's backend lines and the webview's
     # full-resolution lines (comparePanes.minMaxLine) are both checked against these cases.

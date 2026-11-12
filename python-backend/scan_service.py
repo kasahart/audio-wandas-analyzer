@@ -48,7 +48,7 @@ from backend_errors import InputError
 from calibration_profile import CalibrationStatus, resolve_calibration_profile
 from level_identity import level_identity
 from stage_combine import STORE, stage_data
-from stage_view import StageDetail, StageView, band_levels, floored_db, stage_view
+from stage_view import StageDetail, StageView, band_levels, floored_db, signal_unit, stage_view
 
 if TYPE_CHECKING:
     from analysis_engine import AnalysisEngine, CachedAnalysis
@@ -728,7 +728,7 @@ def scan_cached(
                 view = stage_view(current, _length_s(timed), detail)
                 # A trigger that found no event has no segment to name its unit: the signal it watched does.
                 if view.get("events") == [] and not view.get("unit"):
-                    view["unit"] = timed.channels[0].unit or ""
+                    view["unit"] = signal_unit(timed)
                 return _stage_result(described, _against_base(view, vs_base), current, _length_s(timed), data_key)
         except Exception as error:  # noqa: BLE001 - as above.
             if step == paired_at and short_base is not None:
