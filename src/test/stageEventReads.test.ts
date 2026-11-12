@@ -3,7 +3,7 @@ import { N, R } from './helpers/figure';
 import test from 'node:test';
 import { assertNotDrawn, nearestOf, nthAfter } from './fullNotDrawn';
 import type { StageView } from '../shared/protocol/backendProtocol';
-import { localLine, type FullSource } from '../webview/runtime/fullRead';
+import { localLine, type FullSource, UNREADABLE } from '../webview/runtime/fullRead';
 import { eventLayers, paintOverlay, stageHover, stageStep } from '../webview/runtime/stagePanes';
 
 /** A canvas the plot component draws on through a context that draws nothing. */
@@ -23,7 +23,7 @@ test('a trigger\'s event lines are each read at that event\'s every sample, neve
         events: [0, 1, 2].map(id => ({ id, time: 1 + id, xs: drawnAt.map(index => times[index]), values: drawnAt.map(index => samples[id][index]) })),
     } as StageView;
     // The recording's full data: each event's own samples (the backend's read of `event`).
-    const full: FullSource = { held: 'inline', event: id => localLine(times, samples[id]) };
+    const full: FullSource = { held: 'inline', ...UNREADABLE, event: id => localLine(times, samples[id]) };
     const layers = eventLayers({ view, color: '#ff0', label: 'b.wav', full });
     assert.equal(layers.length, 3);
     const plot = paintOverlay(plotCanvas(), { layers }, R({ min: -0.6, max: 0.6 }), N({ x: 'Time [s]', y: 'Amplitude [FS]' }));

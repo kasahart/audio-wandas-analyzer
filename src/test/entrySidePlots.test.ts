@@ -303,6 +303,7 @@ test('the strip\'s colour range holds every table row\'s level, not only the row
     const zoomed = overviewPicture(rows, bands, { x: FULL_PLOT_WINDOW.x, y: { start: 0, end: 0.1 } }, 10);
     assert.deepEqual(zoomed?.range, { min: -100, max: 0 });
     const zoomedDrawn = (zoomed?.view.matrix ?? []).flat().filter((value): value is number => value !== null);
+    assert.equal(zoomed?.range.min, -100);
     assertNotDrawn(zoomed?.range.min, Math.floor(Math.min(...zoomedDrawn) / 10) * 10, 'not the range of the rows the window draws');
 });
 

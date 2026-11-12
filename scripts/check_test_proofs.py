@@ -7,8 +7,10 @@ this script checks, by its code and not its words, that the test:
   backend functions (followed through the backend's own calls, and the test module's own helpers);
 - asserts that code's answer outright (``==``, ``pytest.approx``, ``np.testing.assert_allclose`` …);
 - and asserts it is not the answer the drawn points give, the one way: ``assert_not_drawn(answer, drawn)``
-  (conftest.py), with the code's answer first and, second, something worked out in the test: never ``None``, a number,
-  a name holding a constant, or the first argument again.
+  (conftest.py). The call is known by the test module's import of it, so another function of that name is not it.
+  The code's answer comes first; second comes something worked out in the test: never ``None``, a number, a name
+  holding a constant, or the first argument again;
+- and does both of the same value: the expression stated outright is the one told apart.
 
 What this cannot see: whether ``drawn`` really is what the thinned points would give, and whether the answer asserted
 is the value the row is about. Those are for the reviewer (docs/plot-contracts-guide.md).
@@ -41,8 +43,9 @@ POSITIVE_CALLS = frozenset(
     }
 )
 EQUALITY_CALLS = frozenset({"allclose", "array_equal", "isclose", "array_equiv"})
-#: conftest.py's helper: ``assert_not_drawn(answer, drawn)``.
-NOT_DRAWN = "assert_not_drawn"
+#: The one helper that tells an answer from the drawn points': ``assert_not_drawn`` of conftest.py. A call counts
+#: only when the name it calls is bound to this by the test module's imports (``Proof.not_drawn``), not by its spelling.
+NOT_DRAWN = ("conftest", "assert_not_drawn")
 #: A call of a method by its name alone (see ``resolve``).
 METHOD = "<method>"
 #: Method names of built-in containers and files: never taken for a backend def of the same name.
@@ -59,6 +62,8 @@ class Backend:
     def __init__(self) -> None:
         self.calls: dict[str, set[str]] = {}
         self.modules: set[str] = set()
+        #: Each module's names bound by ``from mod import f``: what a name re-exported from it really is.
+        self.exports: dict[str, dict[str, str]] = {}
         for path in sorted(BACKEND.glob("*.py")):
             if path.name.startswith("test_") or path.name == "conftest.py":
                 continue
@@ -80,8 +85,18 @@ class Backend:
                         aliases[alias.asname or alias.name] = alias.name
         return names, aliases
 
+    def canonical(self, target: str | None) -> str | None:
+        """``mod:f`` followed through re-exports (``mod`` only imports ``f`` from another backend module) to its def."""
+        seen: set[str] = set()
+        while target and target not in self.calls and target not in seen:
+            seen.add(target)
+            module, _, name = target.partition(":")
+            target = self.exports.get(module, {}).get(name, target)
+        return target
+
     def index(self, module: str, tree: ast.Module) -> None:
         names, aliases = self.imports(tree)
+        self.exports[module] = names
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
@@ -93,12 +108,17 @@ class Backend:
                     called.add(target)
 
     def reachers(self, targets: set[str]) -> set[str]:
+        targets = {self.canonical(target) or target for target in targets}
+        calls = {
+            caller: {self.canonical(called) or called for called in all_called}
+            for caller, all_called in self.calls.items()
+        }
         reach = set(targets)
         reach |= {f"{METHOD}:{target.split(':')[1]}" for target in targets}
         grown = True
         while grown:
             grown = False
-            for caller, called in self.calls.items():
+            for caller, called in calls.items():
                 if caller not in reach and called & reach:
                     reach.add(caller)
                     reach.add(f"{METHOD}:{caller.split(':')[1]}")
@@ -156,14 +176,42 @@ class Proof:
                     self.test = node
         graph = Backend.__new__(Backend)
         graph.calls = {**backend.calls, **local}
+        graph.exports = backend.exports
+        self.graph = graph
+        # The names this module binds to conftest's helper (``from conftest import assert_not_drawn [as x]``), and
+        # to conftest itself (``import conftest [as c]``). A def or an assignment of the same name later in the
+        # module takes the name away: it is no longer the helper.
+        helper_module, helper = NOT_DRAWN
+        self.not_drawn: set[str] = set()
+        self.helper_modules: set[str] = set()
+        for node in tree.body:
+            if isinstance(node, ast.ImportFrom) and node.module == helper_module:
+                self.not_drawn |= {alias.asname or alias.name for alias in node.names if alias.name == helper}
+            elif isinstance(node, ast.Import):
+                self.helper_modules |= {
+                    alias.asname or alias.name for alias in node.names if alias.name == helper_module
+                }
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                self.not_drawn.discard(node.name)
+            elif isinstance(node, ast.Assign):
+                self.not_drawn -= {name for target in node.targets for name in targets_of(target)}
         self.reach = graph.reachers(targets)
         self.file_stem = file.stem
 
     def reaching(self, node: ast.AST) -> bool:
         return any(
-            isinstance(inner, ast.Call) and resolve(inner, self.file_stem, self.names, self.aliases) in self.reach
+            isinstance(inner, ast.Call)
+            and self.graph.canonical(resolve(inner, self.file_stem, self.names, self.aliases)) in self.reach
             for inner in ast.walk(node)
         )
+
+    def is_not_drawn(self, call: ast.Call) -> bool:
+        """Whether ``call`` calls conftest's ``assert_not_drawn``, by what the name is bound to in this module."""
+        func = call.func
+        if isinstance(func, ast.Name):
+            return func.id in self.not_drawn
+        named = isinstance(func, ast.Attribute) and func.attr == NOT_DRAWN[1] and isinstance(func.value, ast.Name)
+        return named and func.value.id in self.helper_modules  # type: ignore[union-attr]
 
     def check(self) -> str | None:
         test = self.test
@@ -205,7 +253,20 @@ class Proof:
         def constant(node: ast.AST) -> bool:
             return not (names_in(node) - constants - {"np", "math", "pytest", "float", "int", "abs"})
 
-        positive = negative = False
+        # The value stated outright and the value told apart from the drawn points must be the same one: the same
+        # expression (``result["absolutePeak"]`` in both), not two answers of the same code.
+        stated: set[str] = set()
+        told: list[str] = []
+
+        def state(*sides: ast.AST) -> None:
+            for side in sides:
+                # ``x == pytest.approx(y)``: what is stated is x and y, not the approx call.
+                inner = (
+                    side.args[0] if isinstance(side, ast.Call) and callee_name(side) == "approx" and side.args else side
+                )
+                if answer(inner):
+                    stated.add(ast.dump(inner))
+
         for node in ast.walk(test):
             if isinstance(node, ast.Assert):
                 inner = node.test
@@ -214,19 +275,23 @@ class Proof:
                     and len(inner.ops) == 1
                     and isinstance(inner.ops[0], (ast.Eq, ast.Is))
                 ):
-                    positive = positive or answer(inner.left) or answer(inner.comparators[0])
+                    state(inner.left, inner.comparators[0])
                 elif isinstance(inner, ast.Call) and callee_name(inner) in EQUALITY_CALLS and len(inner.args) >= 2:
-                    positive = positive or any(answer(arg) for arg in inner.args[:2])
-            elif isinstance(node, ast.Call) and callee_name(node) == NOT_DRAWN and len(node.args) >= 2:
+                    state(*inner.args[:2])
+            elif isinstance(node, ast.Call) and self.is_not_drawn(node) and len(node.args) >= 2:
                 mine, drawn = node.args[0], node.args[1]
                 if answer(mine) and not constant(drawn) and ast.dump(mine) != ast.dump(drawn):
-                    negative = True
+                    told.append(ast.dump(mine))
             elif isinstance(node, ast.Call) and callee_name(node) in POSITIVE_CALLS and callee_name(node) != "approx":
-                asserted = callee_name(node).startswith("assert_") and any(answer(arg) for arg in node.args[:2])
-                if asserted and not self.inside_raises(test, node):
-                    positive = True
-        if not (positive and negative):
+                if callee_name(node).startswith("assert_") and not self.inside_raises(test, node):
+                    state(*node.args[:2])
+        if not stated or not told:
             return f'"{test.name}" asserts no case where the full data and the drawn points give different answers'
+        if not any(value in stated for value in told):
+            return (
+                f'"{test.name}" states one value outright and tells another apart from the drawn points: '
+                "`assert X == expected` and `assert_not_drawn(X, drawn)` must be of the same expression X"
+            )
         return None
 
     @staticmethod
@@ -245,8 +310,19 @@ class Proof:
         return any(inner is call for block in blocks for statement in block.body for inner in ast.walk(statement))
 
 
+_backend: Backend | None = None
+
+
+def backend_index() -> Backend:
+    """The backend's index, built once in a run: every module is parsed to follow calls, which is the slow part."""
+    global _backend
+    if _backend is None:
+        _backend = Backend()
+    return _backend
+
+
 def check(items: list[dict[str, object]]) -> list[str | None]:
-    backend = Backend()
+    backend = backend_index()
     out: list[str | None] = []
     for item in items:
         targets = {

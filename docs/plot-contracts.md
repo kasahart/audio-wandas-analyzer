@@ -6,7 +6,7 @@
 
 - 部品（`paintOverlay`、`paintStage`、`paintSideAxis`）を呼ぶすべての場所と `plotRegistry.ts` の一覧が、どれかのグラフに入っていること。`charts/` のファイルがすべて `index.ts` にあること。
 - 表に書いたテストが実在し、飛ばされず、何かを確かめていること。表に書いた関数が実在すること。
-- webview と shared の中で数を文字にする関数（`toFixed`、`toPrecision`、`toExponential`、`toLocaleString`、小数の桁に丸める算術（10 の累乗を掛けた値の `Math.round`・`trunc`・`floor`・`ceil`）、それをする関数と、`VALUE_HELPERS` の関数を呼ぶもの）が、表のどれかの行か、`VALUE_HELPERS`、`NOT_CHART_VALUES`（理由つき）にあること。
+- webview と shared の中で数を文字にする関数（`toFixed`、`toPrecision`、`toExponential`、`toLocaleString`、小数の桁に丸める算術（10 の累乗を掛けた値の `Math.round`・`trunc`・`floor`・`ceil`）、それをする関数と、`VALUE_HELPERS` の関数を呼ぶもの）が、表のどれかの行か、`VALUE_HELPERS`、`NOT_CHART_VALUES`（理由つき）にあること。これは数を書く関数の一覧を保つための検査で、プロパティに入れてから後で書く文字までは追いません。グラフの数が間引いた点でないことは、次の型が保証します。
 - 間引いた配列（StageView の values・matrix・waveform・events、スライスとスペクトログラムの値、波形の包絡、走査の 192 点のスペクトル）は、webview では型 `Drawn`（`src/shared/provenance.ts`。どの配列かは `protocol_schema.py` の `x-drawn` に一度だけ書く）で、計算・比較・文字にすることをコンパイラが拒みます。読み値・見出し・書き出しが受け取るのは全データの値の型 `Whole` だけです。コンパイラに言えないこと（`Whole` を作れる場所、`Drawn` を数に戻せる場所、キャストや型の絞り込みによる抜け道）は `src/test/provenanceBoundary.test.ts` が型とシンボルで調べ、わざと違反させたコードが必ず失敗することも確かめます。バックエンドは型がないので、`scripts/check_decimation_flow.py` が間引いた値をデータの流れで追い、間引く関数と、間引いた点で計算する関数の使い方（描くだけ／数にする）を `python-backend/drawn_points_contract.json` に書きます。
 - 処理部のプロトコル（`protocol_schema.py` から作る `backendProtocolSchema.ts`）の結果の数のフィールドが、すべて表の行か、画面に出ない理由（`schema.ts`）に対応していること。
 - 出どころが全データの行は、全データと描いた点が違うデータで確かめるテスト（表の ◆）を挙げること。挙げていない行は穴です。

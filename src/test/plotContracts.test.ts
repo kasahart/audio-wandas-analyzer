@@ -209,6 +209,12 @@ const TEXT_CALLS: Readonly<Record<string, readonly number[]>> = {
  * number-typed value given to a text sink (TEXT_PROPERTIES, TEXT_CALLS, a `data-` attribute), or text made of one
  * (`String(n)`, `${n}`, `n + ' Hz'`, `n.toString()`, a join of numbers), directly or through a local, or returned by
  * a function that makes such text (then whoever writes its result writes a number, by that function).
+ *
+ * What this is for, and what it is not: it keeps the table's list of number-writing functions complete for these
+ * direct forms, so a reviewer knows where to look. It does not follow text kept in a property or a field and
+ * written later (`row.label = n.toFixed(1)` … `el.textContent = row.label`), nor a number that leaves through
+ * `any`. It is not what keeps a chart's value from being a thinned point: that is the types (a readout, a headline
+ * and an export take `Whole`; a thinned point is `Drawn` and cannot be formatted; provenanceBoundary.test.ts).
  */
 function numericTextWriters(program: ts.Program, files: readonly string[]): Map<string, Set<string>> {
     const checker = program.getTypeChecker();
@@ -386,7 +392,11 @@ test('every call of the plot component, and every plot plotRegistry.ts lists, is
  * Every place in `files` that makes a drawing surface, by the function it is in: a canvas's context taken (by the
  * receiver's type, HTMLCanvasElement or OffscreenCanvas), a canvas or an SVG element created (createElement,
  * createElementNS with the SVG namespace, new OffscreenCanvas), or written as markup (`<canvas`, `<svg` in a string or
- * a template). A chart that bypasses the plot component still needs one, so it cannot be drawn without being found.
+ * a template). A function that makes a surface and is not listed fails, so a new chart drawn its own way is found.
+ *
+ * What this does not do: look inside a function that is already listed. A registered painter that also draws on
+ * its canvas by hand is not stopped here. What holds there is the types: whatever draws is given `Drawn` points,
+ * which it can only draw (drawnPoints.ts, in the drawing modules), and whatever writes a number is given `Whole`.
  */
 function drawingSurfaces(program: ts.Program, files: readonly string[]): Map<string, Set<string>> {
     const checker = program.getTypeChecker();
@@ -721,7 +731,7 @@ const PROOF_HELP = [
     'Rule: a test marked tt(...) in src/test/plotContracts/charts must prove its row is computed from the full data, not the points thinned to draw.',
     'It must (1) use one of the row\'s computedIn functions (itself, a function of its file that calls it, or a helper of the test file that does; a pytest: an import that calls it);',
     '(2) assert that code\'s answer outright (assert.equal / deepEqual / match, or pytest `==`); and',
-    '(3) assert it is not the answer the drawn points give: assertNotDrawn(answer, drawnAnswer) from src/test/fullNotDrawn.ts (pytest: assert_not_drawn from conftest.py), with the code\'s answer first and drawnAnswer worked out in the test from the thinned data, never null or a constant. No other assertion (notEqual, a margin) counts.',
+    '(3) assert it is not the answer the drawn points give: assertNotDrawn(answer, drawnAnswer) from src/test/fullNotDrawn.ts (pytest: assert_not_drawn from conftest.py), with the code\'s answer first and drawnAnswer worked out in the test from the thinned data, never null or a constant. No other assertion (notEqual, a margin) counts. (2) and (3) are of the same value: write the same expression in both.',
     'If this test cannot do that, mark it t(...) instead and give the row another tt(...) test that does. See docs/plot-contracts-guide.md.',
 ].join(' ');
 
@@ -729,36 +739,46 @@ test('every test a row says tells full data from drawn points proves it: it reac
     assert.deepEqual(tellsProblems(), []);
 });
 
-/** What each function of a file calls or names (a command table's entry), by the function it is in. */
-const graphs = new Map<string, Map<string, Set<string>>>();
-function callGraph(file: string): Map<string, Set<string>> {
-    let graph = graphs.get(file);
-    if (graph) return graph;
-    const own = functionsOf(file);
-    const found = new Map<string, Set<string>>();
-    each(parse(file), node => {
-        if (!ts.isIdentifier(node) || !own.has(node.text)) return;
-        // A declaration's own name, or a property of something else, is not a use of the file's function.
-        if ((node.parent as { name?: ts.Node }).name === node) return;
-        const from = enclosing(node);
-        const to = found.get(from) ?? new Set<string>();
-        to.add(node.text);
-        found.set(from, to);
-    });
-    graph = found;
-    graphs.set(file, graph);
-    return graph;
+/** What declares a function: itself, or for an arrow the variable or property it is assigned to. */
+function functionDeclared(node: ts.Node): ts.Node | undefined {
+    if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node) || ts.isGetAccessor(node)) return node;
+    if ((ts.isArrowFunction(node) || ts.isFunctionExpression(node)) && (ts.isVariableDeclaration(node.parent) || ts.isPropertyAssignment(node.parent))) return node.parent;
+    return undefined;
 }
 
-/** The functions of a file that reach `name` (it among them): what a test can call to give it data. */
-function reachersOf(file: string, name: string): Set<string> {
-    const graph = callGraph(file);
-    const reach = new Set([name]);
-    for (let grown = true; grown;) {
-        grown = false;
-        for (const [from, to] of graph) if (!reach.has(from) && [...to].some(callee => reach.has(callee))) { reach.add(from); grown = true; }
+const callerGraphs = new WeakMap<ts.Program, Map<ts.Node, Set<ts.Node>>>();
+/**
+ * Who uses each function of the product code, across files: a function's declaration → the declarations of the
+ * functions that call it or hand it on. Built once for a program, by what each name declares, so a function moved
+ * to another module (or re-exported from one) is still reached by the same callers.
+ */
+function callersOf(program: ts.Program): Map<ts.Node, Set<ts.Node>> {
+    let graph = callerGraphs.get(program);
+    if (graph) return graph;
+    const checker = program.getTypeChecker();
+    const found = new Map<ts.Node, Set<ts.Node>>();
+    for (const file of sourceFiles()) {
+        const source = program.getSourceFile(path.join(repoRoot, file));
+        if (!source) continue;
+        const walk = (node: ts.Node, within: ts.Node | undefined): void => {
+            const inside = functionDeclared(node) ?? within;
+            if (inside && ts.isIdentifier(node) && !ts.isImportSpecifier(node.parent) && !ts.isExportSpecifier(node.parent)) {
+                const symbol = ts.isShorthandPropertyAssignment(node.parent) ? checker.getShorthandAssignmentValueSymbol(node.parent) : checker.getSymbolAtLocation(node);
+                const declared = (symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol)?.declarations?.[0];
+                const used = declared && (functionDeclared(declared) ?? (ts.isVariableDeclaration(declared) || ts.isPropertyAssignment(declared) ? declared.initializer && functionDeclared(declared.initializer) : undefined));
+                if (used && used !== inside) {
+                    const callers = found.get(used) ?? new Set<ts.Node>();
+                    callers.add(inside);
+                    found.set(used, callers);
+                }
+            }
+            ts.forEachChild(node, child => walk(child, inside));
+        };
+        walk(source, undefined);
     }
-    return reach;
+    graph = found;
+    callerGraphs.set(program, graph);
+    return graph;
 }
 
 /** A test given as proof that code computes from the full data, not the drawn points. */
@@ -797,11 +817,12 @@ function testBody(source: ts.SourceFile, name: string): ts.Node | undefined {
  * differ, or null. Every name is followed to its declaration with the type checker, so an import under another name,
  * a namespace import or a look-alike local of the same spelling changes nothing. The test must:
  *
- * 1. use the code under test: one of the targets, a function of a target's file that reaches one, or a helper of
- *    the test file that does;
+ * 1. use the code under test: one of the targets, a function of the product that reaches one (in any file, so a
+ *    function moved to another module keeps its proofs), or a helper of the test file that does;
  * 2. state that code's answer outright with node:assert (OUTRIGHT);
  * 3. call `assertNotDrawn(answer, drawnAnswer)` (src/test/fullNotDrawn.ts) with that code's answer first and, second,
  *    something worked out in the test: not a constant, a local holding one, or the first argument again.
+ * 4. do 2 and 3 of the same value: the expression stated outright is the one told apart, as text.
  *
  * What this cannot see: whether `drawnAnswer` really is what the thinned points would give, and whether the answer
  * asserted is the value the row is about. Those are for the reviewer (docs/plot-contracts-guide.md).
@@ -810,7 +831,7 @@ function proofProblem(targets: readonly string[], proof: Proof, program: ts.Prog
     // A UI test drives the whole app: nothing ties what it reads off the page to this row's code, so it is support
     // (t(...)), never the proof. The proof is a unit test that calls the row's code with data whose drawn points differ.
     if (proof.file.startsWith('src/test/uiSmoke/')) return `"${proof.name}" is a UI test, which cannot show which code made the value it reads: mark it t(...) and give the row a unit test as its tt(...) proof`;
-    if (proof.file.endsWith('.py')) return existsSync(path.join(repoRoot, proof.file)) ? pythonProofs([{ targets, proof }])[0] ?? null : `no file ${proof.file}`;
+    if (proof.file.endsWith('.py')) return existsSync(path.join(repoRoot, proof.file)) ? pythonProof(targets, { file: proof.file, name: proof.name }) : `no file ${proof.file}`;
     const source = program.getSourceFile(path.join(repoRoot, proof.file));
     if (!source) return `no file ${proof.file}`;
     const problem = testProblem(proof.file, source.text, proof.name);
@@ -830,20 +851,20 @@ function proofProblem(targets: readonly string[], proof: Proof, program: ts.Prog
         return found;
     };
 
-    // The code under test: the row's functions, and every function of their files that reaches one.
+    // The code under test: the row's functions, and every function of the product that reaches one, in any file.
     const under = new Set<ts.Node>();
     for (const target of targets) {
         const at = target.lastIndexOf(':');
-        const file = target.slice(0, at);
+        const file = target.slice(0, at), name = target.slice(at + 1);
         const code = file.endsWith('.ts') ? program.getSourceFile(path.join(repoRoot, file)) : undefined;
         if (!code) continue;
-        const reachers = reachersOf(file, target.slice(at + 1));
         each(code, node => {
-            const name = functionName(node);
-            // A function is declared by itself; an arrow, by the variable or property it is assigned to.
-            if (name && reachers.has(name)) under.add(ts.isVariableDeclaration(node.parent) || ts.isPropertyAssignment(node.parent) ? node.parent : node);
+            const declared = functionName(node) === name ? functionDeclared(node) : undefined;
+            if (declared) under.add(declared);
         });
     }
+    const callers = callersOf(program);
+    for (const reached of under) for (const caller of callers.get(reached) ?? []) under.add(caller);
     const reaches = (node: ts.Node): boolean => names(node).some(name => { const declared = declarationOf(name); return !!declared && under.has(declared); });
     // A helper of the test file that runs the code under test gives its answer too.
     for (let grown = true; grown;) {
@@ -911,28 +932,49 @@ function proofProblem(targets: readonly string[], proof: Proof, program: ts.Prog
         });
     }
 
-    let outright = false, apart = false;
+    // The value stated outright and the value told apart from the drawn points must be the same one: the same
+    // expression, compared as text (`read?.value` twice), not two answers of the same code.
+    const same = (node: ts.Node): string => node.getText().replace(/\s+/gu, '').replace(/\?\./gu, '.').replace(/!/gu, '');
+    const stated = new Set<string>();
+    const told: string[] = [];
     each(body, node => {
         if (!ts.isCallExpression(node)) return;
         const callee = node.expression;
-        if (ts.isPropertyAccessExpression(callee) && OUTRIGHT.has(callee.name.text) && isAssert(callee.expression) && node.arguments.some(answer)) outright = true;
+        if (ts.isPropertyAccessExpression(callee) && OUTRIGHT.has(callee.name.text) && isAssert(callee.expression)) for (const argument of node.arguments.slice(0, 2)) if (answer(argument)) stated.add(same(argument));
         if (!isNotDrawn(node)) return;
         const [mine, drawn] = node.arguments;
-        if (mine && drawn && answer(mine) && !constant(drawn) && mine.getText() !== drawn.getText()) apart = true;
+        if (mine && drawn && answer(mine) && !constant(drawn) && mine.getText() !== drawn.getText()) told.push(same(mine));
     });
-    if (!outright) return `"${proof.name}" never asserts the answer of the row's code outright (assert.equal, deepEqual or match on what it returns)`;
-    if (!apart) return `"${proof.name}" asserts no case where the full data and the drawn points give different answers`;
+    if (!stated.size) return `"${proof.name}" never asserts the answer of the row's code outright (assert.equal, deepEqual or match on what it returns)`;
+    if (!told.length) return `"${proof.name}" asserts no case where the full data and the drawn points give different answers`;
+    if (!told.some(text => stated.has(text))) return `"${proof.name}" states one value outright (${[...stated].slice(0, 3).join('; ')}) and tells another apart from the drawn points (${told.slice(0, 3).join('; ')}): assert.equal(X, expected) and assertNotDrawn(X, drawnAnswer) must be of the same expression X`;
     return null;
 }
 
-/** What scripts/check_test_proofs.py finds of each pytest given as proof (its problem, or null), in order. */
-function pythonProofs(items: ReadonlyArray<{ targets: readonly string[]; proof: Proof }>): Array<string | null> {
-    const venv = path.join(repoRoot, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
-    const python = existsSync(venv) ? venv : process.platform === 'win32' ? 'python' : 'python3';
-    const input = JSON.stringify(items.map(({ targets, proof }) => ({ targets, file: proof.file, name: proof.name })));
-    const run = spawnSync(python, ['scripts/check_test_proofs.py'], { cwd: repoRoot, encoding: 'utf8', input });
-    assert.equal(run.status, 0, `check_test_proofs.py: ${run.stderr}`);
-    return JSON.parse(run.stdout) as Array<string | null>;
+let pythonAnswers: Map<string, string | null> | undefined;
+/**
+ * What scripts/check_test_proofs.py finds of a pytest given as proof (its problem, or null). The script is run once
+ * for every pytest the table names (it reads the whole backend to follow calls), and asked again only for a proof
+ * that is not in the table (an injection).
+ */
+function pythonProof(targets: readonly string[], proof: Proof): string | null {
+    const key = (item: { targets: readonly string[]; proof: Proof }): string => JSON.stringify([item.targets, item.proof.file, item.proof.name]);
+    const ask = (items: ReadonlyArray<{ targets: readonly string[]; proof: Proof }>): Array<string | null> => {
+        const venv = path.join(repoRoot, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+        const python = existsSync(venv) ? venv : process.platform === 'win32' ? 'python' : 'python3';
+        const input = JSON.stringify(items.map(item => ({ targets: item.targets, file: item.proof.file, name: item.proof.name })));
+        const run = spawnSync(python, ['scripts/check_test_proofs.py'], { cwd: repoRoot, encoding: 'utf8', input });
+        assert.equal(run.status, 0, `check_test_proofs.py: ${run.stderr}`);
+        return JSON.parse(run.stdout) as Array<string | null>;
+    };
+    if (!pythonAnswers) {
+        const items = ROWS.flatMap(row => row.tests.filter(item => item.tells && item.file.endsWith('.py')).map(item => ({ targets: row.computedIn, proof: { file: item.file, name: item.name } })));
+        const answers = ask(items);
+        pythonAnswers = new Map(items.map((item, index) => [key(item), answers[index]]));
+    }
+    const asked = { targets, proof };
+    if (!pythonAnswers.has(key(asked))) pythonAnswers.set(key(asked), ask([asked])[0]);
+    return pythonAnswers.get(key(asked)) ?? null;
 }
 
 test('the proof check follows names to what they declare: only a use of the row\'s code, its answer asserted outright, and assertNotDrawn(answer, drawnAnswer) make a proof', () => {
@@ -959,6 +1001,8 @@ test('the proof check follows names to what they declare: only a use of the row\
         { name: 'itself', body: [full, outright, "    assertNotDrawn(full, full);"], problem: /asserts no case/u },
         // The answer never stated: only that it differs.
         { name: 'not outright', body: [full, "    assertNotDrawn(full, stageRange([line([-43, -12])]));"], problem: /never asserts the answer of the row's code outright/u },
+        // One answer stated outright and another told apart: the two halves must be of the same value.
+        { name: 'two values', body: [full, outright, "    assertNotDrawn(stageRange([line([-43, -12], { min: -60, max: -2 })]).max, stageRange([line([-43, -12])]).max);"], problem: /states one value outright .* and tells another apart/u },
         // A test that never uses the row's code proves nothing of it, whatever it asserts.
         { name: 'unreached', body: ["    const full = { min: -61, max: -2 }, drawn = [full].map(item => ({ ...item, min: -43 }))[0];", "    assert.deepEqual(full, { min: -61, max: -2 });", "    assertNotDrawn(full, drawn);"], problem: /never uses the row's code/u },
     ];

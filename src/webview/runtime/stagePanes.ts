@@ -26,7 +26,7 @@ import { amountText, barkText, frequencyText, lagText, levelText, quefrencyText,
 import type { Whole } from '../../shared/provenance';
 import { drawableLine, drawableRows } from '../../shared/drawnPoints';
 import { backendPeak } from './wholeAnswers';
-import { axisMeasure, cellEdgeValues, cellEdges, cellIndex, NO_FULL_DATA, STEP_AHEAD, type FullPoints, type FullRead, type FullSource, type LevelAnswer } from './fullRead';
+import { axisMeasure, cellEdgeValues, cellEdges, cellIndex, NO_FULL_DATA, STEP_AHEAD, type FullPoints, type FullRead, type FullSource, type LevelAnswer, cannotRead } from './fullRead';
 
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
@@ -69,7 +69,7 @@ export function eventLayers(layer: StageLayer): StageLayer[] {
         // Where in the recording it was cut (its trigger): the plot's time is from the trigger.
         const at = Number.isFinite(event.time) ? ` @ ${secondsText(event.time)}` : '';
         // Each event's line reads its own full data (R7), not the recording's.
-        const full: FullRead = layer.full.event?.(event.id) ?? NO_FULL_DATA;
+        const full: FullRead = layer.full.event(event.id);
         return { ...rest, ofEvents: true as const, view: { ...view, xs: event.xs, values: event.values }, width: Math.min(layer.width ?? 1.5, 1.2), alpha: out ? 0.25 : 0.85, label: `${layer.label ? `${layer.label} ` : ''}#${event.id + 1}${at}`, ...(source !== undefined ? { event: { id: event.id, source, out } } : {}), full };
     });
 }
@@ -437,10 +437,10 @@ export function screenLevels(layers: readonly StageLayer[], axisView: Pick<Stage
         const ends: [number, number] | null = scale ? [scale.at(window.start), scale.at(window.end)] : xs.length ? [xs[0], xs[xs.length - 1]] : null;
         const full = layer.full;
         let sum: LevelAnswer = null;
-        if (ends && full.level) sum = full.level({ x0: ends[0], x1: ends[1], square: signal }, context.ready ?? (() => undefined));
+        if (ends && full.level !== cannotRead) sum = full.level({ x0: ends[0], x1: ends[1], square: signal }, context.ready ?? (() => undefined));
         // null from data the backend holds is a read that failed (as a line's read, fullLineNear): not a level of 0 and
         // not the estimate. From a source with no level to give, there is nothing to measure.
-        const failed = sum === null && full.held === 'fetched' && !!full.level && !!ends;
+        const failed = sum === null && full.held === 'fetched' && full.level !== cannotRead && !!ends;
         levels.set(layer, sum === undefined ? { level: estimate, state: 'pending' }
             : failed ? { level: -Infinity, state: 'failed' }
             : sum === null ? { level: estimate, state: 'unmeasured' } : { level: dB(sum), state: 'exact' });
@@ -1729,7 +1729,7 @@ function shownValues(plot: StagePlot, layer: StageLayer): [number, number] | und
  * full_read._nearest_along for `at`, sent as `under`). undefined while the points are fetched.
  */
 function fullLineNear(plot: StagePlot, layer: StageLayer, source: FullSource, x: number, y: number, radius: number, ready: () => void): { near: ReadPoint[]; at: ReadPoint | null } | null | undefined {
-    if (!source.line || !plot.xOf) return { near: [], at: null };
+    if (source.line === cannotRead || !plot.xOf) return { near: [], at: null };
     // The pointer's place and the screen's scale there, so a window too dense to send whole holds the point nearest
     // the pointer by its true distance on screen (R7), not only each column's nearest in height.
     const place = plot.xOf(x), level = plot.levelOf?.(y);
@@ -1818,7 +1818,7 @@ export function stageReadAgain(plot: StagePlot, read: StageRead, ready: () => vo
     if (read.image) return imageReadAgain(plot, read, ready);
     const layer = plot.lines.find(line => line === read.layer) ?? plot.lines.find(line => line.full === read.layer.full)
         ?? plot.lines.find(line => line.label === read.layer.label && line.color === read.layer.color);
-    if (!layer?.full.line) return null;
+    if (!layer || layer.full.line === cannotRead) return null;
     const at = read.at;
     const got = layer.full.line({ x0: at, x1: at, beyond: 1 }, ready);
     if (got === undefined) return undefined;
@@ -1860,7 +1860,7 @@ export function stageStep(plot: StagePlot, read: StageRead, delta: -1 | 1, ready
     if (read.pending || read.failed) return null;
     if (read.image) {
         const source = read.layer.full;
-        return plot.image && source.cells && read.full && read.at !== undefined && read.row !== undefined ? imageStep(plot, plot.image, source, read, delta, ready) : null;
+        return plot.image && source.cells !== cannotRead && read.full && read.at !== undefined && read.row !== undefined ? imageStep(plot, plot.image, source, read, delta, ready) : null;
     }
     const source = read.layer.full;
     if (read.full && read.at !== undefined) {
@@ -1871,7 +1871,7 @@ export function stageStep(plot: StagePlot, read: StageRead, delta: -1 | 1, ready
         // A source that numbers its points (FullPoints.offset: one the webview holds whole) is stepped by place, so
         // points sharing one x are each visited once, in the data's order (LineQuery.from); see stepStart.
         const from = read.index !== undefined && read.index >= 0 && source.held === 'inline' ? read.index : undefined;
-        const got = source.line?.({ x0: at, x1: at, beyond: STEP_AHEAD, seek: delta, ...(from !== undefined ? { from } : {}), ...(floorless(read.layer.view, plot.diff) ? { plain: true } : {}) }, ready);
+        const got = source.line({ x0: at, x1: at, beyond: STEP_AHEAD, seek: delta, ...(from !== undefined ? { from } : {}), ...(floorless(read.layer.view, plot.diff) ? { plain: true } : {}) }, ready);
         if (got === undefined) return undefined;
         // The seek failed (not the data's end): the step waits for it to be asked again once the store's pause is over
         // (`ready`), and the keys pressed meanwhile with it (R7).
@@ -1912,7 +1912,7 @@ function cellRead(plot: StagePlot, layer: StageLayer, got: FullPoints, column: n
 function imageHover(plot: StagePlot, image: NonNullable<StagePlot['image']>, x: number, y: number, ready: () => void): StageRead | null {
     const { layer } = image;
     const source = layer.full;
-    if (!source.cells) return null;
+    if (source.cells === cannotRead) return null;
     const place = image.valueAt(x, y);
     if (!place) return null;
     const got = source.cells({ x: place.x, y: place.y, beyond: 1 }, ready);
@@ -1943,7 +1943,7 @@ function imageReadAgain(plot: StagePlot, read: StageRead, ready: () => void): St
 /** An arrow key on an image with full data: the next real column (time frame) on the row read. */
 function imageStep(plot: StagePlot, image: NonNullable<StagePlot['image']>, source: FullSource, read: StageRead, delta: -1 | 1, ready: () => void): StageRead | null | undefined {
     const at = read.at as number, place = read.row as number;
-    const got = source.cells?.({ x: at, y: place, beyond: STEP_AHEAD }, ready);
+    const got = source.cells({ x: at, y: place, beyond: STEP_AHEAD }, ready);
     if (got === undefined) return undefined;
     // The next cells' read failed: the step waits, and is taken once they are asked again (`ready`), never dropped.
     if (got === null && source.held === 'fetched') return undefined;

@@ -8,7 +8,7 @@ import type { StageView } from '../../shared/protocol/backendProtocol';
 import { BAND_CENTERS_HZ, type EntryRow } from './entryTable';
 import { FULL_PLOT_WINDOW, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { paintOverlay, type StagePlot } from './stagePanes';
-import { fullPointsOf, type InlineFullSource } from './fullRead';
+import { fullPointsOf, type InlineFullSource, UNREADABLE } from './fullRead';
 import { emptyFigure, heatmapRange, levelTitle, plainNames, plainTitle, type FigureRange } from './figureModel';
 
 /** The strip's margins: its row axis at the left, the frequency axis below, the colour bar inside the plot's top right. */
@@ -112,7 +112,7 @@ const fileName = (filePath: string): string => filePath.split(/[\\/]/).at(-1) ??
  */
 export function overviewCells(rows: ReadonlyArray<OverviewRow>, bands: ReadonlyMap<string, (number | null)[]>, wordOf: RowWord = NO_WORD): InlineFullSource {
     return {
-        held: 'inline',
+        held: 'inline', ...UNREADABLE,
         cells(query) {
             const n = rows.length;
             if (!n) return null;

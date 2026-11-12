@@ -4,6 +4,7 @@ import { laneWaveformOverlay, onColourBar, paintTrackSpectrogram, type Spectrogr
 import { laneReadoutText, spectrogramReadoutText } from './trackLaneHover';
 import { createLaneReads, type LaneTrack } from './laneReads';
 import type { FullSource } from './fullRead';
+import { UNREADABLE } from './fullRead';
 import { stageBasis } from './stageSource';
 import { hidePlotReadout, PLOT_READOUT_ID } from './plotHover';
 import { secondsText, withMinus } from '../plot/plotText';
@@ -2155,7 +2156,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             analysisId, settingsSignature: currentSettingsSignature() } : null;
     }
     /** The full data of a lane whose file changed after it was analysed: every read gives no number (R7), none is asked. */
-    const changedSource: FullSource = Object.freeze({ held: 'fetched' as const, line: () => null, level: () => null, cells: () => null });
+    const changedSource: FullSource = Object.freeze({ held: 'fetched' as const, ...UNREADABLE, line: () => null, level: () => null, cells: () => null });
     function laneTrackFull(trackIndex: number, read: (track: LaneTrack) => FullSource): FullSource | undefined {
         if (trackRecordAtIndex(trackIndex)?.sourceChanged) return changedSource;
         const track = laneTrack(trackIndex);

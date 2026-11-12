@@ -1,19 +1,74 @@
 /**
- * The mints of `Whole` (provenance.ts): the only places a plain number becomes a value of the full data. They do
- * nothing at run time; they are where the claim "this is full data" is made, so they may be called only from the
- * modules that read full data (fullRead.ts) or adapt a backend answer whose field is full by the protocol
- * (wholeAnswers.ts). provenanceBoundary.test.ts fails on a reference anywhere else, and on a cast to `Whole`.
+ * The mint of `Whole` (provenance.ts): the only place a number becomes a value of the full data.
+ *
+ * Nothing here is a function that turns a number into a `Whole` for whoever imports it. A module gets the mint by
+ * claiming it (`claimMint`), and it can be claimed once for each holder named in `Mints`: fullRead.ts, which reads
+ * full data, and wholeAnswers.ts, which adapts the backend answers that are full by the protocol. A second claim
+ * throws when the page loads, so no other module can take a holder's mint; provenanceBoundary.test.ts also fails on
+ * any other reference to this file, on a holder handing its mint on, and on a cast to `Whole`.
+ *
+ * To make a new number readable: read it through a layer's FullSource (fullRead.ts), or, for a number the backend
+ * takes of every value, add an adapter to wholeAnswers.ts. Do not add a holder here unless a new module's whole job
+ * is reading full data; a holder widens what every readout trusts.
+ *
+ * In tests, src/test/helpers/whole.ts makes a `Whole` of a made-up number. Product code cannot use it.
  */
 import type { Drawn, Whole } from './provenance';
 
-export const mintWhole = (value: number): Whole => value as Whole;
-export const mintWholeOrGap = (value: number | null): Whole | null => value as Whole | null;
-export const mintWholes = (values: readonly number[]): Whole[] => values as Whole[];
-export const mintWholesOrGaps = (values: readonly (number | null)[]): (Whole | null)[] => values as (Whole | null)[];
-export const mintWholeRows = (rows: ReadonlyArray<ReadonlyArray<number | null>>): (Whole | null)[][] => rows as (Whole | null)[][];
+/** fullRead.ts's mint: values the webview holds every one of (a full read's reply, an array a caller held whole). */
+export interface HeldMint {
+    value(held: number): Whole;
+    values(held: readonly number[]): Whole[];
+    valuesOrGaps(held: readonly (number | null)[]): (Whole | null)[];
+    rows(held: ReadonlyArray<ReadonlyArray<number | null>>): (Whole | null)[][];
+}
+
+/** The names of the fields of `T` that hold a number. */
+type NumberFields<T> = { [K in keyof T]-?: NonNullable<T[K]> extends number ? K : never }[keyof T];
+
+/** wholeAnswers.ts's mint: it takes a backend answer and says which part is full, never a bare number. */
+export interface AnswerMint {
+    /**
+     * A number of a backend answer that the protocol says is taken of every value. Given as the answer and the
+     * field's name, so each call shows which answer the number came from. The caller checks the field is present.
+     */
+    field<T extends object>(answer: T, name: NumberFields<T>): Whole;
+    /**
+     * An array typed `Drawn` that is every value after all (a 'bar' picture's bands). The caller checks that
+     * condition first and says so in its comment.
+     */
+    everyValue(values: readonly (Drawn | null)[]): (Whole | null)[];
+    /** The same for an array without gaps (a slice the backend did not cut for display). */
+    everyBin(values: readonly Drawn[]): Whole[];
+}
+
+interface Mints { fullRead: HeldMint; wholeAnswers: AnswerMint }
+
+// These do nothing at run time: a mint is where the claim "this is full data" is made. Each is taken out as it is
+// claimed, so it can be given once.
+const unclaimed: Partial<Mints> = {
+    fullRead: {
+        value: held => held as Whole,
+        values: held => held as Whole[],
+        valuesOrGaps: held => held as (Whole | null)[],
+        rows: held => held as (Whole | null)[][],
+    },
+    wholeAnswers: {
+        field: (answer, name) => answer[name] as Whole,
+        everyValue: values => values as (Whole | null)[],
+        everyBin: values => values as Whole[],
+    },
+};
+
 /**
- * An array typed `Drawn` taken as full data: only where the protocol says that array is every value after all (a
- * 'bar' picture's bands, a slice without `frequenciesHz`). The caller checks that condition first (wholeAnswers.ts).
+ * The mint of `holder`, given once: the holder's own module claims it as it loads (`const mint = claimMint('fullRead')`)
+ * and keeps it to itself. A second claim of the same holder throws.
  */
-export const mintWholeDrawn = (values: readonly (Drawn | null)[]): (Whole | null)[] => values as (Whole | null)[];
-export const mintWholeBins = (values: readonly Drawn[]): Whole[] => values as Whole[];
+export function claimMint<H extends keyof Mints>(holder: H): Mints[H] {
+    const mint = unclaimed[holder];
+    if (!mint) {
+        throw new Error(`The mint of Whole for ${holder}.ts was claimed twice. Only src/webview/runtime/${holder}.ts may claim it, once. To read a full-data value elsewhere, read it through a FullSource (fullRead.ts) or add an adapter to wholeAnswers.ts. See src/shared/wholeMint.ts.`);
+    }
+    delete unclaimed[holder];
+    return mint;
+}

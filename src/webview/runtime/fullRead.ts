@@ -15,8 +15,11 @@
  */
 import { answerKey, createAnswerStore, type AnswerKey } from './answerStore';
 import type { StagePoints, StageRead } from '../../shared/protocol/backendProtocol';
-import { wholeOf, type Whole } from '../../shared/provenance';
-import { mintWhole, mintWholeRows, mintWholes, mintWholesOrGaps } from '../../shared/wholeMint';
+import type { Whole } from '../../shared/provenance';
+import { claimMint } from '../../shared/wholeMint';
+
+/** This module's mint (wholeMint.ts): claimed once, used only in this file's readers, never handed on. */
+const mint = claimMint('fullRead');
 
 /** A line's points between two places of its horizontal axis (its own units), with `beyond` more past each end. */
 export interface LineQuery {
@@ -106,7 +109,7 @@ export function levelOfValues(xs: ArrayLike<number>, values: ArrayLike<number | 
         count += 1;
     }
     // The caller holds every value (see localLine): their mean is of the full data.
-    return { power: mintWhole(count ? power / count : 0), count };
+    return { power: mint.value(count ? power / count : 0), count };
 }
 
 /**
@@ -134,7 +137,7 @@ export interface FullPoints {
 }
 
 /** The level of no values: what a line with nothing to measure answers. */
-export const NO_LEVEL: LevelSum = Object.freeze({ power: mintWhole(0), count: 0 });
+export const NO_LEVEL: LevelSum = Object.freeze({ power: mint.value(0), count: 0 });
 
 /**
  * Points of the full data as `FullPoints`: the backend's answer to a full read (full_read.py), or a window a source
@@ -145,13 +148,13 @@ export function fullPointsOf(points: StagePoints & Pick<FullPoints, 'rowNames' |
     return {
         ...(points.rowNames ? { rowNames: points.rowNames } : {}),
         ...(points.offset !== undefined ? { offset: points.offset } : {}),
-        xs: mintWholes(points.xs), start: points.start, end: points.end, complete: points.complete,
-        ...(points.values ? { values: mintWholesOrGaps(points.values) } : {}),
-        ...(points.ys ? { ys: mintWholes(points.ys) } : {}),
-        ...(points.matrix ? { matrix: mintWholeRows(points.matrix) } : {}),
+        xs: mint.values(points.xs), start: points.start, end: points.end, complete: points.complete,
+        ...(points.values ? { values: mint.valuesOrGaps(points.values) } : {}),
+        ...(points.ys ? { ys: mint.values(points.ys) } : {}),
+        ...(points.matrix ? { matrix: mint.rows(points.matrix) } : {}),
         ...(points.under !== undefined ? { under: points.under } : {}),
         ...(points.steps ? { steps: points.steps } : {}),
-        ...(points.level ? { level: { power: mintWhole(points.level.power), count: points.level.count } } : {}),
+        ...(points.level ? { level: { power: mint.value(points.level.power), count: points.level.count } } : {}),
     };
 }
 
@@ -174,17 +177,33 @@ export function heldValueRange(values: Iterable<number | null>, floored: boolean
 /** undefined: being fetched (`ready` is called once it is in); null: there is no full data to read. */
 export type FullAnswer = FullPoints | null | undefined;
 
+/**
+ * The reads of a full-data source. Every source has every one: a kind of read it cannot give is `cannotRead` (or
+ * `noEvent`), set through `UNREADABLE`, never left out. So "this source reads no cells" is written down where the
+ * source is made, and a reader asks `source.cells === cannotRead` where it must tell that from a read that failed.
+ * They are plain functions, not methods: none uses `this`, so one can be passed on or compared by itself.
+ */
 interface FullSourceReads {
-    line?(query: LineQuery, ready: () => void): FullAnswer;
-    cells?(query: CellQuery, ready: () => void): FullAnswer;
+    line: (query: LineQuery, ready: () => void) => FullAnswer;
+    cells: (query: CellQuery, ready: () => void) => FullAnswer;
     /** The power of every value of the line in a window (R6), from its full data. */
-    level?(query: LevelQuery, ready: () => void): LevelAnswer;
+    level: (query: LevelQuery, ready: () => void) => LevelAnswer;
     /** A trigger's event drawn as a line of its own (eventLayers): its own points. */
-    event?(id: number): FullSource;
+    event: (id: number) => FullSource;
 }
 
+/** The read of a kind a source does not have: there is nothing of that kind to read (null), now and later. */
+export const cannotRead = (): null => null;
+/** The event line of a source that has none: a source with nothing to read. */
+export const noEvent = (): FullSource => NO_FULL_DATA;
 /**
- * Full data the webview holds every value of (localLine, localCells, wholeOf): it answers at once, never pending.
+ * Every read as "cannot". A source spreads this and then gives the reads it has:
+ * `{ held: 'inline', ...UNREADABLE, cells(query) { … } }`.
+ */
+export const UNREADABLE: FullSourceReads = Object.freeze({ line: cannotRead, cells: cannotRead, level: cannotRead, event: noEvent });
+
+/**
+ * Full data the webview holds every value of (localLine, localCells): it answers at once, never pending.
  * Bars, a pair spectrum's every bin, a histogram's bins and a band table are read through one of these, built from
  * their every value, never from what a plot draws.
  */
@@ -206,7 +225,7 @@ export type FullRead = FullSource;
  * The full data of a layer whose caller has none to give: every read is unavailable (no number, R7), and the plot
  * marks the layer (`data-plot-full`), which every ui-smoke test fails (canvasAudit.ts).
  */
-export const NO_FULL_DATA: FetchedFullSource = Object.freeze({ held: 'fetched' as const });
+export const NO_FULL_DATA: FetchedFullSource = Object.freeze({ held: 'fetched' as const, ...UNREADABLE });
 
 /** How many points past the one read an arrow key's read asks for, so the next steps need no request. */
 export const STEP_AHEAD = 256;
@@ -255,9 +274,9 @@ function seekIn(xs: readonly Whole[], values: readonly (Whole | null)[], n: numb
  * wholeAnswers.ts `wholeBars`.
  */
 export function localLine(held: readonly number[], heldValues: readonly (number | null)[]): InlineFullSource {
-    const xs = mintWholes(held), values = mintWholesOrGaps(heldValues);
+    const xs = mint.values(held), values = mint.valuesOrGaps(heldValues);
     return {
-        held: 'inline',
+        held: 'inline', ...UNREADABLE,
         line(query) {
             const n = Math.min(xs.length, values.length);
             if (query.seek) return seekIn(xs, values, n, query.x0, query.seek, query.beyond, !!query.plain, query.from);
@@ -274,13 +293,13 @@ export function localLine(held: readonly number[], heldValues: readonly (number 
  * localLine, calling it is the claim that the cells are every one, none thinned.
  */
 export function localCells(heldXs: readonly number[], heldYs: readonly number[], heldMatrix: ReadonlyArray<ReadonlyArray<number | null>>, rowNames?: readonly string[]): InlineFullSource {
-    const xs = mintWholes(heldXs), ys = mintWholes(heldYs), matrix = mintWholeRows(heldMatrix);
+    const xs = mint.values(heldXs), ys = mint.values(heldYs), matrix = mint.rows(heldMatrix);
     const nearest = (axis: readonly number[], value: number): number => {
         const at = Math.max(1, Math.min(axis.length - 1, firstFrom(axis, value)));
         return axis.length < 2 ? 0 : Math.abs(axis[at - 1] - value) <= Math.abs(axis[at] - value) ? at - 1 : at;
     };
     return {
-        held: 'inline',
+        held: 'inline', ...UNREADABLE,
         cells(query) {
             if (!xs.length || !ys.length) return { xs: [], ys: [], matrix: [], start: null, end: null, complete: true };
             const column = nearest(xs, query.x), row = nearest(ys, query.y);
@@ -418,7 +437,7 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
         return undefined;
     };
     const source: FetchedFullSource = {
-        held: 'fetched',
+        held: 'fetched', ...UNREADABLE,
         line(query, ready) {
             const x0 = Math.min(query.x0, query.x1), x1 = Math.max(query.x0, query.x1);
             // A window is asked for wider than the pointer needs (PAD times its width each side), so a pointer moving
@@ -536,13 +555,15 @@ export function mappedSource(source: FullSource, to: (x: number) => number, from
     // Each point's step in the source data (FullPoints.steps) is carried to this axis as its place is: the same gap, mapped.
     const stepBack = (x: number, step: number | null): number | null => (step === null ? null : Math.abs(from(x + step) - from(x)));
     const back = (points: FullAnswer): FullAnswer => (points ? {
-        ...points, xs: points.xs.map(x => wholeOf(from, x)), start: points.start === null ? null : from(points.start), end: points.end === null ? null : from(points.end),
+        ...points, xs: points.xs.map(x => mint.value(from(x))), start: points.start === null ? null : from(points.start), end: points.end === null ? null : from(points.end),
         ...(points.steps ? { steps: points.steps.map((step, index) => stepBack(points.xs[index], step)) } : {}),
     } : points);
     return {
         held: source.held,
-        ...(source.line ? { line: (query: LineQuery, ready: () => void) => back(source.line?.(mappedLine(query, to), ready)) } : {}),
-        ...(source.cells ? { cells: (query: CellQuery, ready: () => void) => back(source.cells?.({ ...query, x: to(query.x) }, ready)) } : {}),
-        ...(source.level ? { level: (query: LevelQuery, ready: () => void) => source.level?.({ ...query, x0: to(query.x0), x1: to(query.x1) }, ready) } : {}),
+        ...UNREADABLE,
+        // A read the source cannot give stays one it cannot give.
+        ...(source.line !== cannotRead ? { line: (query: LineQuery, ready: () => void) => back(source.line(mappedLine(query, to), ready)) } : {}),
+        ...(source.cells !== cannotRead ? { cells: (query: CellQuery, ready: () => void) => back(source.cells({ ...query, x: to(query.x) }, ready)) } : {}),
+        ...(source.level !== cannotRead ? { level: (query: LevelQuery, ready: () => void) => source.level({ ...query, x0: to(query.x0), x1: to(query.x1) }, ready) } : {}),
     };
 }

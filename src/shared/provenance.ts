@@ -3,8 +3,8 @@
  *
  * - `Whole`: a value of the full data (a real bin, sample or cell, or a number the backend took of every one). The
  *   functions that write a data value a user reads (a readout, a headline, the point an arrow key steps to, a CSV
- *   cell) take `Whole`. A plain `number` is not a `Whole`: only the mints in wholeMint.ts make one, and only
- *   fullRead.ts and wholeAnswers.ts may call them.
+ *   cell) take `Whole`. A plain `number` is not a `Whole`: only the mint of wholeMint.ts makes one, and
+ *   only fullRead.ts and wholeAnswers.ts hold it (each claims it once; a second claim throws).
  * - `Drawn`: a point thinned to be drawn (a picture's `values`, `matrix`, waveform envelope; which arrays these are
  *   is stated in python-backend/protocol_schema.py with `x-drawn`). A `Drawn` is not a `number`: it cannot be
  *   computed with, compared, formatted or minted. Drawing code turns it into pixels through drawnPoints.ts.
@@ -27,8 +27,3 @@ export interface Thinned { readonly [THINNED]: 'thinned' }
  * gives no number: arithmetic, comparison, formatting and number parameters refuse it until drawnPoints.ts unwraps it.
  */
 export type Drawn = number | Thinned;
-
-/** `fn` of whole values is whole (a Δ of two full values, a mean of every bin): the one way to compute with them. */
-export function wholeOf<A extends readonly Whole[]>(fn: (...values: { [K in keyof A]: number }) => number, ...values: A): Whole {
-    return fn(...(values as unknown as { [K in keyof A]: number })) as Whole;
-}

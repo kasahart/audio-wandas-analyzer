@@ -709,6 +709,7 @@ test('the pair view\'s gain axis opens at round ends holding every bin on screen
     // Round ends by the dB line rule (R9): 10 dB steps here.
     assert.deepEqual(gain, { min: -40, max: 10 });
     // A line thinned by averaging loses the one-bin notch: a range of it would open at −10.
+    assert.equal(gain.min, -40);
     assertNotDrawn(gain.min, Math.floor(Math.min(...averagedInto(shown, 200)) / 10) * 10, 'the range holds the notch');
 });
 

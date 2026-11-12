@@ -399,5 +399,5 @@ test('← / → on a held slot\'s Δ step to the next of every bin, not the next
     let tenth = read;
     for (let key = 0; key < 10; key++) tenth = stageStep(drawn, tenth, 1) ?? tenth;
     assert.equal(Math.round((tenth.at ?? NaN) / HZ), bin + 10);
-    assertNotDrawn(tenth.at, nthAfter(line?.view.xs ?? [], read.at, 10), 'not the tenth drawn point on');
+    assertNotDrawn(Math.round((tenth.at ?? NaN) / HZ), Math.round(nthAfter(line?.view.xs ?? [], read.at, 10) / HZ), 'not the tenth drawn point on');
 });

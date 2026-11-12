@@ -8,19 +8,22 @@
  */
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { Drawn, Whole } from '../../shared/provenance';
-import { mintWhole, mintWholeBins, mintWholeDrawn } from '../../shared/wholeMint';
+import { claimMint } from '../../shared/wholeMint';
 import { localLine, type InlineFullSource } from './fullRead';
+
+/** This module's mint (wholeMint.ts): claimed once, used only in the adapters below, never handed on. */
+const mint = claimMint('wholeAnswers');
 
 /** A band table's bars, which the backend sends whole (every band, none thinned): read from their every value. */
 export function wholeBars(view: StageView | null | undefined): InlineFullSource | undefined {
-    return view?.kind === 'bar' ? localLine(view.xs ?? [], mintWholeDrawn(view.values ?? [])) : undefined;
+    return view?.kind === 'bar' ? localLine(view.xs ?? [], mint.everyValue(view.values ?? [])) : undefined;
 }
 
 /** Where a Δ is largest and its value there (stage_combine.difference_peak): found among every value before thinning (R2). */
 export function backendPeak(view: StageView): { x: Whole; y?: Whole; value: Whole; xStep?: number; yStep?: number } | undefined {
     const peak = view.peak;
     if (!peak) return undefined;
-    return { x: mintWhole(peak.x), value: mintWhole(peak.value), ...(peak.y !== undefined ? { y: mintWhole(peak.y) } : {}), ...(peak.xStep !== undefined ? { xStep: peak.xStep } : {}), ...(peak.yStep !== undefined ? { yStep: peak.yStep } : {}) };
+    return { x: mint.field(peak, 'x'), value: mint.field(peak, 'value'), ...(peak.y !== undefined ? { y: mint.field(peak, 'y') } : {}), ...(peak.xStep !== undefined ? { xStep: peak.xStep } : {}), ...(peak.yStep !== undefined ? { yStep: peak.yStep } : {}) };
 }
 
 /**
@@ -31,5 +34,5 @@ export function backendPeak(view: StageView): { x: Whole; y?: Whole; value: Whol
 export function everyBin(slice: { values: readonly Drawn[]; frequenciesHz?: readonly number[]; bandCentersHz?: readonly number[]; standIn?: string }): Whole[] | null {
     if (slice.standIn) return null;
     if (slice.frequenciesHz && !slice.bandCentersHz?.length) return null;
-    return mintWholeBins(slice.values);
+    return mint.everyBin(slice.values);
 }

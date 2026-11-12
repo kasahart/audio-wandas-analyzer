@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import type { StageView } from '../shared/protocol/backendProtocol';
-import { localLine, mappedSource, type FullSource } from '../webview/runtime/fullRead';
+import { localLine, mappedSource, type FullSource, UNREADABLE, cannotRead } from '../webview/runtime/fullRead';
 import { createPlotHoverLayer } from '../webview/runtime/plotHoverLayer';
 import type { PaneRange } from '../webview/runtime/comparePanes';
 import { floorless, paintOverlay, paintStage, stageRange, type StagePlot } from '../webview/runtime/stagePanes';
@@ -45,7 +45,7 @@ function canvasFor(document: Document): HTMLCanvasElement {
 function sourceOf(view: StageView, fetched: boolean): { full: FullSource; release: () => void; hold: () => void } {
     let holding = fetched;
     const waiting: Array<() => void> = [];
-    const wait = <Q, A>(read: ((query: Q, ready: () => void) => A) | undefined) => read && ((query: Q, ready: () => void): A | undefined => {
+    const wait = <Q, A>(read: (query: Q, ready: () => void) => A) => ((read as unknown) === cannotRead ? read : (query: Q, ready: () => void): A | undefined => {
         if (holding) { waiting.push(ready); return undefined; }
         return read(query, ready);
     });
@@ -53,7 +53,7 @@ function sourceOf(view: StageView, fetched: boolean): { full: FullSource; releas
         const inner = held(whole);
         const event = whole.events ? (id: number): FullSource => { const one = whole.events!.find(item => item.id === id)!; return of({ ...whole, events: undefined, xs: one.xs, values: one.values }); } : undefined;
         if (!fetched) return event ? { ...inner, event } : inner;
-        return { held: 'fetched', line: wait(inner.line?.bind(inner)), cells: wait(inner.cells?.bind(inner)), ...(event ? { event } : {}) };
+        return { held: 'fetched', ...UNREADABLE, line: wait(inner.line), cells: wait(inner.cells), ...(event ? { event } : {}) };
     };
     return { full: of(view), release: () => { holding = false; for (const ready of waiting.splice(0)) ready(); }, hold: () => { holding = fetched; } };
 }
@@ -176,13 +176,13 @@ function stateSource(view: StageView, state: State, mapped: boolean): { full: Fu
     const waiting: Array<() => void> = [];
     const wrap = (whole: StageView): FullSource => {
         const source = inner(whole);
-        const gate = <Q, A>(read: ((query: Q, ready: () => void) => A) | undefined) => read && ((query: Q, ready: () => void): A | null | undefined => {
+        const gate = <Q, A>(read: (query: Q, ready: () => void) => A) => ((read as unknown) === cannotRead ? read : (query: Q, ready: () => void): A | null | undefined => {
             if (holding) { waiting.push(ready); return undefined; }
             // The backend failed: null (no points known), and those waiting are told once its pause is over (fullRead.ts).
             if (failing) { waiting.push(ready); return null; }
             return read(query, ready);
         });
-        const fetched: FullSource = state === 'held' ? source : { held: 'fetched', line: gate(source.line?.bind(source)), cells: gate(source.cells?.bind(source)) };
+        const fetched: FullSource = state === 'held' ? source : { held: 'fetched', ...UNREADABLE, line: gate(source.line), cells: gate(source.cells) };
         const event = whole.events ? (id: number): FullSource => { const one = whole.events!.find(item => item.id === id)!; return wrap({ ...whole, events: undefined, xs: one.xs, values: one.values }); } : undefined;
         const onAxis = mapped ? mappedSource(fetched, toFile, fromFile) : fetched;
         return event ? { ...onAxis, event } : onAxis;
@@ -395,7 +395,7 @@ for (const [kind, view] of Object.entries(KINDS)) {
                 for (const fetched of [false, true]) {
                     // Fetched: answered as fetchedSource answers from what the backend sent (seek: full_read._seek_line).
                     const whole = held(silent.view);
-                    const full: FullSource = fetched ? { held: 'fetched', line: (query, ready) => whole.line?.(query, ready) } : whole;
+                    const full: FullSource = fetched ? { held: 'fetched', ...UNREADABLE, line: (query, ready) => whole.line(query, ready) } : whole;
                     const drawn = chart.draw(canvas, silent.view, full, { size: { width: W, height: H } });
                     assert.ok(drawn);
                     const xs: readonly number[] = silent.view.xs ?? [];
