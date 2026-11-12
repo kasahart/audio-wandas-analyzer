@@ -726,9 +726,12 @@ DEFINITIONS: dict[str, Schema] = {
             },
             # Set on a picture of only part of its axes (StageDetail): the range it covers.
             "detail": {"type": "boolean"},
-            # What a time signal's values are when a step made them from the sound (stage_view.SIGNAL_MEASURES):
-            # a windowed RMS, a time-weighted RMS or the squared signal, for its value axis to name.
-            "measure": {"type": "string", "enum": ["rms", "timeWeightedRms", "power"]},
+            # What a time signal's values are when steps made them from the sound (stage_view.signal_measure, from
+            # the walk that makes its unit): a windowed RMS, a time-weighted RMS, the squared signal, the amplitude
+            # or an RMS raised to measureExponent, or not known ("unknown": the axis claims no quantity or unit).
+            "measure": {"type": "string", "enum": ["amplitude", "rms", "timeWeightedRms", "power", "unknown"]},
+            # The power measure is raised to (3 after power(3)); absent when it is 1.
+            "measureExponent": {"type": "number"},
             # A time signal's waveform as the lanes draw it: per bucket min and max at the times they occurred.
             "waveform": {
                 "type": "object",

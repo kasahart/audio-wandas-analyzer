@@ -22,6 +22,8 @@ export const VALUE_HELPERS: readonly string[] = [
     'src/webview/runtime/comparePanes.ts:minMaxLine', 'src/webview/runtime/comparePanes.ts:signed', 'src/webview/runtime/comparePanes.ts:level', 'src/webview/runtime/comparePanes.ts:medianOfSome', 'src/webview/runtime/comparePanes.ts:bandsAt',
     'src/webview/runtime/compareReport.ts:dB',
     'src/webview/runtime/stagePanes.ts:valueText',
+    // The exponent written into an axis's quantity ("Amplitude^3"), as the backend writes it in the unit.
+    'src/webview/runtime/stagePanes.ts:exponentText',
     'src/webview/runtime/spectrumRuntime.ts:spectrumReadoutValues',
     'src/webview/plot/waveformLayer.ts:waveformRange',
     'src/webview/draw/canvasDrawers.ts:formatHz',

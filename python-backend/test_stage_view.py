@@ -373,9 +373,14 @@ def test_a_time_signal_names_the_measure_a_step_made_of_it() -> None:
     # In dB they give the level of what they measured: the axis names it (never the amplitude of a level).
     assert stage_view(tone.rms_trend(dB=True))["measure"] == "rms"
     assert stage_view(tone.sound_level(dB=True))["measure"] == "timeWeightedRms"
-    # A power other than the square, or an RMS of a power, is in neither's unit: drawn as an amplitude.
-    assert "measure" not in stage_view(tone.power(exponent=3))
-    assert "measure" not in stage_view(tone.power().rms_trend())
+    # A power other than the square is the amplitude raised to it; an RMS of a power is an RMS (in the power's unit).
+    assert (stage_view(tone.power(exponent=3))["measure"], stage_view(tone.power(exponent=3))["measureExponent"]) == (
+        "amplitude",
+        3,
+    )
+    assert stage_view(tone.power().rms_trend())["measure"] == "rms"
+    # Where the unit is not known, neither is the quantity: the axis claims neither (never "amplitude").
+    assert stage_view(tone.normalize())["measure"] == "unknown"
     # A step after it keeps it; a metric after it is its own quantity.
     assert stage_view(tone.power().trim(0.1, 0.5))["measure"] == "power"
     assert "measure" not in stage_view(tone.power().loudness_zwtv())
@@ -385,28 +390,34 @@ _PA_TONE = wd.from_numpy(
     (0.3 * np.sin(2 * np.pi * 1000 * np.arange(16000) / 16000))[None], sampling_rate=16000, ch_units="Pa"
 )
 #: A chain of operations, the unit of the values it gives (stage_view.signal_unit) and the quantity it is named
-#: (signal_measure); src/test/axisNames.test.ts's SENT_UNITS holds the webview to writing each unit as sent.
+#: (signal_measure: the measure and the power it is raised to, from the same walk; None for the sound's own
+#: amplitude). src/test/axisNames.test.ts's SENT_UNITS holds the webview to writing each as these rows' names.
 _UNIT_CHAINS = {
-    "power(2)": (lambda s: s.power(2), "Pa\u00b2", "power"),
-    "power(3)": (lambda s: s.power(exponent=3), "Pa\u00b3", None),
-    "abs -> power(0.5)": (lambda s: s.abs().power(exponent=0.5), "Pa^0.5", None),
+    "power(2)": (lambda s: s.power(2), "Pa\u00b2", ("power", None)),
+    "power(3)": (lambda s: s.power(exponent=3), "Pa\u00b3", ("amplitude", 3)),
+    "abs -> power(0.5)": (lambda s: s.abs().power(exponent=0.5), "Pa^0.5", ("amplitude", 0.5)),
     "power(1)": (lambda s: s.power(exponent=1), "Pa", None),
-    "rms_trend": (lambda s: s.rms_trend(), "Pa", "rms"),
-    "sound_level": (lambda s: s.sound_level(), "Pa", "timeWeightedRms"),
-    "rms_trend -> power(2)": (lambda s: s.rms_trend().power(2), "Pa\u00b2", None),
-    "power(2) -> rms_trend": (lambda s: s.power(2).rms_trend(), "Pa\u00b2", None),
+    "rms_trend": (lambda s: s.rms_trend(), "Pa", ("rms", None)),
+    "sound_level": (lambda s: s.sound_level(), "Pa", ("timeWeightedRms", None)),
+    "rms_trend -> power(2)": (lambda s: s.rms_trend().power(2), "Pa\u00b2", ("rms", 2)),
+    "power(2) -> rms_trend": (lambda s: s.power(2).rms_trend(), "Pa\u00b2", ("rms", None)),
     "power(2) -> power(0.5)": (lambda s: s.power(2).power(exponent=0.5), "Pa", None),
-    "power(2) -> trim": (lambda s: s.power(2).trim(0.1, 0.5), "Pa\u00b2", "power"),
-    "operator ** 2": (lambda s: s**2, "Pa\u00b2", None),
+    "power(2) -> trim": (lambda s: s.power(2).trim(0.1, 0.5), "Pa\u00b2", ("power", None)),
+    "lowpass -> resampling -> power(3)": (
+        lambda s: s.low_pass_filter(4000).resampling(8000).power(exponent=3),
+        "Pa\u00b3",
+        ("amplitude", 3),
+    ),
+    "operator ** 2": (lambda s: s**2, "Pa\u00b2", ("power", None)),
     "scaled by 2": (lambda s: s * 2, "Pa", None),
-    "loudness -> power(2)": (lambda s: s.loudness_zwtv().power(2), "sone\u00b2", "power"),
+    "loudness -> power(2)": (lambda s: s.loudness_zwtv().power(2), "sone\u00b2", ("power", None)),
     # wandas names a level in dB itself; a dB level of a power is in no unit wandas could name.
-    "rms_trend(dB)": (lambda s: s.rms_trend(dB=True), "dB SPL re 2e-05 Pa", "rms"),
-    "power(2) -> rms_trend(dB)": (lambda s: s.power(2).rms_trend(dB=True), "", None),
-    # Operations whose effect on the unit is not known: no unit is claimed, and no quantity named.
-    "normalize": (lambda s: s.normalize(), "", None),
-    "power(2) -> normalize": (lambda s: s.power(2).normalize(), "", None),
-    "a product of two signals": (lambda s: s * s, "", None),
+    "rms_trend(dB)": (lambda s: s.rms_trend(dB=True), "dB SPL re 2e-05 Pa", ("rms", None)),
+    "power(2) -> rms_trend(dB)": (lambda s: s.power(2).rms_trend(dB=True), "", ("unknown", None)),
+    # Operations whose effect on the unit is not known: no unit is claimed, and no quantity either.
+    "normalize": (lambda s: s.normalize(), "", ("unknown", None)),
+    "power(2) -> normalize": (lambda s: s.power(2).normalize(), "", ("unknown", None)),
+    "a product of two signals": (lambda s: s * s, "", ("unknown", None)),
 }
 
 
@@ -424,9 +435,12 @@ def test_the_unit_of_a_signal_after_operations_is_walked_through_its_history(cha
     )
     if view.get("waveform") is not None:
         assert view["unit"] == unit, f"{chain}: the picture and its waveform name one unit (stage_view.signal_unit)"
-    assert view.get("measure") == measure, (
-        f"{chain}: the quantity named is {view.get('measure')!r}, not {measure!r} (R4): signal_measure names one only "
-        "when exactly one of rms_trend, sound_level and power(2) explains the values, and none when the unit is unknown"
+    sent_measure = (view["measure"], view.get("measureExponent")) if "measure" in view else None
+    assert sent_measure == measure, (
+        f"{chain}: the quantity sent is {sent_measure!r}, not {measure!r} (R4). stage_view.signal_measure takes it "
+        "from the walk that makes the unit (_walk): the last rms_trend or sound_level names it, a power raises it "
+        "(the amplitude squared is 'power'), and wherever the unit is not known the quantity is 'unknown' — add the "
+        "operation's effect on the quantity there, never send one the unit does not back."
     )
 
 

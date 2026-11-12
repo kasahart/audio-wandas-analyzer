@@ -31,7 +31,7 @@ import { axisMeasure, cellEdgeValues, cellEdges, cellIndex, readsFullData, STEP_
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
 
-export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisTriggerTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisTransferLevel' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageEventCounts' | 'stageNoEvents' | 'stageMaxDelta' | 'stepNotDrawable' | 'waveRangeAxisAmplitude' | 'stagePairBase' | 'axisLoudness' | 'axisSharpness' | 'axisRoughness' | 'axisSpecificRoughness' | 'axisLevelOf' | 'axisRms' | 'axisRmsTimeWeighted' | 'axisPower' | 'axisUncalibrated' | 'axisUnitUnknown'>;
+export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisTriggerTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisTransferLevel' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageEventCounts' | 'stageNoEvents' | 'stageMaxDelta' | 'stepNotDrawable' | 'waveRangeAxisAmplitude' | 'stagePairBase' | 'axisLoudness' | 'axisSharpness' | 'axisRoughness' | 'axisSpecificRoughness' | 'axisLevelOf' | 'axisRms' | 'axisRmsTimeWeighted' | 'axisPower' | 'axisRaised' | 'axisQuantityUnknown' | 'axisUncalibrated' | 'axisUnitUnknown'>;
 
 const DB_QUANTITIES = ['level', 'gain'];
 const isDb = (view: StageView | null): boolean => DB_QUANTITIES.includes(view?.quantity ?? '');
@@ -201,17 +201,18 @@ export function stageAxes(strings: StageStrings, view: StageView | null, input: 
     }
     if (diff && (!view || isDb(view))) return { x, y: strings.axisDelta };
     // A time signal is drawn as itself: its amplitude, in its unit (full scale, or raw input units without one), and
-    // says it is uncalibrated as the level axis does. After rms_trend, sound_level or power it names that measure.
-    const linear = (unit: string | undefined): string => amplitudeAxisTitle(strings, unit, input, view?.measure, true);
+    // says it is uncalibrated as the level axis does. After rms_trend, sound_level or power it names that measure,
+    // raised to the power the backend sent (stage_view.signal_measure), or says the quantity is not known.
+    const linear = (unit: string | undefined): string => amplitudeAxisTitle(strings, unit, input, view?.measure, true, view?.measureExponent);
     // Its Δ is compare − base sample by sample (a ChannelFrame subtraction), in the same unit.
     if (view?.waveform) return { x, y: diff ? `Δ ${linear(view.waveform.unit)}` : linear(view.waveform.unit) };
     // A trigger's events are their signals: amplitude in the signal's unit, as a waveform's.
     if (isEventsView(view)) return { x, y: linear(view?.unit) };
-    // rms_trend's series is its own values (a metric's series), in the signal's unit; so is a series no step names
-    // (an RMS of a power, a power to another exponent): what it is, the signal's amplitude, never a bare "value".
+    // rms_trend's series is its own values (a metric's series), in the signal's unit; so is a series no step names:
+    // the signal's amplitude, never a bare "value" (only a quantity the backend says is not known is one, R4).
     if (view?.quantity === 'value' && (view.measure || (view.x === 'time' && !namedByUnit(view.unit)))) return { x, y: diff ? `Δ ${linear(view.unit)}` : linear(view.unit) };
     // A level over time (sound_level or rms_trend in dB) names what it is the level of, in the files' reference.
-    if (view?.quantity === 'level' && view.x === 'time') return { x, y: timeLevelTitle(strings, input, view.measure) };
+    if (view?.quantity === 'level' && view.x === 'time') return { x, y: view.measure === 'unknown' ? unknownQuantityTitle(strings) : timeLevelTitle(strings, input, view.measure) };
     const y = view?.quantity === 'level' ? paneAxes(strings, input).level.y
         // A transfer function of two units is a transfer level in dB re their ratio, named as the pair view names it (A33).
         : view?.quantity === 'gain' ? (view.unit ? strings.axisTransferLevel.replace('{unit}', view.unit) : strings.axisGain)
@@ -232,17 +233,31 @@ export function stageAxes(strings: StageStrings, view: StageView | null, input: 
 
 /**
  * A time signal's amplitude axis, in its unit (full scale, or raw input units without one), saying whether it is
- * calibrated as the level axis does; after rms_trend, sound_level or power it names that measure. Compare's waveform
- * panes and the track lanes name their amplitude axis by it.
+ * calibrated as the level axis does; after rms_trend, sound_level or power it names that measure, raised to
+ * `exponent` when the backend sent one ("Amplitude^3 [Pa³]"). A quantity the backend could not tell ("unknown") is
+ * "Value [unit unknown]": no quantity and no unit claimed, never "Amplitude" (R4). Compare's waveform panes and the
+ * track lanes name their amplitude axis by it.
  */
-export function amplitudeAxisTitle(strings: Pick<StageStrings, 'axisRms' | 'axisRmsTimeWeighted' | 'axisPower' | 'waveRangeAxisAmplitude' | 'axisUncalibrated' | 'axisUnitUnknown'>, unit: string | undefined, input: LevelInput | undefined, measure?: StageView['measure'], sent = false): string {
-    const name = measure === 'rms' ? strings.axisRms : measure === 'timeWeightedRms' ? strings.axisRmsTimeWeighted : measure === 'power' ? strings.axisPower : strings.waveRangeAxisAmplitude;
+export function amplitudeAxisTitle(strings: Pick<StageStrings, 'axisRms' | 'axisRmsTimeWeighted' | 'axisPower' | 'axisRaised' | 'axisQuantityUnknown' | 'waveRangeAxisAmplitude' | 'axisUncalibrated' | 'axisUnitUnknown'>, unit: string | undefined, input: LevelInput | undefined, measure?: StageView['measure'], sent = false, exponent?: number): string {
+    if (measure === 'unknown') return unknownQuantityTitle(strings);
+    const quantity = measure === 'rms' ? strings.axisRms : measure === 'timeWeightedRms' ? strings.axisRmsTimeWeighted : measure === 'power' ? strings.axisPower : strings.waveRangeAxisAmplitude;
+    const name = exponent === undefined || exponent === 1 ? quantity : strings.axisRaised.replace('{quantity}', quantity).replace('{p}', exponentText(exponent));
     // Without an input nothing says what the values are relative to: the unit is not known, never a guessed FS (R4).
     // A picture's unit is the backend's (stage_view.signal_unit, after every operation): none sent is none claimed.
     if (!unit && (sent || !input)) return `${name} [${strings.axisUnitUnknown}]`;
     // The unit is written as given: a power's is already the unit raised (Pa²), never edited here.
     const shown = unit || uncalibratedUnits(!input || input.fullScale).linear;
     return `${name}${input?.calibrationStatus === 'calibrated' ? '' : strings.axisUncalibrated} [${shown}]`;
+}
+
+/** A quantity the backend could not tell, and so no unit either (stage_view.signal_measure "unknown"). */
+function unknownQuantityTitle(strings: Pick<StageStrings, 'axisQuantityUnknown' | 'axisUnitUnknown'>): string {
+    return axisName(strings.axisQuantityUnknown, strings.axisUnitUnknown);
+}
+
+/** An exponent as the backend writes it in the unit (Python's `:g`: 3, 0.5, 0.333333). */
+function exponentText(exponent: number): string {
+    return String(Number(exponent.toPrecision(6)));
 }
 
 /** Whether a metric's unit names what it measures (loudness in sone, …, a level in dB). */

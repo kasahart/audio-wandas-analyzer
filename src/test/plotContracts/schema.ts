@@ -104,6 +104,7 @@ export const SCHEMA_FIELDS: Readonly<Record<string, readonly string[] | string>>
     'StageView.matrix': ['compare-overlay.range', 'compare-overlay.range-image', 'compare-delta.range', 'compare-delta.range-image', 'compare-overlay.readout-bands'],
     'StageView.pair.output': ['compare-overlay.axis'],
     'StageView.pair.input': ['compare-overlay.axis'],
+    'StageView.measureExponent': ['compare-overlay.axis-metric'],
     'StageView.waveform.min': ['compare-overlay.range'],
     'StageView.waveform.max': ['compare-overlay.range'],
     'StageView.waveform.minT': ['compare-overlay.range'],

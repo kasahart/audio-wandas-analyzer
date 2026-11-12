@@ -1709,10 +1709,15 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "measure": {
                     "type": "string",
                     "enum": [
+                        "amplitude",
                         "rms",
                         "timeWeightedRms",
-                        "power"
+                        "power",
+                        "unknown"
                     ]
+                },
+                "measureExponent": {
+                    "type": "number"
                 },
                 "waveform": {
                     "type": "object",
@@ -2823,7 +2828,8 @@ export interface StageView {
     base?: boolean;
 };
     detail?: boolean;
-    measure?: "rms" | "timeWeightedRms" | "power";
+    measure?: "amplitude" | "rms" | "timeWeightedRms" | "power" | "unknown";
+    measureExponent?: number;
     waveform?: {
     min: (Drawn | null)[];
     max: (Drawn | null)[];

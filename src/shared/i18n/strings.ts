@@ -464,6 +464,10 @@ export interface UiStrings {
     axisRms: string;
     axisRmsTimeWeighted: string;
     axisPower: string;
+    /** A measure raised to a power other than 1 (StageView.measureExponent): `{quantity}` raised to `{p}` ("Amplitude^3"). */
+    axisRaised: string;
+    /** A time signal whose quantity is not known (StageView.measure "unknown"): written only with an unknown unit (R4). */
+    axisQuantityUnknown: string;
     /** Appended to a linear axis's name while the files are uncalibrated, as axisLevelUncal says it. */
     axisUncalibrated: string;
     axisSharpness: string;
@@ -1295,6 +1299,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisRms: 'RMS',
         axisRmsTimeWeighted: 'Time-weighted RMS',
         axisPower: 'Power',
+        axisRaised: '{quantity}^{p}',
+        axisQuantityUnknown: 'Value',
         axisUncalibrated: ', uncalibrated',
         axisSharpness: 'Sharpness',
         axisRoughness: 'Roughness',
@@ -2110,6 +2116,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisRms: '実効値',
         axisRmsTimeWeighted: '時間重み付き実効値',
         axisPower: 'パワー',
+        axisRaised: '{quantity}の {p} 乗',
+        axisQuantityUnknown: '値',
         axisUncalibrated: ' 未校正',
         axisSharpness: 'シャープネス',
         axisRoughness: 'ラフネス',

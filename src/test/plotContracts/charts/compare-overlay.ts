@@ -169,10 +169,11 @@ export const compareOverlay: ChartContract = {
         {
             id: 'compare-overlay.axis-metric', value: 'axis', what: '指標・手順が作った量・dB の時間変化の値の軸',
             computedIn: [`${SP}:stageAxes`, `${SP}:metricName`, `${SP}:timeLevelTitle`, `${SP}:amplitudeAxisTitle`, 'python-backend/stage_view.py:signal_measure', 'src/webview/runtime/figureModel.ts:stageNames'],
-            from: 'words', trace: '単位で決まる指標（sone・acum・asper）はその名前、手順の量（view.measure）は実効値・時間重み付き実効値・パワー、ほかは信号の単位の振幅（amplitudeAxisTitle）。dB の時間変化は何のレベルか（timeLevelTitle、measure はバックエンドが dB でも送る）をファイルの基準で書く。「値」とは書かない。',
+            from: 'words', trace: '単位で決まる指標（sone・acum・asper）はその名前、手順の量（view.measure と view.measureExponent、単位と同じたどりで決まる）は実効値・時間重み付き実効値・パワー・「振幅の p 乗」、手順のない信号は信号の単位の振幅（amplitudeAxisTitle）。dB の時間変化は何のレベルか（timeLevelTitle、measure はバックエンドが dB でも送る）をファイルの基準で書く。「値」とは書かない（量も単位も分からないと送られた measure: "unknown" だけは「値 [単位不明]」）。',
             tests: [
                 t('src/test/axisNames.test.ts', 'every axis a picture is drawn on names its quantity and unit, whatever it measures, with or without a unit, Δ or not (R4)'),
                 t('src/test/stagePanes.test.ts', 'a metric or level over time names what it measures on its value axis, never a bare value or an amplitude in dB (R4)'),
+                t('src/test/axisNames.test.ts', 'a signal after operations is named by the quantity and the unit the backend sent: a power by its exponent, an unknown chain as a value of unknown unit, never an amplitude it is not (R4)'),
                 t('python-backend/test_stage_view.py', 'test_a_time_signal_names_the_measure_a_step_made_of_it'),
             ],
             names: { quantity: true, unit: true },

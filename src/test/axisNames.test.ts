@@ -18,12 +18,14 @@ const LOCALES = ['en', 'ja'] as const;
  * Strings named like an axis that are not a whole axis name: the quantity a producer below puts its unit after
  * (metricAxisName, amplitudeAxisTitle), and the words for an unknown unit. Every other axis string names its unit.
  */
-const FRAGMENTS = new Set<keyof UiStrings>(['axisLoudness', 'axisSharpness', 'axisRoughness', 'axisSpecificRoughness', 'axisLevelOf', 'axisRms', 'axisRmsTimeWeighted', 'axisPower', 'axisUncalibrated', 'axisUnitUnknown']);
+const FRAGMENTS = new Set<keyof UiStrings>(['axisLoudness', 'axisSharpness', 'axisRoughness', 'axisSpecificRoughness', 'axisLevelOf', 'axisRms', 'axisRmsTimeWeighted', 'axisPower', 'axisRaised', 'axisQuantityUnknown', 'axisUncalibrated', 'axisUnitUnknown']);
 /** Axis names whose key does not say so: the pair view's plots and the values the distribution's value axis takes. */
 const NAMED_ELSEWHERE: Array<keyof UiStrings> = ['pairPhaseLabel', 'pairCoherenceLabel', 'dsLeq', 'dsPeak', 'dsCrest', 'dsBand'];
 
 /** Words that name no quantity: an axis called "Value [Pa]" says only its unit (R4). */
 const NO_QUANTITY = new Set(LOCALES.flatMap(locale => [getStrings(locale).dsValue, 'Value', '値']));
+/** The one place a value names no quantity: with its unit not known either ("Value [unit unknown]", R4). */
+const UNIT_UNKNOWN = new Set(LOCALES.map(locale => getStrings(locale).axisUnitUnknown));
 
 /** The words for an amplitude, in each language (the waveform's axis, in its signal's unit). */
 const AMPLITUDE = LOCALES.map(locale => getStrings(locale).waveRangeAxisAmplitude);
@@ -32,7 +34,7 @@ const named = (where: string, name: string | undefined): void => {
     const parts = axisNameParts(name ?? '');
     assert.ok(parts && parts.quantity.trim() && parts.unit.trim(), `${where}: "${name}" names no quantity and unit in closing brackets`);
     const quantity = parts.quantity.replace(/^Δ\s*/u, '').trim();
-    assert.ok(!NO_QUANTITY.has(quantity), `${where}: "${name}" names no quantity, only that it is a value`);
+    assert.ok(!NO_QUANTITY.has(quantity) || UNIT_UNKNOWN.has(parts.unit.trim()), `${where}: "${name}" names no quantity, only that it is a value: a value is named so only when its unit is not known either (R4)`);
     // A quantity in dB is a level (of what, where that is known), never an amplitude (R4, C5).
     if (/^dB/u.test(parts.unit.trim())) assert.ok(!AMPLITUDE.some(word => quantity.includes(word)), `${where}: "${name}" is in dB, so it is a level, not an amplitude`);
 };
@@ -58,10 +60,10 @@ const views = (): StageView[] => {
     const units = [undefined, 'sone', 'acum', 'asper', 'asper/Bark', 'dB re 1 FS', 'Pa'];
     const lines = xs.flatMap(x => quantities.flatMap(quantity => units.map((unit): StageView => ({ frame: 'SpectralFrame', kind: 'line', x, xScale: 'linear', quantity, ...(unit ? { unit } : {}), xs: [1, 2], values: [0, 1] }))));
     const pairs = lines.flatMap((view): StageView[] => [{ ...view, pair: { output: 2, input: 1 } }, { ...view, pair: { output: 1, input: 1, base: true } }]);
-    const measures = (['rms', 'timeWeightedRms', 'power'] as const).flatMap((measure): StageView[] => [
-        { frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'value', unit: 'Pa', measure, xs: [0, 1], values: [1, 2] },
-        { frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'level', unit: 'dB re 1 input unit', measure, xs: [0, 1], values: [1, 2] },
-    ]);
+    const measures = (['amplitude', 'rms', 'timeWeightedRms', 'power', 'unknown'] as const).flatMap((measure): StageView[] => [undefined, 3].flatMap((measureExponent): StageView[] => [
+        { frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'value', unit: measure === 'unknown' ? '' : 'Pa', measure, ...(measureExponent ? { measureExponent } : {}), xs: [0, 1], values: [1, 2] },
+        { frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'level', unit: measure === 'unknown' ? '' : 'dB re 1 input unit', measure, xs: [0, 1], values: [1, 2] },
+    ]));
     const waveforms = ['Pa', ''].map((unit): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', xs: [0, 1], waveform: { min: [0], max: [1], minT: [0], maxT: [1], absolutePeak: 1, unit, ref: 1 } }));
     const events: StageView = { frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xs: [0, 1], values: [0, 1] };
     const heatmaps = (['level', 'roughness', 'cepstrum', 'value'] as const).flatMap(quantity => (['frequency', 'bark', 'quefrency'] as const).flatMap(yAxis => [undefined, 'asper'].map((unit): StageView => ({ frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', quantity, yAxis, ...(unit ? { unit } : {}), xs: [0, 1], ys: [1, 2], matrix: [[0, 0], [0, 0]] }))));
@@ -88,8 +90,10 @@ test('every axis a picture is drawn on names its quantity and unit, whatever it 
         assert.equal(axisNameParts(stageAxes(strings, { frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'value', xs: [0, 1], values: [1, 2] }, { ...calibrated, unit: '', fullScale: true, calibrationStatus: 'uncalibrated' }).y)?.unit, strings.axisUnitUnknown);
         // A lane's amplitude axis names its file's channel unit, and full scale for an uncalibrated file of none.
         assert.equal(axisNameParts(amplitudeAxisTitle(strings, '', { ...calibrated, unit: '', fullScale: true, calibrationStatus: 'uncalibrated' }))?.unit, 'FS');
-        for (const measure of [undefined, 'rms', 'timeWeightedRms', 'power'] as const) {
-            for (const input of [undefined, calibrated]) named(`${locale} amplitude ${measure}`, amplitudeAxisTitle(strings, input?.unit, input, measure));
+        for (const measure of [undefined, 'amplitude', 'rms', 'timeWeightedRms', 'power', 'unknown'] as const) {
+            for (const input of [undefined, calibrated]) {
+                for (const exponent of [undefined, 3]) named(`${locale} amplitude ${measure}^${exponent ?? 1}`, amplitudeAxisTitle(strings, input?.unit, input, measure, false, exponent));
+            }
         }
         for (const input of [undefined, calibrated]) {
             const { level, delta } = paneAxes(strings, input);
@@ -102,19 +106,33 @@ test('every axis a picture is drawn on names its quantity and unit, whatever it 
 });
 
 /**
- * The units the backend sends after a chain of operations (stage_view.signal_unit; the same table is
- * test_stage_view.py's test_the_unit_of_a_signal_after_operations_is_walked_through_its_history): the webview writes
- * each as given, on the axis and in the readout, and adds nothing to it.
+ * The unit and the quantity the backend sends after a chain of operations (stage_view.signal_unit and
+ * signal_measure, one walk; the same rows are test_stage_view.py's
+ * test_the_unit_of_a_signal_after_operations_is_walked_through_its_history), and the axis name the webview makes of
+ * them in each language: the unit as given, the quantity the steps made (R4).
  */
-const SENT_UNITS: Array<{ chain: string; unit: string; measure?: StageView['measure'] }> = [
-    { chain: 'power(2)', unit: 'Pa\u00b2', measure: 'power' },
-    { chain: 'power(3)', unit: 'Pa\u00b3' },
-    { chain: 'abs → power(0.5)', unit: 'Pa^0.5' },
-    { chain: 'rms_trend → power(2)', unit: 'Pa\u00b2' },
-    { chain: 'power(2) → rms_trend', unit: 'Pa\u00b2' },
-    { chain: 'rms_trend', unit: 'Pa', measure: 'rms' },
-    { chain: 'normalize (its effect on the unit not known)', unit: '' },
+const SENT_UNITS: Array<{ chain: string; unit: string; measure?: StageView['measure']; measureExponent?: number; en: string; ja: string }> = [
+    { chain: 'power(2)', unit: 'Pa\u00b2', measure: 'power', en: 'Power [Pa\u00b2]', ja: 'パワー [Pa\u00b2]' },
+    { chain: 'power(3)', unit: 'Pa\u00b3', measure: 'amplitude', measureExponent: 3, en: 'Amplitude^3 [Pa\u00b3]', ja: '振幅の 3 乗 [Pa\u00b3]' },
+    { chain: 'lowpass → resampling → power(3)', unit: 'Pa\u00b3', measure: 'amplitude', measureExponent: 3, en: 'Amplitude^3 [Pa\u00b3]', ja: '振幅の 3 乗 [Pa\u00b3]' },
+    { chain: 'abs → power(0.5)', unit: 'Pa^0.5', measure: 'amplitude', measureExponent: 0.5, en: 'Amplitude^0.5 [Pa^0.5]', ja: '振幅の 0.5 乗 [Pa^0.5]' },
+    { chain: 'power(2) → power(0.5)', unit: 'Pa', en: 'Amplitude [Pa]', ja: '振幅 [Pa]' },
+    { chain: 'rms_trend → power(2)', unit: 'Pa\u00b2', measure: 'rms', measureExponent: 2, en: 'RMS^2 [Pa\u00b2]', ja: '実効値の 2 乗 [Pa\u00b2]' },
+    { chain: 'power(2) → rms_trend', unit: 'Pa\u00b2', measure: 'rms', en: 'RMS [Pa\u00b2]', ja: '実効値 [Pa\u00b2]' },
+    { chain: 'rms_trend', unit: 'Pa', measure: 'rms', en: 'RMS [Pa]', ja: '実効値 [Pa]' },
+    { chain: 'scaled by 2', unit: 'Pa', en: 'Amplitude [Pa]', ja: '振幅 [Pa]' },
+    { chain: 'normalize (its effect on the unit and the quantity not known)', unit: '', measure: 'unknown', en: 'Value [unit unknown]', ja: '値 [単位不明]' },
 ];
+
+test('a signal after operations is named by the quantity and the unit the backend sent: a power by its exponent, an unknown chain as a value of unknown unit, never an amplitude it is not (R4)', () => {
+    for (const row of SENT_UNITS) {
+        const series: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: row.unit, xs: [0, 1, 2], values: [0.25, 0.5, 0.75], ...(row.measure ? { measure: row.measure } : {}), ...(row.measureExponent ? { measureExponent: row.measureExponent } : {}) };
+        for (const locale of LOCALES) {
+            assert.equal(stageAxes(getStrings(locale), series, calibrated).y, row[locale], `${locale} ${row.chain}: the value axis is "${stageAxes(getStrings(locale), series, calibrated).y}", not "${row[locale]}". `
+                + 'The quantity comes from view.measure and view.measureExponent (stage_view.signal_measure); stagePanes.amplitudeAxisTitle turns them into words (axisRaised, axisQuantityUnknown in strings.ts). Never fall back to "Amplitude" for a measure the backend sent (R4).');
+        }
+    }
+});
 
 test('the axis name and the readout of a signal after operations carry the same unit, the one the backend sent, and none where it sent none (R4, R7)', () => {
     const strings = getStrings('en');

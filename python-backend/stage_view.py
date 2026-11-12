@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, fields
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any, Literal, NamedTuple, NotRequired, TypedDict
 
 import numpy as np
 from wandas.frames import (
@@ -109,8 +109,12 @@ class StageView(TypedDict):
     pair: NotRequired[StagePair]
     #: A picture of only part of its axes, at the Frame's full resolution (a zoomed comparison's StageDetail).
     detail: NotRequired[bool]
-    #: What a time signal's values are when a step made them from the sound (SIGNAL_MEASURES), for its axis's name.
-    measure: NotRequired[Literal["rms", "timeWeightedRms", "power"]]
+    #: What a time signal's values are when steps made them from the sound (signal_measure), for its axis's name: a
+    #: windowed RMS, a time-weighted one, the squared signal, the amplitude or an RMS raised to ``measureExponent``,
+    #: or ``unknown`` where the effect of an operation on the quantity (and so on the unit) is not known.
+    measure: NotRequired[Literal["amplitude", "rms", "timeWeightedRms", "power", "unknown"]]
+    #: The power ``measure`` is raised to (amplitude^3 after power(3)); sent only when it is not 1.
+    measureExponent: NotRequired[float]
     #: A time signal's own waveform, as the track lanes draw it: per bucket its minimum and maximum, each at the
     #: time it occurred (s into the file). ``values`` keep the samples' min/max line; the Δ is taken sample by sample.
     waveform: NotRequired[StageWaveform]
@@ -672,13 +676,14 @@ def samples_waveform(reading: FrameReading, first: int, last: int, unit: str, re
     }
 
 
-#: What a time signal's values are when a step made them from the sound, for its value axis to name: a root mean
-#: square over a window, a time-weighted one (Fast, Slow), or the squared signal.
-Measure = Literal["rms", "timeWeightedRms", "power"]
+#: What a time signal's values are when steps made them from the sound, for its value axis to name: the amplitude
+#: (raised to a power), a root mean square over a window, a time-weighted one (Fast, Slow), the squared signal, or
+#: not known. The webview's figure model turns it into the axis's words (stagePanes.amplitudeAxisTitle).
+Measure = Literal["amplitude", "rms", "timeWeightedRms", "power", "unknown"]
+#: The steps that make a measure of what they were given: its values are that measure, whatever came before.
 SIGNAL_MEASURES: dict[str, Measure] = {
     "wandas.audio.rms_trend": "rms",
     "wandas.audio.sound_level": "timeWeightedRms",
-    "wandas.audio.power": "power",
 }
 
 
@@ -774,47 +779,79 @@ def _powered(unit: str, exponent: float) -> str | None:
     return f"{base}^{exponent:g}"
 
 
-def _walked_unit(frame: object) -> str | None:
-    """The unit of ``frame``'s values, walked through its operation history from the unit wandas gives its channel,
-    or None where an operation's effect on the unit is not known (signal_unit).
+class _Walk(NamedTuple):
+    """What signal_unit's walk found: the unit and the power it is raised to, and the quantity (``base`` raised to
+    ``power``, from the last step that measured it) with whether that step gave a level in dB."""
 
-    wandas keeps the channel's unit on a power (``Pa`` for the squared signal), so the walk raises it; it names the
-    unit itself after a calibration, an integral or a level in dB, from the values it was given, which is right only
-    when no power came before. A metric's values are in its own unit (METRIC_SERIES_UNITS), whatever came before.
+    unit: str
+    exponent: float
+    base: Measure
+    power: float
+    in_db: bool
+
+
+def _walk(frame: object) -> _Walk | None:
+    """The unit and the quantity of ``frame``'s values, walked through its operation history from the unit wandas
+    gives its channel, or None where an operation's effect on the unit is not known (signal_unit, signal_measure).
+
+    One walk decides both, so the axis never names a quantity of another unit. wandas keeps the channel's unit on a
+    power (``Pa`` for the squared signal), so the walk raises it; it names the unit itself after a calibration, an
+    integral or a level in dB, from the values it was given, which is right only when no power came before. A
+    metric's values are in its own unit (METRIC_SERIES_UNITS), whatever came before.
+
+    The quantity: an amplitude to start with. rms_trend and sound_level make their measure of whatever they were
+    given (an RMS of a power is an RMS, in the power's unit); a power raises the quantity as it raises the unit; an
+    integral is a new signal's amplitude, in its unit; a metric is a new signal named by its unit. Every operation
+    that keeps the unit (UNIT_KEEPING_OPERATIONS, a gain or an offset, a calibration) keeps the quantity.
     """
     history = list(getattr(frame, "operation_history", None) or [])
     channels = getattr(frame, "channels", None) or []
     unit = str(channels[0].unit or "") if channels else ""
     exponent = 1.0
+    base: Measure = "amplitude"
+    power = 1.0
+    in_db = False
     for item in history:
         operation = str(item.get("operation", ""))
         raw = item.get("params")
         params: dict[str, Any] = raw if isinstance(raw, dict) else {}
         if METRIC_SERIES_UNITS.get(operation):
             unit, exponent = METRIC_SERIES_UNITS[operation], 1.0
-        elif operation in ("wandas.audio.rms_trend", "wandas.audio.sound_level"):
+            base, power, in_db = "amplitude", 1.0, False
+        elif operation in SIGNAL_MEASURES:
             # A root mean square keeps the unit of what it was taken of; a level in dB is wandas' (re its ref).
             if params.get("dB"):
                 if exponent != 1:
                     return None
                 exponent = 1.0
+            base, power, in_db = SIGNAL_MEASURES[operation], 1.0, bool(params.get("dB"))
         elif operation == "wandas.audio.power":
             exponent *= float(params.get("exponent", 2.0))
+            power *= float(params.get("exponent", 2.0))
         elif operation == "wandas.operator.power" and isinstance(params.get("operand"), (int, float)):
             exponent *= float(params["operand"])
+            power *= float(params["operand"])
         elif operation in UNIT_NAMING_OPERATIONS:
             # A unit given with the step (integrate(unit=...)) is the user's word for the result; one wandas infers
             # or a calibration's factor holds only for values in the channel's own unit.
             if exponent != 1 and not (operation == "wandas.audio.integrate" and params.get("unit")):
                 return None
             exponent = 1.0
+            if operation == "wandas.audio.integrate":
+                base, power, in_db = "amplitude", 1.0, False
         elif _operator_keeps_unit(operation, params):
             continue
         elif operation not in UNIT_KEEPING_OPERATIONS:
             return None
     if not channels:
         return None
-    return _powered(unit, exponent)
+    return _Walk(unit, exponent, base, power, in_db)
+
+
+def _walked_unit(frame: object) -> str | None:
+    """The unit of ``frame``'s values (_walk), or None where an operation's effect on it is not known."""
+    walk = _walk(frame)
+    return None if walk is None else _powered(walk.unit, walk.exponent)
 
 
 def signal_unit(frame: object) -> str:
@@ -822,37 +859,43 @@ def signal_unit(frame: object) -> str:
 
     The one place the unit of a signal is made: the axis name, the readout, the legend, the CSV and the report take
     it as sent and never edit it. ``""`` where the effect of an operation on the unit is not known (normalize, a
-    product of two signals, an inferred integral of a power): no unit is claimed, and signal_measure names none.
+    product of two signals, an inferred integral of a power): no unit is claimed, and signal_measure says the
+    quantity is not known either.
     """
     return _walked_unit(frame) or ""
 
 
-def signal_measure(frame: ChannelFrame, in_db: bool = False) -> Measure | None:
-    """What rms_trend, sound_level or power made `frame`'s values (SIGNAL_MEASURES), or None.
+def signal_measure(frame: ChannelFrame, in_db: bool = False) -> tuple[Measure, float] | None:
+    """What the steps made `frame`'s values (a measure and the power it is raised to), from signal_unit's walk, or
+    None for the sound's own amplitude (and a level no step names), which the axis names without a measure.
 
-    None where the name would be wrong: a power other than the square is not in the unit squared; and one of them
-    after another (an RMS of a power) is in neither's unit. Those are drawn as an amplitude, as before. A level in dB
-    (`in_db`) is the level of the RMS it was made from: named by it, its unit the level's (a power in dB is not one).
+    The square of the amplitude is the power; the amplitude to another power is ``amplitude`` raised (Pa³ is
+    "Amplitude^3"); an RMS of a power is an RMS, in the power's unit. ``unknown`` wherever the walk cannot tell the
+    unit: the axis then claims neither a quantity nor a unit ("Value [unit unknown]"), never "Amplitude". A level in
+    dB (`in_db`) is the level of the RMS it was made from, named by it.
     """
-    if _walked_unit(frame) is None:
+    walk = _walk(frame)
+    if walk is None or _powered(walk.unit, walk.exponent) is None:
+        return ("unknown", 1.0)
+    if in_db:
+        return (walk.base, 1.0) if walk.in_db and walk.power == 1 and walk.base != "amplitude" else None
+    if walk.in_db:
+        # A level in dB drawn as values (no longer in a dB unit): no measure of the sound names it.
         return None
-    found: list[tuple[str, dict]] = []
-    for item in reversed(frame.operation_history):
-        operation = str(item.get("operation", ""))
-        if operation in SIGNAL_MEASURES:
-            params = item.get("params")
-            found.append((operation, params if isinstance(params, dict) else {}))
-        elif operation in METRIC_SERIES_UNITS:
-            # A metric (loudness, …) is its own quantity: what came before it does not name its values.
-            break
-    if len(found) != 1:
+    if walk.base == "amplitude" and walk.power == 2:
+        return ("power", 1.0)
+    if walk.base == "amplitude" and walk.power == 1:
         return None
-    operation, params = found[0]
-    if bool(params.get("dB")) != in_db or (
-        operation == "wandas.audio.power" and (in_db or params.get("exponent", 2.0) != 2.0)
-    ):
-        return None
-    return SIGNAL_MEASURES[operation]
+    return (walk.base, walk.power)
+
+
+def _set_measure(view: StageView, measured: tuple[Measure, float] | None) -> None:
+    """Write signal_measure's answer on a picture: the measure, and its power when that is not 1."""
+    if measured is None:
+        return
+    view["measure"] = measured[0]
+    if measured[1] != 1:
+        view["measureExponent"] = measured[1]
 
 
 def _in_db(frame: ChannelFrame) -> bool:
@@ -885,9 +928,7 @@ def _channel_view(frame: ChannelFrame, reading: FrameReading) -> StageView:
             "values": _json(floored_db(values)),
         }
         # The level of what: an RMS over a window, or a time-weighted one, for its axis to name (never "amplitude").
-        level_of = signal_measure(frame, in_db=True)
-        if level_of:
-            level["measure"] = level_of
+        _set_measure(level, signal_measure(frame, in_db=True))
         return level
     if reading.mode == "series":
         # A metric (loudness at 500 Hz, …) is its own values however long or short the region: never a level of them.
@@ -902,8 +943,7 @@ def _channel_view(frame: ChannelFrame, reading: FrameReading) -> StageView:
             "xs": _axis(xs),
             "values": _json(values),
         }
-        if measure:
-            series["measure"] = measure
+        _set_measure(series, measure)
         return series
     # The sound itself, as wandas gives it, however few samples it has: drawn as its waveform and compared sample by
     # sample (a difference is compare − base, a ChannelFrame subtraction). The comparison makes no level of it: a
@@ -922,8 +962,7 @@ def _channel_view(frame: ChannelFrame, reading: FrameReading) -> StageView:
         "values": _json(values),
         "waveform": samples_waveform(reading, 0, count, unit, reading.ref, WAVEFORM_OVERVIEW_POINTS),
     }
-    if measure:
-        view["measure"] = measure
+    _set_measure(view, measure)
     return view
 
 
