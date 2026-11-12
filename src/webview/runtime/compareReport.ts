@@ -13,7 +13,7 @@ import { baseLevelColumns, baseLevelOf, calibrationWordsBy, channelAnswer, level
 import { setMedian, bandsSource, binsSource, binsView, deltaViews, diffHeadline, levelsHeadline, sideView, type CompareModel, type CompareStrings, type LevelInput } from './comparePanes';
 import { SECONDARY_AXIS_DASH } from './overlaySpectrumPainter';
 import { paintOverlay } from './stagePanes';
-import type { InlineFullSource } from './fullRead';
+import { gapsLine, type InlineFullSource } from './fullRead';
 import { secondsSpanText } from '../plot/plotText';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
@@ -168,7 +168,7 @@ export function remeasured(row: DerivedRow, whole: ScanAnswer, wholeBase: readon
     const set = figureUsed(scanIdentity(compared), base);
     const middle = set.n === base.length ? setMedian(set) : null;
     if (!middle) return null;
-    return { ...row, result: compared.value, base: { ...row.base, leq: middle.leq, bands: middle.bands, paths: [...set.paths], level: baseLevelOf(set) }, recipeKey, stale: false };
+    return { ...row, result: compared.value, base: { ...row.base, leq: middle.leq, bands: [...middle.bands], paths: [...set.paths], level: baseLevelOf(set) }, recipeKey, stale: false };
 }
 
 /**
@@ -444,7 +444,7 @@ export function paintOverlayFigure(canvas: HTMLCanvasElement, comparison: Compar
     const color = ROLE_COLORS[slot] ?? ROLE_COLORS[1];
     const level = reportLevelAxes(comparison, input, strings, { base, compare });
     // Ordered by every bin (or every band, which the figure draws whole), never the points thinned to draw (R6).
-    const fullOf = (which: 'base' | 'compare'): InlineFullSource => (bins?.[which] ? binsSource(bins, which) : null) ?? bandsSource(comparison[which]?.bands ?? [], comparison.frequencies);
+    const fullOf = (which: 'base' | 'compare'): InlineFullSource => (bins?.[which] ? binsSource(bins, which) : null) ?? bandsSource(comparison[which]?.bands ?? gapsLine(), comparison.frequencies);
     const baseLayers = base ? [{ view: base, color: ROLE_COLORS[0], width: 2, full: fullOf('base') }] : [];
     const compareLayers = compare ? [{ view: compare, color, width: 2, full: fullOf('compare'), ...(level.right ? { dash: SECONDARY_AXIS_DASH } : {}) }] : [];
     // Levels of another reference are drawn on the right-hand axis, by their own range (never the left one's numbers).

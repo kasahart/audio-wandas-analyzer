@@ -1,5 +1,5 @@
 import type { UiStrings } from '../../shared/i18n/strings';
-import type { Whole } from '../../shared/provenance';
+import type { WholeLine } from '../../shared/provenance';
 import { pairWhole } from './wholeAnswers';
 import type { PairSpectrumPublication } from '../../shared/session/comparisonSessionController';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
@@ -8,7 +8,7 @@ import type { FrequencyScale } from '../draw/canvasDrawers';
 import { hintAttr } from './hintFooter';
 import { levelBinsOf, type StageLayer } from './stagePanes';
 import { dataRange, gainAxisLines, gainAxisName, gainUnit, plainNames, plainRange, plainTitle, type FigureNames, type FigureRange } from './figureModel';
-import { localLine, computedWhole } from './fullRead';
+import { computedLine, localLine } from './fullRead';
 import { secondsSpanText } from '../plot/plotText';
 import type { TrackId } from './types';
 
@@ -162,7 +162,7 @@ export function pairLanes(input: PairPaintInput, visible: FrequencyScale, string
     const drawn = drawnPairCurves(input.curves);
     const xs = Array.from({ length: input.frequencyBins }, (_, bin) => binFrequency(input, bin));
     const shown = xs.flatMap((hz, bin) => (hz >= visible.frequencyMin && hz <= visible.frequencyMax ? [bin] : []));
-    const lines = (values: (response: PairSpectrumResponse) => readonly (Whole | null)[], quantity: StageView['quantity'], unit: string): StageLayer[] =>
+    const lines = (values: (response: PairSpectrumResponse) => WholeLine, quantity: StageView['quantity'], unit: string): StageLayer[] =>
         drawn.map(curve => ({
             view: {
                 frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity, unit, xs, values: [...values(curve.response)],
@@ -173,12 +173,12 @@ export function pairLanes(input: PairPaintInput, visible: FrequencyScale, string
             color: curve.color,
             label: curve.label,
             // Read from every bin of the response, which the webview holds (R7).
-            full: localLine(xs, [...values(curve.response)]),
+            full: localLine(xs, values(curve.response)),
             ...(curve.dashed ? { dash: [4, 2] } : {}),
         }));
     return [
         { key: 'gain', axes: plainNames(plainTitle(strings, 'axisFrequency'), gainAxisName(drawn[0]?.response, strings)), range: gainRange(drawn, shown), layers: lines(response => pairWhole(response, 'gainDb'), 'gain', gainUnit(drawn[0]?.response)) },
-        { key: 'phase', axes: plainNames(plainTitle(strings, 'axisFrequency'), plainTitle(strings, 'pairPhaseLabel')), range: plainRange(-180, 180), layers: lines(response => pairWhole(response, 'phaseRad').map(value => computedWhole([value], value === null ? null : value * DEGREES)), 'value', '°') },
+        { key: 'phase', axes: plainNames(plainTitle(strings, 'axisFrequency'), plainTitle(strings, 'pairPhaseLabel')), range: plainRange(-180, 180), layers: lines(response => { const radians = pairWhole(response, 'phaseRad'); return computedLine([radians], bin => { const value = radians[bin]; return value === null ? null : value * DEGREES; }); }, 'value', '°') },
         { key: 'coherence', axes: plainNames(plainTitle(strings, 'axisFrequency'), plainTitle(strings, 'pairCoherenceLabel')), range: plainRange(0, 1), layers: lines(response => pairWhole(response, 'coherence'), 'coherence', 'γ²') },
     ];
 }

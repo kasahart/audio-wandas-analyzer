@@ -15,7 +15,7 @@
  */
 import { answerKey, createAnswerStore, type AnswerKey } from './answerStore';
 import type { StagePoints, StageRead } from '../../shared/protocol/backendProtocol';
-import type { Whole } from '../../shared/provenance';
+import type { Derived, Whole, WholeLine } from '../../shared/provenance';
 import { claimMint } from '../../shared/wholeMint';
 
 /** This module's mint (wholeMint.ts): claimed once, used only in this file's readers, never handed on. */
@@ -100,8 +100,12 @@ export function valuePower(value: number, square: boolean): number {
     return square ? value * value : value <= -250 ? 0 : 10 ** (value / 10);
 }
 
-/** The mean power of `values` (over ascending `xs`) between x0 and x1, every finite value taken (LevelQuery). */
-export function levelOfValues(xs: ArrayLike<number>, values: ArrayLike<number | null>, query: LevelQuery): LevelSum {
+/**
+ * The mean power of a whole line's `values` (over ascending `xs`) between x0 and x1, every finite value taken
+ * (LevelQuery). Not exported: a level of the full data is read through a source's `level`, which only a line held
+ * whole (localLine) or the backend gives.
+ */
+function levelOfValues(xs: ArrayLike<number>, values: WholeLine, query: LevelQuery): LevelSum {
     const low = Math.min(query.x0, query.x1), high = Math.max(query.x0, query.x1);
     let power = 0, count = 0, peak = 0;
     for (let index = firstFrom(xs, low), n = Math.min(xs.length, values.length); index < n && xs[index] <= high; index++) {
@@ -111,7 +115,7 @@ export function levelOfValues(xs: ArrayLike<number>, values: ArrayLike<number | 
         peak = Math.max(peak, Math.abs(value));
         count += 1;
     }
-    // The caller holds every value (see localLine): their mean, and a signal's peak, are of the full data.
+    // `values` is every value (a WholeLine): their mean, and a signal's peak, are of the full data.
     return { power: mint.value(count ? power / count : 0), count, ...(query.square ? { peak: mint.value(peak) } : {}) };
 }
 
@@ -172,7 +176,7 @@ export function heldCells(xs: readonly number[], ys: readonly number[], matrix: 
  * never from the points drawn, so a picture made in the webview carries one or has no range of its own.
  * `floored`: of a level, whose silent floor (−300 dB) is no value.
  */
-export function heldValueRange(values: Iterable<number | null>, floored: boolean): { valueRange?: { min: number; max: number } } {
+export function heldValueRange(values: WholeLine, floored: boolean): { valueRange?: { min: number; max: number } } {
     let min = Infinity, max = -Infinity;
     for (const value of values) {
         if (value === null || !Number.isFinite(value) || (floored && value <= -250)) continue;
@@ -217,7 +221,8 @@ type Held = 'inline' | 'fetched' | 'none';
 /**
  * A full-data source. Only this module makes one (`fullSource`, `NO_FULL_DATA`): the class is not exported and
  * `made` is protected, so an object literal, or a spread of another source (`{ ...source, line }`), is not a source
- * to the compiler. That is what keeps "a source that reads nothing" to the one named value.
+ * to the compiler. That is what keeps "a source that reads nothing" to the named values (NO_FULL_DATA, and
+ * PENDING_FULL_DATA for a stand-in's wait).
  */
 class Source<H extends Held> implements FullSourceReads {
     protected readonly made = true;
@@ -253,9 +258,20 @@ export type FullRead = FullSource;
 /**
  * "No full data", by name: the source of a layer whose caller has none to give. Every read is unavailable, so the
  * layer reads no number (R7), and the plot marks it (`data-plot-full="missing: …"`), which every ui-smoke test
- * fails (canvasAudit.ts). It is the only source that reads nothing: `fullSource` refuses to make another.
+ * fails (canvasAudit.ts). It is the only source with no full data: `fullSource` refuses to make another, and a read
+ * that can only fail (answer null) fails provenanceBoundary.test.ts (empty-read).
  */
 export const NO_FULL_DATA: NoFullSource = new Source('none', {});
+
+/**
+ * "Its full data is on its way", by name: the source of a stand-in drawn while the real picture is being made (the
+ * cursor spectrum before its slice is in). Every read stays pending (the cursor's marks, no number, R7) and its level
+ * is judged once it is in (R6); the real picture, drawn when it comes, brings its own source. It reads nothing, as
+ * NO_FULL_DATA does, but says so as "not yet" where the plot shows a wait. It is the only other source whose reads
+ * answer nothing: a read that can only fail (null) is no read anywhere, and a read that can only wait is made here
+ * alone (provenanceBoundary.test.ts, empty-read).
+ */
+export const PENDING_FULL_DATA: FetchedFullSource = new Source('fetched', { line: () => undefined, level: () => undefined });
 
 /** Whether a source has any read: false of `NO_FULL_DATA` only. */
 export const readsFullData = (source: FullSource): source is InlineFullSource | FetchedFullSource => source.held !== 'none';
@@ -327,15 +343,35 @@ function seekIn(xs: readonly Whole[], values: readonly (Whole | null)[], n: numb
 }
 
 /**
- * A number the webview computed of full data (a Δ of two bins, a mean over channels, a median over recordings), as
- * full data itself. `from` is what it was computed of, and must be whole: a thinned point (`Drawn`) or a plain
- * number cannot be given, so a value with no full data behind it cannot be made whole here. What this does not
- * check is the arithmetic: that `value` really was computed of `from` is for the reader of the call.
+ * A number the webview computed of full data (a Δ of two bins, a mean over channels), as full data itself, typed
+ * `Derived`. `from` is what it was computed of: at least one whole value (an empty list does not compile), so a
+ * number with no full data behind it cannot be made whole here, and neither can a thinned point (`Drawn`) or a plain
+ * number. What this does not check is the arithmetic: that `value` really was computed of `from` is for the reader
+ * of the call. For a whole line computed value by value, use computedLine.
  */
-export function computedWhole(from: ReadonlyArray<Whole | null | undefined>, value: number): Whole;
-export function computedWhole(from: ReadonlyArray<Whole | null | undefined>, value: number | null): Whole | null;
-export function computedWhole(_from: ReadonlyArray<Whole | null | undefined>, value: number | null): Whole | null {
-    return value === null ? null : mint.value(value);
+export function computedWhole(_from: readonly [Whole, ...Array<Whole | null | undefined>], value: number): Derived {
+    return mint.derived(value);
+}
+
+/**
+ * A line computed value by value of whole lines (the Δ of two spectra bin by bin, the median of several recordings'
+ * bins, the mean over channels): `each(index)` is the value at `index`, or null for a gap. It is every value because
+ * it has one for every index of the lines it is computed of: as long as the first of `from`, or `length` values
+ * where the lines are known to be that long (the 1/3-octave bands). `from` holds at least one line.
+ * As computedWhole, it does not check the arithmetic.
+ */
+export function computedLine(from: readonly [WholeLine, ...WholeLine[]], each: (index: number) => number, length?: number): WholeLine<Whole>;
+export function computedLine(from: readonly [WholeLine, ...WholeLine[]], each: (index: number) => number | null, length?: number): WholeLine;
+export function computedLine(from: readonly [WholeLine, ...WholeLine[]], each: (index: number) => number | null, length: number = from[0].length): WholeLine {
+    return mint.line(Array.from({ length }, (_, index) => each(index)));
+}
+
+/** The full data of a line that has no point at all (an axis drawn alone, a slice with no bins): read, it answers nothing. */
+export const NO_POINTS: InlineFullSource = localLine([], mint.line([]));
+
+/** A line of `length` gaps and no value: what stands where there is no data (no scan, nothing to compare). */
+export function gapsLine(length = 0): WholeLine {
+    return mint.line(new Array<null>(length).fill(null));
 }
 
 /**
@@ -345,18 +381,19 @@ export function computedWhole(_from: ReadonlyArray<Whole | null | undefined>, va
  * listed in provenanceBoundary.test.ts (LAYOUT_MODULES) may call this: a measured value never goes through here.
  */
 export function layoutLine(xs: readonly number[], ys: readonly (number | null)[]): InlineFullSource {
-    return localLine(xs, mint.valuesOrGaps(ys));
+    return localLine(xs, mint.line(ys));
 }
 
 /**
  * A line the webview holds every point of (ascending `xs`): its full data, read as the backend reads one.
  *
- * Calling this is the claim "these arrays are every value, none thinned": what it answers is `Whole`. A picture's
- * points cannot be passed (`Drawn` is not a number, provenance.ts); bars the backend sends whole go through
- * wholeAnswers.ts `wholeBars`.
+ * `values` is a `WholeLine`: every value of the line, which only its producers make (provenance.ts). A picture's
+ * points, plain numbers, and a filtered or sliced array of whole values do not compile. A line shorter on screen
+ * than its values (bands up to Nyquist) is given the whole line and the shorter `xs`: only the values that have a
+ * place are read. `held` are the places the values sit at, which the caller lays out (bin × spacing, band centres).
  */
-export function localLine(held: readonly number[], heldValues: readonly (Whole | null)[]): InlineFullSource {
-    const xs = mint.values(held), values: readonly (Whole | null)[] = heldValues;
+export function localLine(held: readonly number[], values: WholeLine): InlineFullSource {
+    const xs = mint.values(held);
     return fullSource('inline', {
         line(query) {
             const n = Math.min(xs.length, values.length);
@@ -373,8 +410,8 @@ export function localLine(held: readonly number[], heldValues: readonly (Whole |
  * An image the webview holds every cell of: `matrix` rows over ascending `ys`, columns over ascending `xs`. As with
  * localLine, calling it is the claim that the cells are every one, none thinned.
  */
-export function localCells(heldXs: readonly number[], heldYs: readonly number[], heldMatrix: ReadonlyArray<ReadonlyArray<Whole | null>>, rowNames?: readonly string[]): InlineFullSource {
-    const xs = mint.values(heldXs), ys = mint.values(heldYs), matrix: ReadonlyArray<ReadonlyArray<Whole | null>> = heldMatrix;
+export function localCells(heldXs: readonly number[], heldYs: readonly number[], matrix: ReadonlyArray<WholeLine>, rowNames?: readonly string[]): InlineFullSource {
+    const xs = mint.values(heldXs), ys = mint.values(heldYs);
     const nearest = (axis: readonly number[], value: number): number => {
         const at = Math.max(1, Math.min(axis.length - 1, firstFrom(axis, value)));
         return axis.length < 2 ? 0 : Math.abs(axis[at - 1] - value) <= Math.abs(axis[at] - value) ? at - 1 : at;

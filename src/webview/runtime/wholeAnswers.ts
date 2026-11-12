@@ -8,7 +8,7 @@
  */
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
 import type { PairSpectrumResponse } from '../../shared/protocol/generated/backendProtocolSchema';
-import type { Drawn, Whole } from '../../shared/provenance';
+import type { Drawn, Whole, WholeLine } from '../../shared/provenance';
 import { claimMint } from '../../shared/wholeMint';
 import { localLine, type InlineFullSource } from './fullRead';
 
@@ -45,7 +45,7 @@ export function backendPeak(view: StageView): { x: Whole; y?: Whole; value: Whol
  * unless it cut it for display, which it marks with `frequenciesHz`. null for a cut slice and for a stand-in (drawn
  * while the real slice is on its way: none of its values is a bin). What a slice's readout, order and CSV take.
  */
-export function everyBin(slice: { values: readonly Drawn[]; frequenciesHz?: readonly number[]; bandCentersHz?: readonly number[]; standIn?: string }): Whole[] | null {
+export function everyBin(slice: { values: readonly Drawn[]; frequenciesHz?: readonly number[]; bandCentersHz?: readonly number[]; standIn?: string }): WholeLine<Whole> | null {
     if (slice.standIn) return null;
     if (slice.frequenciesHz && !slice.bandCentersHz?.length) return null;
     return mint.everyBin(slice.values);

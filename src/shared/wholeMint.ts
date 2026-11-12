@@ -14,11 +14,15 @@
  * In tests, src/test/helpers/whole.ts makes a `Whole` of a made-up number. Product code cannot use it.
  */
 import type { WholeFields } from './protocol/generated/backendProtocolSchema';
-import type { Drawn, Whole } from './provenance';
+import type { Derived, Drawn, Whole, WholeLine } from './provenance';
 
 /** fullRead.ts's mint: values the webview holds every one of (a full read's reply, an array a caller held whole). */
 export interface HeldMint {
     value(held: number): Whole;
+    /** A number computed of whole values (fullRead.ts computedWhole). */
+    derived(computed: number): Derived;
+    /** A line that is every value: one made value by value of whole lines, or layout numbers (fullRead.ts). */
+    line<V extends number | null>(held: readonly V[]): WholeLine<V extends number ? Whole : Whole | null>;
     values(held: readonly number[]): Whole[];
     valuesOrGaps(held: readonly (number | null)[]): (Whole | null)[];
     rows(held: ReadonlyArray<ReadonlyArray<number | null>>): (Whole | null)[][];
@@ -28,7 +32,9 @@ export interface HeldMint {
 type NumberFields<T> = { [K in keyof T]-?: NonNullable<T[K]> extends number ? K : never }[keyof T];
 
 /** `T` with its numbers as `Whole`: an array (of arrays) of numbers and gaps. */
-type Wholed<T> = T extends number ? Whole : T extends ReadonlyArray<infer Item> ? Wholed<Item>[] : T;
+type Wholed<T> = T extends number ? Whole
+    : T extends ReadonlyArray<infer Item> ? ([Item] extends [number] ? WholeLine<Whole> : [Item] extends [number | null] ? WholeLine : Wholed<Item>[])
+    : T;
 
 /** wholeAnswers.ts's mint: it takes a backend answer and says which part is full, never a bare number. */
 export interface AnswerMint {
@@ -47,9 +53,9 @@ export interface AnswerMint {
      * An array typed `Drawn` that is every value after all (a 'bar' picture's bands). The caller checks that
      * condition first and says so in its comment.
      */
-    everyValue(values: readonly (Drawn | null)[]): (Whole | null)[];
+    everyValue(values: readonly (Drawn | null)[]): WholeLine;
     /** The same for an array without gaps (a slice the backend did not cut for display). */
-    everyBin(values: readonly Drawn[]): Whole[];
+    everyBin(values: readonly Drawn[]): WholeLine<Whole>;
 }
 
 interface Mints { fullRead: HeldMint; wholeAnswers: AnswerMint }
@@ -59,6 +65,8 @@ interface Mints { fullRead: HeldMint; wholeAnswers: AnswerMint }
 const unclaimed: Partial<Mints> = {
     fullRead: {
         value: held => held as Whole,
+        derived: computed => computed as Derived,
+        line: held => held as never,
         values: held => held as Whole[],
         valuesOrGaps: held => held as (Whole | null)[],
         rows: held => held as (Whole | null)[][],
@@ -66,8 +74,8 @@ const unclaimed: Partial<Mints> = {
     wholeAnswers: {
         field: (answer, name) => answer[name] as Whole,
         every: (_definition, answer, name) => answer[name] as never,
-        everyValue: values => values as (Whole | null)[],
-        everyBin: values => values as Whole[],
+        everyValue: values => values as unknown as WholeLine,
+        everyBin: values => values as unknown as WholeLine<Whole>,
     },
 };
 

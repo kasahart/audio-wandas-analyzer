@@ -328,6 +328,9 @@ test('a lane whose file changed after it was analysed stops asking, says so, and
     await expect(button).toBeVisible();
     await expect.poll(() => page.evaluate(() => (window as unknown as { __drawnText: Array<{ id: string; text: string }> }).__drawnText
         .filter((entry) => entry.id.startsWith('track-spec-canvas-0')).map((entry) => entry.text))).toContain(strings.sourceChangedLane);
+    // Its waveform stays drawn of the old version, and nothing is read of it: the plot gives no readout (R7).
+    await expect(page.locator('#track-canvas-0')).toHaveAttribute('data-plot-full', 'none');
+    await expect(page.locator('#track-canvas-1')).toHaveAttribute('data-plot-full', 'declared');
     await expect(page.locator('#track-row-1 [data-action="reanalyze-changed"]')).toBeHidden();
     const before = await asked();
     // Past the store's pause a passing failure would be asked again; this one is not.

@@ -23,7 +23,7 @@ import { readoutText, type AxisTick, type Palette } from '../../shared/gui-core/
 import { axisName, axisNameParts, fitAxisTitle, fontPixels, scaledFont } from '../plot/axisTitle';
 import { HEATMAP_DB_SPAN, heatmapDbRange, niceRange, niceTicks } from '../../shared/utils/ticks';
 import { amountText, barkText, frequencyText, lagText, levelText, quefrencyText, secondsText, signedText, spacingDecimals, stepText, withMinus } from '../plot/plotText';
-import type { Whole } from '../../shared/provenance';
+import type { Whole, WholeLine } from '../../shared/provenance';
 import { drawableLine, drawableRows } from '../../shared/drawnPoints';
 import { backendPeak } from './wholeAnswers';
 import { axisMeasure, cellEdgeValues, cellEdges, cellIndex, readsFullData, STEP_AHEAD, type FullPoints, type FullRead, type FullSource, type LevelAnswer, cannotRead } from './fullRead';
@@ -452,7 +452,7 @@ export function screenLevels(layers: readonly StageLayer[], axisView: Pick<Stage
  * A line's levelBins (see byLevel) from the values it has before thinning, for a line the webview holds in full (the
  * cursor spectrum's slice): its dB values' power in `bins` stretches of `span` on its axis, silence as no power.
  */
-export function levelBinsOf(xs: ArrayLike<number>, values: ArrayLike<number | null>, span: readonly [number, number], log: boolean, bins = 256): NonNullable<StageView['levelBins']> {
+export function levelBinsOf(xs: ArrayLike<number>, values: WholeLine, span: readonly [number, number], log: boolean, bins = 256): NonNullable<StageView['levelBins']> {
     const [low, high] = log ? [Math.max(span[0], Number.MIN_VALUE), span[1]] : span;
     const edges = Array.from({ length: bins + 1 }, (_, i) => (log && low > 0 && high > low ? low * (high / low) ** (i / bins) : low + (high - low) * (i / bins)));
     const power = new Array<number>(bins).fill(0), count = new Array<number>(bins).fill(0);

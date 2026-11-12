@@ -198,23 +198,30 @@ drawn), `x-whole` (every value) or `x-place` (where values sit: frequencies, tim
 `python-backend/test_protocol_schema.py` fails on an array that says none.
 
 If the webview already holds every value (a band table, every bin of a scan), no backend change is needed: hold it
-with `localLine(xs, values)`. `values` must be `Whole`, so they can only come from one of the adapters above, or be
-computed of such values with `computedWhole(from, value)` (a Δ of two bins, a median over recordings). Plain numbers
-and a picture's points do not compile:
+with `localLine(xs, line)`. `line` must be a `WholeLine` (`src/shared/provenance.ts`): every value of the line, which
+is a stronger claim than "each value is whole". Only the producers make one: the adapters above, and
+`computedLine(from, each)`, which computes a line value by value of whole lines and is as long as they are (a Δ of
+two spectra, a median over recordings). One number computed of whole values is `computedWhole(from, value)`; its
+type is `Derived`, and `from` holds at least one whole value. Plain numbers, a picture's points, and a filtered or
+sliced array of whole values do not compile:
 
 <!-- guide-check file=src/webview/runtime/kurtosisHeld.ts
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { Whole } from '../../shared/provenance';
-import { computedWhole, localLine } from './fullRead';
+import type { Derived, WholeLine } from '../../shared/provenance';
+import { computedLine, computedWhole, localLine } from './fullRead';
 declare const xs: number[];
-declare const base: Whole[];
-declare const compared: Whole[];
+declare const base: WholeLine<Whole>;
+declare const compared: WholeLine<Whole>;
 declare const view: StageView & { values: NonNullable<StageView['values']> };
 -->
 ```ts
-export const delta = localLine(xs, base.map((value, bin) => computedWhole([value, compared[bin]], compared[bin] - value)));
-export const plain = localLine(xs, [1, 2, 3]);       // error: number is not Whole
-export const points = localLine(xs, view.values);    // error: Drawn is not Whole
+export const delta = localLine(xs, computedLine([compared, base], bin => compared[bin] - base[bin]));
+export const first: Derived = computedWhole([compared[0], base[0]], compared[0] - base[0]);
+export const plain = localLine(xs, [1, 2, 3]);                     // error: plain numbers are not a WholeLine
+export const points = localLine(xs, view.values);                  // error: drawn points are not a WholeLine
+export const some = localLine(xs, base.filter(value => value > 0)); // error: a filtered line is no longer every value
+export const none = computedWhole([], 123);                        // error: computed of nothing
 ```
 
 ### The value's type says where it came from
@@ -237,8 +244,8 @@ Read the value through the layer's `FullSource` instead (`layer.full.line(...)` 
 are `Whole`). Arithmetic on whole values gives a plain number: a Δ or a mean that a user reads is computed by the
 backend, or in the webview from whole values and then named whole with `computedWhole` (above).
 
-A number becomes a `Whole` only in `fullRead.ts` (a full read's points; `computedWhole`; the places of a line or
-cells held whole, `localLine` / `localCells` / `heldCells`) and in `wholeAnswers.ts` (a backend field the protocol
+A number becomes a `Whole` only in `fullRead.ts` (a full read's points; `computedWhole` and `computedLine`; the
+places of a line or cells held whole, `localLine` / `localCells` / `heldCells`) and in `wholeAnswers.ts` (a backend field the protocol
 says is taken of every value, one named function per field). There is no function that turns a number into a `Whole`: each
 of these two modules claims the mint once as it loads (`claimMint`, `src/shared/wholeMint.ts`), a second claim
 throws, and `src/test/provenanceBoundary.test.ts` fails on any other use of the mint, on a holder handing it on, on
@@ -404,9 +411,21 @@ They close the routes we know. They do not make a wrong number impossible. Know 
   listed fails. A function already listed can still draw by hand next to the plot component, and the static scan
   does not stop that. The real-browser audit does, for every chart a UI test shows ("Adding a canvas or an SVG"):
   that audit, not the scan, is the guarantee. A chart that no UI test shows is covered by neither.
-- **`computedWhole` trusts the arithmetic.** It takes the whole values a number was computed of, so a thinned point
-  or a plain number cannot be named whole through it. It does not check that the number really was computed of
-  them. Read each call.
+- **`computedWhole` and `computedLine` trust the arithmetic.** They take the whole values (or lines) a number was
+  computed of, at least one, so a thinned point, a plain number or nothing at all cannot be named whole through
+  them. They do not check that the number really was computed of them. The result's type (`Derived`, or a
+  `WholeLine` made by `computedLine`) lets you find every call; read each one.
+- **The places of a held line are the caller's.** `localLine(xs, line)` takes the line as a `WholeLine` but its
+  `xs` as plain numbers (bin × spacing, the band centres): where each value sits is laid out by the caller and is
+  not checked against the backend.
+- **A read is judged by what it returns, not by what it does.** A source's read whose every `return` (or whose
+  type, for a read passed on from elsewhere) can only be null fails the boundary test, and so does one that can only
+  answer "on its way" outside `fullRead.ts`; the boundary test reads the function's returns, so typing it
+  `FullAnswer` does not hide it. A layer with no full data passes `NO_FULL_DATA`; a picture that must not be read at
+  all (a lane whose file changed since it was analysed) is painted with `readout: false`; a stand-in whose real
+  picture is on its way passes `PENDING_FULL_DATA`. What is not found: a read that can answer points on some path but
+  in practice never does (its condition never holds), or a fetch callback (`fetchedSource`) that always answers
+  null.
 - **`layoutLine` takes plain numbers.** It exists for numbers a figure is laid out with (a histogram's counts, the
   height a dot is stacked at). Only the modules in `LAYOUT_MODULES` (`provenanceBoundary.test.ts`) may call it, and
   the list is the review point: a measured value must never go through it.

@@ -9,7 +9,7 @@ import { BAND_CENTERS_HZ, type EntryRow } from './entryTable';
 import { FULL_PLOT_WINDOW, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { paintOverlay, type StagePlot } from './stagePanes';
 import { heldCells, type InlineFullSource, fullSource } from './fullRead';
-import type { Whole } from '../../shared/provenance';
+import type { WholeLine } from '../../shared/provenance';
 import { emptyFigure, heatmapRange, levelTitle, plainNames, plainTitle, type FigureRange } from './figureModel';
 
 /** The strip's margins: its row axis at the left, the frequency axis below, the colour bar inside the plot's top right. */
@@ -36,7 +36,7 @@ const NO_WORD: RowWord = () => '';
  */
 export function overviewPicture(
     rows: ReadonlyArray<OverviewRow>,
-    bands: ReadonlyMap<string, (Whole | null)[]>,
+    bands: ReadonlyMap<string, WholeLine>,
     window: PlotWindow,
     lines: number,
     wordOf: RowWord = NO_WORD,
@@ -111,7 +111,7 @@ const fileName = (filePath: string): string => filePath.split(/[\\/]/).at(-1) ??
  * The strip's every cell, one per table row and band, which the pointer reads (R7): a picture row holding several
  * table rows (their extremes) is only drawn; the readout names the one table row under the pointer and its level.
  */
-export function overviewCells(rows: ReadonlyArray<OverviewRow>, bands: ReadonlyMap<string, (Whole | null)[]>, wordOf: RowWord = NO_WORD): InlineFullSource {
+export function overviewCells(rows: ReadonlyArray<OverviewRow>, bands: ReadonlyMap<string, WholeLine>, wordOf: RowWord = NO_WORD): InlineFullSource {
     return fullSource('inline', {
         cells(query) {
             const n = rows.length;
@@ -154,7 +154,7 @@ export function paintOverview(
     canvas: HTMLCanvasElement,
     strings: Pick<UiStrings, 'axisBand' | 'axisEntryRows' | 'axisLevelCal' | 'axisLevelUncal'>,
     rows: ReadonlyArray<OverviewRow>,
-    bands: ReadonlyMap<string, (Whole | null)[]>,
+    bands: ReadonlyMap<string, WholeLine>,
     visible: { first: number; last: number },
     /** The focused table row's key (rowKey), marked on the strip. */
     focused: string | null,

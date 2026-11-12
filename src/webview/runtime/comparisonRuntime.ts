@@ -4,7 +4,7 @@ import { laneWaveformOverlay, onColourBar, paintTrackSpectrogram, type Spectrogr
 import { laneReadoutText, spectrogramReadoutText } from './trackLaneHover';
 import { createLaneReads, type LaneTrack } from './laneReads';
 import type { FullSource } from './fullRead';
-import { fullSource } from './fullRead';
+import { NO_FULL_DATA } from './fullRead';
 import { stageBasis } from './stageSource';
 import { hidePlotReadout, PLOT_READOUT_ID } from './plotHover';
 import { secondsText, withMinus } from '../plot/plotText';
@@ -1558,8 +1558,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const [x0, x1] = region && length > 0 ? [region.start / length, region.end / length] : [0, 1];
                 channelsForResult(result).forEach((_channel, index) => {
                     if (picked.length && !picked.includes(index)) return;
-                    // A file changed since it was analysed has no full data to read (changedSource): its peak is unknown.
-                    windows.push({ filePath: result.filePath, full: laneTrackFull(record.protocolIndex, track => laneReads.waveform(track, index)) ?? changedSource, x0, x1 });
+                    // A file changed since it was analysed has no full data to read (laneTrack): its peak is unknown.
+                    windows.push({ filePath: result.filePath, full: laneTrackFull(record.protocolIndex, track => laneReads.waveform(track, index)) ?? NO_FULL_DATA, x0, x1 });
                 });
             }
             // Nothing on screen waits for the answer: the bar reads it again when a trigger is added, so no redraw is asked.
@@ -1621,7 +1621,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const baseLabel = definition.kind === 'file' ? definition.file ?? baseName(data.slots[0] ?? '') : entryScreen.baseTitle(comparePath, groupBase, source);
             entryScreen.addDerived({
                 parentPath: comparePath, ...(channel ? { ch: channel } : {}), region: regionLabel(region), result, recipeKey: recipeKey(data.runRecipe),
-                base: { leq: comparison.base.leq, bands: comparison.base.bands, label: baseLabel, paths: [...used.paths], definition, level: baseLevelOf(comparison.baseSet) },
+                base: { leq: comparison.base.leq, bands: [...comparison.base.bands], label: baseLabel, paths: [...used.paths], definition, level: baseLevelOf(comparison.baseSet) },
             });
             return null;
         },
@@ -2161,12 +2161,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             stftSignature: result.stftSignature,
             analysisId, settingsSignature: currentSettingsSignature() } : null;
     }
-    /** The full data of a lane whose file changed after it was analysed: every read gives no number (R7), none is asked. */
-    const changedSource: FullSource = fullSource('fetched', { line: () => null, level: () => null, cells: () => null });
+    /**
+     * A lane's full data, or none for a track no read names (laneTrack): a file changed since it was analysed. Its
+     * lanes still show the pictures drawn of the old version, with no readout (laneReadable), so no number is read.
+     */
     function laneTrackFull(trackIndex: number, read: (track: LaneTrack) => FullSource): FullSource | undefined {
-        if (trackRecordAtIndex(trackIndex)?.sourceChanged) return changedSource;
         const track = laneTrack(trackIndex);
         return track ? read(track) : undefined;
+    }
+    /** Whether a lane gives a readout: not once its file changed since it was analysed (R7: nothing is read of it). */
+    function laneReadable(trackIndex: number): boolean {
+        return !trackRecordAtIndex(trackIndex)?.sourceChanged;
     }
     /** What each lane's plot component drew last (CSS pixels), which the pointer reads through (R7). */
     const lanePlots = new WeakMap<HTMLCanvasElement, StagePlot>();
@@ -2193,6 +2198,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             axisCanvas: options.drawAxis === false ? null : canvasById(document, trackAxisCanvasId(trackIndex, channelIndex)),
             axisView: lane.axisView,
             window: { x: { start: waveformView.start, end: waveformView.end } },
+            ...(laneReadable(trackIndex) ? {} : { readout: false as const }),
             onSignalPoint: (x, y, _value, _time, seen) => {
                 minX = Math.min(minX, x); maxX = Math.max(maxX, x);
                 if (seen) { minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
@@ -2294,7 +2300,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const title = spectrogramLevelTitle(ch);
         const painted = paintTrackSpectrogram(canvas, axisCanvas, spec, { ...trackStore.globalSpan(), offsetNorm: trackStart, trackDurRatio }, {
             window: { start: waveformView.start, end: waveformView.end }, dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq,
-            durationSec: result.durationSeconds,
+            durationSec: result.durationSeconds, ...(laneReadable(trackIndex) ? {} : { readout: false as const }),
         }, spectrogramRasterCache.get(cacheId), { colour: title, frequency: plainTitle(STR, 'axisFrequency'), time: plainTitle(STR, 'axisTime') }, [text, theme.bgColor, theme.lineColor].join(':'),
         laneTrackFull(trackIndex, track => laneReads.spectrogram(track, channelIndex, shown?.window ?? null)));
         spectrogramRasterCache.set(cacheId, painted);

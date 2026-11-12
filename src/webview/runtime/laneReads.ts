@@ -6,17 +6,17 @@
  * ('request-spectrum-slice', fullResolution). Each read has its own slot on the host, so it never cancels the
  * lanes' pictures nor is cancelled by them.
  */
-import type { Drawn, Whole } from '../../shared/provenance';
+import type { Drawn, Whole, WholeLine } from '../../shared/provenance';
 import { everyBin } from './wholeAnswers';
 import type { StagePoints, StageRead } from '../../shared/protocol/backendProtocol';
 import type { SpectrumSliceRequest, TrackDetailRequest, WaveformRangeRequest } from '../../shared/utils/audioTarget';
-import { fetchedSource, localLine, type FullSource, fullSource } from './fullRead';
+import { fetchedSource, localLine, NO_POINTS, type FullSource, fullSource } from './fullRead';
 import { answerKey, createAnswerStore } from './answerStore';
 import { isOfShownVersion } from './lazyResponses';
 
 type ReadRequest = WaveformRangeRequest | TrackDetailRequest | SpectrumSliceRequest;
 /** A slice read at every bin: each channel's values over 0..maxHz. */
-type FullSlice = { values: Map<number, Whole[]>; maxHz: number };
+type FullSlice = { values: Map<number, WholeLine<Whole>>; maxHz: number };
 type ReadAnswer = { points?: StagePoints; slice?: FullSlice } | null;
 
 /** A lane's track as a read names it: its index on the protocol, its file, the file's version and calibration, and the analysis it is drawn from. */
@@ -115,7 +115,7 @@ export function createLaneReads(post: (message: ReadRequest) => void, now: () =>
                 // A slice that failed is not read (null: no number, no other line in its place, R7); one with no bins
                 // for the channel has nothing to read.
                 if (!slice) { if (state === 'failed') wakeOnRetry(ready); return null; }
-                if (!values?.length) return localLine([], []);
+                if (!values?.length) return NO_POINTS;
                 const step = slice.maxHz / Math.max(1, values.length - 1);
                 return localLine(values.map((_, bin) => bin * step), values);
             };
@@ -147,9 +147,9 @@ export function createLaneReads(post: (message: ReadRequest) => void, now: () =>
             }
             // A slice asked for at every bin is whole unless the backend cut it for display after all (it says so with
             // frequenciesHz): then none of it is read (wholeAnswers.everyBin).
-            const whole = (values: Drawn[]): Whole[] => everyBin({ values, ...(answer.frequenciesHz ? { frequenciesHz: answer.frequenciesHz } : {}), ...(answer.bandCentersHz ? { bandCentersHz: answer.bandCentersHz } : {}) }) ?? [];
+            const whole = (values: Drawn[]): WholeLine<Whole> | null => everyBin({ values, ...(answer.frequenciesHz ? { frequenciesHz: answer.frequenciesHz } : {}), ...(answer.bandCentersHz ? { bandCentersHz: answer.bandCentersHz } : {}) });
             if (answer.type === 'spectrum-slice-result') {
-                done({ slice: { maxHz: answer.maxFrequencyHz ?? 0, values: new Map((answer.channels ?? []).map((channel, index) => [channel.channelIndex ?? index, whole(channel.values ?? [])])) } });
+                done({ slice: { maxHz: answer.maxFrequencyHz ?? 0, values: new Map((answer.channels ?? []).flatMap((channel, index) => { const line = whole(channel.values ?? []); return line ? [[channel.channelIndex ?? index, line] as const] : []; })) } });
             } else if (answer.type.endsWith('-error')) done(null);
             else done(answer.points ? { points: answer.points } : null);
             return true;
