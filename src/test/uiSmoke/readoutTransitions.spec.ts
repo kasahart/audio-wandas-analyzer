@@ -909,6 +909,51 @@ const ROWS: Row[] = [
         },
     },
     {
+        // docs/display-rules.md R7, "選んだ点は、それが何であるかで覚える": the recording the keys stepped to is kept by its
+        // key across a redraw, never by its index among the dots, which another recording has once one is taken out.
+        chart: 'entry distribution', event: '→ onto a recording, then a redraw without another recording of the same value: the very recording stepped to is read on', backend: true,
+        async run(page) {
+            await page.setViewportSize({ width: 1280, height: 900 });
+            await openEntry(page, scanned!, { language: 'en' });
+            // The fixture's CSV with two columns added: the first five recordings are lot T and every recording
+            // scores 7, so lot T is five dots of one value.
+            const lines = entry100Metadata().replace(/^﻿/u, '').trimEnd().split(/\r?\n/u);
+            const csv = [`${lines[0]},lot,score`, ...lines.slice(1).map((line, index) => `${line},${index < 5 ? 'T' : 'U'},7`)].join('\n');
+            await pickCsv(page, 'motor.csv', csv);
+            await page.locator('[data-action="entry-value"]').selectOption('csv:score');
+            await page.locator('[data-action="entry-group"]').selectOption('csv:lot');
+            const dotCanvas = page.locator('[data-dist-group="T"] [data-dist-canvas]');
+            const dots = async (): Promise<Array<{ key: string; x: number; y: number }>> => ((await dotCanvas.getAttribute('data-dots')) ?? '').split('\n').filter(Boolean)
+                .map(line => { const [key, x, y] = line.split('\t'); return { key, x: Number(x), y: Number(y) }; });
+            await expect.poll(async () => (await dots()).length, { message: 'lot T is drawn as five dots' }).toBe(5);
+            const drawn = await dots();
+            const text = (): Promise<string> => dotCanvas.evaluate(canvas => (canvas as HTMLElement & { __plotRead?: { text?: string } | null }).__plotRead?.text ?? '');
+            const at = (await dotCanvas.boundingBox())!;
+            await page.mouse.move(at.x + drawn[0].x, at.y + drawn[0].y);
+            await readFull(dotCanvas);
+            const first = await text();
+            await page.keyboard.press('ArrowRight');
+            await expect.poll(text, { message: '→ steps onto the next recording of the same value' }).not.toBe(first);
+            const stepped = await text();
+            // The first recording is taken out of the table (the pointer still): the dots are drawn anew, one fewer.
+            // (Every channel's row of it: a recording is in the distribution while any of its rows is in the table.)
+            const recording = drawn[0].key.split('#')[0];
+            for (let rows = 0; rows < 8; rows++) {
+                const taken = await page.evaluate(file => {
+                    const button = Array.from(document.querySelectorAll<HTMLElement>('[data-action="entry-row-exclude"]')).find(candidate => candidate.getAttribute('data-key')?.split('#')[0] === file);
+                    button?.click();
+                    return !!button;
+                }, recording);
+                if (!taken) break;
+                await settled(page);
+            }
+            await expect.poll(async () => (await dots()).length, { message: 'the first recording\'s rows are on screen and Exclude on each takes its dot away (if not, this row must take a recording out another way)' }).toBe(4);
+            await settled(page);
+            expect(await text(), 'After a redraw the readout kept for the recording stepped to names another recording: it was found again by its index or its x, not by what it is. '
+                + 'Fix: the layer must give StageLayer.identity (entryDistribution.ts: the recording\'s key) and stageReadAgain must look the point up by it (stagePanes.ts identifiedPlace). See docs/display-rules.md R7.').toBe(stepped);
+        },
+    },
+    {
         chart: 'entry distribution', event: 'a double click on a dot resets the zoom only: the table stays on its row', backend: true,
         async run(page) {
             await page.setViewportSize({ width: 1280, height: 900 });
@@ -969,5 +1014,5 @@ test('the browser table holds a row for each chart the readout runs on, by its f
     // Each chart is stepped (→) or zoomed (+) under a still pointer in at least one of its rows.
     for (const chart of CHARTS) expect(ROWS.some(row => row.chart === chart && /→|\+/u.test(row.event)), `${chart}: a step or a zoom`).toBe(true);
     const events = ROWS.map(row => row.event).join(' | ');
-    for (const path of ['scroll', 'Tab', 'then +', 'pending', 'failed', '(a redraw)', 'add up', 'off the window', 'seek', 'double click', 'drag', 'the surface from under', 'double-click wait', 'event-line click', 'header', 'resize', 'no slice drawn yet', 'drag threshold', 'picture is made anew', 'on a dot', 'let go there', 'recordings of the same value']) expect(events, path).toContain(path);
+    for (const path of ['scroll', 'Tab', 'then +', 'pending', 'failed', '(a redraw)', 'add up', 'off the window', 'seek', 'double click', 'drag', 'the surface from under', 'double-click wait', 'event-line click', 'header', 'resize', 'no slice drawn yet', 'drag threshold', 'picture is made anew', 'on a dot', 'let go there', 'recordings of the same value', 'a redraw without another recording']) expect(events, path).toContain(path);
 });
