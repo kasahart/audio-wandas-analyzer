@@ -96,6 +96,7 @@ export interface UiStrings {
     spectrumAnalysisWindow: string;
     spectrumAnalysisWindowPerTrack: string;
     spectrogramLoading: string;
+    spectrogramNone: string;
     spectrogramFailed: string;
     /** Summaries of the backend error kinds; the backend's own text follows as the detail. */
     errorAnalysisSettings: string;
@@ -945,6 +946,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         spectrumAnalysisWindow: 'window',
         spectrumAnalysisWindowPerTrack: 'window differs per track (see the bands)',
         spectrogramLoading: 'Loading spectrogram...',
+        spectrogramNone: 'No spectrogram for this channel',
         spectrogramFailed: 'Spectrogram failed: {reason}',
         errorAnalysisSettings: "These settings don't fit this file (e.g. its length or sample rate). Review the settings, Recipe or region.",
         errorUnreadableFile: 'This file could not be read. Check that it exists and is a supported, undamaged audio or CSV file.',
@@ -1759,6 +1761,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         spectrumAnalysisWindow: '解析窓',
         spectrumAnalysisWindowPerTrack: '解析窓はトラックごとに異なります（帯を参照）',
         spectrogramLoading: 'スペクトログラムを読み込み中...',
+        spectrogramNone: 'このチャンネルのスペクトログラムはありません',
         spectrogramFailed: 'スペクトログラムを計算できませんでした: {reason}',
         errorAnalysisSettings: 'この解析設定はこのファイルに合いません（長さやサンプリングレートなど）。設定・Recipe・区間を見直してください。',
         errorUnreadableFile: 'ファイルを読み込めませんでした。ファイルが存在し、対応形式の壊れていない音声または CSV であることを確認してください。',

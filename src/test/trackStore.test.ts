@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { TrackStore } from '../webview/runtime/trackStore';
+import { createAnswerStore, FAILED_RETRY_MS } from '../webview/runtime/answerStore';
+import { laneDetailState, trackDetailKey, TrackStore } from '../webview/runtime/trackStore';
 import type { ComparisonTrackState, TrackRuntimeState } from '../webview/runtime/types';
 
 function result(filePath: string, peakAbsolute = 0.5): ComparisonTrackState {
@@ -203,12 +204,13 @@ test('a new track without an audio source gets an empty one', () => {
 test('TrackStore lets the remaining tracks ask for a failed spectrogram again when one is taken off', () => {
     const store = new TrackStore([result('/a.wav'), result('/b.wav')], runtime);
     const [aId, bId] = store.activeIds();
-    store.require(bId).detail.fail('STFT exceeds the memory budget', 's');
+    const key = trackDetailKey(store.require(bId).result, 's');
+    store.require(bId).detail.fail(key, 'STFT exceeds the memory budget');
 
     store.remove(aId);
 
-    assert.equal(store.require(bId).detail.holds('s'), false);
-    assert.equal(store.require(bId).detail.failure('s'), undefined);
+    assert.equal(store.require(bId).detail.state(key), 'missing');
+    assert.equal(store.require(bId).detail.reason(key), undefined);
 });
 
 test('TrackStore gives each new track the own colour least in use: a file swapped in again and again never takes the colour of the one kept', () => {
@@ -227,4 +229,64 @@ test('TrackStore gives each new track the own colour least in use: a file swappe
 test('TrackStore gives a file opened twice two colours', () => {
     const store = new TrackStore([result('/same.wav'), result('/same.wav')], runtime);
     assert.deepEqual(store.activeIds().map((id) => store.require(id).runtime.ownColorIndex), [0, 1]);
+});
+
+test('a detail answered without a spectrogram is asked exactly once: the lane says there is none, and asks again only when its key changes (file version, calibration, STFT or window settings); a failure is asked again after the answer store\'s pause', () => {
+    let clock = 0;
+    const detail = createAnswerStore<true>({ capacity: 1, now: () => clock });
+    let asks = 0;
+    let file = { filePath: '/a.wav', sourceVersion: 'v1', calibrationSignature: 'cal-1' };
+    // One drawing of a lane whose channel has no spectrogram, as comparisonRuntime.ts requestTrackDetail and the lane's painter do it.
+    const draw = (settings: string): string => {
+        if (detail.ask(trackDetailKey(file, settings))) asks++;
+        return laneDetailState(detail, trackDetailKey(file, settings));
+    };
+    const fix = 'A lane asks for its detail only when answerStore.ask(trackDetailKey(...)) says so (trackStore.ts). A valid answer without a spectrogram is the answer under its key '
+        + '(docs/display-rules.md R3, "届いた答えに絵がないとき"): record it with detail.empty(key), and never clear the store on the next frame.';
+
+    assert.equal(draw('stft 1024'), 'pending');
+    for (let frame = 0; frame < 100; frame++) assert.equal(draw('stft 1024'), 'pending', fix);
+    assert.equal(asks, 1, `while the answer is on its way the lane asks once. ${fix}`);
+
+    // The valid answer arrives, with no spectrogram for the channel: the store's empty state.
+    detail.empty(trackDetailKey(file, 'stft 1024'));
+    for (let frame = 0; frame < 100; frame++) { clock += 1000; assert.equal(draw('stft 1024'), 'answered', `the lane must show the existing "no data" state (spectrogramNone). ${fix}`); }
+    assert.equal(asks, 1, `an answer without a spectrogram was asked again, though nothing in its key changed (and time alone does not change it). ${fix}`);
+
+    // Other STFT or window settings are another key: asked once.
+    assert.equal(draw('stft 2048'), 'pending');
+    assert.equal(draw('stft 2048'), 'pending');
+    detail.empty(trackDetailKey(file, 'stft 2048'));
+    assert.equal(draw('stft 2048'), 'answered');
+    assert.equal(asks, 2, `a change of the spectrogram settings asks once more. ${fix}`);
+
+    // A new version of the file, or another calibration, is another key: asked once each.
+    file = { ...file, sourceVersion: 'v2' };
+    assert.equal(draw('stft 2048'), 'pending');
+    detail.empty(trackDetailKey(file, 'stft 2048'));
+    assert.equal(draw('stft 2048'), 'answered');
+    file = { ...file, calibrationSignature: 'cal-2' };
+    assert.equal(draw('stft 2048'), 'pending');
+    assert.equal(asks, 4, `a new file version and a new calibration each ask once more. ${fix}`);
+
+    // A failure stands for the store's pause, then is asked again: the only thing time changes.
+    detail.fail(trackDetailKey(file, 'stft 2048'), 'backend busy');
+    assert.equal(draw('stft 2048'), 'failed');
+    assert.equal(detail.reason(trackDetailKey(file, 'stft 2048')), 'backend busy');
+    clock += FAILED_RETRY_MS - 1;
+    assert.equal(draw('stft 2048'), 'failed');
+    clock += 2;
+    assert.equal(draw('stft 2048'), 'pending', 'a failure is asked again once the answer store\'s pause (FAILED_RETRY_MS) is over');
+    assert.equal(asks, 5);
+});
+
+test('touching the spectrogram settings lets go a track\'s detail failure but keeps its empty answer (clearDetailErrors)', () => {
+    const store = new TrackStore([result('/a.wav'), result('/b.wav')], runtime);
+    const [a, b] = store.activeIds().map(id => store.require(id));
+    const keyA = trackDetailKey(a.result, 's'), keyB = trackDetailKey(b.result, 's');
+    a.detail.ask(keyA); a.detail.empty(keyA);
+    b.detail.ask(keyB); b.detail.fail(keyB, 'busy');
+    store.clearDetailErrors();
+    assert.equal(a.detail.state(keyA), 'empty', 'an answer without a spectrogram is kept: asking again would get the same answer (docs/display-rules.md R3)');
+    assert.equal(b.detail.state(keyB), 'missing', 'a failure is let go, so the user\'s touch of the settings asks again');
 });
