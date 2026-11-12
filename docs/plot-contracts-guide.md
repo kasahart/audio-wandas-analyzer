@@ -426,6 +426,12 @@ They close the routes we know. They do not make a wrong number impossible. Know 
   picture is on its way passes `PENDING_FULL_DATA`. What is not found: a read that can answer points on some path but
   in practice never does (its condition never holds), or a fetch callback (`fetchedSource`) that always answers
   null.
+- **Drawn points are opaque by type, their places by name.** Outside the drawing modules, the boundary test refuses
+  `.length`, an index, `.at`, `for … of`, destructuring and spread of any array of `Drawn` wherever it goes (the type
+  follows it), and of a picture's `xs` / `ys` (`PICTURE_PLACES`) read off the picture or through a local `const`.
+  Places handed to a function as a plain `number[]` are no longer followed, and an array of lines or rows (a channel's
+  line, a heatmap row picked whole) is not a point. Methods such as `map` or `filter` are not refused: what they hand
+  their callback is a `Drawn`, which still cannot be computed with.
 - **`layoutLine` takes plain numbers.** It exists for numbers a figure is laid out with (a histogram's counts, the
   height a dot is stacked at). Only the modules in `LAYOUT_MODULES` (`provenanceBoundary.test.ts`) may call it, and
   the list is the review point: a measured value must never go through it.

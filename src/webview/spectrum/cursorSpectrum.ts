@@ -129,8 +129,9 @@ export function extractSpectrumAtCursor(
     const edges = spectrogramTimeBinEdges(spec, dur);
     let timeIndex = edges ? spectrogramTimeBinAt(edges, trackLocalSec / dur) : Math.floor((trackLocalSec / dur) * spec.timeBins);
     timeIndex = Math.max(0, Math.min(spec.timeBins - 1, timeIndex));
+    // A row of frequencyBins values (backendProtocol.ts checks every row has them), so none is empty.
     const values = spec.values[timeIndex];
-    if (!values || values.length === 0) {
+    if (!values) {
         return null;
     }
     return applySpectrumDisplaySettings({

@@ -76,7 +76,10 @@ Two types in `src/shared/provenance.ts` say where a number came from:
   `wholeAnswers.ts` (backend fields the protocol says are taken of every value).
 - **`Drawn`**: a point thinned to be drawn. It is not a `number`: it cannot be added, compared, formatted or passed
   where a number is wanted. Only drawing modules turn it into a number, through `src/shared/drawnPoints.ts`, to
-  place it on a canvas.
+  place it on a canvas. Outside them, an array of drawn points and the places they sit at (a picture's `xs`, `ys`)
+  are not counted, indexed, iterated or spread either: how many points were drawn and where the first and the last
+  sit belong to the thinning. An extent, a count or a value comes from the source (the picture's source axis,
+  `valueRange`, the full data). `src/test/provenanceBoundary.test.ts` (rule 5) fails on such a read.
 
 Which arrays are `Drawn` is stated once, in `python-backend/protocol_schema.py` (`"x-drawn": True`), and generated
 into the TypeScript protocol types. So "a number a user reads never comes from thinned points" is checked by the
