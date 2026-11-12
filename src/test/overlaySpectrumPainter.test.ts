@@ -1,5 +1,5 @@
 import { P, T } from './helpers/figure';
-import { drawableBuckets } from '../shared/drawnPoints';
+import { drawableBuckets, drawableLine } from '../shared/drawnPoints';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { assertNotDrawn, nearestOf, nthAfter } from './fullNotDrawn';
@@ -356,6 +356,22 @@ test('a full-resolution slice is thinned only to be drawn: every bin in a narrow
     // A slice the backend already thinned (it names its frequencies) is drawn as it came.
     const thinned = spectrumLayer({ ...series, slice: { ...slice, bins: undefined, frequenciesHz: every.map((_, bin) => bin) } }, 8192, { frequencyMin: 0, frequencyMax: 8192, buckets: 300 });
     assert.equal(thinned.view.xs?.length, bins);
+});
+
+test('a narrow high peak on the linear frequency axis is drawn at its own pixel: the slice is thinned in equally wide buckets, its axis\'s scale (R2)', () => {
+    // 8193 bins of 1 Hz on the cursor spectrum's linear axis, 300 buckets across: two narrow peaks 60 Hz apart near the
+    // top, about four pixels apart. In log buckets (one about 200 Hz wide there) only the higher one was kept.
+    const bins = 8193;
+    const every = Array.from({ length: bins }, () => -60);
+    every[7100] = -10;
+    every[7160] = -20;
+    const slice = { values: every, bins: every, frequencyBins: bins, maxFrequencyHz: 8192, minDb: -60, maxDb: -10 } as unknown as SpectrumSeries['slice'];
+    const layer = spectrumLayer({ slice, color: '#fff', label: 'a' } as unknown as SpectrumSeries, 8192, { frequencyMin: 0, frequencyMax: 8192, buckets: 300 });
+    const xs = layer.view.xs ?? [], values = drawableLine(layer.view.values ?? []);
+    assert.ok(xs.length <= 2 * 300 + 2, `thinned to draw: ${xs.length} points`);
+    for (const [hz, level] of [[7100, -10], [7160, -20]]) {
+        assert.equal(values[xs.indexOf(hz)], level, `R2 (docs/display-rules.md) broke: the peak at ${hz} Hz is not drawn at its own frequency with its level. A line is thinned in buckets of its axis's own scale: spectrumLayer passes the axis's scale (linear unless the window says log) to comparePanes.minMaxLine.`);
+    }
 });
 
 test('the cursor spectrum orders a slice cut for display by every bin on screen, not by the points kept to draw it (R6, R2)', async () => {

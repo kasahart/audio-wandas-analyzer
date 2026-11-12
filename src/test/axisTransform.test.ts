@@ -8,7 +8,7 @@ import { testLine } from './helpers/whole';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
-import { N, R, T } from './helpers/figure';
+import { NO_VALUE, N, R, T } from './helpers/figure';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { createPlotHoverLayer } from '../webview/runtime/plotHoverLayer';
 import { axisTransform, paintOverlay, type StageLayer } from '../webview/runtime/stagePanes';
@@ -89,7 +89,7 @@ test('a waveform and a level line on the right-hand axis are painted, picked and
         const element = window.document.getElementById('plot') as HTMLElement;
         element.getBoundingClientRect = () => ({ left: 0, top: 0, width: 600, height: 200, right: 600, bottom: 200, x: 0, y: 0, toJSON: () => ({}) });
         const slot = window.document.querySelector<HTMLElement>('.plot-readout');
-        const layer = createPlotHoverLayer(window.document);
+        const layer = createPlotHoverLayer(window.document, NO_VALUE);
         layer.show(element, plot, x, y, slot);
         const read = layer.reading();
         assert.equal(read?.layer.label, 'right', `${item.kind}: the pointer on the right line's drawn point reads it, not the left line ${Math.abs(y - plot.yAt(values(item.left)[5])).toFixed(0)} px away (R14: pick by the line's own axis)`);

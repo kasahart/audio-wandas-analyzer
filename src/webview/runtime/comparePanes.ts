@@ -321,28 +321,54 @@ export function sameCondition(a: ScanResult | undefined, b: ScanResult | undefin
 export const SPECTRUM_LINE_BUCKETS = 640;
 
 /**
- * A line in at most `buckets` log-spaced buckets between `span`: each bucket's lowest and highest value, each at its
- * own x (stage_view.min_max_line), so a peak or a narrow difference keeps its height. Fewer values than two per
- * bucket are all kept; non-finite values and x ≤ 0 are left out.
+ * A line in at most `buckets` buckets between `span`: each bucket's lowest and highest value, each at its own x
+ * (stage_view.min_max_line), so a peak or a narrow difference keeps its height. The buckets are made in the scale of
+ * the axis the line is drawn on (`scale`, the axis's own, never assumed: display rules R2): log-spaced on a log axis,
+ * equally wide on a linear one, so a narrow peak high up a linear axis keeps its own pixel. Fewer values than two
+ * per bucket are all kept; on a log axis x ≤ 0 is off the axis. A non-finite value is a gap, never joined across
+ * (R2): between two points kept with a gap between them, the gap's first point is kept too, as a break (null).
  */
-export function minMaxLine(xs: readonly number[], values: readonly number[], buckets: number, span: readonly [number, number]): { xs: number[]; values: Drawn[] } {
+export function minMaxLine(xs: readonly number[], values: readonly number[], buckets: number, span: readonly [number, number], scale: 'linear' | 'log'): { xs: number[]; values: Array<Drawn | null> } {
     const count = Math.max(1, buckets);
     const [low, high] = [Math.min(...span), Math.max(...span)];
-    const kept: number[] = [];
+    const log = scale === 'log';
+    const kept: number[] = [], gaps: number[] = [];
     for (let index = 0; index < xs.length; index++) {
-        if (xs[index] > 0 && Number.isFinite(values[index]) && xs[index] >= low && xs[index] <= high) kept.push(index);
+        if (!(xs[index] >= low && xs[index] <= high) || (log && !(xs[index] > 0))) continue;
+        (Number.isFinite(values[index]) ? kept : gaps).push(index);
     }
-    if (kept.length <= 2 * count) return { xs: kept.map(index => xs[index]), values: kept.map(index => values[index]) };
-    const ratio = Math.log(high / low);
-    const lowest = new Array<number>(count).fill(-1), highest = new Array<number>(count).fill(-1);
-    for (const index of kept) {
-        const bucket = Math.min(count - 1, Math.max(0, Math.floor(count * Math.log(xs[index] / low) / ratio)));
-        const min = lowest[bucket], max = highest[bucket];
-        if (min < 0 || values[index] < values[min]) lowest[bucket] = index;
-        if (max < 0 || values[index] >= values[max]) highest[bucket] = index;
+    let picked = kept;
+    if (kept.length > 2 * count) {
+        const width = log ? Math.log(high / low) : high - low;
+        const bucketOf = (x: number): number => Math.min(count - 1, Math.max(0, Math.floor(count * (log ? Math.log(x / low) : x - low) / width)));
+        const lowest = new Array<number>(count).fill(-1), highest = new Array<number>(count).fill(-1);
+        for (const index of kept) {
+            const bucket = bucketOf(xs[index]);
+            const min = lowest[bucket], max = highest[bucket];
+            if (min < 0 || values[index] < values[min]) lowest[bucket] = index;
+            if (max < 0 || values[index] >= values[max]) highest[bucket] = index;
+        }
+        picked = [...new Set([...lowest, ...highest].filter(index => index >= 0))].sort((a, b) => a - b);
     }
-    const picked = [...new Set([...lowest, ...highest].filter(index => index >= 0))].sort((a, b) => a - b);
-    return { xs: picked.map(index => xs[index]), values: picked.map(index => values[index]) };
+    const drawn = withBreaks(picked, gaps);
+    return { xs: drawn.map(index => xs[index]), values: drawn.map(index => (Number.isFinite(values[index]) ? values[index] : null)) };
+}
+
+/**
+ * `picked` (ascending indices of points with values) with, between each two of them that have a gap (`gaps`,
+ * ascending) between them, that gap's first index: the break the line is drawn with there (R2, as stage_view._with_breaks).
+ */
+function withBreaks(picked: readonly number[], gaps: readonly number[]): number[] {
+    if (!gaps.length || picked.length < 2) return [...picked];
+    const out: number[] = [];
+    let gap = 0;
+    for (let at = 0; at < picked.length; at++) {
+        out.push(picked[at]);
+        if (at + 1 === picked.length) break;
+        while (gap < gaps.length && gaps[gap] <= picked[at]) gap++;
+        if (gap < gaps.length && gaps[gap] < picked[at + 1]) out.push(gaps[gap]);
+    }
+    return out;
 }
 
 /**
@@ -357,7 +383,8 @@ export function binsView(bins: NonNullable<CompareModel['bins']>, which: 'base' 
         ? [Math.max(bins.hz, Math.min(bounds[0], bounds[1]) - bins.hz), Math.max(bounds[0], bounds[1]) + bins.hz]
         : [SPECTRUM_MIN_HZ, bins.nyquist];
     const xs = values.map((_, bin) => bin * bins.hz);
-    const line = minMaxLine(xs, values, buckets, span);
+    // The comparison's spectra are on a log frequency axis (the view below says so).
+    const line = minMaxLine(xs, values, buckets, span, 'log');
     // The range is every bin's in the span (R1), not the drawn line's; a silent bin (the −300 dB floor) is a gap.
     let min = Infinity, max = -Infinity;
     for (let bin = 0; bin < values.length; bin++) {

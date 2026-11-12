@@ -1,3 +1,4 @@
+import { getStrings } from '../../shared/i18n/strings';
 import type { PaneRange } from '../../webview/runtime/comparePanes';
 import { backendTitle, plainNames, plainRange, plainTitle, type FigureNames, type FigureRange, type FigureTitle, type PlainTitle } from '../../webview/runtime/figureModel';
 import type { StageAxes, StagePlot } from '../../webview/runtime/stagePanes';
@@ -14,3 +15,6 @@ export const P = (title: string): PlainTitle => plainTitle({ axisTime: title }, 
  * pick, the backend's dense window and the read mark take), and `yAt` the mark's place (yOf unless the test holds it).
  */
 export const Y = (yOf: (value: number) => number, pixelsPerUnit: number, yAt: (value: number) => number = yOf): Pick<StagePlot, 'yAt' | 'yOf' | 'pixelsPerUnit'> => ({ yAt, yOf, pixelsPerUnit });
+
+/** The words a test's hover layer writes over a gap of a line (R7): the app's own, so a test reads what a user does. */
+export const NO_VALUE = { noValue: getStrings('en').plotNoValue };

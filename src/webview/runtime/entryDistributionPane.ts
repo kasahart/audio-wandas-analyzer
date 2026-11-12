@@ -102,7 +102,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
     const count = query<HTMLElement>('[data-entry-dist-count]');
     const legend = query<HTMLElement>('[data-entry-dist-legend]');
     const entryBody = query<HTMLElement>('.entry-body');
-    const marks = createPlotHoverLayer(document, '', screen);
+    const marks = createPlotHoverLayer(document, { noValue: strings.plotNoValue }, '', screen);
     let strip = true;
     /** Just folded above the table: its two rows in view go to the compared row's group. */
     let scrollToSlot = false;

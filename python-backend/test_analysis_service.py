@@ -60,7 +60,8 @@ def test_known_tones_keep_physical_frequency_in_live_fft_and_cached_stft(tmp_pat
             cut = n_fft // 2 + 1 > SPECTRUM_DISPLAY_POINT_LIMIT
             assert ("frequenciesHz" in result) == cut
             if cut:
-                assert SPECTRUM_DISPLAY_POINT_LIMIT * 0.8 <= result["frequencyBins"] <= SPECTRUM_DISPLAY_POINT_LIMIT
+                # Within the budget, and using much of it: fewer where the channels' extremes share a bin.
+                assert SPECTRUM_DISPLAY_POINT_LIMIT * 0.5 <= result["frequencyBins"] <= SPECTRUM_DISPLAY_POINT_LIMIT
             else:
                 assert result["frequencyBins"] == n_fft // 2 + 1
             for tone, channel in zip(tones, result["channels"], strict=False):

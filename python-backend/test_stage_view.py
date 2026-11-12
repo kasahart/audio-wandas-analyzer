@@ -12,6 +12,7 @@ from stage_view import (
     LEVEL_SERIES_MIN_SAMPLES,
     QUEFRENCY_POINTS,
     SPECTRUM_LINE_BUCKETS,
+    min_max_line,
     spectrum_line,
     stage_view,
 )
@@ -224,6 +225,78 @@ def test_more_bins_than_the_screen_shows_keep_each_buckets_lowest_and_highest_bi
     assert len(closer["xs"]) <= 400 and max(closer["values"]) == pytest.approx(max(whole["values"]), abs=0.02)
     # Each value is a bin's own level, at that bin's frequency.
     assert set(closer["xs"]) <= {float(f) for f in freqs}
+
+
+_GAP_FIX = (
+    "R2 (docs/display-rules.md) broke: a value that is not finite is a gap, and a line is never joined across it. "
+    "stage_view.min_max_indices keeps, between two drawn points with a gap between them, the gap's first point as a "
+    "break (sent as null); the signal's envelope (decimator.bucket_extremes) draws a bucket holding a gap as one."
+)
+
+
+def _joins_across(xs: list[float], values: list[float | None], gap: tuple[float, float]) -> list[tuple[float, float]]:
+    """The drawn segments between two drawn points with a value whose span reaches into the gap ``gap`` (xs)."""
+    joined = []
+    for (x0, v0), (x1, v1) in zip(zip(xs, values, strict=True), zip(xs[1:], values[1:], strict=True), strict=False):
+        if v0 is not None and v1 is not None and np.isfinite(v0) and np.isfinite(v1) and x0 < gap[1] and x1 > gap[0]:
+            joined.append((x0, x1))
+    return joined
+
+
+@pytest.mark.parametrize("zoom", [None, [1.0, 5.0], [2.4, 2.6], [3.2, 3.3], [2.45, 3.3]])
+def test_a_line_with_a_stretch_of_no_values_is_drawn_with_a_break_there_at_every_zoom(zoom: list[float] | None) -> None:
+    # A signal of 6 s with no value (NaN) from 2.5 s to 3.25 s: drawn whole and zoomed, its line (values) and its
+    # envelope (waveform) break over the gap and are never joined across it.
+    rate = 8000
+    samples = np.sin(np.arange(6 * rate) / 10.0)
+    samples[int(2.5 * rate) : int(3.25 * rate)] = np.nan
+    gap = (2.5 - 1 / rate, 3.25)
+    frame = wd.from_numpy(samples[None, :], sampling_rate=rate)
+    view = stage_view(frame, None, None if zoom is None else {"x": zoom, "points": 600})
+    assert first_violation(DEFINITIONS["StageView"], view) is None
+    xs, values = view["xs"], view["values"]
+    assert not _joins_across(xs, values, gap), f"{_GAP_FIX} Joined: {_joins_across(xs, values, gap)[:3]}"
+    over = [value for x, value in zip(xs, values, strict=True) if gap[0] < x < gap[1]]
+    assert all(value is None for value in over), f"{_GAP_FIX} Over the gap: {over[:5]}"
+    if zoom is None or zoom[0] < gap[0] and zoom[1] > gap[1]:
+        # Drawn on both sides of it, the line has its break there.
+        assert any(x < gap[0] for x in xs) and any(x > gap[1] for x in xs), "the line is drawn on both sides of the gap"
+        assert over, f"{_GAP_FIX} No break is drawn over the gap"
+    waveform = view["waveform"]
+    pairs = sorted(
+        [(t, v) for t, v in zip(waveform["minT"], waveform["min"], strict=True)]
+        + [(t, v) for t, v in zip(waveform["maxT"], waveform["max"], strict=True)],
+        key=lambda pair: pair[0],
+    )
+    assert not _joins_across([t for t, _ in pairs], [v for _, v in pairs], gap), _GAP_FIX
+
+
+@pytest.mark.parametrize("buckets", [4, 16, 64, 400])
+@pytest.mark.parametrize("log", [False, True])
+def test_a_thinned_line_keeps_a_break_at_each_gap_in_either_scale_and_buckets_stay_where_they_are(
+    buckets: int, log: bool
+) -> None:
+    # Two gaps (NaN, then +inf) in a line of 2000 points: in buckets of a linear or a log axis, at every bucket count,
+    # the drawn line breaks at each gap (its first point kept as null) and no two drawn points are joined across one.
+    xs = np.arange(1, 2001, dtype=np.float64)
+    values = np.cos(xs / 7.0)
+    values[400:700] = np.nan
+    values[1500:1503] = np.inf
+    drawn_x, drawn = min_max_line(xs, values, buckets, log, (1.0, 2000.0))
+    sent = [None if not np.isfinite(value) else float(value) for value in drawn]
+    for low, high in [(400, 700), (1500, 1503)]:
+        gap = (float(xs[low - 1]), float(xs[high]))
+        assert not _joins_across(drawn_x.tolist(), sent, gap), f"{_GAP_FIX} Joined across {gap}"
+        both_sides = any(x < gap[0] for x in drawn_x) and any(x > gap[1] for x in drawn_x)
+        assert not both_sides or (
+            float(xs[low]) in drawn_x.tolist() and sent[drawn_x.tolist().index(float(xs[low]))] is None
+        ), f"{_GAP_FIX} The gap from x {xs[low]}, with the line drawn on both sides of it, has no break drawn"
+    if not log and buckets < 1000:
+        # On a linear axis the buckets are over every point (equal in count, so equally wide here): a gap does not
+        # move the buckets after it. The bucket of x 1800 holds the same points with and without the gaps.
+        whole_x, _ = min_max_line(xs, np.cos(xs / 7.0), buckets, False, (1.0, 2000.0))
+        after = [x for x in whole_x.tolist() if x > 1600]
+        assert after == [x for x in drawn_x.tolist() if x > 1600], "a gap moved the linear buckets after it"
 
 
 def test_a_zoom_past_the_frames_nyquist_frequency_draws_no_band_without_bins() -> None:

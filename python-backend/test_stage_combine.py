@@ -97,10 +97,11 @@ def test_a_difference_line_keeps_every_buckets_extremes_at_their_own_places() ->
     assert drawn.size <= 100
     assert drawn.max() == 9.0 and drawn.min() == -4.0
     assert drawn_x[np.argmax(drawn)] == 123 and drawn_x[np.argmin(drawn)] == 777
-    # Log-spaced buckets on a log axis; non-finite values have no point.
+    # Log-spaced buckets on a log axis; a non-finite value is a gap, drawn as a break at its own x (R2).
     values[5] = np.nan
-    log_x, _ = difference_line(xs + 1, values, 50, log=True)
-    assert 6.0 not in log_x
+    log_x, log_values = difference_line(xs + 1, values, 50, log=True)
+    assert 6.0 in log_x and np.isnan(log_values[list(log_x).index(6.0)])
+    assert np.isfinite(np.delete(log_values, list(log_x).index(6.0))).all()
 
 
 def test_a_narrow_difference_is_taken_bin_by_bin_and_kept_when_drawn(signal: wd.ChannelFrame) -> None:

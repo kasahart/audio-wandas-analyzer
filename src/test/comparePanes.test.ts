@@ -329,7 +329,7 @@ test('a line decimated for drawing keeps each bucket\'s lowest and highest value
     const values = xs.map(() => 0);
     values[122] = 9;
     values[776] = -4;
-    const line = minMaxLine(xs, values, 50, [1, 1000]);
+    const line = minMaxLine(xs, values, 50, [1, 1000], 'log');
     assert.ok(line.xs.length <= 100);
     assert.equal(line.xs[line.values.indexOf(9)], 123);
     assert.equal(line.xs[line.values.indexOf(-4)], 777);
@@ -342,7 +342,7 @@ test('the webview thins a spectrum exactly as the backend does: the shared cases
     assert.ok(fixture.cases.length >= 5);
     for (const item of fixture.cases) {
         const xs = Array.from({ length: item.bins }, (_, bin) => bin * item.binHz);
-        const line = minMaxLine(xs, item.values.map(value => value ?? Number.NaN), item.buckets, item.span);
+        const line = minMaxLine(xs, item.values.map(value => value ?? Number.NaN), item.buckets, item.span, 'log');
         assert.deepEqual(line.xs.map(x => Math.round(x / item.binHz)), item.expectedBins, item.name);
     }
 });

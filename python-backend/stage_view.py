@@ -290,24 +290,30 @@ def min_max_indices(
     xs: np.ndarray, values: np.ndarray, buckets: int, log: bool, span: Sequence[float] | None = None
 ) -> np.ndarray:
     """The points of a line to draw in at most ``buckets`` buckets: each bucket's smallest and largest value, each
-    at its own x (the one display decimation of a line over frequency, rule 4 of the unified plot spec). Buckets are
-    log-spaced on a log axis (``log_buckets``), equal in count on a linear one. Non-finite values (and on a log axis,
-    x <= 0) are left out; fewer values than two per bucket are all kept. Of equal values, a bucket's lowest is its
-    first and its highest its last. ``xs`` ascending; indices into it, ascending."""
+    at its own x (the one display decimation of a line, display rules R2). Buckets are made in the axis's own scale:
+    log-spaced on a log axis (``log_buckets``); on a linear one equal in count over every point of the line
+    (decimator.bucket_edges), so equally wide on the evenly spaced axes a linear line has (samples, bins, frames,
+    lags). Of equal values, a bucket's lowest is its first and its highest its last; fewer values than two per
+    bucket are all kept. A non-finite value is a gap, never joined across (R2): between two points kept with a gap
+    between them in the line, the gap's first point is kept too, so its non-finite value is drawn as a break (sent
+    as null). On a log axis x <= 0 is off the axis, not a gap. ``xs`` ascending; indices into it, ascending."""
     buckets = max(1, buckets)
     finite = np.isfinite(values)
     if not log and finite.all():
         # Every value kept on a linear axis (a long signal): each bucket's extremes from views of the values,
         # without arrays of indices as long as the line.
         return _linear_extremes(values, buckets)
-    kept = np.flatnonzero(finite & ((xs > 0) if log else np.ones(xs.size, dtype=bool)))
+    placed = (xs > 0) if log else np.ones(xs.size, dtype=bool)
+    kept = np.flatnonzero(finite & placed)
+    gaps = np.flatnonzero(~finite & placed)
     if kept.size <= 2 * buckets:
-        return kept
+        return _with_breaks(kept, gaps)
     if log:
         bucket = log_buckets(xs[kept], buckets, span)
     else:
-        # On a linear axis, the one bucket rule of every time axis (decimator.bucket_starts).
-        bucket = np.repeat(np.arange(buckets), np.diff(bucket_edges(kept.size, buckets)))
+        # The one bucket rule of every time axis (decimator.bucket_starts), over every point: a gap takes its room
+        # and moves no bucket after it.
+        bucket = np.searchsorted(bucket_edges(values.size, buckets), kept, side="right") - 1
     kept_values = values[kept]
     # The buckets are runs of the ascending xs: each run's extremes by reduceat, in one pass.
     starts = np.flatnonzero(np.r_[True, bucket[1:] != bucket[:-1]])
@@ -316,7 +322,20 @@ def min_max_indices(
     index = np.arange(kept.size)
     first = np.minimum.reduceat(np.where(kept_values == np.repeat(lowest, sizes), index, kept.size), starts)
     last = np.maximum.reduceat(np.where(kept_values == np.repeat(highest, sizes), index, -1), starts)
-    return kept[np.unique(np.concatenate([first, last]))]
+    return _with_breaks(kept[np.unique(np.concatenate([first, last]))], gaps)
+
+
+def _with_breaks(picked: np.ndarray, gaps: np.ndarray) -> np.ndarray:
+    """``picked`` (ascending indices of points with values) with, between each two of them that have a gap of the
+    line (``gaps``, ascending) between them, that gap's first index: the break the line is drawn with there (R2).
+    At most one per two points picked, so a line full of gaps is thinned to no more than twice its points."""
+    if not gaps.size or picked.size < 2:
+        return picked
+    after = np.searchsorted(gaps, picked[:-1], side="right")
+    has = after < gaps.size
+    breaks = gaps[np.minimum(after, gaps.size - 1)]
+    breaks = breaks[has & (breaks < picked[1:])]
+    return np.union1d(picked, breaks)
 
 
 def _linear_extremes(values: np.ndarray, buckets: int) -> np.ndarray:
@@ -341,23 +360,29 @@ def min_max_line(
     return xs[picked], values[picked]
 
 
-def rows_bucket_count(xs: np.ndarray, rows: int, point_limit: int, span: Sequence[float] | None = None) -> int:
-    """The most log buckets whose points fit ``point_limit`` for ``rows`` lines sharing ``xs`` (at most two per row
-    per bucket, and no more than the bucket holds), for rows of finite values (the cursor spectrum's are: wandas
-    floors its dB at -240). A row with missing values keeps its finite ones whole once they are few enough
-    (min_max_indices), which this count does not foresee."""
-    positive = xs[xs > 0]
-    if positive.size == 0:
+def rows_bucket_count(
+    xs: np.ndarray, rows: int, point_limit: int, log: bool, span: Sequence[float] | None = None
+) -> int:
+    """The most buckets, in the axis's own scale as min_max_indices makes them (``log``), whose points fit
+    ``point_limit`` for ``rows`` lines sharing ``xs`` (at most two per row per bucket, and no more than the bucket
+    holds), for rows of finite values (the cursor spectrum's are: wandas floors its dB at -240). A row with missing
+    values keeps its finite ones whole once they are few enough, and a break at each gap (min_max_indices), which
+    this count does not foresee."""
+    placed = xs[xs > 0] if log else xs
+    if placed.size == 0:
         return 1
 
     def points(buckets: int) -> int:
         # As min_max_indices: no more values than two per bucket are all kept.
-        if positive.size <= 2 * buckets:
-            return int(positive.size)
-        sizes = np.bincount(log_buckets(positive, buckets, span), minlength=buckets)
+        if placed.size <= 2 * buckets:
+            return int(placed.size)
+        if log:
+            sizes = np.bincount(log_buckets(placed, buckets, span), minlength=buckets)
+        else:
+            sizes = np.diff(bucket_edges(placed.size, buckets))
         return int(np.minimum(sizes, 2 * max(1, rows)).sum())
 
-    low, high = 1, max(1, positive.size)
+    low, high = 1, max(1, placed.size)
     while low < high:
         middle = (low + high + 1) // 2
         if points(middle) <= point_limit:
@@ -367,11 +392,14 @@ def rows_bucket_count(xs: np.ndarray, rows: int, point_limit: int, span: Sequenc
     return low
 
 
-def min_max_rows(xs: np.ndarray, rows: np.ndarray, buckets: int, span: Sequence[float] | None = None) -> np.ndarray:
+def min_max_rows(
+    xs: np.ndarray, rows: np.ndarray, buckets: int, log: bool, span: Sequence[float] | None = None
+) -> np.ndarray:
     """Lines that share one x list (a recording's channels): the union of every row's extreme points
-    (min_max_indices on a log axis), so each row's line also passes through its real values at the others'
-    extremes. ``rows_bucket_count`` gives the buckets that fit a point budget. Indices into ``xs``, ascending."""
-    return np.unique(np.concatenate([min_max_indices(xs, row, buckets, True, span) for row in rows]))
+    (min_max_indices, in the axis's own scale ``log``), so each row's line also passes through its real values at
+    the others' extremes. ``rows_bucket_count`` gives the buckets that fit a point budget. Indices into ``xs``,
+    ascending."""
+    return np.unique(np.concatenate([min_max_indices(xs, row, buckets, log, span) for row in rows]))
 
 
 def spectrum_line(
@@ -1277,7 +1305,8 @@ def _cepstrogram_view(frame: CepstrogramFrame, reading: FrameReading) -> StageVi
 def _envelope_indices(values: np.ndarray, points: int) -> np.ndarray:
     """Which values of a line on a linear axis are drawn in at most ``points`` points: all of them when they are
     that few, else each bucket's lowest and highest (min_max_indices, whose buckets are ``decimator.bucket_starts``'s,
-    as the lanes' waveforms; non-finite values are then left out). Indices into ``values``, ascending."""
+    as the lanes' waveforms; a gap of non-finite values is then drawn as a break, R2). Indices into ``values``,
+    ascending."""
     if values.size <= points:
         return np.arange(values.size)
     # On a linear axis the buckets are counts of values: min_max_indices needs no xs.

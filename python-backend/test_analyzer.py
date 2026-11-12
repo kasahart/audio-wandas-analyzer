@@ -18,6 +18,7 @@ from analyzer import (
     MeasurementMetadata,
     SpectrogramPayload,
     _build_spectrogram,
+    _cursor_buckets,
     level_scale_metadata,
     min_max_spectrum,
     resample_frequency_bins,
@@ -25,7 +26,8 @@ from analyzer import (
     spectrogram_window_frames,
 )
 from conftest import assert_not_drawn
-from stage_view import log_buckets, min_max_indices, rows_bucket_count
+from decimator import bucket_edges
+from stage_view import min_max_indices, rows_bucket_count
 
 _SCALE = level_scale_metadata(wd.from_numpy(np.zeros((1, 8)), sampling_rate=8).channels[0].level_reference, "STFT")
 
@@ -310,14 +312,19 @@ def test_every_reduced_peak_stays_within_half_a_display_bin(source_bins: int) ->
 
 @pytest.mark.parametrize("bin_count", [2049, 4097, 8193, 32769])
 @pytest.mark.parametrize("channels", [1, 2, 8])
-def test_a_cut_spectrum_fits_the_budget_with_whole_low_bins(bin_count: int, channels: int) -> None:
+def test_a_cut_spectrum_fits_the_budget_in_buckets_equally_wide_on_its_linear_axis(
+    bin_count: int, channels: int
+) -> None:
     rows = np.random.default_rng(bin_count + channels).normal(-60.0, 10.0, size=(channels, bin_count))
     shown, frequencies = min_max_spectrum(rows, 24000.0)
     assert frequencies is not None and shown.shape == (channels, frequencies.size)
     assert frequencies.size <= SPECTRUM_DISPLAY_POINT_LIMIT and np.all(np.diff(frequencies) > 0)
     bins = np.rint(frequencies * (bin_count - 1) / 24000.0).astype(int)
-    # DC and the lowest bins are all drawn (their buckets are under a bin wide); the rest are thinned.
-    assert np.array_equal(bins[:40], np.arange(40))
+    # DC is drawn, and the bins drawn are as dense at the top as at the bottom: the buckets are equally wide on the
+    # cursor spectrum's linear axis (R2), never wider high up as log buckets are.
+    assert bins[0] == 0
+    width = bin_count / _cursor_buckets(bin_count, channels)
+    assert np.max(np.diff(bins)) < 2 * width + 1
 
 
 def test_rows_within_the_display_budget_are_sent_whole() -> None:
@@ -350,20 +357,38 @@ def test_a_cut_row_keeps_each_buckets_lowest_and_highest_bin_as_compare_does() -
     bins = np.rint(frequencies * (bin_count - 1) / 24000.0).astype(int)
     # Every value drawn is a real bin of that channel.
     np.testing.assert_array_equal(shown, rows[:, bins])
-    # Each channel's line holds, per bucket, the bins Compare's decimation (stage_view.min_max_indices) picks.
+    # Each channel's line holds, per bucket, the bins Compare's decimation (stage_view.min_max_indices) picks, in
+    # the scale of the axis the cursor spectrum is drawn on: linear, so the buckets are equally wide (R2).
     freqs = np.arange(bin_count) * (24000.0 / (bin_count - 1))
-    buckets = rows_bucket_count(
-        np.arange(bin_count, dtype=np.float64), 2, SPECTRUM_DISPLAY_POINT_LIMIT - 1, (1.0, bin_count - 1.0)
-    )
+    buckets = rows_bucket_count(np.arange(bin_count, dtype=np.float64), 2, SPECTRUM_DISPLAY_POINT_LIMIT - 1, False)
+    edges = bucket_edges(bin_count, buckets)
     for channel in range(2):
-        picked = min_max_indices(freqs, rows[channel], buckets, True, (freqs[1], freqs[-1]))
+        picked = min_max_indices(freqs, rows[channel], buckets, False)
         assert np.isin(picked, bins).all()
-        bucket = log_buckets(freqs[1:], buckets, (freqs[1], freqs[-1]))
-        for index in np.unique(bucket)[::37]:
-            inside = np.flatnonzero(bucket == index) + 1
-            drawn = np.isin(bins, inside)
-            assert shown[channel, drawn].min() == rows[channel, inside].min()
-            assert shown[channel, drawn].max() == rows[channel, inside].max()
+        for start, end in list(zip(edges[:-1], edges[1:], strict=True))[::37]:
+            drawn = (bins >= start) & (bins < end)
+            assert shown[channel, drawn].min() == rows[channel, start:end].min()
+            assert shown[channel, drawn].max() == rows[channel, start:end].max()
+
+
+def test_a_narrow_high_peak_of_a_cut_row_on_its_linear_axis_is_kept_at_its_own_frequency() -> None:
+    """The cursor spectrum's FFT axis is linear: cut for display, it is thinned in equally wide buckets (R2: buckets
+    in the axis's own scale). Two narrow peaks 100 bins apart near the top, a few pixels apart on that axis, are both
+    drawn at their own bins. In log buckets (one about 600 bins wide there) only the higher one was kept."""
+    bin_count = 32769
+    rows = np.full((1, bin_count), -100.0)
+    peaks = {30100: -10.0, 30200: -20.0}
+    for peak, level in peaks.items():
+        rows[0, peak] = level
+    shown, frequencies = min_max_spectrum(rows, 24000.0)
+    assert frequencies is not None
+    bins = np.rint(frequencies * (bin_count - 1) / 24000.0).astype(int).tolist()
+    for peak, level in peaks.items():
+        assert peak in bins and shown[0, bins.index(peak)] == level, (
+            f"R2 (docs/display-rules.md) broke: the narrow peak at bin {peak} is not drawn at its own frequency and "
+            "level. A line is thinned in buckets of its axis's own scale: the cursor spectrum's linear axis takes "
+            "equally wide buckets (analyzer.min_max_spectrum passes log=False to stage_view.min_max_rows)."
+        )
 
 
 def test_spectrogram_reduction_clamps_silent_power_to_finite_db() -> None:

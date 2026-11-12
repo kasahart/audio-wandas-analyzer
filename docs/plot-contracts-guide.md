@@ -75,7 +75,9 @@ export function paintKurtosis(canvas: HTMLCanvasElement, view: StageView, reader
 import { createPlotHoverLayer } from './plotHoverLayer';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotInteractionDeps, type PlotWindow } from './plotInteraction';
 import type { StagePlot } from './stagePanes';
+import type { UiStrings } from '../../shared/i18n/strings';
 declare const drawn: StagePlot | null;
+declare const strings: UiStrings;
 declare const container: HTMLElement;
 declare const readoutElement: HTMLElement;
 declare let zoomWindow: PlotWindow;
@@ -87,7 +89,7 @@ declare const hideBox: PlotInteractionDeps['hideBox'];
 declare const openAxisRange: PlotInteractionDeps['openAxisRange'];
 -->
 ```ts
-const marks = createPlotHoverLayer(document);                    // the cursor marks and the readout text
+const marks = createPlotHoverLayer(document, { noValue: strings.plotNoValue });  // the cursor marks and the readout text, with the words over a gap (R7)
 attachPlotInteraction(container, document, '[data-kurtosis]', {  // the canvas's selector
     locate,                                                       // the canvas under the pointer and the point on it, or null
     pointOn,                                                      // the same point for a drag that left the canvas

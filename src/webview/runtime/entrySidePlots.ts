@@ -92,7 +92,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
     const { document, strings, screen, side, body, tableWrap, overview, heldCanvas } = deps;
     // The held plot's pointer marks and readout (R7): its readout in its own head row, just above it.
     // In the entry screen: maximized, it is laid over the window above the page, and the marks must be above it.
-    const marks = createPlotHoverLayer(document, '', screen);
+    const marks = createPlotHoverLayer(document, { noValue: strings.plotNoValue }, '', screen);
     let pointer: { plot: HTMLElement; clientX: number; clientY: number } | null = null;
     /** What the strip last drew, for its readout. */
     let overviewDrawn: StagePlot | null = null;

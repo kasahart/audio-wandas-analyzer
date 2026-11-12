@@ -34,6 +34,7 @@ export type PairPanelStrings = PairStrings & {
     pairNoResponses: string;
     pairFailed: string;
     pairFewAveragesHint: string;
+    plotNoValue: string;
 };
 
 export interface PairPanelHost {
@@ -541,7 +542,7 @@ export class PairSpectrumPanel {
     attach(): void {
         const plotsEl = this.doc.getElementById('pair-spectrum-plot');
         if (plotsEl) {
-            this.marks = new Map(PAIR_LANES.map(key => [key, createPlotHoverLayer(this.doc, 'pair-cursor')]));
+            this.marks = new Map(PAIR_LANES.map(key => [key, createPlotHoverLayer(this.doc, { noValue: this.strings.plotNoValue }, 'pair-cursor')]));
             const laneOf = (element: Element): PairLaneKey => (element.getAttribute('data-pair-lane') ?? 'gain') as PairLaneKey;
             attachPlotInteraction(plotsEl, this.doc, '[data-pair-lane]', {
                 locate: (target, clientX, clientY) => {

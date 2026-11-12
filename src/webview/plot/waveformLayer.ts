@@ -6,7 +6,7 @@
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import { drawableLine } from '../../shared/drawnPoints';
 import { niceRange } from '../../shared/utils/ticks';
-import { computeViewRange, decimateBuckets, makeCoordTransform, paintDecimatedPoints, type WaveformEnv } from '../waveform/waveformRenderer';
+import { computeViewRange, decimateBuckets, isGap, makeCoordTransform, paintDecimatedPoints, type WaveformEnv } from '../waveform/waveformRenderer';
 
 export type StageWaveform = NonNullable<StageView['waveform']>;
 
@@ -31,7 +31,8 @@ function envelopeOn(waveform: StageWaveform, low: number, span: number): Wavefor
     const kept = envelopes.get(waveform);
     if (kept && kept.low === low && kept.span === span) return kept.env;
     const norm = (times: ReadonlyArray<number | null>): number[] => times.map(time => ((time ?? low) - low) / span);
-    const value = (values: ReadonlyArray<number | null>): number[] => values.map(item => item ?? 0);
+    // A gap of the signal (null) stays one (NaN), drawn as a break, never as a sample at 0 (R2).
+    const value = (values: ReadonlyArray<number | null>): number[] => values.map(item => item ?? Number.NaN);
     const env = { min: value(drawableLine(waveform.min)), max: value(drawableLine(waveform.max)), minT: norm(drawableLine(waveform.minT)), maxT: norm(drawableLine(waveform.maxT)), absolutePeak: waveform.absolutePeak };
     envelopes.set(waveform, { low, span, env });
     return env;
@@ -80,6 +81,7 @@ export function paintWaveformLayer(
     context.restore();
     if (options.onPoint) {
         for (const pair of points) {
+            if (isGap(pair)) continue;
             for (const point of pair) {
                 const x = plot.left + transform.toX(point.tNorm), y = plot.top + transform.toY(point.value);
                 options.onPoint(x, y, point.value, axis.low + point.tNorm * span, x >= from && x < to && y >= plot.top && y <= plot.top + plot.height);

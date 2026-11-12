@@ -1761,12 +1761,16 @@ export function barEdges(plot: Pick<StagePlot, 'xAt' | 'xLog'>, xs: readonly num
     return xs.map((_, index) => [plot.xAt(edges[index]), plot.xAt(edges[index + 1])]);
 }
 
+/** Whether a drawn value is a point of the line: a gap is null or not finite (NaN, ±Infinity), never drawn (R2). */
+const valued = (value: number | null): value is number => value !== null && Number.isFinite(value);
+
 /**
  * One picture of a pane as its line (or its bands as steps, or its points as marks), `width` wide, clipped to the plot.
  *
  * Lines are clipped, not clamped (display rules R2, plot/lineClip.ts): every point is placed by the axis's exact `yOf`,
  * never held, and each segment is cut where it crosses the plot's box grown by the line's width. So the part of a line
- * on the plot is exactly its segments however far the next point is past the axis, at every zoom.
+ * on the plot is exactly its segments however far the next point is past the axis, at every zoom. A gap of the line
+ * (a value not finite, sent as null) lifts the pen: the line is never joined across it.
  */
 export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePlot, layer: StageLayer, width: number): void {
     if (layer.view.waveform) { plot.signal?.paint(context, layer, width); return; }
@@ -1783,7 +1787,7 @@ export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePl
         // Each point a dot of the line's colour (its width the radius), the things a few points stand for: one wholly
         // past the plot is not drawn.
         values.forEach((value, index) => {
-            if (value === null) return;
+            if (!valued(value)) return;
             const x = xAt(xs[index]), y = yOf(value);
             if (!nearPlot(frame, x, y, width)) return;
             context.fillStyle = layer.colorAt?.(index) ?? layer.color;
@@ -1798,7 +1802,7 @@ export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePl
     } else if (layer.view.kind === 'bar') {
         const edges = barEdges(plot, xs);
         values.forEach((value, index) => {
-            if (value === null) return;
+            if (!valued(value)) return;
             const [x0, x1] = edges[index];
             context.beginPath(); path.lift(); path.segment(x0, yOf(value), x1 - 1, yOf(value)); context.stroke();
         });
@@ -1808,7 +1812,8 @@ export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePl
         let run = 0, lastX = 0, lastY = 0;
         const closeRun = (): void => { if (run === 1) path.segment(lastX, lastY, lastX + 1, lastY); run = 0; path.lift(); };
         values.forEach((value, index) => {
-            if (value === null || silent(layer.view, value, plot.diff)) { closeRun(); return; }
+            // A gap (null, or any value not finite) and the silent floor lift the pen: never joined across (R2).
+            if (!valued(value) || silent(layer.view, value, plot.diff)) { closeRun(); return; }
             const x = xAt(xs[index]), y = yOf(value);
             if (run) path.segment(lastX, lastY, x, y);
             run += 1; lastX = x; lastY = y;
@@ -1869,6 +1874,12 @@ export interface StageRead {
     step?: number;
     /** The full data around the pointer is still being fetched: the marks are shown, no number until it is in. */
     pending?: boolean;
+    /**
+     * Answered, no value (R7): the place under the pointer is in a gap of the line (values not finite, or silence) and
+     * no point with a value is within the pick window. No point is read and no mark is put: the readout says so in
+     * words (strings `plotNoValue`), never blank, which is a read still on its way (`pending`).
+     */
+    empty?: boolean;
     /**
      * A line's full data near the pointer could not be read (the backend failed): no number, as while pending, and
      * never another line's in its place; read again once the failure's pause is over (fullRead.ts).
@@ -1940,7 +1951,7 @@ function shownValues(plot: StagePlot, layer: StageLayer): [number, number] | und
  * The backend follows the same rule for a window too dense to send whole (full_read._nearest_on_screen for `near`,
  * full_read._nearest_along for `at`, sent as `under`). undefined while the points are fetched.
  */
-function fullLineNear(plot: StagePlot, layer: StageLayer, source: FullSource, x: number, y: number, radius: number, ready: () => void): { near: ReadPoint[]; at: ReadPoint | null } | null | undefined {
+function fullLineNear(plot: StagePlot, layer: StageLayer, source: FullSource, x: number, y: number, radius: number, ready: () => void): { near: ReadPoint[]; at: ReadPoint | null; gap?: boolean } | null | undefined {
     if (source.line === cannotRead || !plot.xOf) return { near: [], at: null };
     // The pointer's place and the screen's scale there, so a window too dense to send whole holds the point nearest
     // the pointer by its true distance on screen (R7), not only each column's nearest in height.
@@ -1971,10 +1982,14 @@ function fullLineNear(plot: StagePlot, layer: StageLayer, source: FullSource, x:
     if (under) at = under;
     // Past the line's ends the pointer is over no point of it.
     const first = plot.xAt(got.xs[0]), last = plot.xAt(got.xs[got.xs.length - 1]);
-    if ((got.start === null && x < first - 0.5) || (got.end === null && x > last + 0.5)) at = null;
+    const over = !((got.start === null && x < first - 0.5) || (got.end === null && x > last + 0.5));
+    // Over the line, with no point with a value in the window and the one past each end: the pointer is in a gap
+    // longer than the window, where the line has no value (R7's gap rule), not past its ends.
+    const gap = over && !at;
+    if (!over) at = null;
     // A point off the plot (zoomed between two points) keeps its cursor at the plot's edge.
     if (at) at = { ...at, x: Math.max(plot.frame.left, Math.min(plot.frame.left + plot.frame.width, at.x)) };
-    return { near, at };
+    return { near, at, ...(gap ? { gap } : {}) };
 }
 
 /** The readout of `point` of `layer`, as every plot writes it (R7). */
@@ -2007,7 +2022,7 @@ function pendingRead(layer: StageLayer, x: number, y: number, image = false, fai
 export function stageHover(plot: StagePlot, x: number, y: number, ready: () => void = () => undefined): StageRead | null {
     if (plot.noReadout) return null;
     if (plot.image) return imageHover(plot, plot.image, x, y, ready);
-    const fulls = new Map<StageLayer, { near: ReadPoint[]; at: ReadPoint | null }>();
+    const fulls = new Map<StageLayer, { near: ReadPoint[]; at: ReadPoint | null; gap?: boolean }>();
     for (const layer of plot.lines) {
         const got = fullLineNear(plot, layer, layer.full, x, y, HOVER_PICK_RADIUS_PX, ready);
         if (got === undefined) return pendingRead(layer, x, y);
@@ -2017,7 +2032,10 @@ export function stageHover(plot: StagePlot, x: number, y: number, ready: () => v
     }
     // The point nearest the pointer within a few pixels, so a narrow peak beside it is read at its top (R7).
     const hit = nearestPoint<StageLayer, ReadPoint>(plot.lines, layer => fulls.get(layer)?.near ?? [], layer => fulls.get(layer)?.at ?? null, x, y, HOVER_PICK_RADIUS_PX);
-    return hit ? lineRead(plot, hit.s, hit.point, hit.away) : null;
+    if (hit) return lineRead(plot, hit.s, hit.point, hit.away);
+    // No line has a point to read, and the place under the pointer is in a gap of one: answered, no value (R7).
+    const gapped = plot.lines.find(layer => fulls.get(layer)?.gap);
+    return gapped ? { layer: gapped, x, y, text: '', name: '', values: '', empty: true } : null;
 }
 
 /**

@@ -485,6 +485,8 @@ export interface UiStrings {
     /** The unit an axis gives when its source does not say (a CSV column, a value with no unit): "Value [unit unknown]". */
     axisUnitUnknown: string;
     stageNoDelta: string;
+    /** A plot's readout where the pointer is over a gap of the line and no point with a value is within reach (R7): answered, no value; a blank readout is a read still on its way. */
+    plotNoValue: string;
     stageTooLarge: string;
     stageCombineFailed: string;
     stageNoDeltaRate: string;
@@ -1315,6 +1317,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisCorrelation: 'Correlation coefficient [–]',
         axisUnitUnknown: 'unit unknown',
         stageNoDelta: '— (Δ only between pictures of one kind on the same axes)',
+        plotNoValue: '— (no value here)',
         stageTooLarge: '— (too much data to take the median and Δ at full resolution)',
         stageCombineFailed: '— (the median and Δ could not be computed: the backend failed)',
         stageNoDeltaRate: '— (no sample-by-sample Δ between recordings at different sample rates)',
@@ -2132,6 +2135,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisCorrelation: '相関係数 [–]',
         axisUnitUnknown: '単位不明',
         stageNoDelta: '— 差は同じ種類・同じ軸の結果どうしでだけ出せます',
+        plotNoValue: '— ここに値はありません',
         stageTooLarge: '— データが多すぎて、元の分解能で中央値と差を出せません',
         stageCombineFailed: '— 中央値と差を計算できませんでした（バックエンドのエラー）',
         stageNoDeltaRate: '— サンプリング周波数が違う録音どうしは、サンプルごとの差を出せません',

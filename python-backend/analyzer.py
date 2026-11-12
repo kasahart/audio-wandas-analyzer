@@ -235,25 +235,29 @@ def resample_frequency_bins(spectrogram: np.ndarray, target_bin_count: int) -> n
 
 
 def min_max_spectrum(rows_db: np.ndarray, max_frequency_hz: float) -> tuple[np.ndarray, np.ndarray | None]:
-    """The cursor spectrum to draw: whole rows within the budget, else DC and every channel's lowest and highest bin
-    per log-spaced bucket (stage_view.min_max_rows, the decimation Compare's spectra use), each at its own
-    frequency, so a tone keeps its level and noise keeps its spread. ``None`` means the rows are whole.
+    """The cursor spectrum to draw: whole rows within the budget, else DC and every channel's lowest and highest bin per
+    bucket (stage_view.min_max_rows, the decimation Compare's spectra use), each at its own frequency, so a tone
+    keeps its level and noise keeps its spread. The buckets are made in the scale of the axis the cursor spectrum
+    is drawn on, which is linear from 0 Hz (spectrumRuntime.spectrumVisibleWindow: only bands, never cut, are on a
+    log axis): equally wide, so a narrow peak high up keeps its own place (display rules R2), where log buckets
+    many pixels wide there would keep one peak of several. ``None`` means the rows are whole.
     """
     _channel_count, bin_count = rows_db.shape
     if bin_count <= SPECTRUM_DISPLAY_POINT_LIMIT:
         return rows_db, None
     freqs = np.arange(bin_count) * (max_frequency_hz / (bin_count - 1))
     buckets = _cursor_buckets(bin_count, rows_db.shape[0])
-    bins = np.concatenate(([0], min_max_rows(freqs, rows_db, buckets, (freqs[1], freqs[-1]))))
+    # DC kept, so the line starts at the axis' 0 Hz.
+    bins = np.union1d([0], min_max_rows(freqs, rows_db, buckets, False))
     return rows_db[:, bins], freqs[bins]
 
 
 @functools.lru_cache(maxsize=16)
 def _cursor_buckets(bin_count: int, channel_count: int) -> int:
-    """The cursor spectrum's bucket count for its FFT size: the most whose points fit the budget beside DC (the same
-    for any frequency scale, since the buckets are equally wide on a log axis from bin 1 to the last)."""
+    """The cursor spectrum's bucket count for its FFT size: the most equally wide buckets (its axis is linear,
+    min_max_spectrum) whose points fit the budget beside DC."""
     bins = np.arange(bin_count, dtype=np.float64)
-    return rows_bucket_count(bins, channel_count, SPECTRUM_DISPLAY_POINT_LIMIT - 1, (1.0, float(bin_count - 1)))
+    return rows_bucket_count(bins, channel_count, SPECTRUM_DISPLAY_POINT_LIMIT - 1, False)
 
 
 def _time_bin_boundaries(frame_count: int, target_bin_count: int) -> np.ndarray:

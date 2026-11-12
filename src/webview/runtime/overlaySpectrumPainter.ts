@@ -53,7 +53,7 @@ export const SECONDARY_AXIS_MARK = '▶';
 export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?: { frequencyMin: number; frequencyMax: number; buckets: number; logFrequency?: boolean }, levelUnit?: string): StageLayer {
     const { slice } = series;
     const bands = !!slice.bandCentersHz?.length;
-    let xs: number[] = [], values: Drawn[] = [];
+    let xs: number[] = [], values: Array<Drawn | null> = [];
     // Every bin (or band) of the slice, when it holds them: what is read, ordered and thinned. null for a slice cut
     // for display or a stand-in, which is only drawn.
     const every = everyBin(slice);
@@ -87,8 +87,9 @@ export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?
     // past each, so the line reaches the plot's edges.
     if (!bands && visible && !slice.frequenciesHz && xs.length > 2 * visible.buckets && xs.length > 1) {
         const binHz = xs[1] - xs[0];
-        // A stand-in is thinned as it is drawn; no number is read of it.
-        const line = minMaxLine(xs, held ?? drawableLine(values).map(value => value ?? Number.NaN), visible.buckets, [Math.max(binHz, visible.frequencyMin - binHz), visible.frequencyMax + binHz]);
+        // A stand-in is thinned as it is drawn; no number is read of it. In buckets of the axis's own scale (R2): the
+        // frequency axis is linear unless it says log, so a narrow peak high up keeps its pixel.
+        const line = minMaxLine(xs, held ?? drawableLine(values).map(value => value ?? Number.NaN), visible.buckets, [Math.max(binHz, visible.frequencyMin - binHz), visible.frequencyMax + binHz], visible.logFrequency ? 'log' : 'linear');
         const dc = visible.frequencyMin <= 0 && xs[0] === 0 ? 1 : 0;
         xs = [...xs.slice(0, dc), ...line.xs];
         values = [...values.slice(0, dc), ...line.values];

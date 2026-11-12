@@ -56,7 +56,7 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     // The pointer's marks (plotHover.ts: the nearest line thicker, the cursor at its point), the box being dragged
     // and an axis's range, for any plot of the mode. The marks are drawn on a canvas laid over the plot, so a hover
     // does not draw the plot again; the readout is in the controls row above the plots, never over a plot (R7).
-    const marks = createPlotHoverLayer(document, 'track-stage-cursor');
+    const marks = createPlotHoverLayer(document, { noValue: strings.plotNoValue }, 'track-stage-cursor');
     const box = document.createElement('div');
     box.className = 'compare-zoom-box track-stage-box';
     box.hidden = true;

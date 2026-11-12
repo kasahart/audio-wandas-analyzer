@@ -25,7 +25,7 @@ type Value = number | null | 'nan' | 'inf' | '-inf';
 type View = { x: [number, number]; xScale: 'linear' | 'log'; y: [number, number]; box: { width: number; height: number } };
 type Case = {
     name: string; mode: 'nearest' | 'under' | 'step+' | 'step-'; view: View; plain: boolean; points: Array<[number, Value]>;
-    pointer?: { x: number; y: number }; from?: number; expect: number | null;
+    pointer?: { x: number; y: number }; from?: number; expect: number | null; empty?: boolean;
     not_on?: { ts?: string; py?: string }; today?: { ts?: number | null; py?: number | null; handoff: string };
 };
 const TABLE = JSON.parse(readFileSync(TABLE_PATH, 'utf8')) as { radius: number; cannot: Record<string, string>; cases: Case[] };
@@ -80,7 +80,10 @@ function answer(item: Case): number | null {
         assert.ok(item.pointer, `${item.name}: a hover case gives the pointer`);
         const read = stageHover(plot, left + item.pointer.x, top + item.pointer.y);
         assert.ok(!read?.pending, `${item.name}: a line held whole is read at once`);
-        if (!read) return null;
+        // In a gap with no point with a value in reach: answered, no value (`empty`), never a blank (pending) read;
+        // anywhere else with no point to read, nothing (R7's gap rule).
+        assert.equal(!!read?.empty, !!item.empty, `${item.name}: the webview ${read?.empty ? 'answers "no value at this place"' : 'does not answer "no value at this place"'}, the table says ${item.empty ? 'it does' : 'it does not'} (\`empty\`)`);
+        if (!read || read.empty) return null;
         // Within the radius by its place on screen: a read under the pointer at its height is `away` the radius too.
         const near = (read.away ?? Infinity) <= HOVER_PICK_RADIUS_PX && Math.hypot(read.x - left - item.pointer.x, read.y - top - item.pointer.y) <= HOVER_PICK_RADIUS_PX;
         // `nearest`: the point read within the pick radius; `under`: the point read with none within it.

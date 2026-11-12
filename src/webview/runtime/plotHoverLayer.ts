@@ -6,7 +6,8 @@
  * step to the next point (stepFrom), so a key reads a point exactly as the pointer on it would.
  *
  * Every number comes from the layers' full data, never from what they draw (R7, fullRead.ts): while the points
- * around the pointer are fetched, the marks are shown with an empty readout, filled once they are in. A step carries
+ * around the pointer are fetched, the marks are shown with a blank readout, filled once they are in; over a gap of the
+ * line with no point with a value in reach the readout says so in words (PlotHoverWording.noValue). A step carries
  * the point it reads (the next full-resolution point, however many share a pixel), not just where it is on screen:
  * stepFrom gives the place, and the show at that place reads that very point.
  */
@@ -70,12 +71,21 @@ export const samePlot = (a: HTMLElement | null | undefined, b: HTMLElement | nul
 const samePoint = (a: StageRead, b: StageRead): boolean => sameLine(a.layer, b.layer)
     && (a.identity !== undefined || b.identity !== undefined ? a.identity === b.identity : a.at === b.at && a.row === b.row && a.index === b.index);
 
+/**
+ * The words every readout of a layer shares (UiStrings): `noValue`, what it says over a gap of the line with no point
+ * with a value within reach (R7's gap rule, StageRead `empty`): answered, no value, never a blank row, which is a read
+ * still on its way.
+ */
+export interface PlotHoverWording {
+    noValue: string;
+}
+
 /** A read with no number yet: its full data on the way, or its read failed (asked again after a pause). */
 const waits = (read: StageRead | null | undefined): boolean => !!read && (!!read.pending || !!read.failed);
 
 /** `parent`: where the layer goes. A plot inside a screen laid over the page (a stacking context of its own) puts its
  *  layer in that screen, so the marks are drawn above the screen and not under it. */
-export function createPlotHoverLayer(document: Document, className = '', parent: HTMLElement = document.body): PlotHoverLayer {
+export function createPlotHoverLayer(document: Document, wording: PlotHoverWording, className = '', parent: HTMLElement = document.body): PlotHoverLayer {
     const layer = document.createElement('canvas');
     layer.className = `plot-hover-layer ${className}`.trim();
     layer.hidden = true;
@@ -125,8 +135,13 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
         if (waits(own)) return { on: drawn, read: own as StageRead };
         if (waits(second)) return { on: drawn.secondary as StagePlot, read: second as StageRead };
         const away = (read: StageRead): number => read.away ?? Math.hypot(read.x - x, read.y - y);
-        if (second && (!own || away(second) < away(own))) return { on: drawn.secondary as StagePlot, read: second };
-        return own ? { on: drawn, read: own } : null;
+        // A part answered with no value there (a gap, R7) gives way to a point read on the other.
+        const point = (read: StageRead | null): StageRead | null => (read && !read.empty ? read : null);
+        const ownPoint = point(own), secondPoint = point(second);
+        if (secondPoint && (!ownPoint || away(secondPoint) < away(ownPoint))) return { on: drawn.secondary as StagePlot, read: secondPoint };
+        if (ownPoint) return { on: drawn, read: ownPoint };
+        if (own?.empty) return { on: drawn, read: own };
+        return second?.empty ? { on: drawn.secondary as StagePlot, read: second } : null;
     };
     /**
      * The point a step went to, on the plot as drawn now: the same plot, or that point read again on its new drawing
@@ -248,7 +263,10 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
             // A step the new drawing no longer shows is let go: the true pointer's place is read, never the step's.
             const gone = kept && !step ? kept.pointer : null;
             const looks = gone ? { x: gone.clientX - rect.left, y: gone.clientY - rect.top } : { x, y };
-            const found = step ?? (drawn ? readAt(drawn, looks.x, looks.y, again) : null);
+            const answer = step ?? (drawn ? readAt(drawn, looks.x, looks.y, again) : null);
+            // Answered, no value (a gap, R7): no point is read here.
+            const empty = !!answer?.read.empty;
+            const found = empty ? null : answer;
             const hit = found?.read ?? null;
             // The plot read before, another one: it reads nothing now (its noted point would be another plot's).
             if (noted && noted !== plot) note(noted, null);
@@ -262,6 +280,15 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
                 paintHoverMarks(context, frame, looks.x, null, '');
                 layer.hidden = false;
                 if (slot) { filled.add(slot); showPlotReadout(slot, '', '', ''); }
+                words?.read?.(null);
+                return null;
+            }
+            if (empty) {
+                // No value at this place (R7's gap rule): the cursor at the pointer, no mark of a point, and the
+                // readout says so in words, never blank (blank is a read on its way).
+                paintHoverMarks(context, frame, looks.x, null, '');
+                layer.hidden = false;
+                if (slot) { filled.add(slot); showPlotReadout(slot, '', wording.noValue, ''); }
                 words?.read?.(null);
                 return null;
             }

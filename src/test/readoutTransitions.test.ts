@@ -1,6 +1,6 @@
 import { testLine } from './helpers/whole';
 import assert from 'node:assert/strict';
-import { N, R, T } from './helpers/figure';
+import { NO_VALUE, N, R, T } from './helpers/figure';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
@@ -66,7 +66,7 @@ for (const [kind, view] of Object.entries(KINDS)) {
             const document = window.document;
             const canvas = canvasFor(document);
             const slot = document.querySelector<HTMLElement>('.plot-readout');
-            const layer = createPlotHoverLayer(document);
+            const layer = createPlotHoverLayer(document, NO_VALUE);
             const source = sourceOf(view, fetched);
             const range = stageRange([view]);
             const draw = (on: PaneRange = range): StagePlot => {
@@ -215,7 +215,7 @@ for (const [kind, view] of Object.entries(KINDS)) {
                 const box = { left: 0, top: 0, width: W, height: H };
                 canvas.getBoundingClientRect = () => ({ ...box, right: box.left + box.width, bottom: box.top + box.height, x: box.left, y: box.top, toJSON: () => ({}) });
                 const slot = document.querySelector<HTMLElement>('.plot-readout');
-                const layer = createPlotHoverLayer(document);
+                const layer = createPlotHoverLayer(document, NO_VALUE);
                 const source = stateSource(view, state, !!chart.mapped);
                 // A failed line beside one in hand: the failed one may be the nearest, so nothing is read (never the other's).
                 const other = state === 'failed' && view.kind !== 'heatmap' && !view.events ? { view, full: held(view) } : undefined;
@@ -251,7 +251,7 @@ for (const [kind, view] of Object.entries(KINDS)) {
                     return;
                 }
                 const fresh = (x: number, y: number, on: StagePlot = drawn) => {
-                    const other = createPlotHoverLayer(document);
+                    const other = createPlotHoverLayer(document, NO_VALUE);
                     other.show(canvas, on, x, y, null);
                     return other.reading();
                 };
@@ -305,7 +305,7 @@ for (const [kind, view] of Object.entries(KINDS)) {
                 // Moved on screen by a resize (no scroll) under the still pointer: the point stepped to is read on
                 // (only a scroll lets it go, R7), where it is drawn now.
                 {
-                    const moved = createPlotHoverLayer(document);
+                    const moved = createPlotHoverLayer(document, NO_VALUE);
                     const truePointer = pointer!;
                     moved.show(canvas, drawn, truePointer.x, truePointer.y, null);
                     const stepTo = moved.stepFrom(canvas, drawn, 1);
@@ -392,7 +392,7 @@ for (const [kind, view] of Object.entries(KINDS)) {
                 const { window } = new JSDOM('<!doctype html><body><div class="plot-readout" hidden><span></span><span></span></div></body>');
                 const document = window.document;
                 const canvas = canvasFor(document);
-                const layer = createPlotHoverLayer(document);
+                const layer = createPlotHoverLayer(document, NO_VALUE);
                 for (const fetched of [false, true]) {
                     // Fetched: answered as fetchedSource answers from what the backend sent (seek: full_read._seek_line).
                     const whole = held(silent.view);

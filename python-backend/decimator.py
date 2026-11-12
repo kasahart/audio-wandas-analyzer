@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import TypedDict
 
 import numpy as np
@@ -20,8 +21,16 @@ class WaveformEnvelope(TypedDict):
 
 
 def absolute_peak(samples: np.ndarray) -> float:
+    """The largest |sample| of those with a value: a sample that is not finite is a gap (display rules R2), no peak;
+    0 with none."""
+    if not samples.size:
+        return 0.0
     # Adding 0.0 turns the -0.0 that an all-zero signal yields into 0.0.
-    return float(np.maximum(np.max(samples), -np.min(samples))) + 0.0
+    peak = float(np.maximum(np.max(samples), -np.min(samples))) + 0.0
+    if math.isfinite(peak):
+        return peak
+    finite = samples[np.isfinite(samples)]
+    return float(np.max(np.abs(finite))) + 0.0 if finite.size else 0.0
 
 
 def bucket_starts(n: int, count: int) -> np.ndarray:

@@ -457,9 +457,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         viewState.setCursor(norm, playing ? 'cursor' : 'all');
     }
     /** The cursor spectrum's pointer marks and readout, as every plot's (plotHoverLayer.ts, R7). */
-    const spectrumMarks = createPlotHoverLayer(document, 'spectrum-cursor');
+    const spectrumMarks = createPlotHoverLayer(document, { noValue: STR.plotNoValue }, 'spectrum-cursor');
     /** The track lanes' pointer marks and readout: the same state machine, one lane at a time (drawLaneHover). */
-    const laneMarks = createPlotHoverLayer(document, 'track-lane-cursor');
+    const laneMarks = createPlotHoverLayer(document, { noValue: STR.plotNoValue }, 'track-lane-cursor');
     /** The lanes' and the cursor spectrum's full data, which their numbers are read from (R7): never what they draw. */
     const laneReads = createLaneReads(message => messaging.post(message));
     /** Where the pointer (or an arrow key's step) is over the cursor spectrum, while it is. */

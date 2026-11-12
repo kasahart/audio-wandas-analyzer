@@ -144,7 +144,8 @@ def test_long_waveforms_keep_bounded_scratch_and_cross_block_extrema(monkeypatch
     np.testing.assert_equal(result["minT"], (17 + np.array(minimum_indices)) / 300000)
     np.testing.assert_equal(result["maxT"], (17 + np.array(maximum_indices)) / 300000)
     np.testing.assert_equal(result["samples"], [samples[b[len(b) // 2]] for b in buckets])
-    assert np.isnan(result["absolutePeak"])
+    # The peak is of the samples with a value: a NaN is a gap (R2), no peak (and no NaN the wire could not carry).
+    assert result["absolutePeak"] == 10.0
 
 
 def test_all_zero_signal_reports_positive_zero_peak():

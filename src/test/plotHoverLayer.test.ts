@@ -1,4 +1,4 @@
-import { Y } from './helpers/figure';
+import { NO_VALUE, Y } from './helpers/figure';
 import { testLine } from './helpers/whole';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -31,7 +31,7 @@ function setup() {
     const plot = window.document.getElementById('plot') as HTMLElement;
     plot.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 120, right: 200, bottom: 120, x: 0, y: 0, toJSON: () => ({}) });
     const slot = window.document.querySelector<HTMLElement>('.plot-readout');
-    return { window, plot, slot, segments, layer: createPlotHoverLayer(window.document) };
+    return { window, plot, slot, segments, layer: createPlotHoverLayer(window.document, NO_VALUE) };
 }
 
 test('an arrow key reads the next point of the line read, as the pointer on it would; with none read, the plot\'s left edge (R7)', () => {
@@ -52,6 +52,34 @@ test('an arrow key reads the next point of the line read, as the pointer on it w
     assert.equal(layer.stepFrom(plot, drawn, 1), null);
     layer.hide();
     assert.equal(layer.reading(), null);
+});
+
+test('over a gap of the line with no value in reach the readout says "no value here", told apart from a read still on its way, which is blank (R7)', () => {
+    const { plot, slot, layer, segments } = setup();
+    // Ten points, those from 1 to 8 with no value (NaN): the pick window (the pointer ±20 px, a point past each end)
+    // at x 4.5 holds none with a value.
+    const xs = Array.from({ length: 10 }, (_, i) => i), values = xs.map(i => (i >= 1 && i <= 8 ? Number.NaN : 5));
+    const whole = testLine(xs, values);
+    let waiting = true;
+    let arrived: (() => void) | null = null;
+    const full: FullSource = fullSource('fetched', { line(query, ready) { if (waiting) { arrived = ready; return undefined; } return whole.line(query, ready); } });
+    const drawn: StagePlot = { ...plotWith([{ ...line('a', '#f00', values), full }]), xOf: (x: number) => (x - 50) / 10, levelOf: (y: number) => (110 - y) / 10 };
+    // On its way: the cursor, no number, the readout's row blank (hidden).
+    layer.show(plot, drawn, 95, 60, slot);
+    assert.equal(slot!.hidden, true, 'pending: the readout is blank');
+    assert.equal(layer.reading(), null);
+    // Answered: no value at this place. The row says so, no point is read and no mark of a point is drawn.
+    waiting = false;
+    segments.length = 0;
+    (arrived as (() => void) | null)?.();
+    assert.equal(slot!.hidden, false, 'answered with no value: the readout is not blank. R7 (docs/display-rules.md, the gap rule): stageHover answers an `empty` read and plotHoverLayer writes strings.plotNoValue');
+    assert.equal(slot!.textContent, NO_VALUE.noValue);
+    assert.equal(layer.reading(), null, 'no point is read in the gap');
+    assert.ok(!segments.some(([x0, y0, x1, y1]) => y0 === y1 && x0 !== x1), 'no level line of a point read: the cursor alone');
+    // Over a point with a value again, it is read as ever.
+    layer.show(plot, drawn, 50, 60, slot);
+    assert.equal(layer.reading()?.index, 0);
+    assert.match(slot!.textContent ?? '', /^a \/ /u);
 });
 
 test('with two level axes a point is read on either, and the level guide runs only to the axis it is read on', () => {
@@ -337,7 +365,7 @@ test('the true pointer and the point stepped to are kept apart: a step the new d
     // Zoomed so the point stepped to is off the window (x 4 is left of the frame): let go, the true pointer read.
     const zoomed: StagePlot = { ...source.draw(), xAt: (x: number) => 50 + (x - 4.5) * 20, xOf: (x: number) => (x - 50) / 20 + 4.5 };
     layer.show(plot, zoomed, at.clientX, at.clientY, slot);
-    const fresh = createPlotHoverLayer(plot.ownerDocument);
+    const fresh = createPlotHoverLayer(plot.ownerDocument, NO_VALUE);
     fresh.show(plot, zoomed, 80, 75, null);
     assert.ok(layer.reading(), 'a point is read');
     assert.equal(layer.reading()?.at, fresh.reading()?.at, 'the point at the true pointer, not at the step\'s place');

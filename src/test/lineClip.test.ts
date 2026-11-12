@@ -13,19 +13,23 @@ import test from 'node:test';
 import { N, R } from './helpers/figure';
 import { testLine } from './helpers/whole';
 import { clippedSegment } from '../webview/plot/lineClip';
+import { spectrumLayer } from '../webview/runtime/overlaySpectrumPainter';
 import { paintOverlay, type StageLayer, type StagePaintOptions, type StagePlot } from '../webview/runtime/stagePanes';
+import type { SpectrumSeries } from '../webview/runtime/types';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
 const FIX = 'R2 (docs/display-rules.md): lines are clipped, not clamped. Place every point of a line at its axis\'s exact y '
     + '(AxisTransform.yOf), never a y held at or past the plot\'s edge, and stroke it through plot/lineClip.ts clippedPath, '
     + 'which cuts each segment where it crosses the plot (grown by the line\'s width).';
 
-type Stroke = { color: string; dash: string; width: number; points: Array<[number, number]>; runs: number };
+type Stroke = { color: string; dash: string; width: number; points: Array<[number, number]>; runs: number; segments: Array<[number, number, number, number]> };
 /** A 2D context that records every stroked path (its colour, dash, width, points and runs) in canvas pixels. */
 function recordingContext(strokes: Stroke[]): CanvasRenderingContext2D {
     const state = { strokeStyle: '', dash: '', lineWidth: 1, tx: 0, ty: 0 };
     const saved: Array<typeof state> = [];
     let points: Array<[number, number]> = [];
+    let segments: Array<[number, number, number, number]> = [];
+    let pen: [number, number] | null = null;
     let runs = 0;
     return new Proxy({}, {
         get: (_target, key) => key === 'measureText' ? (text: string) => ({ width: text.length * 6 })
@@ -35,10 +39,15 @@ function recordingContext(strokes: Stroke[]): CanvasRenderingContext2D {
             : key === 'restore' ? () => { Object.assign(state, saved.pop() ?? state); }
             : key === 'translate' ? (x: number, y: number) => { state.tx += x; state.ty += y; }
             : key === 'setLineDash' ? (dash: number[]) => { state.dash = dash.join(','); }
-            : key === 'beginPath' ? () => { points = []; runs = 0; }
-            : key === 'moveTo' ? (x: number, y: number) => { points.push([x + state.tx, y + state.ty]); runs += 1; }
-            : key === 'lineTo' ? (x: number, y: number) => { points.push([x + state.tx, y + state.ty]); }
-            : key === 'stroke' ? () => { strokes.push({ color: state.strokeStyle, dash: state.dash, width: state.lineWidth, points: [...points], runs }); }
+            : key === 'beginPath' ? () => { points = []; segments = []; pen = null; runs = 0; }
+            : key === 'moveTo' ? (x: number, y: number) => { points.push([x + state.tx, y + state.ty]); pen = [x + state.tx, y + state.ty]; runs += 1; }
+            : key === 'lineTo' ? (x: number, y: number) => {
+                const to: [number, number] = [x + state.tx, y + state.ty];
+                points.push(to);
+                if (pen) segments.push([pen[0], pen[1], to[0], to[1]]);
+                pen = to;
+            }
+            : key === 'stroke' ? () => { strokes.push({ color: state.strokeStyle, dash: state.dash, width: state.lineWidth, points: [...points], runs, segments: [...segments] }); }
             : key === 'createImageData' ? (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(Math.max(4, w * h * 4)) })
             : key.toString().startsWith('create') ? () => ({ addColorStop: () => undefined }) : () => undefined,
         set: (_target, key, value) => {
@@ -172,4 +181,45 @@ test('the clip keeps the segment itself: its cut ends on the true segment at the
     // Past double range (an overflowed y): held at ±1e300 px, the crossing is the near end's x to the last bit.
     const [, , ox, oy] = clippedSegment(box, 40, 50, 41, -Infinity) ?? [NaN, NaN, NaN, NaN];
     assert.ok(oy === 0 && Math.abs(ox - 40) < 1e-12, `an infinite y crosses at its near end's x (${ox}, ${oy})`);
+});
+
+const GAP_FIX = 'R2 (docs/display-rules.md): a value that is not finite is a gap, and a line is never joined across it. Thinning keeps '
+    + 'a break (null) where the source has a gap (comparePanes.minMaxLine, stage_view.min_max_indices, waveformRenderer.decimateBuckets), '
+    + 'and the stroke lifts the pen there (stagePanes.strokeStageLine, waveformRenderer.paintDecimatedPoints through lineClip.clippedPath).';
+
+/** The stroked segments of `strokes` that reach into the open stretch (`low`, `high`) of canvas x, where the line has no value. */
+function across(strokes: readonly Stroke[], low: number, high: number): Array<[number, number, number, number]> {
+    return strokes.flatMap(stroke => stroke.segments).filter(([x0, , x1]) => Math.max(x0, x1) > low + 1e-9 && Math.min(x0, x1) < high - 1e-9);
+}
+
+test('a line with a stretch of no values is drawn with a break there at every zoom, thinned to be drawn or not: never joined across it (R2)', () => {
+    // A cursor spectrum's 8193 bins (1 Hz each) with no value (NaN) from 3000 to 3499 Hz, drawn whole and zoomed onto
+    // the gap and its edges: thinned in buckets of its linear axis where its bins outnumber them, else drawn bin by bin.
+    const bins = 8193;
+    const every = Array.from({ length: bins }, (_, bin) => (bin >= 3000 && bin < 3500 ? Number.NaN : Math.sin(bin * 1.3) * 20 - 40));
+    const slice = { values: every, bins: every, frequencyBins: bins, maxFrequencyHz: 8192, minDb: -60, maxDb: -20 } as unknown as SpectrumSeries['slice'];
+    const series = { slice, color: '#0af', label: 'a' } as unknown as SpectrumSeries;
+    const broken: string[] = [];
+    for (const [low, high] of [[0, 8192], [2000, 4000], [2950, 3050], [3450, 3550], [2990, 3510], [2999, 3001]]) {
+        const layer = spectrumLayer(series, 8192, { frequencyMin: low, frequencyMax: high, buckets: 300 });
+        const { plot, strokes } = paint([layer], { min: -80, max: 0 }, { axisView: { frame: 'spectrum', kind: 'line', xs: [low, high], xLimits: [low, high], xScale: 'linear' } });
+        const ours = strokes.filter(stroke => stroke.color === '#0af');
+        const joined = across(ours, plot.xAt(2999), plot.xAt(3500));
+        if (joined.length) broken.push(`${low}–${high} Hz: ${joined.length} segment(s) joined across the gap, e.g. ${JSON.stringify(joined[0])}`);
+        if (!ours.some(stroke => stroke.segments.length)) broken.push(`${low}–${high} Hz: nothing drawn`);
+    }
+    assert.deepEqual(broken, [], GAP_FIX);
+});
+
+test('a signal drawn as itself breaks at its gap: a sample with no value is not drawn at 0, nor joined across (R2)', () => {
+    // Eleven samples at 0.5 with none (null, as the backend sends a gap of the envelope) at x 4 to 6.
+    const values = XS.map(x => (x >= 4 && x <= 6 ? null : 0.5));
+    const view = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'Pa', xs: XS, values,
+        waveform: { min: values, max: values, minT: XS, maxT: XS, absolutePeak: 0.5, unit: 'Pa', ref: 2e-5 } } as unknown as StageView;
+    const { plot, strokes } = paint([{ view, color: '#a0a', label: 's', full: testLine(XS, values.map(value => value ?? Number.NaN)) }], { min: -1, max: 1 });
+    const ours = strokes.filter(stroke => stroke.color === '#a0a');
+    assert.ok(ours.some(stroke => stroke.segments.length), 'the signal is drawn');
+    assert.deepEqual(across(ours, plot.xAt(3), plot.xAt(7)), [], GAP_FIX);
+    const zero = plot.yOf(0);
+    assert.equal(ours.flatMap(stroke => stroke.points).find(([, y]) => Math.abs(y - zero) < 1e-6), undefined, `a gap is drawn as a sample at 0. ${GAP_FIX}`);
 });
