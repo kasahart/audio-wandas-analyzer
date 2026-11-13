@@ -11,7 +11,7 @@ import time
 import traceback
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TextIO
 
 from backend_errors import InputError, error_payload
 from command_dispatch import Command, dispatch, validate_request
@@ -211,8 +211,41 @@ def _cancelled_ids(parsed: dict[str, object]) -> list[str]:
     return [str(request_id) for request_id in parsed["requestIds"]]  # type: ignore[union-attr]
 
 
-def main(service: AnalysisService | None = None, workers: int | None = None, *, drain: bool = False) -> None:
-    """Serves stdin until EOF; the host is gone then, so queued requests are dropped unless ``drain``."""
+def _request_stream() -> TextIO:
+    """The host's requests, read as UTF-8 lines; on Windows from the stdin pipe moved off the standard input handle.
+
+    Windows serialises every call on a synchronous pipe handle: while the main thread waits in a read on stdin, any
+    other call on that handle waits for the read to end, that is for the host's next request. Loading a DLL calls
+    one (a library's C runtime start-up queries the standard handles' file type), and a request thread loads them:
+    the first use of a scipy module wandas imports lazily. The request then stalled until the host sent another line,
+    for good when the host waits for its reply (it hung the numpy reference tests on Windows CI). So the pipe is read
+    through a handle of its own and the standard input handle (fd 0, ``sys.stdin``) is the null device, which nothing
+    blocks on. Elsewhere stdin is read as it is.
+    """
+    if sys.platform != "win32":
+        sys.stdin.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+        return sys.stdin
+    import ctypes
+    import msvcrt
+
+    requests = os.fdopen(os.dup(0), "r", encoding="utf-8")
+    null = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(null, 0)
+    os.close(null)
+    std_input_handle = -10  # STD_INPUT_HANDLE
+    ctypes.windll.kernel32.SetStdHandle(std_input_handle, msvcrt.get_osfhandle(0))  # type: ignore[attr-defined]
+    sys.stdin = open(0, encoding="utf-8", closefd=False)  # noqa: SIM115 - the process's stdin for its whole life
+    return requests
+
+
+def main(
+    service: AnalysisService | None = None,
+    workers: int | None = None,
+    *,
+    drain: bool = False,
+    requests: TextIO | None = None,
+) -> None:
+    """Serves ``requests`` (stdin) until EOF; the host is gone then, so queued requests are dropped unless ``drain``."""
     perf_log("startup_begin", _PROCESS_STARTED, pid=os.getpid(), python=sys.executable)
     active_service = service or _load_default_service()
     _start_heartbeat()
@@ -220,7 +253,7 @@ def main(service: AnalysisService | None = None, workers: int | None = None, *, 
     perf_log("startup_ready", _PROCESS_STARTED)
     _emit({"type": "ready"})
     try:
-        for raw_line in sys.stdin:
+        for raw_line in requests if requests is not None else sys.stdin:
             line = raw_line.strip()
             if not line:
                 continue
@@ -253,6 +286,6 @@ def main(service: AnalysisService | None = None, workers: int | None = None, *, 
 
 if __name__ == "__main__":
     # The extension speaks UTF-8; the locale encoding (cp932 on Japanese Windows) would garble non-ASCII paths.
-    for stream in (sys.stdin, sys.stdout, sys.stderr):
+    for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
-    main()
+    main(requests=_request_stream())

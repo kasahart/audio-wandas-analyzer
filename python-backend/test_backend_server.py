@@ -1995,3 +1995,19 @@ def test_a_path_that_cannot_be_resolved_fails_only_its_own_request(monkeypatch, 
     responses = {r["requestId"]: r for r in _replies(capsys.readouterr().out)}
     assert "error" in responses["bad"]
     assert responses["good"] == {"requestId": "good", "filePath": "a.wav"}
+
+
+def test_requests_are_read_from_the_stream_given_not_stdin(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # The process reads the host's pipe through a handle of its own on Windows (backend_server._request_stream), with
+    # sys.stdin left on the null device: what stdin holds then is no request.
+    monkeypatch.setattr(sys, "stdin", io.StringIO('{"cmd": "analyze", "requestId": "from-stdin"}\n'))
+
+    main(object(), drain=True, requests=io.StringIO("{not json\n"))  # type: ignore[arg-type]
+
+    lines = capsys.readouterr().out.splitlines()
+    response = json.loads(lines[-1])
+    assert response["error"]["code"] == "input-error"
+    assert "from-stdin" not in "\n".join(lines)
