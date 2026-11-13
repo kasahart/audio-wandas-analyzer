@@ -1,3 +1,4 @@
+import { clippedPath } from '../plot/lineClip';
 import { WAVEFORM_HALF_HEIGHT_RATIO } from './waveformLayout';
 
 export interface WaveformEnv {
@@ -143,6 +144,10 @@ export function computeViewRange(
  * バケットごとに argmin/argmax を選択し、時系列順ペアで返す。
  * バケットは div の倍数の位置から始まる（描画範囲の先頭からではない）。パンしても同じ点が同じバケットに入り、線が揺れない。
  * 座標変換は行わない（Canvas に依存しない純粋関数）。
+ *
+ * A bucket of the envelope whose value is not finite (a gap of the signal, sent as null) is never joined across
+ * (docs/display-rules.md R2): the env buckets on either side of it are thinned apart, each run its own lowest and
+ * highest, and a gap pair (`isGap`, its values NaN) stands between them, where paintDecimatedPoints lifts the pen.
  */
 export function decimateBuckets(
     env: WaveformEnv,
@@ -169,24 +174,41 @@ export function decimateBuckets(
     }
 
     const result: Array<[DecimatedPoint, DecimatedPoint]> = [];
+    const gapAt = (i: number): void => {
+        const last = result[result.length - 1];
+        if (last && isGap(last)) return;
+        const t = tOfMin(i);
+        result.push([{ tNorm: t, value: Number.NaN }, { tNorm: t, value: Number.NaN }]);
+    };
 
     for (let b = i0 - (i0 % div); b <= i1; b += div) {
         const bEnd = Math.min(n, b + div);
-        let minIdx = b, maxIdx = b;
-        let minVal = lo(b), maxVal = hi(b);
-        for (let i = b + 1; i < bEnd; i++) {
+        // Each run of the bucket between gaps: its lowest and highest, in time order.
+        let minIdx = -1, maxIdx = -1, minVal = 0, maxVal = 0;
+        const closeRun = (): void => {
+            if (minIdx < 0) return;
+            const tMin = tOfMin(minIdx);
+            const tMax = tOfMax(maxIdx);
+            const a: DecimatedPoint = { tNorm: tMin, value: minVal };
+            const b2: DecimatedPoint = { tNorm: tMax, value: maxVal };
+            result.push(tMin <= tMax ? [a, b2] : [b2, a]);
+            minIdx = -1; maxIdx = -1;
+        };
+        for (let i = b; i < bEnd; i++) {
             const l = lo(i), h = hi(i);
-            if (l < minVal) { minVal = l; minIdx = i; }
-            if (h > maxVal) { maxVal = h; maxIdx = i; }
+            if (!Number.isFinite(l) || !Number.isFinite(h)) { closeRun(); gapAt(i); continue; }
+            if (minIdx < 0 || l < minVal) { minVal = l; minIdx = i; }
+            if (maxIdx < 0 || h > maxVal) { maxVal = h; maxIdx = i; }
         }
-        const tMin = tOfMin(minIdx);
-        const tMax = tOfMax(maxIdx);
-        const a: DecimatedPoint = { tNorm: tMin, value: minVal };
-        const b2: DecimatedPoint = { tNorm: tMax, value: maxVal };
-        result.push(tMin <= tMax ? [a, b2] : [b2, a]);
+        closeRun();
     }
 
     return result;
+}
+
+/** Whether a pair of decimateBuckets is a gap of the signal: the line breaks there. */
+export function isGap(pair: readonly [DecimatedPoint, DecimatedPoint]): boolean {
+    return !Number.isFinite(pair[0].value) || !Number.isFinite(pair[1].value);
 }
 
 // ── Layer 3: Painting ─────────────────────────────────────────
@@ -194,6 +216,10 @@ export function decimateBuckets(
 /**
  * DecimatedPoint ペア列を Canvas に描画する。
  * Canvas API を触るのはこの関数だけ。
+ *
+ * Lines are clipped, not clamped (docs/display-rules.md R2, plot/lineClip.ts): each point at its exact y, each segment
+ * cut where it crosses `box` (the plot in the transform's coordinates) grown by the line's width. A line wholly in the
+ * box is the same moveTo/lineTo path as without clipping. A gap pair (isGap) lifts the pen.
  */
 export function paintDecimatedPoints(
     ctx: CanvasCtx,
@@ -201,18 +227,25 @@ export function paintDecimatedPoints(
     transform: CoordTransform,
     color: string,
     lineWidth: number,
+    box: { left: number; top: number; width: number; height: number },
 ): void {
     if (points.length === 0) { return; }
     ctx.lineWidth = lineWidth;
     ctx.strokeStyle = color;
     ctx.beginPath();
-    let started = false;
+    const path = clippedPath({ start: (x, y) => ctx.moveTo(x, y), to: (x, y) => ctx.lineTo(x, y) }, box, lineWidth);
+    let last: [number, number] | null = null;
 
-    for (const [first, second] of points) {
+    for (const pair of points) {
+        // A gap of the signal lifts the pen: the line is never joined across it (R2).
+        if (isGap(pair)) { last = null; path.lift(); continue; }
+        const [first, second] = pair;
         const x0 = transform.toX(first.tNorm),  y0 = transform.toY(first.value);
         const x1 = transform.toX(second.tNorm), y1 = transform.toY(second.value);
-        if (!started) { ctx.moveTo(x0, y0); started = true; } else { ctx.lineTo(x0, y0); }
-        ctx.lineTo(x1, y1);
+        // The first pair starts the line; each later one is joined to the one before it, as one run.
+        if (last) path.segment(last[0], last[1], x0, y0);
+        path.segment(x0, y0, x1, y1);
+        last = [x1, y1];
     }
     ctx.stroke();
 }

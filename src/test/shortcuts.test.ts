@@ -24,10 +24,13 @@ test('isTextEntryTag treats form fields as text entry regardless of case', () =>
     assert.equal(isTextEntryTag(undefined), false);
 });
 
-test('arrowCursorStep moves one pixel of the zoomed view, or 0.1 s with Shift', () => {
-    assert.equal(arrowCursorStep(false, 10, 0.25, 0.75, 500), 0.001);
-    assert.equal(arrowCursorStep(true, 10, 0.25, 0.75, 500), 0.01);
-    assert.equal(arrowCursorStep(true, 0, 0, 1, 500), 0.001);
+/** The keyboard-focus exception of docs/display-rules.md R7: a focused lane's ← / → move its time cursor, not the readout. */
+const FOCUS_EXCEPTION = 'R7\'s keyboard-focus exception (docs/display-rules.md): a lane with the keyboard focus moves its time cursor with ← / →, one pixel of the zoomed view, 0.1 s with Shift. Change the rule there first if this is meant.';
+
+test('arrowCursorStep moves one pixel of the zoomed view, or 0.1 s with Shift (R7)', () => {
+    assert.equal(arrowCursorStep(false, 10, 0.25, 0.75, 500), 0.001, FOCUS_EXCEPTION);
+    assert.equal(arrowCursorStep(true, 10, 0.25, 0.75, 500), 0.01, FOCUS_EXCEPTION);
+    assert.equal(arrowCursorStep(true, 0, 0, 1, 500), 0.001, FOCUS_EXCEPTION);
 });
 
 const idle: KeydownContext = { helpOpen: false, textEntryFocused: false, trackCanvasFocused: false };
@@ -59,10 +62,10 @@ test('keydownIntent toggles the focused track on Space, otherwise the current tr
     assert.equal(keydownIntent(key(' ', 'Space'), { ...idle, textEntryFocused: true }), null);
 });
 
-test('keydownIntent moves the time cursor with arrows only while a track canvas has focus', () => {
-    assert.deepEqual(keydownIntent(key('ArrowLeft', 'ArrowLeft'), { ...idle, trackCanvasFocused: true }), { kind: 'cursor-step', direction: -1 });
-    assert.deepEqual(keydownIntent(key('ArrowRight', 'ArrowRight'), { ...idle, trackCanvasFocused: true }), { kind: 'cursor-step', direction: 1 });
-    assert.equal(keydownIntent(key('ArrowLeft', 'ArrowLeft'), idle), null);
+test('keydownIntent moves the time cursor with arrows only while a track canvas has focus (R7)', () => {
+    assert.deepEqual(keydownIntent(key('ArrowLeft', 'ArrowLeft'), { ...idle, trackCanvasFocused: true }), { kind: 'cursor-step', direction: -1 }, FOCUS_EXCEPTION);
+    assert.deepEqual(keydownIntent(key('ArrowRight', 'ArrowRight'), { ...idle, trackCanvasFocused: true }), { kind: 'cursor-step', direction: 1 }, FOCUS_EXCEPTION);
+    assert.equal(keydownIntent(key('ArrowLeft', 'ArrowLeft'), idle), null, `with no lane focused ← / → are the readout's, never the time cursor's. ${FOCUS_EXCEPTION}`);
     assert.equal(keydownIntent(key('x', 'KeyX'), { ...idle, trackCanvasFocused: true }), null);
 });
 

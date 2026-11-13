@@ -21,6 +21,8 @@ export interface DatasetScreenView {
     /** The rows on screen (filtered, sorted) and how many rows there are in all. */
     rows: readonly DatasetRow[];
     results: Results;
+    /** A row's own calibration word for a level value, where the value's axis mixes calibration statuses (R4). */
+    levelWord?: (filePath: string) => string;
     group: GroupId;
     value: ValueId;
     columns: { name: DatasetColumn; ch: DatasetColumn; group?: DatasetColumn; value: DatasetColumn };
@@ -130,7 +132,7 @@ function distributionHtml(strings: EntryStrings): string {
                     </div>
                     <div class="entry-dist-note"><span data-entry-dist-note></span><span class="plot-readout" data-plot-readout hidden><span class="plot-readout-name"></span><span class="plot-readout-values"></span></span></div>
                     <div class="entry-dist-groups" data-entry-dist-groups data-plot-stack></div>
-                    <div class="entry-dist-axis" data-entry-dist-axis><canvas class="entry-dist-axis-canvas" id="entry-dist-axis-canvas" data-entry-dist-axis-canvas hidden></canvas><span class="entry-dist-count-axis" data-entry-dist-count-axis></span></div>
+                    <div class="entry-dist-axis" data-entry-dist-axis><canvas class="entry-dist-axis-canvas" id="entry-dist-axis-canvas" data-plot-names="entry-dist-count-axis" data-entry-dist-axis-canvas hidden></canvas><span class="entry-dist-count-axis" id="entry-dist-count-axis" data-entry-dist-count-axis></span></div>
                     <div class="entry-dist-empty" data-entry-dist-empty hidden></div>
                 </div>`;
 }
@@ -226,10 +228,11 @@ export function formatValue(value: ValueId, number: number | null): string {
  * `step`, the spacing of what it is read among (the distribution's bins), adds the digits that spacing needs, so two
  * neighbouring bins never read the same (bins 1 apart at 3000: "3001–3002", not "3000–3000").
  */
-export function plotValueText(value: ValueId, number: number, step?: number): string {
+export function plotValueText(value: ValueId, number: number, step: number | undefined, reference: string): string {
     const decimals = step !== undefined && step > 0 && Number.isFinite(step) ? Math.max(0, Math.ceil(-Math.log10(step) - 1e-9)) : undefined;
     if (value === 'peak') return frequencyText(number, step);
-    if (value === 'leq' || value.startsWith('band:')) return withMinus(number.toFixed(Math.max(1, decimals ?? 0)));
+    // A level is written with its reference, as its axis names it (R7: "−32.1 dBFS", "48.3 dB SPL re 20 µPa").
+    if (value === 'leq' || value.startsWith('band:')) { const text = withMinus(number.toFixed(Math.max(1, decimals ?? 0))); return reference ? `${text} ${reference}` : text; }
     // Three significant figures resolve 10^(e − 2) at 10^e: a finer step needs its own decimals.
     const resolution = number === 0 ? 0 : 10 ** (Math.floor(Math.log10(Math.abs(number))) - 2);
     if (decimals !== undefined && step !== undefined && step < resolution) return withMinus(number.toFixed(decimals));
@@ -281,6 +284,7 @@ export function datasetRowsHtml(view: DatasetScreenView, first: number, last: nu
         if (shown) classes.push('is-shown');
         if (view.mode === 'excluded') classes.push('is-excluded');
         const value = view.valueReady || valueOf(row, view.value, view.results) !== null ? formatValue(view.value, valueOf(row, view.value, view.results)) : '—';
+        const levelWord = value !== '—' && (view.value === 'leq' || view.value.startsWith('band:')) ? view.levelWord?.(row.filePath) ?? '' : '';
         const group = view.columns.group ? `<td class="entry-col-group" title="${escapeHtml(groupOf(row, view.group))}">${escapeHtml(middleEllipsis(groupOf(row, view.group), 16) || '—')}</td>` : '';
         return `<tr class="${classes.join(' ')}" data-key="${escapeHtml(row.key)}" data-file-path="${escapeHtml(row.filePath)}" aria-selected="${row.key === view.focused}">`
             // ☑ on a track, ☐ not (not ●, a step's output): a click, T, or Enter / Space on it shows or takes off its track.
@@ -288,7 +292,8 @@ export function datasetRowsHtml(view: DatasetScreenView, first: number, last: nu
             + (view.mode === 'excluded' ? '<td class="entry-mark"></td>' : `<td class="entry-mark" data-action="entry-row-track" data-key="${escapeHtml(row.key)}" role="checkbox" tabindex="${row.key === view.focused ? 0 : -1}" aria-checked="${shown}" aria-label="${escapeHtml(`${strings.dsTrackMark}: ${row.name}`)}">${shown ? '☑' : '☐'}</td>`)
             + `<td class="entry-name"><span class="entry-ncell">${nameHtml(row.name, `${row.filePath}${(row.channels ?? 1) > 1 ? ` · ch ${row.ch} / ${row.channels}` : ''}`)}<span class="entry-rowtools">${toolsHtml(row, view, strings)}</span></span></td>`
             + `<td class="entry-num entry-col-ch${(row.channels ?? 1) > 1 ? '' : ' is-single'}">${row.channels === undefined ? '—' : row.ch}</td>${group}`
-            + `<td class="entry-num entry-col-value">${value}</td><td></td></tr>`;
+            // A level read on an axis that mixes calibration statuses says its own (R4): the column's name cannot.
+            + `<td class="entry-num entry-col-value">${value}${levelWord ? `<span class="entry-uncal">${escapeHtml(levelWord)}</span>` : ''}</td><td></td></tr>`;
     }).join('');
     return spacer(first) + rows + spacer(lines.length - last);
 }

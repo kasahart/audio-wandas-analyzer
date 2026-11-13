@@ -4,7 +4,9 @@
  * pipeline (computeViewRange → decimateBuckets → paintDecimatedPoints). The comparison's ChannelFrame panes use it.
  */
 import type { StageView } from '../../shared/protocol/backendProtocol';
-import { computeViewRange, decimateBuckets, makeCoordTransform, paintDecimatedPoints, type WaveformEnv } from '../waveform/waveformRenderer';
+import { drawableLine } from '../../shared/drawnPoints';
+import { niceRange } from '../../shared/utils/ticks';
+import { computeViewRange, decimateBuckets, isGap, makeCoordTransform, paintDecimatedPoints, type WaveformEnv } from '../waveform/waveformRenderer';
 
 export type StageWaveform = NonNullable<StageView['waveform']>;
 
@@ -29,8 +31,9 @@ function envelopeOn(waveform: StageWaveform, low: number, span: number): Wavefor
     const kept = envelopes.get(waveform);
     if (kept && kept.low === low && kept.span === span) return kept.env;
     const norm = (times: ReadonlyArray<number | null>): number[] => times.map(time => ((time ?? low) - low) / span);
-    const value = (values: ReadonlyArray<number | null>): number[] => values.map(item => item ?? 0);
-    const env = { min: value(waveform.min), max: value(waveform.max), minT: norm(waveform.minT), maxT: norm(waveform.maxT), absolutePeak: waveform.absolutePeak };
+    // A gap of the signal (null) stays one (NaN), drawn as a break, never as a sample at 0 (R2).
+    const value = (values: ReadonlyArray<number | null>): number[] => values.map(item => item ?? Number.NaN);
+    const env = { min: value(drawableLine(waveform.min)), max: value(drawableLine(waveform.max)), minT: norm(drawableLine(waveform.minT)), maxT: norm(drawableLine(waveform.maxT)), absolutePeak: waveform.absolutePeak };
     envelopes.set(waveform, { low, span, env });
     return env;
 }
@@ -74,10 +77,11 @@ export function paintWaveformLayer(
     context.save();
     context.beginPath(); context.rect(from, plot.top, to - from, plot.height); context.clip();
     context.translate(plot.left, plot.top);
-    paintDecimatedPoints(context, points, transform, color, lineWidth);
+    paintDecimatedPoints(context, points, transform, color, lineWidth, { left: 0, top: 0, width: plot.width, height: plot.height });
     context.restore();
     if (options.onPoint) {
         for (const pair of points) {
+            if (isGap(pair)) continue;
             for (const point of pair) {
                 const x = plot.left + transform.toX(point.tNorm), y = plot.top + transform.toY(point.value);
                 options.onPoint(x, y, point.value, axis.low + point.tNorm * span, x >= from && x < to && y >= plot.top && y <= plot.top + plot.height);
@@ -86,8 +90,12 @@ export function paintWaveformLayer(
     }
 }
 
-/** ± the largest peak of these waveforms (a little room above it), the amplitude axis they share. */
+/**
+ * ± the largest peak of these waveforms (every sample's, a little room above it), the amplitude axis they share,
+ * widened to round ends as every automatic range is (R9): ±0.35, not ±0.34272.
+ */
 export function waveformRange(waveforms: ReadonlyArray<StageWaveform | null | undefined>): { min: number; max: number } {
     const peak = Math.max(0, ...waveforms.map(item => item?.absolutePeak ?? 0)) * 1.05 || 1;
-    return { min: -peak, max: peak };
+    const { low, high } = niceRange(-peak, peak);
+    return { min: low, max: high };
 }

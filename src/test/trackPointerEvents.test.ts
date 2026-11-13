@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { keyRouterFor } from '../webview/runtime/keyRouter';
-import { attachTrackPointerListeners, type PlotSelectors } from '../webview/runtime/trackPointerEvents';
+import { attachTrackPointerListeners, plotUnderPointer, type PlotSelectors } from '../webview/runtime/trackPointerEvents';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 /** `selectors`: the lanes' own when left out (a focused lane keeps its arrows); a pane's (plotInteraction.ts) otherwise. */
-function setup(axisOpens = false, steps = true, selectors?: PlotSelectors) {
+function setup(axisOpens = false, steps = true, selectors?: PlotSelectors, zooms = true) {
     const { window } = new JSDOM('<!doctype html><body><div id="tracks"><canvas class="track-canvas" tabindex="0"></canvas><canvas class="track-axis-canvas"></canvas><span class="label"></span><canvas class="track-canvas" id="lane2" tabindex="0"></canvas></div><input id="field"></body>');
     const doc = window.document;
     const wrapper = doc.getElementById('tracks') as HTMLElement;
@@ -21,6 +23,7 @@ function setup(axisOpens = false, steps = true, selectors?: PlotSelectors) {
         release: () => { calls.push('release'); },
         zoomWheel: () => { calls.push('zoom'); },
         panWheel: (_e, swipe) => { calls.push(swipe ? 'swipe' : 'pan'); },
+        zoomKey: (plot, action) => { calls.push(`zoomKey:${plot.id || plot.className}:${action}`); return zooms; },
     }, selectors);
     const at = (selector: string) => doc.querySelector(selector) as HTMLElement;
     return { window, doc, wrapper, calls, at };
@@ -103,7 +106,7 @@ const keyIn = (window: JSDOM['window'], doc: Document) => (code: string, init: K
     return event.defaultPrevented;
 };
 
-test('← / → step the readout of the plot under the pointer, or of a focused one, and go on when it reads nothing (R7)', () => {
+test('← / → step the readout of the plot under the pointer, or of a focused one; off every plot they go on (R7)', () => {
     // A pane's plot (plotInteraction.ts): focused, it takes the arrows too.
     const { window, doc, calls, at } = setup(false, true, { plot: '.track-canvas', axis: '.track-axis-canvas' });
     const key = keyIn(window, doc);
@@ -124,12 +127,39 @@ test('← / → step the readout of the plot under the pointer, or of a focused 
     assert.deepEqual(calls.filter(call => call.startsWith('step')), ['step:track-canvas:1', 'step:track-canvas:-1', 'step:track-canvas:0', 'step:track-canvas:1']);
 });
 
-test('an arrow over a plot that reads nothing goes on to the keys behind it', () => {
+test('an arrow over a plot that cannot step (nothing read, an end, the edge of the window) is the plot\'s all the same: it never goes on to another surface\'s cursor (R7)', () => {
     const { window, doc, at } = setup(false, false);
+    const behind: string[] = [];
+    // The lanes' own cursor keys, behind the plots' (globalKeyboardEvents: the 'lanes' layer).
+    keyRouterFor(window).add({ layer: 'lanes', keydown(e) { behind.push(e.code); return true; } });
     at('.track-canvas').dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
     const event = new window.KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true, cancelable: true });
     doc.body.dispatchEvent(event);
-    assert.equal(event.defaultPrevented, false);
+    assert.equal(event.defaultPrevented, true);
+    // A focused lane, the pointer on another lane that cannot step: the focused lane's cursor stays.
+    const lane = at('.track-canvas'), other = at('#lane2');
+    lane.focus();
+    other.dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
+    const again = new window.KeyboardEvent('keydown', { code: 'ArrowLeft', key: 'ArrowLeft', bubbles: true, cancelable: true });
+    lane.dispatchEvent(again);
+    assert.equal(again.defaultPrevented, true);
+    assert.deepEqual(behind, [], 'no key reached the cursor behind the plots');
+});
+
+test('the focus leaving a plot takes away only a readout the focus gave: the pointer on another plot of the surface keeps its readout (R7)', () => {
+    const { window, calls, at } = setup(false, true, { plot: '.track-canvas', axis: '.track-axis-canvas' });
+    const focused = at('.track-canvas'), pointed = at('#lane2');
+    focused.focus();
+    pointed.dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
+    calls.length = 0;
+    focused.blur();
+    assert.deepEqual(calls.filter(call => call === 'clear'), [], 'the pointer\'s readout stays');
+    // With the pointer off the surface, the readout the focus gave goes with it.
+    at('#tracks').dispatchEvent(new window.MouseEvent('mouseleave'));
+    focused.focus();
+    calls.length = 0;
+    focused.blur();
+    assert.deepEqual(calls.filter(call => call === 'clear'), ['clear']);
 });
 
 test('a lane with the keyboard focus keeps ← / → for its time cursor, even with the pointer on it; the pointer on another lane steps that one\'s readout (R7)', () => {
@@ -149,4 +179,198 @@ test('a lane with the keyboard focus keeps ← / → for its time cursor, even w
     lane.dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
     assert.equal(key('ArrowRight'), true);
     assert.deepEqual(calls.filter(call => call.startsWith('step')), ['step:track-canvas:1', 'step:track-canvas:1']);
+});
+
+test('+ / − / 0 zoom the plot under the pointer, a lane too, and go on to the view\'s own keys off every plot or on one showing nothing', () => {
+    const { window, doc, calls, at } = setup();
+    const key = (name: string, init: KeyboardEventInit = {}, target: EventTarget = doc.body): boolean => {
+        const event = new window.KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true, ...init });
+        target.dispatchEvent(event);
+        return event.defaultPrevented;
+    };
+    // Off every plot, and on a plot only focused: the view's keys (the lanes' shared zoom, the comparison's) take them.
+    assert.equal(key('+'), false);
+    at('.track-canvas').focus();
+    assert.equal(key('+', {}, at('.track-canvas')), false);
+    at('#lane2').dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
+    assert.equal(key('+'), true);
+    assert.equal(key('=', {}), true);
+    assert.equal(key('-'), true);
+    assert.equal(key('_', { shiftKey: true }), true);
+    assert.equal(key('0'), true);
+    // With Ctrl, in a field, or another key: left alone.
+    assert.equal(key('+', { ctrlKey: true }), false);
+    assert.equal(key('0', {}, at('#field')), false);
+    assert.equal(key('9'), false);
+    assert.deepEqual(calls.filter(call => call.startsWith('zoomKey')), ['zoomKey:lane2:in', 'zoomKey:lane2:in', 'zoomKey:lane2:out', 'zoomKey:lane2:out', 'zoomKey:lane2:reset']);
+    // The pointer gone, the key goes on.
+    at('#tracks').dispatchEvent(new window.MouseEvent('mouseleave'));
+    assert.equal(key('+'), false);
+});
+
+test('a zoom key over a plot that shows nothing goes on to the keys behind it', () => {
+    const { window, doc, at } = setup(false, true, undefined, false);
+    at('.track-canvas').dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
+    const event = new window.KeyboardEvent('keydown', { key: '+', bubbles: true, cancelable: true });
+    doc.body.dispatchEvent(event);
+    assert.equal(event.defaultPrevented, false);
+});
+
+test('a plot of another surface with only the focus never takes ← / → from the plot under the pointer: the cursor spectrum focused, the pointer on a lane, the lane steps (A47, R7)', () => {
+    const { window } = new JSDOM('<!doctype html><body><div id="lanes"><canvas class="track-canvas" id="lane"></canvas></div><div id="spectrum"><canvas class="spectrum-canvas" id="spec" tabindex="0"></canvas></div></body>');
+    const doc = window.document;
+    const calls: string[] = [];
+    const handlers = (name: string) => ({
+        step: (plot: Element, delta: -1 | 0 | 1) => { calls.push(`${name}:${plot.id}:${delta}`); return true; },
+        resetZoom: () => undefined, openAxisRange: () => false, hover: () => undefined, clearHover: () => undefined,
+        press: () => undefined, drag: () => undefined, release: () => undefined, zoomWheel: () => undefined, panWheel: () => undefined, zoomKey: () => false,
+    });
+    const keys = keyRouterFor(window);
+    // The lanes' surface is attached first, the spectrum's after it (so the spectrum's keys are tried first), as the comparison does.
+    attachTrackPointerListeners(doc.getElementById('lanes') as HTMLElement, doc, keys, handlers('lanes'));
+    attachTrackPointerListeners(doc.getElementById('spectrum') as HTMLElement, doc, keys, handlers('spectrum'), { plot: '.spectrum-canvas' });
+    const spec = doc.getElementById('spec') as HTMLElement;
+    spec.focus();
+    calls.length = 0;
+    (doc.getElementById('lane') as HTMLElement).dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true, clientX: 10, clientY: 10 }));
+    spec.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true }));
+    assert.deepEqual(calls, ['lanes:lane:1'], 'the lane under the pointer steps');
+    // With the pointer off every plot, the focused spectrum takes them.
+    (doc.getElementById('lanes') as HTMLElement).dispatchEvent(new window.MouseEvent('mouseleave'));
+    calls.length = 0;
+    spec.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true }));
+    assert.deepEqual(calls, ['spectrum:spec:1']);
+});
+
+test('an arrow over a plot these gestures do not answer now (another mode\'s gestures on the same surface do) goes on to them (R7)', () => {
+    const { window } = new JSDOM('<!doctype html><body><div id="lanes"><canvas class="track-canvas" id="lane"></canvas></div></body>');
+    const doc = window.document;
+    const calls: string[] = [];
+    const handlers = (name: string, answers: boolean | null) => ({
+        step: (plot: Element) => { calls.push(`${name}:${plot.id}`); return answers; },
+        resetZoom: () => undefined, openAxisRange: () => false, hover: () => undefined, clearHover: () => undefined,
+        press: () => undefined, drag: () => undefined, release: () => undefined, zoomWheel: () => undefined, panWheel: () => undefined, zoomKey: () => false,
+    });
+    const keys = keyRouterFor(window);
+    const surface = doc.getElementById('lanes') as HTMLElement;
+    // The lanes' gestures, then the steps' view's on the same surface (tried first), which is off.
+    attachTrackPointerListeners(surface, doc, keys, handlers('lanes', false), { plot: '.track-canvas' });
+    attachTrackPointerListeners(surface, doc, keys, handlers('steps', null), { plot: '.track-canvas' });
+    (doc.getElementById('lane') as HTMLElement).dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
+    const event = new window.KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true, cancelable: true });
+    doc.body.dispatchEvent(event);
+    assert.deepEqual(calls, ['steps:lane', 'lanes:lane'], 'the lanes answer it');
+    assert.equal(event.defaultPrevented, true, 'and keep it, stepped or not');
+    // Neither answering it (a plot that shows nothing yet): the plot is still the one under the pointer, so the view's
+    // keys behind (a focused lane's time cursor, comparisonRuntime's stepCursor) leave the key alone (R7).
+    calls.length = 0;
+    const none = new JSDOM('<!doctype html><body><div id="lanes"><canvas class="track-canvas" id="lane"></canvas></div></body>').window;
+    const noneDoc = none.document;
+    attachTrackPointerListeners(noneDoc.getElementById('lanes') as HTMLElement, noneDoc, keyRouterFor(none), handlers('empty', null), { plot: '.track-canvas' });
+    (noneDoc.getElementById('lane') as HTMLElement).dispatchEvent(new none.MouseEvent('mousemove', { bubbles: true }));
+    const passed = new none.KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true, cancelable: true });
+    noneDoc.body.dispatchEvent(passed);
+    assert.equal(passed.defaultPrevented, false, 'not this plot\'s gestures\' now');
+    assert.equal(plotUnderPointer(noneDoc)?.id, 'lane', 'but the plot under the pointer, for the keys behind');
+    const runtime = readFileSync(path.resolve(__dirname, '..', '..', 'src', 'webview', 'runtime', 'comparisonRuntime.ts'), 'utf8');
+    const cursor = runtime.slice(runtime.indexOf('stepCursor(direction, shiftKey, active) {'), runtime.indexOf('arrowReleased:'));
+    assert.match(cursor, /const under = plotUnderPointer\(document\);\s*if \(under && under !== active\) \{\s*return;/u, 'the lanes\' time cursor leaves a key over another plot alone');
+});
+
+test('a focused plot with the pointer on a header of its surface: → steps the focused plot\'s own point (no pointer place given), and + / − / 0 are not that plot\'s (R7)', () => {
+    const { window } = new JSDOM('<!doctype html><body><div id="pane"><div id="header">readout</div><canvas class="plot" id="plot" tabindex="0"></canvas></div></body>');
+    const doc = window.document;
+    const calls: string[] = [];
+    attachTrackPointerListeners(doc.getElementById('pane') as HTMLElement, doc, keyRouterFor(window), {
+        step: (plot, delta, pointer) => { calls.push(`step:${plot.id}:${delta}:${pointer ? 'pointer' : 'place'}`); return true; },
+        resetZoom: () => undefined, openAxisRange: () => false, hover: () => undefined, clearHover: () => undefined,
+        press: () => undefined, drag: () => undefined, release: () => undefined, zoomWheel: () => undefined, panWheel: () => undefined,
+        zoomKey: (plot, action) => { calls.push(`zoom:${plot.id}:${action}`); return true; },
+    }, { plot: '.plot' });
+    const plot = doc.getElementById('plot') as HTMLElement;
+    (doc as unknown as { elementFromPoint: () => Element | null }).elementFromPoint = () => doc.getElementById('header');
+    (doc.getElementById('header') as HTMLElement).dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true, clientX: 30, clientY: 5 }));
+    plot.focus();
+    calls.length = 0;
+    const key = keyIn(window, doc);
+    assert.equal(key('ArrowRight', {}, plot), true);
+    assert.equal(key('ArrowRight', {}, plot), true);
+    assert.deepEqual(calls, ['step:plot:1:place', 'step:plot:1:place'], 'the focused plot steps from its own point, every key');
+    assert.equal(key('=', { key: '=' }, plot), false, 'a zoom key is not the focused plot\'s');
+    assert.deepEqual(calls.filter(call => call.startsWith('zoom')), []);
+});
+
+test('on a surface inside another (the steps\' plots inside the lanes\' wrapper), a lane given the focus with the pointer on the inner plot neither reads where it starts nor, let go, takes the inner plot\'s readout away (A47, R7)', () => {
+    const { window } = new JSDOM('<!doctype html><body><div id="wrapper"><canvas class="track-canvas" id="lane" tabindex="0"></canvas><div id="root"><canvas data-stage-canvas id="overlay"></canvas></div></div><button id="after">after</button></body>');
+    const doc = window.document;
+    const calls: string[] = [];
+    const handlers = (name: string) => ({
+        step: (plot: Element, delta: -1 | 0 | 1) => { calls.push(`${name}:step:${plot.id}:${delta}`); return true; },
+        resetZoom: () => undefined, openAxisRange: () => false,
+        hover: (e: MouseEvent) => { calls.push(`${name}:hover:${(e.target as Element).id}`); },
+        clearHover: () => { calls.push(`${name}:clear`); },
+        press: () => undefined, drag: () => undefined, release: () => undefined, zoomWheel: () => undefined, panWheel: () => undefined, zoomKey: () => false,
+    });
+    const keys = keyRouterFor(window);
+    const wrapper = doc.getElementById('wrapper') as HTMLElement, root = doc.getElementById('root') as HTMLElement;
+    // As the steps' view attaches them: the lanes' surface (the wrapper), then its plots inside it, one readout for both.
+    attachTrackPointerListeners(wrapper, doc, keys, handlers('outer'), { plot: '.track-canvas' });
+    attachTrackPointerListeners(root, doc, keys, handlers('inner'), { plot: '[data-stage-canvas]' });
+    (doc.getElementById('overlay') as HTMLElement).dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true, clientX: 5, clientY: 5 }));
+    calls.length = 0;
+    const lane = doc.getElementById('lane') as HTMLElement;
+    lane.focus();
+    assert.deepEqual(calls.filter(call => call.includes(':step:')), [], 'the focus gives no readout over the pointer\'s');
+    (doc.getElementById('after') as HTMLElement).focus();
+    assert.deepEqual(calls.filter(call => call.endsWith(':clear')), [], 'nor does its leaving take the pointer\'s away');
+    // An arrow steps the plot under the pointer, the inner one.
+    calls.length = 0;
+    doc.body.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true, cancelable: true }));
+    assert.deepEqual(calls, ['inner:step:overlay:1']);
+});
+
+test('a scroll under a still pointer reads the plot now under it, through the same hover a pointer moved there gives, and the arrows step that one (R7)', () => {
+    const { window } = new JSDOM('<!doctype html><body><div id="tracks"><canvas class="track-canvas" id="lane1"></canvas><canvas class="track-canvas" id="lane2"></canvas></div></body>');
+    const doc = window.document;
+    const calls: string[] = [];
+    attachTrackPointerListeners(doc.getElementById('tracks') as HTMLElement, doc, keyRouterFor(window), {
+        step: (plot, delta) => { calls.push(`step:${plot.id}:${delta}`); return true; },
+        resetZoom: () => undefined, openAxisRange: () => false,
+        hover: e => { calls.push(`hover:${(e.target as Element).id}:${e.clientX},${e.clientY}`); },
+        clearHover: () => { calls.push('clear'); },
+        press: () => undefined, drag: () => undefined, release: () => undefined, zoomWheel: () => undefined, panWheel: () => undefined, zoomKey: () => false,
+    }, { plot: '.track-canvas' });
+    const second = doc.getElementById('lane2') as HTMLElement;
+    (doc.getElementById('lane1') as HTMLElement).dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true, clientX: 30, clientY: 40 }));
+    // The lanes scroll: the second lane is under the pointer now.
+    (doc as unknown as { elementFromPoint: (x: number, y: number) => Element | null }).elementFromPoint = (x, y) => (x === 30 && y === 40 ? second : null);
+    calls.length = 0;
+    doc.getElementById('tracks')?.dispatchEvent(new window.Event('scroll'));
+    assert.deepEqual(calls, ['hover:lane2:30,40'], 'read again at the pointer, never only taken away');
+    calls.length = 0;
+    doc.body.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true, cancelable: true }));
+    assert.deepEqual(calls, ['step:lane2:1'], 'the arrows step the plot now under the pointer');
+});
+
+test('a scroll that takes the surface from under a still pointer clears its readout, and the arrows step nothing of it (R7)', () => {
+    const { window } = new JSDOM('<!doctype html><body><div id="tracks"><canvas class="track-canvas" id="lane1"></canvas></div><div id="below"></div></body>');
+    const doc = window.document;
+    const calls: string[] = [];
+    attachTrackPointerListeners(doc.getElementById('tracks') as HTMLElement, doc, keyRouterFor(window), {
+        step: (plot, delta) => { calls.push(`step:${plot.id}:${delta}`); return true; },
+        resetZoom: () => undefined, openAxisRange: () => false,
+        hover: e => { calls.push(`hover:${(e.target as Element).id}`); },
+        clearHover: () => { calls.push('clear'); },
+        press: () => undefined, drag: () => undefined, release: () => undefined, zoomWheel: () => undefined, panWheel: () => undefined, zoomKey: () => false,
+    }, { plot: '.track-canvas' });
+    (doc.getElementById('lane1') as HTMLElement).dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true, clientX: 30, clientY: 40 }));
+    // The page scrolls: what is under the pointer now is off the surface.
+    const below = doc.getElementById('below') as HTMLElement;
+    (doc as unknown as { elementFromPoint: (x: number, y: number) => Element | null }).elementFromPoint = () => below;
+    calls.length = 0;
+    doc.dispatchEvent(new window.Event('scroll'));
+    assert.deepEqual(calls, ['clear'], 'the readout of the plot scrolled away goes');
+    calls.length = 0;
+    doc.body.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true, cancelable: true }));
+    assert.deepEqual(calls.filter(call => call.startsWith('step:')), [], 'no plot of it is under the pointer');
 });

@@ -20,6 +20,8 @@ export interface Distribution {
     high: number;
     /** Rows of the pool without the value: computed values not computed yet. */
     missing: number;
+    /** Rows whose level is of another reference than the value axis's: not drawn on it (R4), counted. */
+    apart: number;
     /** Whether a member is a recording (a CSV value) or a channel (a computed value). */
     unit: 'recording' | 'ch';
 }
@@ -46,13 +48,16 @@ export function median(values: readonly number[]): number | null {
  * only marks the members it takes. `usable` says whether a row's computed value is of the current chain.
  */
 export function distribution(rows: readonly DatasetRow[], value: ValueId, group: GroupId, results: Results,
-    range: { low: number; high: number } | null, usable: (row: DatasetRow) => boolean = () => true): Distribution {
+    range: { low: number; high: number } | null, usable: (row: DatasetRow) => boolean = () => true,
+    /** Whether a row's level is of the value axis's reference; a level of another is never placed on that axis. */
+    onAxis: (row: DatasetRow) => boolean = () => true): Distribution {
     const perRecording = !isComputed(value);
     const seen = new Set<string>();
     const groups = new Map<string, DistributionMember[]>();
-    let missing = 0;
+    let missing = 0, apart = 0;
     for (const row of rows) {
         const number = usable(row) ? valueOf(row, value, results) : null;
+        if (number !== null && !onAxis(row)) { apart++; continue; }
         // A CSV value left blank is not drawn either, but nothing computes it: only computed values are "missing".
         if (number === null) { if (!perRecording) missing++; continue; }
         const name = groupOf(row, group);
@@ -74,7 +79,7 @@ export function distribution(rows: readonly DatasetRow[], value: ValueId, group:
     ({ low, high } = niceRange(low - pad, high + pad));
     return {
         groups: [...groups.entries()].sort(([a], [b]) => compareGroupNames(a, b)).map(([name, members]) => ({ name, members })),
-        low, high, missing, unit: perRecording ? 'recording' : 'ch',
+        low, high, missing, apart, unit: perRecording ? 'recording' : 'ch',
     };
 }
 

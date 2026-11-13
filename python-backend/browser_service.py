@@ -14,7 +14,7 @@ import numpy as np
 import soundfile as sf
 import wandas as wd
 
-from analysis_engine import AUDIO_CACHE_DTYPE, AnalysisEngine, CachedAnalysis
+from analysis_engine import AnalysisEngine, CachedAnalysis, source_dtype
 from analysis_service import AnalysisService, PairSpectrumResult, pair_overlap, pair_stft_params
 from analyzer import resolve_stft_params, sample_range
 from backend_errors import INTERNAL_ERROR, InputError, MemoryBudgetError, UnreadableFileError, error_payload
@@ -76,14 +76,16 @@ class BrowserEngine(AnalysisEngine):
         if suffix not in wd.supported_formats():
             raise UnreadableFileError(f"Unsupported file type: {suffix or source_id}")
         frame: wd.ChannelFrame | None = None
+        # Every sample held exactly: float32 for a format that fits in it, else float64 (a CSV, a 64-bit float WAV).
+        dtype = source_dtype(payload, suffix)
         if suffix == ".csv":
             # wd.inspect reads audio headers only, so a CSV is bounded before parsing: every value
             # takes at least two bytes, which caps its decoded frame at half the payload's byte count.
-            worst_frame_bytes = len(payload) // 2 * AUDIO_CACHE_DTYPE.itemsize
+            worst_frame_bytes = len(payload) // 2 * dtype.itemsize
             if self.estimated_bytes(len(payload) * 2 + worst_frame_bytes * 8) > MAX_ESTIMATED_BYTES:
                 raise MemoryBudgetError(self._load_budget_message())
             try:
-                frame = wd.read(payload, file_type=suffix, source_name=source_id, dtype=AUDIO_CACHE_DTYPE).cache()
+                frame = wd.read(payload, file_type=suffix, source_name=source_id, dtype=dtype).cache()
             except ValueError as error:
                 raise UnreadableFileError(f"Unable to read CSV: {str(error).splitlines()[0]}") from error
             length, channels, rate = frame.n_samples, frame.n_channels, float(frame.sampling_rate)
@@ -108,7 +110,7 @@ class BrowserEngine(AnalysisEngine):
             raise InputError("Invalid source identity")
         if path in self._files:
             raise InputError("Source identity is already loaded")
-        frame_bytes = length * channels * AUDIO_CACHE_DTYPE.itemsize
+        frame_bytes = length * channels * dtype.itemsize
         input_bytes = self.input_bytes + len(payload)
         decoded_bytes = sum(entry.frame_nbytes for entry in self._files.values()) + frame_bytes
         if len(self._files) >= MAX_SOURCES or input_bytes > MAX_TOTAL_INPUT_BYTES:
@@ -120,13 +122,13 @@ class BrowserEngine(AnalysisEngine):
         if self.estimated_bytes(len(payload) * 2 + frame_bytes * 8) > MAX_ESTIMATED_BYTES:
             raise MemoryBudgetError(self._load_budget_message())
         if frame is None:
-            frame = wd.read(payload, file_type=suffix, source_name=source_id, dtype=AUDIO_CACHE_DTYPE).cache()
+            frame = wd.read(payload, file_type=suffix, source_name=source_id, dtype=dtype).cache()
         source_peaks = finite_source_channel_peaks(frame)
         self._files[path] = CachedAnalysis(
             path=path,
             frame=frame,
             identity=(next(self._loads), len(payload)),
-            frame_nbytes=int(np.prod(frame.shape)) * AUDIO_CACHE_DTYPE.itemsize,
+            frame_nbytes=int(np.prod(frame.shape)) * dtype.itemsize,
             source_peaks=source_peaks,
             input_id=f"sha256:{hashlib.sha256(payload).hexdigest()}",
         )
@@ -183,18 +185,20 @@ class BrowserEngine(AnalysisEngine):
                 break
             self.discard_spectrograms(path)
 
-    def get_spectrogram(self, file_path, n_fft, hop_length, window, calibration_profile=None):
+    def get_spectrogram(self, file_path, n_fft, hop_length, window, calibration_profile=None, source_version=None):
         cached = self.get_file(file_path)
         length, channels = cached.frame.n_samples, cached.frame.n_channels
         key = (n_fft, hop_length, window)
         if any(old[1:] != key for old in cached.spectrograms):
             self.discard_spectrograms(file_path)
-        existing = self.get_cached_spectrogram(file_path, n_fft, hop_length, window, calibration_profile)
+        existing = self.get_cached_spectrogram(
+            file_path, n_fft, hop_length, window, calibration_profile, source_version
+        )
         if existing is not None:
             return existing
         if self.estimated_bytes(stft_working_bytes(length, channels, n_fft, hop_length)) > MAX_ESTIMATED_BYTES:
             raise MemoryBudgetError("STFT exceeds prototype estimated memory budget; lower the overlap")
-        return super().get_spectrogram(file_path, n_fft, hop_length, window, calibration_profile)
+        return super().get_spectrogram(file_path, n_fft, hop_length, window, calibration_profile, source_version)
 
 
 class BrowserService(AnalysisService):

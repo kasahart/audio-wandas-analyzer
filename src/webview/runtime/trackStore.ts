@@ -1,3 +1,4 @@
+import { answerKey, createAnswerSlot, createAnswerStore, createLatestAnswers, type AnswerKey, type AnswerSlot, type AnswerStore, type LatestAnswers } from './answerStore';
 import type {
     ComparisonTrackState,
     LazyRequestState,
@@ -20,14 +21,24 @@ export interface TrackRecord {
     active: boolean;
     readonly runtime: TrackRuntimeState;
     waveformCoverage: WaveformCoverage | null;
-    rangeCache: WaveformRangeCache | null;
+    /** The waveform range last answered (answerStore). */
+    readonly rangeCache: AnswerSlot<WaveformRangeCache>;
     /** What the track asked the host for: its waveform range ('range'), spectrogram ('detail') and cursor spectrum ('slice'). */
     readonly requests: HostRequests<LazyRequestState | null>;
-    /** The host's answer when the spectrogram failed: shown in the lane, and asked again only after a pause. */
-    detailError: { settingsSignature: string; message: string; at: number } | null;
-    /** A zoomed lane's spectrogram window, asked again at full resolution (R3); drawn while it covers the view. */
-    spectrogramZoom: SpectrogramZoom | null;
-    readonly spectrumSliceCache: Map<number, SpectrumSlice>;
+    /**
+     * The track's spectrogram detail, under its key (trackDetailKey): pending while asked, ready when it brought a
+     * spectrogram, empty when it brought none, failed (asked again after the store's pause). See laneDetailState.
+     */
+    readonly detail: AnswerStore<true>;
+    /** A zoomed lane's spectrogram window, asked again at full resolution (R3); drawn while it covers the view; its failure waits the pause. */
+    readonly spectrogramZoom: AnswerSlot<SpectrogramZoom>;
+    /** Each channel's cursor slice last answered (answerStore: one per channel, checked against the cursor by sliceIsCurrentAt). */
+    readonly spectrumSliceCache: LatestAnswers<SpectrumSlice, number>;
+    /**
+     * The file changed on disk after this analysis (a lazy answer came back stale-source): asking again cannot mend it,
+     * so the lanes ask nothing more and say so until the track is analysed again (cleared with the analysis state).
+     */
+    sourceChanged: boolean;
 }
 
 export interface SpectrogramZoom {
@@ -47,6 +58,38 @@ export interface ReconcileResult {
     protocolOrderChanged: boolean;
 }
 
+/**
+ * The key of a track's spectrogram detail: the file, the version and calibration it was analysed under, and the
+ * spectrogram settings' signature (STFT and window) it is asked under. An answer is of exactly this key: any part
+ * changed is another answer, asked for once.
+ */
+export function trackDetailKey(result: Pick<ComparisonTrackState, 'filePath' | 'sourceVersion' | 'calibrationSignature'>, settingsSignature: string): AnswerKey {
+    return answerKey({ ask: 'track-detail', file: result.filePath, version: { fileVersion: result.sourceVersion ?? '', calibration: result.calibrationSignature ?? '' }, condition: settingsSignature });
+}
+
+/**
+ * What a lane whose channel has no spectrogram does about its track's detail under `key` (trackDetailKey), read
+ * from the answer store's state alone:
+ * - 'answered': the detail came under this key (empty: with no spectrogram; ready: with spectrograms for other
+ *   channels) and brought this channel none. That is the answer: the lane says there is none, and it is not asked
+ *   again until the key changes. Asking again would get the same answer, on every frame the lane is drawn.
+ * - 'failed': it failed under this key and the store's pause is not over; the lane shows why.
+ * - 'pending': it is asked under this key and not answered yet.
+ * - 'ask': none of these (never asked, or its failure's pause is over), so the lane asks now (detail.ask(key)).
+ */
+export function laneDetailState(detail: AnswerStore<true>, key: AnswerKey): 'answered' | 'failed' | 'pending' | 'ask' {
+    const state = detail.state(key);
+    if (state === 'ready' || state === 'empty') return 'answered';
+    if (state === 'failed' || state === 'pending') return state;
+    return 'ask';
+}
+
+/**
+ * A track's detail answers kept: the latest key's only. The spectrograms an answer brought are merged into the track's
+ * analysis and replaced under other settings, so an older key's answer no longer says what the lanes hold.
+ */
+const DETAIL_ANSWERS_KEPT = 1;
+
 export class TrackStore {
     private readonly records = new Map<TrackId, TrackRecord>();
     private readonly locallyRemovedIds = new Map<TrackId, string>();
@@ -57,6 +100,8 @@ export class TrackStore {
     constructor(
         results: ComparisonTrackState[],
         private readonly createRuntime: () => TrackRuntimeState,
+        /** Called once a lane's failed answer may be asked again (its slot's pause is over): the lanes are drawn again. */
+        private readonly retried?: () => void,
     ) {
         results.forEach((result, protocolIndex) => {
             const record = this.createRecord(result, protocolIndex);
@@ -144,8 +189,12 @@ export class TrackStore {
         return true;
     }
 
+    /** Lets go every track's detail failure, so it is asked again now; an answer that came (even empty) is kept. */
     clearDetailErrors(): void {
-        this.activeIds().forEach((activeId) => { this.require(activeId).detailError = null; });
+        this.activeIds().forEach((activeId) => {
+            const detail = this.require(activeId).detail;
+            for (const [key, held] of [...detail.newestFirst()]) if (held.state === 'failed') detail.forget(key);
+        });
     }
 
     allowExplicitSelection(filePath: string): void {
@@ -265,11 +314,12 @@ export class TrackStore {
             active: true,
             runtime: this.createRuntime(),
             waveformCoverage: null,
-            rangeCache: null,
+            rangeCache: createAnswerSlot<WaveformRangeCache>(undefined, this.retried),
             requests: new HostRequests(),
-            detailError: null,
-            spectrogramZoom: null,
-            spectrumSliceCache: new Map(),
+            detail: createAnswerStore<true>({ capacity: DETAIL_ANSWERS_KEPT, retried: this.retried }),
+            spectrogramZoom: createAnswerSlot<SpectrogramZoom>(undefined, this.retried),
+            spectrumSliceCache: createLatestAnswers<SpectrumSlice, number>(),
+            sourceChanged: false,
         };
         result.trackId = id;
         this.records.set(id, record);
@@ -278,14 +328,15 @@ export class TrackStore {
 
     private clearAnalysisState(record: TrackRecord): void {
         record.waveformCoverage = null;
-        record.rangeCache = null;
+        record.sourceChanged = false;
+        record.rangeCache.clear();
         this.clearAsyncState(record);
     }
 
     private clearAsyncState(record: TrackRecord): void {
         record.requests.clear();
-        record.detailError = null;
-        record.spectrogramZoom = null;
+        record.detail.clear();
+        record.spectrogramZoom.clear();
         record.spectrumSliceCache.clear();
     }
 }

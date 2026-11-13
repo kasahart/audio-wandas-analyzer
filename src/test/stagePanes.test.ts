@@ -1,30 +1,52 @@
+import { testLine, testCells, wholeValues } from './helpers/whole';
 import assert from 'node:assert/strict';
+import { drawableLine, drawableRows } from '../shared/drawnPoints';
+import { N, R, T, Y } from './helpers/figure';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { assertNotDrawn } from './fullNotDrawn';
+import { held, ranged } from './helpers/heldSource';
 import { spectrumLayer } from '../webview/runtime/overlaySpectrumPainter';
-import { axisFractionOf, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
+import { axisNameParts, fontPixels } from '../webview/plot/axisTitle';
+import { heatmapDbRange, niceRange } from '../shared/utils/ticks';
+import { alongAxisTicks, axisFractionOf, colourEndText, drawnLevelsText, type StageLayer, paintTimeAxis, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, stageReadAgain, stageStep, screenLevels, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
+import { getStrings } from '../shared/i18n/strings';
+import { fetchedSource, NO_FULL_DATA } from '../webview/runtime/fullRead';
+import { FAILED_RETRY_MS } from '../webview/runtime/answerStore';
+import { gainAxisName, typedColourRange } from '../webview/runtime/figureModel';
+import { distributionRows, type DistributionPicture } from '../webview/runtime/entryDistribution';
 
-const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
+const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ranged({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
 const strings = { stageNoDelta: 'none', stageMaxDelta: '{at} {delta}' };
 
 /** compare − base point by point, as the backend's difference of two pictures already at full resolution is. */
 function minus(base: StageView, compare: StageView): StageView {
     const sub = (a: number | null, b: number | null | undefined): number | null => (a === null || b === null || b === undefined ? null : Math.round((a - b) * 1e6) / 1e6);
-    return compare.matrix
-        ? { ...compare, matrix: compare.matrix.map((row, r) => row.map((value, c) => sub(value, base.matrix?.[r]?.[c]))) }
-        : { ...compare, values: (compare.values ?? []).map((value, index) => sub(value, base.values?.[index])) };
+    // The difference's own range, as the backend sends with it.
+    return ranged(compare.matrix
+        ? { ...compare, matrix: drawableRows(compare.matrix).map((row, r) => row.map((value, c) => sub(value, drawableRows(base.matrix ?? [])[r]?.[c]))) }
+        : { ...compare, values: drawableLine(compare.values ?? []).map((value, index) => sub(value, drawableLine(base.values ?? [])[index])) }, true);
 }
 
-test('the Δ pane\'s headline names where the difference drawn is largest', () => {
-    const diff = minus(line([-40, -30, -20]), line([-41, -16, -20]));
-    assert.equal(stageHeadline(diff, strings), '1 kHz +14.0 dB');
-    // A linear quantity, without dB.
-    assert.equal(stageHeadline(minus(line([0.1, 0.2, 0.3], 'coherence'), line([0.2, 0.2, 0.2], 'coherence')), strings), '100 Hz +0.100');
+test('the Δ pane\'s headline writes the backend\'s largest difference, found before thinning, never the largest point drawn', () => {
+    // The drawn points say +14 dB at 1 kHz; the full-resolution peak (stage_combine.difference_peak) is elsewhere.
+    const diff: StageView = { ...minus(line([-40, -30, -20]), line([-41, -16, -20])), peak: { x: 1250, value: 17.5, xStep: 1 } };
+    assert.equal(stageHeadline(diff, strings), '1.25 kHz +17.5 dB');
+    assert.equal(stageHeadline({ ...line([0, 0, 0], 'coherence'), peak: { x: 100, value: 0.1 } }, strings), '100 Hz +0.100');
     assert.equal(stageHeadline(null, strings), 'none');
-    const heat: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0.5, 1], ys: [100, 1000], matrix: [[-40, -40], [-30, -30]] };
-    assert.equal(stageHeadline(minus(heat, { ...heat, matrix: [[-40, -45], [-30, -30]] }), strings), '1.00 s · 100 Hz −5.0 dB');
+    // Drawn points but no peak: nothing found at full resolution, so nothing is named from the picture.
+    assert.equal(stageHeadline(minus(line([-40, -30, -20]), line([-41, -16, -20])), strings), 'none');
+    const heat: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0.5, 1], ys: [100, 1000], matrix: [[0, -5], [0, 0]], peak: { x: 1, y: 100, value: -5 } };
+    assert.equal(stageHeadline(heat, strings), '1.00 s · 100 Hz −5.0 dB');
+});
+
+test('zoomed, the Δ pane\'s headline names no point until the backend has looked for it in this window (A21, C4)', () => {
+    const diff: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'FS', xs: [0.5, 3, 7], values: [0.02, -0.03, 0.5], peak: { x: 7, value: 0.5, xStep: 1 } };
+    // A margin's or an earlier window's peak is never named: nothing until the window's own is in.
+    assert.equal(stageHeadline(diff, strings, false), '');
+    assert.match(stageHeadline(diff, strings, true), /\+0\.500 FS$/u);
 });
 
 test('levels share a range of four round steps; coherence keeps 0 to 1', () => {
@@ -32,36 +54,102 @@ test('levels share a range of four round steps; coherence keeps 0 to 1', () => {
     assert.deepEqual(stageRange([line([0.2, 0.5, 0.9], 'coherence')]), { min: 0, max: 1 });
 });
 
-test('a cross-channel picture names its pair on the value axis: the channel over its reference', () => {
-    const names = { axisFrequency: 'Frequency [Hz]', axisCoherence: 'Coherence', axisGain: 'Gain [dB]' } as unknown as StageStrings;
-    assert.deepEqual(stageAxes(names, { ...line([0.2, 0.5, 0.9], 'coherence'), pair: { output: 2, input: 1 } }, undefined), { x: 'Frequency [Hz]', y: 'Coherence · ch2 / ch1' });
-    assert.equal(stageAxes(names, { ...line([0, -3, -6], 'gain'), pair: { output: 3, input: 1 } }, undefined).y, 'Gain [dB] · ch3 / ch1');
-    assert.equal(stageAxes(names, line([0.2, 0.5, 0.9], 'coherence'), undefined).y, 'Coherence');
+test('a dB line\'s automatic range encloses every value of its full data down to 100 dB under its loudest, rounded out to round steps with at most a step of slack on each side (R9)', () => {
+    const range = (min: number, max: number): { min: number; max: number } => stageRange([{ ...line([min, max]), valueRange: { min, max } }]);
+    // 40 dB: 10 dB steps, each end rounded out to the next step (−9.5 up to 0).
+    assert.deepEqual(range(-49.5, -9.5), { min: -50, max: 0 });
+    // 100 dB ending on steps: the ends stay put, with no slack.
+    assert.deepEqual(range(-100, 0), { min: -100, max: 0 });
+    assert.deepEqual(range(-80, -20), { min: -80, max: -20 });
+    // 140 dB (a silent stretch): held to exactly 100 dB under the rounded top, as a heatmap's colours are.
+    assert.deepEqual(range(-149.5, -9.5), { min: -100, max: 0 });
+    assert.deepEqual(range(-109.5, -9.5), { min: -100, max: 0 });
+    for (const [min, max] of [[-49.5, -9.5], [-41, -1], [-100, 0], [-109.5, -9.5], [-149.5, -9.5], [-61, -2], [-12.3, -12.1], [-300, -20], [-20, -20], [3, 47]]) {
+        const got = range(min, max);
+        // Never more than 100 dB; within it, every value.
+        assert.ok(got.max - got.min <= 100, `${min}…${max} dB: ${got.min}…${got.max} spans at most 100 dB`);
+        const bottom = Math.max(min, got.max - 100);
+        // Its steps: the finest round step both ends are on that divides it into at most six.
+        const ticks = [5, 10, 20, 25].filter(step => got.min % step === 0 && got.max % step === 0 && (got.max - got.min) / step <= 6);
+        const step = Math.min(...ticks);
+        assert.ok(ticks.length, `${min}…${max} dB: ${got.min}…${got.max} is on round steps`);
+        assert.ok(got.max >= max && got.min <= bottom, `${min}…${max} dB: ${got.min}…${got.max} encloses it`);
+        assert.ok(got.max - max <= step && bottom - got.min <= step, `${min}…${max} dB: ${got.min}…${got.max} has at most a ${step} dB step of slack on each side`);
+    }
 });
 
-test('a metric over time names what it measures on its value axis, from its unit', () => {
-    const names = { axisTime: 'Time [s]', dsValue: 'Value', axisLoudness: 'Loudness', axisSharpness: 'Sharpness', axisRoughness: 'Roughness', axisLevelOf: 'Level' } as unknown as StageStrings;
+test('every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)', () => {
+    // A line thinned to points whose extremes were averaged away: its range holds every value.
+    assert.deepEqual(stageRange([{ ...line([-43, -12, -30]), valueRange: { min: -61, max: -2 } }]), stageRange([line([-61, -2])]));
+    // A heatmap's colours: the full STFT's loudest cell (a short loud one, averaged down to −20 dB to draw), not the cells.
+    const heat = (matrix: number[][], valueRange?: StageView['valueRange']): StageView => ({ frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0, 1], ys: [100, 1000], matrix, ...(valueRange ? { valueRange } : {}) });
+    const drawn = [[-40, -20], [-60, -30]];
+    assert.deepEqual(stageRange([heat(drawn, { min: -64, max: -3 })]), heatmapDbRange(-64, -3));
+    assertNotDrawn(stageRange([heat(drawn, { min: -64, max: -3 })]), stageRange([heat(drawn)]));
+    // A cepstrogram's colour edge: the full coefficients' 99th percentile.
+    const cep = (robust?: number): StageView => ({ frame: 'CepstrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'cepstrum', yAxis: 'quefrency', xs: [0, 1], ys: [0, 0.001, 0.002], matrix: [[9, 9], [0.1, -0.1], [0.2, 0.05]], ...(robust !== undefined ? { valueRange: { min: -0.9, max: 0.9, robust } } : {}) });
+    assert.equal(stageRange([cep(0.71)]).max, niceRange(-0.71, 0.71).high);
+    // A difference's ± from the full Δ.
+    assert.deepEqual(stageDiffRange({ ...line([-2, 3]), valueRange: { min: -19, max: 7 } }), stageDiffRange(line([-19, 7])));
+    assertNotDrawn(stageDiffRange({ ...line([-2, 3]), valueRange: { min: -19, max: 7 } }), stageDiffRange(line([-2, 3])), 'not the drawn points\' ±');
+});
+
+test('a heatmap\'s colours reach no more than 100 dB under its loudest value: digital silence (−240 dB) does not set the bottom (R9)', () => {
+    assert.deepEqual(heatmapDbRange(-240, -3), { min: niceRange(-103, -3).low, max: niceRange(-103, -3).high });
+    assert.ok(heatmapDbRange(-240, -3).min >= -120 && heatmapDbRange(-240, -3).min <= -103);
+    // A range under 100 dB keeps its own lowest value.
+    assert.deepEqual(heatmapDbRange(-64, -3), { min: niceRange(-64, -3).low, max: niceRange(-64, -3).high });
+    const heat: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0, 1], ys: [100, 1000], matrix: [[-240, -10]], valueRange: { min: -240, max: -3 } };
+    assert.deepEqual(stageRange([heat]), heatmapDbRange(-240, -3));
+});
+
+test('a cross-channel picture names its pair on the value axis: the channel over its reference, before the unit', () => {
+    const names = { axisFrequency: 'Frequency [Hz]', axisCoherence: 'Coherence γ² [–]', axisGain: 'Gain [dB]' } as unknown as StageStrings;
+    assert.deepEqual(stageAxes(names, { ...line([0.2, 0.5, 0.9], 'coherence'), pair: { output: 2, input: 1 } }, undefined), { x: 'Frequency [Hz]', y: 'Coherence γ² · ch2 / ch1 [–]' });
+    assert.equal(stageAxes(names, { ...line([0, -3, -6], 'gain'), pair: { output: 3, input: 1 } }, undefined).y, 'Gain · ch3 / ch1 [dB]');
+    assert.equal(stageAxes(names, line([0.2, 0.5, 0.9], 'coherence'), undefined).y, 'Coherence γ² [–]');
+    // A transfer function of two units is a transfer level in dB re their ratio, as the pair view names it (A33).
+    for (const language of ['en', 'ja'] as const) {
+        const strings = getStrings(language);
+        const level = stageAxes(strings, { ...line([94, 91, 88], 'gain'), unit: 'dB re 2e-05 Pa/V', pair: { output: 2, input: 1 } }, undefined).y;
+        assert.equal(level, `${gainAxisName({ axisLabel: '', levelReferenceLabel: 'dB re 2e-05 Pa/V' }, strings).replace(/ \[/u, ' · ch2 / ch1 [')}`);
+        assert.equal(stageAxes(strings, { ...line([0, -3, -6], 'gain'), pair: { output: 2, input: 1 } }, undefined).y, `${gainAxisName(undefined, strings).replace(/ \[/u, ' · ch2 / ch1 [')}`);
+    }
+});
+
+test('a metric or level over time names what it measures on its value axis, never a bare value or an amplitude in dB (R4)', () => {
+    const names = getStrings('en');
     const series = (unit: string): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit, xs: [0, 1], values: [1, 2] });
     assert.deepEqual(stageAxes(names, series('sone'), undefined), { x: 'Time [s]', y: 'Loudness [sone]' });
     assert.equal(stageAxes(names, series('asper'), undefined).y, 'Roughness [asper]');
     assert.equal(stageAxes(names, series('acum'), undefined).y, 'Sharpness [acum]');
     assert.equal(stageAxes(names, series('dB re 1 FS'), undefined).y, 'Level [dB re 1 FS]');
-    assert.equal(stageAxes(names, series('Pa'), undefined).y, 'Value [Pa]');
+    // A series no step names (an RMS of a power) is in the signal's unit: its amplitude, never a bare "Value".
+    assert.equal(stageAxes(names, series('Pa'), undefined).y, 'Amplitude, uncalibrated [Pa]');
+    // A level over time (sound_level, rms_trend in dB) is the level of what it measured, in the files' reference: never an amplitude.
+    const level = (measure?: StageView['measure']): StageView => ({ ...series('dB re 1 input unit'), quantity: 'level', ...(measure ? { measure } : {}) });
+    // With no input nothing says what it is re: the unit is not known, never an assumed dBFS (R4).
+    assert.equal(stageAxes(names, level('timeWeightedRms'), undefined).y, 'Time-weighted RMS [unit unknown]');
+    assert.equal(stageAxes(names, level('timeWeightedRms'), { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true }).y, 'Time-weighted RMS, uncalibrated [dBFS]');
+    assert.equal(stageAxes(names, level('rms'), { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: false }).y, 'RMS [dB SPL re 20 µPa]');
+    assert.equal(stageAxes(names, level(), undefined).y, 'Level [unit unknown]');
 });
 
 test('a heatmap names what its colour measures, with its unit and reference, for its colour bar', () => {
-    const names = { axisTime: 'Time [s]', axisFrequency: 'Frequency [Hz]', axisBark: 'Critical band [Bark]', axisQuefrency: 'Quefrency [ms]', axisCepstrum: 'Real cepstrum', axisRoughness: 'Roughness', axisDelta: 'Δ level [dB]', axisLevelUncal: 'Level [dBFS, uncalibrated]', axisLevelCal: 'Level [{ref}]' } as unknown as StageStrings;
+    const names = getStrings('en');
     const heat = (quantity: StageView['quantity'], extra: Partial<StageView> = {}): StageView => ({ frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity, yAxis: 'frequency', xs: [0, 1], ys: [100, 1000], matrix: [[-40, -40], [-30, -30]], ...extra });
     const spectrogram = stageAxes(names, heat('level'), undefined);
     assert.equal(spectrogram.y, 'Frequency [Hz]');
     assert.ok(spectrogram.colour && spectrogram.colour.length > 0, 'a spectrogram\'s colour is its level');
     assert.equal(spectrogram.colour, stageAxes(names, { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100], values: [-40] }, undefined).y, 'named as a spectrum\'s level axis is');
     assert.equal(stageAxes(names, heat('roughness', { unit: 'asper', yAxis: 'bark' }), undefined).colour, 'Roughness [asper]');
-    assert.equal(stageAxes(names, heat('cepstrum', { yAxis: 'quefrency' }), undefined).colour, 'Real cepstrum');
-    assert.equal(stageAxes(names, heat('level'), undefined, true).colour, 'Δ level [dB]');
+    // roughness_dw_spec's bands are each a specific roughness, per Bark (A29): named so, never the total's name.
+    assert.equal(stageAxes(names, heat('roughness', { unit: 'asper/Bark', yAxis: 'bark' }), undefined).colour, 'Specific roughness [asper/Bark]');
+    assert.equal(stageAxes(names, heat('cepstrum', { yAxis: 'quefrency' }), undefined).colour, 'Real cepstrum [–]');
+    assert.equal(stageAxes(names, heat('level'), undefined, true).colour, names.axisDelta);
 });
 
-const cepstrum = (values: number[]): StageView => ({ frame: 'CepstralFrame', kind: 'line', x: 'quefrency', xScale: 'linear', quantity: 'cepstrum', xs: [0, 0.001, 0.002, 0.003], values });
+const cepstrum = (values: number[]): StageView => ranged({ frame: 'CepstralFrame', kind: 'line', x: 'quefrency', xScale: 'linear', quantity: 'cepstrum', xs: [0, 0.001, 0.002, 0.003], values });
 
 test('a cepstrum is drawn on a quefrency axis, symmetric about zero without its zero-quefrency coefficient', () => {
     const view = cepstrum([-8.5, 0.01, -0.02, 0.005]);
@@ -71,7 +159,7 @@ test('a cepstrum is drawn on a quefrency axis, symmetric about zero without its 
     assert.deepEqual(stageAxes(names, view, undefined), { x: 'Quefrency s', y: 'Real cepstrum' });
     const diff = minus(view, cepstrum([-8.4, 0.03, -0.02, 0.005]));
     assert.deepEqual(stageAxes(names, diff, undefined, true), { x: 'Quefrency s', y: 'Δ Real cepstrum' });
-    assert.equal(stageHeadline(diff, strings), '1.00 ms +0.0200');
+    assert.equal(stageHeadline({ ...diff, peak: { x: 0.001, value: 0.02, xStep: 0.001 } }, strings), '0.00100 s +0.0200');
     assert.deepEqual(stageDiffRange(diff), { min: -0.022, max: 0.022 });
 });
 
@@ -84,43 +172,37 @@ test('a cross-correlation is drawn over a signed lag axis on the fixed [-1, 1] c
     assert.deepEqual(stageAxes(names, view, undefined), { x: 'Lag s', y: 'Correlation coefficient · ch2 / ch1' });
     const diff = minus(view, correlation([0.1, -0.2, 0.3, 0.55]));
     assert.deepEqual(stageAxes(names, diff, undefined, true), { x: 'Lag s', y: 'Δ Correlation coefficient · ch2 / ch1' });
-    assert.equal(stageHeadline(diff, strings), '+1.00 ms −0.400');
+    assert.equal(stageHeadline({ ...diff, peak: { x: 0.001, value: -0.4, xStep: 0.001 } }, strings), '+0.00100 s −0.400');
     // A delay is read to 10 µs at any lag, and none has no sign.
     const long: StageView = { ...view, xs: [-0.0125, 0, 0.0125, 0.02] };
     // Points 50 px apart, so the pointer over each reads that one.
-    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => (value + 0.0125) * 4000, yAt: value => -value, ratioStep: 1.12, lines: [{ view: long, color: 'blue' }], diff: false };
-    assert.match(stageHover(plot, 0, 0)!.text, /^−12\.50 ms/);
-    assert.match(stageHover(plot, 50, 0)!.text, /^0\.00 ms/);
-});
-
-test('an STFT column whose window sticks out of the signal is drawn but never heads the Δ pane', () => {
-    const at = { stageNoDelta: 'none', stageMaxDelta: '{at} {delta}' };
-    const heat = (matrix: number[][]): StageView => ({ frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0, 1, 2], ys: [100, 1000], matrix, whole: [true, true, false] });
-    const diff = minus(heat([[-40, -40, -40], [-30, -30, -30]]), heat([[-40, -38, -25], [-30, -30, -30]]));
-    // The last column differs most (+15 dB) but reads padding: the headline names the next largest.
-    assert.equal(stageHeadline(diff, at), '1.00 s · 100 Hz +2.0 dB');
+    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => (value + 0.0125) * 4000, xOf: x => x / 4000 - 0.0125, ...Y(value => -value, 1), ratioStep: 1.12, lines: [{ view: long, color: 'blue', full: held(long) }], diff: false };
+    assert.match(stageHover(plot, 0, 0)!.text, /^−0\.01250 s/);
+    assert.match(stageHover(plot, 50, 0)!.text, /^0\.00000 s/);
 });
 
 test('a trigger\'s events are each a line of their slot, on one amplitude range, with no difference between recordings', () => {
-    const events = (peaks: number[]): StageView => ({
+    const events = (peaks: number[]): StageView => ranged({
         frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'Pa', xs: [-0.01, 0, 0.1],
-        values: [0, peaks.reduce((a, b) => a + b, 0) / peaks.length, 0], events: peaks.map((peak, id) => ({ id: id * 2, time: id, values: [0, peak, 0] })),
+        values: [0, peaks.reduce((a, b) => a + b, 0) / peaks.length, 0], events: peaks.map((peak, id) => ({ id: id * 2, time: id, xs: [-0.01, 0, 0.1], values: [0, peak, 0] })),
     });
     const base = events([1, 3]), compare = events([2]);
-    const layers = eventLayers({ view: compare, color: '#ff0', width: 2.2, label: 'b.wav' });
+    const layers = eventLayers({ view: compare, color: '#ff0', width: 2.2, label: 'b.wav', full: held(compare) });
     // One line per event, in the slot's colour, named by its event from 1 for the readout.
     // One line per event, named by its event and where in the recording it was cut.
     assert.deepEqual(layers.map(layer => [layer.label, layer.view.values, layer.color, layer.view.events]), [['b.wav #1 @ 0.00 s', [0, 2, 0], '#ff0', undefined]]);
     // A recording's events can be left out: those are faint, and each line says whose event it is.
-    const own = eventLayers({ view: base, color: '#00f', source: 'a.wav', excluded: [2] });
+    const own = eventLayers({ view: base, color: '#00f', source: 'a.wav', excluded: [2], full: held(base) });
     assert.deepEqual(own.map(layer => [layer.event, layer.alpha]), [[{ id: 0, source: 'a.wav', out: false }, 0.85], [{ id: 2, source: 'a.wav', out: true }, 0.25]]);
-    assert.deepEqual(eventLayers({ view: line([1, 2, 3]), color: '#00f' }).map(layer => layer.view.values), [[1, 2, 3]]);
+    assert.deepEqual(eventLayers({ view: line([1, 2, 3]), color: '#00f', full: held(line([1, 2, 3])) }).map(layer => layer.view.values), [[1, 2, 3]]);
     // The range holds every event's peak, not only their mean.
     assert.ok(stageRange([base, compare]).max >= 3);
     // Amplitudes have no −300 dB floor: a −500 (raw counts) peak is in the range.
     assert.ok(stageRange([events([-500])]).min <= -500);
     // Two recordings' events are not one another's: no Δ, and the headline counts them instead.
     assert.equal(stageEventCounts(base, compare, { stageEventCounts: '{base} / {compare}' }), '2 / 1');
+    // Its events, every one of which the picture carries: not the points of the line drawn (three each).
+    assert.notEqual(stageEventCounts(base, compare, { stageEventCounts: '{base} / {compare}' }), `${base.values?.length} / ${compare.values?.length}`);
     // A level nothing crosses: 0 counted, and the empty plot says to lower the level instead of 'cannot be shown'.
     const none = events([]);
     assert.equal(stageEventCounts(none, compare, { stageEventCounts: '{base} / {compare}' }), '0 / 1');
@@ -157,13 +239,13 @@ test('a spectrum drawn as its own bins spans its stated limits, not edges read o
 });
 
 /** A view with the levelBins the backend gives it, from `full` (its values before thinning; its drawn values by default). */
-function measured(view: StageView, full: number[] = (view.values ?? []).map(value => value ?? Number.NaN)): StageView {
+function measured(view: StageView, full: number[] = drawableLine(view.values ?? []).map(value => value ?? Number.NaN)): StageView {
     const xs = view.xs ?? [];
-    return { ...view, levelBins: levelBinsOf(xs, full, [xs[0], xs[xs.length - 1]], view.xScale === 'log') };
+    return { ...view, levelBins: levelBinsOf(xs, wholeValues(full), [xs[0], xs[xs.length - 1]], view.xScale === 'log') };
 }
 
 test('overlaid lines are drawn loudest first, the quietest last on top, by their level on screen', () => {
-    const layer = (color: string, values: number[], quantity: StageView['quantity'] = 'level') => ({ view: quantity === 'level' ? measured(line(values, quantity)) : line(values, quantity), color });
+    const layer = (color: string, values: number[], quantity: StageView['quantity'] = 'level') => { const view = quantity === 'level' ? measured(line(values, quantity)) : line(values, quantity); return { view, color, full: held(view) }; };
     const base = layer('blue', [-40, -40, -40]), loud = layer('yellow', [-20, -40, -40]), quiet = layer('grey', [-60, -60, -60]);
     assert.deepEqual(byLevel([quiet, base, loud], line([0, 0, 0])).map(item => item.color), ['yellow', 'blue', 'grey']);
     // Zoomed past the 100 Hz point, the yellow and blue lines are as loud: they keep their order.
@@ -186,35 +268,62 @@ function strokingCanvas(): { canvas: HTMLCanvasElement; strokes: string[] } {
     return { canvas, strokes };
 }
 
+test('each event of a trigger is its own series, drawn at its own times: never at the xs of another event or of their mean (R2)', () => {
+    // Their mean on its own xs; each event's peak where it occurred, at a time neither the mean nor the other has.
+    const view: StageView = {
+        frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'Pa', xs: [-0.01, 0, 0.1], values: [0, 0.5, 0],
+        events: [{ id: 0, time: 1, xs: [-0.01, 0.02, 0.1], values: [0, 1, 0] }, { id: 1, time: 2, xs: [-0.01, 0.07, 0.1], values: [0, 0.8, 0] }],
+    };
+    const layers = eventLayers({ view, color: '#ff0', label: 'b.wav', full: held(view) });
+    assert.deepEqual(layers.map(layer => layer.view.xs), [[-0.01, 0.02, 0.1], [-0.01, 0.07, 0.1]]);
+    // What is stroked: each line's points, in canvas pixels.
+    const paths: Array<Array<[number, number]>> = [];
+    let path: Array<[number, number]> = [];
+    const context = new Proxy({}, {
+        get: (_target, key) => (key === 'measureText' ? (text: string) => ({ width: text.length * 6 })
+            : key === 'beginPath' ? () => { path = []; } : key === 'moveTo' || key === 'lineTo' ? (x: number, y: number) => { path.push([x, y]); }
+                : key === 'stroke' ? () => { paths.push(path); } : () => undefined),
+        set: () => true,
+    });
+    const canvas = { width: 0, height: 0, clientWidth: 600, clientHeight: 200, ownerDocument: {}, dataset: {} as DOMStringMap, getContext: () => context } as unknown as HTMLCanvasElement;
+    const plot = paintOverlay(canvas, { layers }, R({ min: -1, max: 1 }), N({ x: 'Time [s]', y: 'Amplitude [Pa]' }));
+    assert.ok(plot);
+    // Each event's line (three points) has its top at its own peak's time and value.
+    const peaks = paths.filter(points => points.length === 3).map(points => points.reduce((top, point) => (point[1] < top[1] ? point : top)));
+    for (const [at, value] of [[0.02, 1], [0.07, 0.8]]) {
+        assert.ok(peaks.some(([x, y]) => Math.abs(x - plot.xAt(at)) < 0.5 && Math.abs(y - plot.yAt(value)) < 0.5), `a line peaks at ${at} s`);
+    }
+});
+
 test('every plot draws its overlaid lines loudest first and the quietest last on top, whatever order the caller gives them (R6)', () => {
-    const layer = (color: string, values: number[]) => ({ view: measured(line(values)), color, width: 2 });
+    const layer = (color: string, values: number[]) => { const view = measured(line(values)); return { view, color, width: 2, full: held(view) }; };
     const { canvas, strokes } = strokingCanvas();
     // Given the quiet one first, as the report gives its base before the compared file: the plot puts it on top.
-    paintOverlay(canvas, { layers: [layer('quiet', [-60, -60, -60]), layer('loud', [-20, -20, -20]), layer('base', [-40, -40, -40])] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
+    paintOverlay(canvas, { layers: [layer('quiet', [-60, -60, -60]), layer('loud', [-20, -20, -20]), layer('base', [-40, -40, -40])] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }));
     assert.deepEqual(strokes.filter(color => ['loud', 'base', 'quiet'].includes(color)), ['loud', 'base', 'quiet'], 'the quietest line is stroked last');
     assert.equal(canvas.dataset.plotOrder, '-20.00,-40.00,-60.00', 'the levels it drew, in order, for the audit of every plot');
     // Given loud first, the same order: the caller's order does not decide it, and the colours stay the caller's.
     strokes.length = 0;
-    paintOverlay(canvas, { layers: [layer('loud', [-20, -20, -20]), layer('quiet', [-60, -60, -60]), layer('base', [-40, -40, -40])] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
+    paintOverlay(canvas, { layers: [layer('loud', [-20, -20, -20]), layer('quiet', [-60, -60, -60]), layer('base', [-40, -40, -40])] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }));
     assert.deepEqual(strokes.filter(color => ['loud', 'base', 'quiet'].includes(color)), ['loud', 'base', 'quiet']);
     // Lines on the right-hand level axis are ordered among themselves the same way.
     strokes.length = 0;
-    paintOverlay(canvas, { layers: [layer('loud', [-20, -20, -20])] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' },
-        { secondary: { layers: [layer('second-quiet', [-70, -70, -70]), layer('second-loud', [-30, -30, -30])], range: { min: -80, max: 0 }, title: 'Level [dB re 1]' } });
+    paintOverlay(canvas, { layers: [layer('loud', [-20, -20, -20])] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }),
+        { secondary: { layers: [layer('second-quiet', [-70, -70, -70]), layer('second-loud', [-30, -30, -30])], range: R({ min: -80, max: 0 }), title: T('Level [dB re 1]') } });
     assert.deepEqual(strokes.filter(color => color.startsWith('second')), ['second-loud', 'second-quiet']);
 });
 
 test('a picture that is not a compared line keeps the place its caller gave it among the overlay (R6)', () => {
     const { canvas, strokes } = strokingCanvas();
     // A median tick (a line without a level) first, then a quiet and a loud line: the tick stays first, the lines swap.
-    const tick = { view: { ...line([0, 1, 0]), quantity: undefined }, color: 'tick' };
-    const quiet = { view: measured(line([-60, -60, -60])), color: 'quiet' }, loud = { view: measured(line([-20, -20, -20])), color: 'loud' };
-    paintOverlay(canvas, { layers: [quiet, loud, tick] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
+    const tick = { view: { ...line([0, 1, 0]), quantity: undefined }, color: 'tick', full: held({ ...line([0, 1, 0]), quantity: undefined }) };
+    const quiet = { view: measured(line([-60, -60, -60])), color: 'quiet', full: held(line([-60, -60, -60])) }, loud = { view: measured(line([-20, -20, -20])), color: 'loud', full: held(line([-20, -20, -20])) };
+    paintOverlay(canvas, { layers: [quiet, loud, tick] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }));
     assert.deepEqual(strokes.filter(color => ['tick', 'quiet', 'loud'].includes(color)), ['loud', 'quiet', 'tick']);
     // A lane's finer data over part of its view is a part of one picture, not a line compared: drawn as given.
     strokes.length = 0;
-    const part = (color: string, values: number[], span: [number, number]) => ({ view: line(values), color, span });
-    paintOverlay(canvas, { layers: [part('around', [-60, -60, -60], [100, 300]), part('detail', [-20, -20, -20], [300, 10000])] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
+    const part = (color: string, values: number[], span: [number, number]) => ({ view: line(values), color, span, full: held(line(values)) });
+    paintOverlay(canvas, { layers: [part('around', [-60, -60, -60], [100, 300]), part('detail', [-20, -20, -20], [300, 10000])] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }));
     assert.deepEqual(strokes.filter(color => ['around', 'detail'].includes(color)), ['around', 'detail']);
 });
 
@@ -225,9 +334,10 @@ test('no chart orders its own overlaid lines: the order is the plot component\'s
     const files = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap(entry => (entry.isDirectory() ? files(path.join(dir, entry.name)) : entry.name.endsWith('.ts') ? [path.join(dir, entry.name)] : []));
     const ordering = files(root).filter(file => path.basename(file) !== 'stagePanes.ts' && /\b(byLevel|overlayOrder)\s*\(/u.test(readFileSync(file, 'utf8')));
     assert.deepEqual(ordering.map(file => path.relative(root, file)), []);
-    // And the component draws every overlay in that order: paintOverlay's lines come from overlayOrder.
+    // And the component draws every overlay in that order: paintOverlay's lines come from overlayOrder, kept as last
+    // judged while a level is on its way (settledOrder).
     const plot = readFileSync(path.join(root, 'runtime', 'stagePanes.ts'), 'utf8');
-    assert.match(plot, /const order = overlayOrder\(overlay\.layers,/u);
+    assert.match(plot, /const order = settledOrder\(canvas, 'main', overlay\.layers, overlayOrder\(overlay\.layers,/u);
 });
 
 test('waveforms are ordered by their samples\' mean square on the shared amplitude axis, whatever their level reference', () => {
@@ -235,14 +345,14 @@ test('waveforms are ordered by their samples\' mean square on the shared amplitu
     const signal = (color: string, peak: number, level: number, ref: number) => ({ color, view: {
         frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'level', xs: [0, 1], values: [level, level],
         waveform: { min: [-peak, -peak], max: [peak, peak], minT: [0, 1], maxT: [0, 1], absolutePeak: peak, unit: ref === 1 ? 'FS' : 'Pa', ref },
-        levelBins: { edges: [0, 1], power: [peak * peak / 2], count: [48000] },
-    } as StageView });
+        levelBins: { of: 'square', edges: [0, 1], power: [peak * peak / 2], count: [48000] },
+    } as StageView, full: NO_FULL_DATA });
     const pa = signal('blue', 0.1, 71, 2e-5), fs = signal('yellow', 0.5, -9, 1);
     assert.deepEqual(byLevel([pa, fs], pa.view).map(item => item.color), ['yellow', 'blue']);
 });
 
 test('silence on screen lowers a line\'s level as no power, instead of being left out', () => {
-    const layer = (color: string, values: number[]) => ({ view: measured({ ...line(values), xs: [100, 200, 400, 800] }), color });
+    const layer = (color: string, values: number[]) => { const view = measured({ ...line(values), xs: [100, 200, 400, 800] }); return { view, color, full: held(view) }; };
     const gaps = layer('blue', [-20, -300, -300, -300]), steady = layer('yellow', [-23, -23, -23, -23]);
     assert.deepEqual(byLevel([gaps, steady], steady.view).map(item => item.color), ['yellow', 'blue']);
 });
@@ -250,20 +360,20 @@ test('silence on screen lowers a line\'s level as no power, instead of being lef
 test('the order comes from every value before thinning, never from the points drawn (R2, R6)', () => {
     // Drawn, the blue line's thinned points look louder (one −10 dB spike kept as a bucket's highest); over every bin
     // it is the quieter. It goes on top.
-    const spiky = { view: measured(line([-10, -70, -70]), [-40, -70, -70]), color: 'blue' };
-    const steady = { view: measured(line([-30, -30, -30])), color: 'yellow' };
+    const spiky = { view: measured(line([-10, -70, -70]), [-40, -70, -70]), color: 'blue', full: held(measured(line([-10, -70, -70]), [-40, -70, -70])) };
+    const steady = { view: measured(line([-30, -30, -30])), color: 'yellow', full: held(line([-30, -30, -30])) };
     assert.deepEqual(byLevel([spiky, steady], line([0, 0, 0])).map(item => item.color), ['yellow', 'blue']);
     // A DC signal, and a signal zoomed in to single samples, have their mean square, not the zero of max − min.
     const signal = (color: string, power: number) => ({ color, view: {
         frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 1], values: [0.5, 0.5],
         waveform: { min: [0.5, 0.5], max: [0.5, 0.5], minT: [0, 1], maxT: [0, 1], absolutePeak: 0.5, unit: '', ref: 1 },
-        levelBins: { edges: [0, 0.5, 1], power: [power, power], count: [2, 2] },
-    } as StageView });
+        levelBins: { of: 'square', edges: [0, 0.5, 1], power: [power, power], count: [2, 2] },
+    } as StageView, full: NO_FULL_DATA });
     const dc = signal('dc', 0.25), faint = signal('faint', 0.0001);
     assert.deepEqual(byLevel([faint, dc], dc.view).map(item => item.color), ['dc', 'faint']);
     // Over part of the axis, only the stretches on screen count.
-    const late = { color: 'late', view: { ...dc.view, levelBins: { edges: [0, 0.5, 1], power: [0, 1], count: [2, 2] } } };
-    const early = { color: 'early', view: { ...dc.view, levelBins: { edges: [0, 0.5, 1], power: [0.5, 0], count: [2, 2] } } };
+    const late = { color: 'late', view: { ...dc.view, levelBins: { of: 'square' as const, edges: [0, 0.5, 1], power: [0, 1], count: [2, 2] } }, full: dc.full };
+    const early = { color: 'early', view: { ...dc.view, levelBins: { of: 'square' as const, edges: [0, 0.5, 1], power: [0.5, 0], count: [2, 2] } }, full: dc.full };
     assert.deepEqual(byLevel([late, early], dc.view, { start: 0, end: 0.5 }).map(item => item.color), ['early', 'late']);
     assert.deepEqual(byLevel([early, late], dc.view, { start: 0.5, end: 1 }).map(item => item.color), ['late', 'early']);
 });
@@ -272,8 +382,8 @@ test('a zoom narrower than one of a line\'s stretches still orders it by the str
     // Two lines measured over 0–24 kHz in 256 stretches (94 Hz each), zoomed to 10 000–10 010 Hz: inside one stretch.
     const xs = Array.from({ length: 2049 }, (_, i) => i * 24000 / 2048);
     const flat = (level: number): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs, values: xs.map(() => level),
-        levelBins: levelBinsOf(xs, xs.map(() => level), [0, 24000], false) });
-    const quiet = { view: flat(-60), color: 'quiet' }, loud = { view: flat(-20), color: 'loud' };
+        levelBins: levelBinsOf(xs, wholeValues(xs.map(() => level)), [0, 24000], false) });
+    const quiet = { view: flat(-60), color: 'quiet', full: held(flat(-60)) }, loud = { view: flat(-20), color: 'loud', full: held(flat(-20)) };
     const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 24000], xLimits: [0, 24000], xScale: 'linear' };
     const window = { start: 10000 / 24000, end: 10010 / 24000 };
     assert.deepEqual(byLevel([quiet, loud], axis, window).map(item => item.color), ['loud', 'quiet']);
@@ -281,42 +391,227 @@ test('a zoom narrower than one of a line\'s stretches still orders it by the str
 
 test('a cursor spectrum on a linear axis counts its 0 Hz bin in its level (R6)', () => {
     // [0, −100, −100] dB is louder over every bin (−4.8 dB) than [−100, −20, −20] (−21.8 dB): it goes under.
-    const slice = (values: number[]) => ({ slice: { values, frequencyBins: 3, maxFrequencyHz: 1000, minDb: -100, maxDb: 0 }, color: String(values[0]), index: 0, channelIndex: 0, label: '' });
+    const slice = (values: number[]) => ({ slice: { values, bins: values, frequencyBins: 3, maxFrequencyHz: 1000, minDb: -100, maxDb: 0 }, color: String(values[0]), index: 0, channelIndex: 0, label: '' });
     const visible = { frequencyMin: 0, frequencyMax: 1000, buckets: 400, logFrequency: false };
     const dc = spectrumLayer(slice([0, -100, -100]), 1000, visible), tone = spectrumLayer(slice([-100, -20, -20]), 1000, visible);
     const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 1000], xLimits: [0, 1000], xScale: 'linear' };
     assert.deepEqual(byLevel([tone, dc], axis).map(item => item.color), ['0', '-100']);
 });
 
+/** The order expected over [x0, x1], worked out here from every value of each line: the mean of 10^(dB/10), loudest first. */
+function expectedOrder(lines: ReadonlyArray<{ color: string; xs: readonly number[]; values: readonly number[] }>, x0: number, x1: number): string[] {
+    const mean = (xs: readonly number[], values: readonly number[]): number => {
+        const inside = values.filter((_, index) => xs[index] >= x0 && xs[index] <= x1);
+        return inside.reduce((sum, value) => sum + 10 ** (value / 10), 0) / inside.length;
+    };
+    return [...lines].sort((a, b) => mean(b.xs, b.values) - mean(a.xs, a.values)).map(item => item.color);
+}
+
+test('while a line\'s level on screen is on its way, the plot keeps the order it last judged on every value: never one guessed from part of it (R6)', async () => {
+    const xs = Array.from({ length: 2049 }, (_, i) => i * 24000 / 2048);
+    const x0 = 5000, x1 = 10000, peakBin = 854;
+    const peaked = xs.map((_, i) => (i === peakBin ? 0 : -40)), flat = xs.map(() => -35);
+    // The backend's answers are held until let go, as a slow reply.
+    const held: Array<() => void> = [];
+    const backend = (values: readonly number[]) => fetchedSource((read, done) => {
+        held.push(() => {
+            const inside = values.filter((_, index) => xs[index] >= read.x[0] && xs[index] <= read.x[1]);
+            done({ xs: [], start: null, end: null, complete: false, level: { power: inside.reduce((sum, value) => sum + 10 ** (value / 10), 0) / inside.length, count: inside.length } });
+        });
+    });
+    const sources = { flat: backend(flat), peaked: backend(peaked) };
+    const layer = (color: 'flat' | 'peaked', values: number[]) => ({ color, width: 2, full: sources[color],
+        view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: xs.filter((_, i) => i % 16 === 0), values: values.filter((_, i) => i % 16 === 0),
+            levelBins: levelBinsOf(xs, wholeValues(values), [0, 24000], false) } as StageView });
+    const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 24000], xLimits: [0, 24000], xScale: 'linear' };
+    const lines = (strokes: string[]) => strokes.filter(color => color === 'flat' || color === 'peaked');
+    const zoomed = { axisView: axis, window: { x: { start: x0 / 24000, end: x1 / 24000 } } };
+    // Before anything is judged, the caller's order: not one guessed from the stretches on screen.
+    const fresh = strokingCanvas();
+    paintOverlay(fresh.canvas, { layers: [layer('peaked', peaked), layer('flat', flat)] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }), zoomed);
+    assert.deepEqual(lines(fresh.strokes), ['peaked', 'flat']);
+    assert.match(fresh.canvas.dataset.plotOrder ?? '', /…/u);
+    // Over the whole axis every stretch is on screen: judged at once, the peaked line the louder (under).
+    const { canvas, strokes } = strokingCanvas();
+    paintOverlay(canvas, { layers: [layer('flat', flat), layer('peaked', peaked)] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }), { axisView: axis });
+    assert.deepEqual(lines(strokes), expectedOrder([{ color: 'peaked', xs, values: peaked }, { color: 'flat', xs, values: flat }], 0, 24000));
+    assert.deepEqual(lines(strokes), ['peaked', 'flat']);
+    // Zoomed, the levels on screen are asked for: until both are in, the plot keeps that order, given in either order.
+    for (const given of [['flat', 'peaked'], ['peaked', 'flat']] as const) {
+        strokes.length = 0;
+        paintOverlay(canvas, { layers: given.map(color => layer(color, color === 'flat' ? flat : peaked)) }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }), zoomed);
+        assert.deepEqual(lines(strokes), ['peaked', 'flat'], `kept while measured, given ${given.join(', ')}`);
+        assert.match(canvas.dataset.plotOrder ?? '', /…/u);
+    }
+    // One level in, the other still on its way: still kept.
+    strokes.length = 0;
+    held.shift()?.();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.deepEqual(lines(strokes).slice(-2), ['peaked', 'flat']);
+    assert.match(canvas.dataset.plotOrder ?? '', /…/u);
+    // Both in: judged on every value on screen, the quieter peaked line on top, and drawn so.
+    while (held.length) held.shift()?.();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.deepEqual(lines(strokes).slice(-2), expectedOrder([{ color: 'peaked', xs, values: peaked }, { color: 'flat', xs, values: flat }], x0, x1));
+    assert.deepEqual(lines(strokes).slice(-2), ['flat', 'peaked']);
+    assert.equal(canvas.dataset.plotOrder, '-35.00,-40.00');
+});
+
+test('a level read that failed leaves the order unsettled and written "!": never the order of the estimate, and it is asked again after the answer store\'s pause (R6)', async () => {
+    // The same two spectra as above, zoomed to 5–10 kHz. The stretch the right edge cuts holds the peaked line's
+    // off-screen peak, so an estimate from the stretches would call the peaked line the louder; on screen it is the quieter.
+    const xs = Array.from({ length: 2049 }, (_, i) => i * 24000 / 2048);
+    const x0 = 5000, x1 = 10000, peakBin = 854;
+    const peaked = xs.map((_, i) => (i === peakBin ? 0 : -40)), flat = xs.map(() => -35);
+    // The backend fails every level read while `failing`, and the store's clock is this test's.
+    let failing = true, clock = 1_000_000, asked = 0;
+    const backend = (values: readonly number[]) => fetchedSource((read, done) => {
+        asked++;
+        const inside = values.filter((_, index) => xs[index] >= read.x[0] && xs[index] <= read.x[1]);
+        const answer = failing ? null : { xs: [], start: null, end: null, complete: false, level: { power: inside.reduce((sum, value) => sum + 10 ** (value / 10), 0) / inside.length, count: inside.length } };
+        setTimeout(() => { done(answer); }, 0);
+    }, {}, () => clock);
+    const sources = { flat: backend(flat), peaked: backend(peaked) };
+    const layer = (color: 'flat' | 'peaked', values: number[]) => ({ color, width: 2, full: sources[color],
+        view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: xs.filter((_, i) => i % 16 === 0), values: values.filter((_, i) => i % 16 === 0),
+            levelBins: levelBinsOf(xs, wholeValues(values), [0, 24000], false) } as StageView });
+    const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 24000], xLimits: [0, 24000], xScale: 'linear' };
+    const lines = (strokes: string[]) => strokes.filter(color => color === 'flat' || color === 'peaked');
+    const zoomed = { axisView: axis, window: { x: { start: x0 / 24000, end: x1 / 24000 } } };
+    const paint = (): void => { paintOverlay(canvas, { layers: [layer('flat', flat), layer('peaked', peaked)] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }), zoomed); };
+    const { canvas, strokes } = strokingCanvas();
+    paint();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    // Both reads failed. The order is the caller's (flat, peaked), not the estimate's (peaked under), and says so.
+    assert.equal(asked, 2, 'each line\'s level asked for once');
+    assert.deepEqual(lines(strokes).slice(-2), ['flat', 'peaked'], 'a failed level read must not settle the order: screenLevels gave an estimate for a failed read (see ScreenLevel \'failed\')');
+    assert.equal(canvas.dataset.plotOrder, '!,!', 'a failed level read is written "!" in data-plot-order (drawnLevelsText)');
+    // Within the store's pause a repaint asks nothing again.
+    failing = false;
+    clock += FAILED_RETRY_MS - 1;
+    paint();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(asked, 2, 'not asked again before the answer store\'s pause is over');
+    assert.equal(canvas.dataset.plotOrder, '!,!');
+    // Past it the same reads are asked again, by the store's rule alone, and the order is judged on every value.
+    clock += 2;
+    paint();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(asked, 4, 'asked again once the pause is over');
+    assert.deepEqual(lines(strokes).slice(-2), ['flat', 'peaked']);
+    assert.equal(canvas.dataset.plotOrder, '-35.00,-40.00');
+});
+
+test('zoomed, lines are ordered by every value on screen: a loud peak just off screen, in a stretch the edge cuts, does not count (R6, R2)', async () => {
+    // Two spectra of 2049 bins over 0–24 kHz, held by the backend: each comes thinned to be drawn, with the levelBins
+    // of its every bin (256 stretches of 93.75 Hz), and its full data read through a fetched source.
+    const xs = Array.from({ length: 2049 }, (_, i) => i * 24000 / 2048);
+    // Zoomed to 5–10 kHz. The stretch 9937.5–10031.25 Hz is cut by the right edge; the peak at 10007.8 Hz is in it,
+    // off screen. On screen the peaked line is the quieter (−40 dB against −35 dB): it goes on top.
+    const x0 = 5000, x1 = 10000, peakBin = 854;
+    assert.ok(xs[peakBin] > x1 && xs[peakBin] < 10031.25);
+    const peaked = xs.map((_, i) => (i === peakBin ? 0 : -40)), flat = xs.map(() => -35);
+    const reads: number[][] = [];
+    const backend = (values: readonly number[]) => fetchedSource((read, done) => {
+        reads.push(read.x);
+        // The backend's read_level (full_read.py): the mean power of every value in the window, ends in.
+        setTimeout(() => {
+            const inside = values.filter((_, index) => xs[index] >= read.x[0] && xs[index] <= read.x[1]);
+            done({ xs: [], start: null, end: null, complete: false, level: { power: inside.reduce((sum, value) => sum + 10 ** (value / 10), 0) / inside.length, count: inside.length } });
+        }, 0);
+    });
+    const layer = (color: string, values: number[]) => ({ color, width: 2, full: backend(values),
+        view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: xs.filter((_, i) => i % 16 === 0), values: values.filter((_, i) => i % 16 === 0),
+            levelBins: levelBinsOf(xs, wholeValues(values), [0, 24000], false) } as StageView });
+    const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 24000], xLimits: [0, 24000], xScale: 'linear' };
+    const expected = expectedOrder([{ color: 'peaked', xs, values: peaked }, { color: 'flat', xs, values: flat }], x0, x1);
+    assert.deepEqual(expected, ['flat', 'peaked']);
+    const { canvas, strokes } = strokingCanvas();
+    paintOverlay(canvas, { layers: [layer('flat', flat), layer('peaked', peaked)] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }),
+        { axisView: axis, window: { x: { start: x0 / 24000, end: x1 / 24000 } } });
+    // Until every value on screen is in, the order is not judged.
+    assert.match(canvas.dataset.plotOrder ?? '', /…/u);
+    strokes.length = 0;
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.deepEqual(reads, [[x0, x1], [x0, x1]], 'each line measured once, over the window on screen');
+    // Drawn again as each comes in (one read is on its way at a time): last with both, the quieter on top.
+    assert.deepEqual(strokes.filter(color => color === 'flat' || color === 'peaked').slice(-2), expected, 'drawn again once measured, the quieter on top');
+    assert.equal(canvas.dataset.plotOrder, '-35.00,-40.00');
+    // Counted by the stretches drawn (the one the edge cuts, its off-screen peak in), the peaked line would be the louder.
+    const withCut = (values: number[]): number => {
+        const inside = values.filter((_, index) => xs[index] >= x0 && xs[index] <= 10031.25);
+        return 10 * Math.log10(inside.reduce((sum, value) => sum + 10 ** (value / 10), 0) / inside.length);
+    };
+    assertNotDrawn(canvas.dataset.plotOrder, [withCut(flat), withCut(peaked)].sort((a, b) => b - a).map(level => level.toFixed(2)).join(','), 'not the levels of the stretches drawn');
+    // Over the whole axis every stretch is on screen: its levelBins give the order at once, with nothing fetched.
+    strokes.length = 0;
+    paintOverlay(canvas, { layers: [layer('peaked', peaked), layer('flat', flat)] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }), { axisView: axis });
+    assert.deepEqual(strokes.filter(color => color === 'flat' || color === 'peaked'), expectedOrder([{ color: 'peaked', xs, values: peaked }, { color: 'flat', xs, values: flat }], 0, 24000));
+    assert.equal(reads.length, 2);
+});
+
+test('a line the webview holds every value of is ordered at once by its values on screen, the stretch cut by the edge too (R6)', () => {
+    const xs = Array.from({ length: 2049 }, (_, i) => i * 24000 / 2048);
+    const x0 = 5000, x1 = 10000;
+    const peaked = xs.map((_, i) => (i === 854 ? 0 : -40)), flat = xs.map(() => -35);
+    const layer = (color: string, values: number[]) => ({ color, full: testLine(xs, values),
+        view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs, values, levelBins: levelBinsOf(xs, wholeValues(values), [0, 24000], false) } as StageView });
+    const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 24000], xLimits: [0, 24000], xScale: 'linear' };
+    const window = { start: x0 / 24000, end: x1 / 24000 };
+    assert.deepEqual(byLevel([layer('peaked', peaked), layer('flat', flat)], axis, window).map(item => item.color),
+        expectedOrder([{ color: 'peaked', xs, values: peaked }, { color: 'flat', xs, values: flat }], x0, x1));
+    // A loud bin on screen (7031 Hz) that a line thinned to every 16th bin leaves out: held whole, the peaked line is
+    // the louder there (under); judged by the thinned points, it would be the quieter (on top).
+    const loud = xs.map((_, i) => (i === 600 ? 0 : -40));
+    const thin = (values: number[]): { xs: number[]; values: number[] } => ({ xs: xs.filter((_, i) => i % 16 === 0), values: values.filter((_, i) => i % 16 === 0) });
+    const thinned = (color: string, values: number[]) => ({ color, full: testLine(thin(values).xs, thin(values).values),
+        view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', ...thin(values), levelBins: levelBinsOf(thin(values).xs, wholeValues(thin(values).values), [0, 24000], false) } as StageView });
+    const whole = byLevel([layer('peaked', loud), layer('flat', flat)], axis, window).map(item => item.color);
+    assert.deepEqual(whole, expectedOrder([{ color: 'peaked', xs, values: loud }, { color: 'flat', xs, values: flat }], x0, x1));
+    assertNotDrawn(whole, byLevel([thinned('peaked', loud), thinned('flat', flat)], axis, window).map(item => item.color), 'not the order of the thinned points');
+});
+
 test('a level drawn with no levels from its values before thinning is written as unmeasured, for the audit to fail (R6)', () => {
     const { canvas } = strokingCanvas();
-    paintOverlay(canvas, { layers: [{ view: line([-20, -20, -20]), color: 'a' }, { view: measured(line([-40, -40, -40])), color: 'b' }] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
+    paintOverlay(canvas, { layers: [{ view: line([-20, -20, -20]), color: 'a', full: held(line([-20, -20, -20])) }, { view: measured(line([-40, -40, -40])), color: 'b', full: held(measured(line([-40, -40, -40]))) }] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }));
     assert.match(canvas.dataset.plotOrder ?? '', /\?/u);
 });
 
-test('a colour bar stays inside a narrow plot: its name shrinks to the unit, then is left out', () => {
-    // 10px sans-serif, about 5.6 px a character.
-    const drawn: Array<{ text: string; x: number }> = [];
-    let box = { x: 0, width: 0 };
+test('a colour bar stays inside a narrow plot and never leaves out its name: beside the scale, else above it, shortened only as every axis name is (R4)', () => {
+    // 10px sans-serif, about 5.6 px a character (at the font's own size).
+    const drawn: Array<{ text: string; x: number; y: number; font: string }> = [];
+    let box = { x: 0, width: 0, height: 0 };
     const context = {
-        measureText: (text: string) => ({ width: text.length * 5.6 }),
-        fillText: (text: string, x: number) => drawn.push({ text, x }),
-        fillRect: (x: number, _y: number, width: number) => { if (!box.width) box = { x, width }; },
+        font: '10px sans-serif',
+        measureText(this: { font: string }, text: string) { return { width: text.length * 5.6 * (fontPixels(this.font) / 10) }; },
+        fillText(this: { font: string }, text: string, x: number, y: number) { drawn.push({ text, x, y, font: this.font }); },
+        fillRect: (x: number, _y: number, width: number, height: number) => { if (!box.width) box = { x, width, height }; },
         createLinearGradient: () => ({ addColorStop: () => undefined }),
         strokeRect: () => undefined, save: () => undefined, restore: () => undefined,
     } as unknown as CanvasRenderingContext2D;
+    const name = 'Level, uncalibrated [dBFS]';
     const paint = (left: number, right: number) => {
-        drawn.length = 0; box = { x: 0, width: 0 };
-        paintColourBar(context, { left, right, top: 0 }, 'Amplitude, uncalibrated [dBFS]', '−80', '0', () => '#000', { text: '#000', back: '#fff', line: '#000' });
-        return { titles: drawn.map(item => item.text).filter(text => text !== '−80' && text !== '0'), left: box.x };
+        drawn.length = 0; box = { x: 0, width: 0, height: 0 };
+        const returned = paintColourBar(context, { left, right, top: 0 }, name, '−80', '0', () => '#000', { text: '#000', back: '#fff', line: '#000' });
+        const titles = drawn.filter(item => item.text !== '−80' && item.text !== '0');
+        return { titles: titles.map(item => item.text), drawn: [...drawn], left: box.x, returned };
     };
-    assert.deepEqual(paint(56, 600).titles, ['Amplitude, uncalibrated [dBFS]'], 'a wide plot names it in full');
-    const mid = paint(56, 296);
-    assert.deepEqual(mid.titles, ['dBFS']);
-    assert.ok(mid.left >= 56, 'inside the plot');
-    const narrow = paint(56, 150);
-    assert.deepEqual(narrow.titles, []);
-    assert.ok(narrow.left >= 56);
+    const wide = paint(56, 600);
+    assert.deepEqual(wide.titles, [name], 'a wide plot names it in full, beside the scale');
+    assert.equal(new Set(wide.drawn.map(item => item.y)).size, 1, 'on one row');
+    for (const right of [280, 200, 150, 110]) {
+        const narrow = paint(56, right);
+        assert.ok(narrow.titles.length >= 1, `${right}: its name is drawn`);
+        const joined = narrow.titles.length === 2 ? `${narrow.titles[0]} ${narrow.titles[1]}` : narrow.titles[0];
+        assert.ok(axisNameParts(joined), `${right}: its quantity and its unit: ${narrow.titles.join(' / ')}`);
+        assert.ok(narrow.titles.some(text => text.includes('[dBFS]')), `${right}: its unit`);
+        assert.ok(narrow.titles.some(text => /^Lev/u.test(text)), `${right}: its quantity, whole or shortened`);
+        assert.ok(narrow.left >= 56, `${right}: inside the plot`);
+        const scaleY = narrow.drawn.find(item => item.text === '−80')?.y ?? 0;
+        assert.ok(narrow.drawn.filter(item => narrow.titles.includes(item.text)).every(item => item.y < scaleY), `${right}: above the scale`);
+        assert.ok(narrow.returned.height > 14, `${right}: its box holds the name's row`);
+    }
+    assert.deepEqual(paint(56, 296).titles, [name], 'with the plot\'s width, the name is whole above the scale');
 });
 
 test("a colour bar moves under the region's corner tag, which covers the plot's top right from 4 to 21 px down", () => {
@@ -327,7 +622,7 @@ test("a colour bar moves under the region's corner tag, which covers the plot's 
 test('the pointer reads the point nearest it within a few pixels, so a narrow peak beside it is read at its top (R7)', () => {
     const xs = Array.from({ length: 101 }, (_, i) => i), values = xs.map(i => (i === 50 ? 1 : 0));
     const spiky: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'coherence', xs, values };
-    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value * 2, yAt: value => 100 - value * 80, ratioStep: 1.12, lines: [{ view: spiky, color: 'blue' }], diff: false };
+    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value * 2, xOf: x => x / 2, ...Y(value => 100 - value * 80, 80), ratioStep: 1.12, lines: [{ view: spiky, color: 'blue', full: held(spiky) }], diff: false };
     // 8 px right of the peak and a little under its top: the top.
     assert.deepEqual(pick(stageHover(plot, 108, 25)), { x: 100, y: 20 });
     // Down by the floor at the same place: the floor under the pointer.
@@ -336,16 +631,45 @@ test('the pointer reads the point nearest it within a few pixels, so a narrow pe
     assert.deepEqual(pick(stageHover(plot, 150, 20)), { x: 150, y: 100 });
     // Zoomed into the level axis, the peak past its top is off the plot: the line under the pointer is read, not the clamped peak.
     const clamped = (value: number): number => 100 - Math.min(0.5, Math.max(0, value)) * 200;
-    const zoomed: StagePlot = { ...plot, yAt: clamped, lineYAt: value => 100 - value * 200 };
+    const zoomed: StagePlot = { ...plot, ...Y(value => 100 - value * 200, 200, clamped) };
     assert.deepEqual(pick(stageHover(zoomed, 108, 3)), { x: 108, y: 100 });
 });
 
-test('a wide waveform bucket whose earlier point is beside the pointer is read, though its middle is past the radius (R7)', () => {
+test('a signal is read at its sample nearest the pointer within a few pixels, never at a point of the envelope drawn (R7)', () => {
+    // Drawn as two buckets of their lowest and highest; its samples are four, at their own times.
     const wave: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'amplitude', xs: [], values: [],
         waveform: { min: [-0.5, -0.2], max: [0.5, 0.9], minT: [0, 99], maxT: [40, 51] } } as unknown as StageView;
-    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value, yAt: value => 50 - value * 50, ratioStep: 1.12, lines: [{ view: wave, color: 'blue' }], diff: false };
-    // The second bucket's highest point at (51, 5) is 1 px from the pointer; the first bucket's at (40, 25) is farther.
+    const samples = testLine([0, 40, 51, 52, 99], [-0.5, 0.5, 0.9, 0.7, -0.2]);
+    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value, xOf: x => x, ...Y(value => 50 - value * 50, 50), ratioStep: 1.12, lines: [{ view: wave, color: 'blue', full: samples }], diff: false };
+    // The sample at (51, 5) is 1 px from the pointer; the one at (40, 25) is farther.
     assert.deepEqual(pick(stageHover(plot, 50, 5)), { x: 51, y: 5 });
+    // A sample the envelope does not draw (52 s, 0.7) is read where it is nearest.
+    assert.deepEqual(pick(stageHover(plot, 53, 15)), { x: 52, y: 15 });
+    // Given no full data, a signal reads nothing, not the envelope's point under the pointer.
+    assert.equal(stageHover({ ...plot, lines: [{ view: wave, color: 'blue', full: NO_FULL_DATA }] }, 50, 5), null);
+});
+
+test('zoomed in on a signal\'s level axis, the arrow keys still step one sample at a time: a sample past the axis is read at its edge, never a stop (R7)', () => {
+    const wave: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'amplitude', xs: [], values: [],
+        waveform: { min: [-0.5], max: [0.5], minT: [30], maxT: [10] } } as unknown as StageView;
+    const samples = testLine([0, 10, 20, 30, 40], [0, 0.5, 0.05, -0.5, 0.02]);
+    // The level axis zoomed to ±0.1: the samples at 10 and 30 s are above and below it.
+    const range = { min: -0.1, max: 0.1 };
+    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value * 4, xOf: x => x / 4, ...Y(value => 50 - value * 500, 500, value => Math.min(100, Math.max(0, 50 - value * 500))), ratioStep: 1.12,
+        lines: [{ view: wave, color: 'blue', full: samples }], diff: false, signal: { unit: 'FS', range, paint: () => undefined } };
+    let read = stageHover(plot, 0, 50);
+    assert.ok(read && read.at === 0);
+    const visited: Array<[number | undefined, number]> = [];
+    for (let key = 0; key < 4; key++) {
+        const next = stageStep(plot, read, 1);
+        assert.ok(next, `the key after ${read.at} s steps on`);
+        visited.push([next.at, next.y]);
+        read = next;
+    }
+    // Every sample in turn; those past the axis at its top and bottom edge.
+    assert.deepEqual(visited, [[10, 0], [20, 25], [30, 100], [40, 40]]);
+    // And back again, the same samples.
+    assert.equal(stageStep(plot, read, -1)?.at, 30);
 });
 
 function pick(hit: ReturnType<typeof stageHover>): { x: number; y: number } | null {
@@ -353,8 +677,469 @@ function pick(hit: ReturnType<typeof stageHover>): { x: number; y: number } | nu
 }
 
 test('a colour or value range not in dB is widened to round ends, as a dB range is', () => {
-    const view = (values: number[], quantity: StageView['quantity']): StageView => ({ frame: 'SpectralFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity, xs: [0, 1], values: [], matrix: [values] });
+    const view = (values: number[], quantity: StageView['quantity']): StageView => ranged({ frame: 'SpectralFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity, xs: [0, 1], values: [], matrix: [values] });
     assert.deepEqual(stageRange([view([3.21, 17.4], 'roughness')]), { min: 2, max: 19 });
     assert.deepEqual(stageRange([view([0.13, 0.87], 'value')]), { min: 0.05, max: 0.95 });
     assert.deepEqual(stageDiffRange(view([-0.37, 0.12], 'value')), { min: -0.4, max: 0.4 });
+    // A waveform's ± its every sample's peak, widened as well: a 0.3264 FS peak is drawn on ±0.35, not ±0.34272.
+    const waveform = (absolutePeak: number): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 1], values: [0, 0],
+        waveform: { min: [-absolutePeak], max: [absolutePeak], minT: [0], maxT: [1], absolutePeak, unit: 'FS', ref: 1 } });
+    for (const peak of [0.3264, 0.93, 1, 0.0123, 37.2]) {
+        const range = stageRange([waveform(peak)]);
+        assert.equal(range.min, -range.max, 'symmetric round 0');
+        assert.ok(range.max >= peak, `${peak} on the axis`);
+        assert.equal(Number(range.max.toPrecision(2)), range.max, `±${range.max} is round`);
+        assert.ok(range.max <= peak * 1.05 + 0.08 * 2 * peak * 1.05 + 1e-12, `±${range.max} no wider than the peak's room and the rounding`);
+    }
+    assert.deepEqual(stageRange([waveform(0.3264)]), { min: -0.35, max: 0.35 });
+});
+
+test('a level is read in its axis\'s own unit and reference, on the main axis, the right-hand one and a colour bar: never a bare dB beside "dBFS" (R4, R7)', () => {
+    const flat = (level: number): StageView => measured(line([level, level, level]));
+    const main = { view: flat(-20), color: 'main', full: held(flat(-20)) }, second = { view: flat(-60), color: 'second', full: held(flat(-60)) };
+    const plot = paintOverlay(strokingCanvas().canvas, { layers: [main] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level, uncalibrated [dBFS]' }),
+        { secondary: { layers: [second], range: R({ min: -80, max: 0 }), title: T('Level [dB SPL re 20 µPa]') } });
+    assert.ok(plot);
+    const at = (layer: 'main' | 'second'): string => {
+        // The right-hand axis's lines are read on its own plot (plotHoverLayer reads both and takes the nearer).
+        const target = layer === 'main' ? plot : plot.secondary!;
+        const read = stageHover(target, plot.xAt(1000), target.yAt(layer === 'main' ? -20 : -60));
+        assert.ok(read, `the ${layer} line is read`);
+        return read.text;
+    };
+    assert.match(at('main'), /−20\.0 dBFS$/u);
+    assert.match(at('second'), /−60\.0 dB SPL re 20 µPa$/u);
+    // A spectrogram's cell, in its colour bar's unit.
+    const xs = [0, 1, 2, 3], ys = [100, 1000];
+    const cells = [[-30, -30, -30, -30], [-30, -30, -30, -30]];
+    const heat: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs, ys, matrix: cells };
+    const pictureContext = new Proxy({}, {
+        get: (_target, key) => (key === 'measureText' ? (text: string) => ({ width: text.length * 6 })
+            : key === 'createImageData' ? (width: number, height: number) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) })
+                : key === 'createLinearGradient' ? () => ({ addColorStop: () => undefined }) : () => undefined),
+        set: () => true,
+    });
+    const picture = { width: 0, height: 0, clientWidth: 600, clientHeight: 200, ownerDocument: { createElement: () => ({ width: 0, height: 0, getContext: () => pictureContext }) }, dataset: {} as DOMStringMap, getContext: () => pictureContext } as unknown as HTMLCanvasElement;
+    const image = paintOverlay(picture, { layers: [{ view: heat, color: '', full: testCells(xs, ys, cells) }] }, R({ min: -80, max: 0 }), N({ x: 'Time [s]', y: 'Frequency [Hz]', colour: 'Level [dB SPL re 20 µPa]' }));
+    assert.ok(image?.image);
+    const place = image.image.placeOf(1, 1000);
+    assert.match(stageHover(image, place.x, place.y)!.text, /−30\.0 dB SPL re 20 µPa$/u);
+    // A difference is a plain dB, as its axis says.
+    const diff = paintOverlay(strokingCanvas().canvas, { layers: [main] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Δ level [dB]' }), { diff: true });
+    assert.match(stageHover(diff!, diff!.xAt(1000), diff!.yAt(-20))!.text, /−20\.0 dB$/u);
+});
+
+test('the right-hand level axis writes its own round ticks, each at the place of its own value, never the left axis\'s places relabelled (R4, R9)', () => {
+    const texts: Array<{ text: string; x: number; y: number }> = [];
+    const context = new Proxy({}, {
+        get: (_target, key) => (key === 'measureText' ? (text: string) => ({ width: text.length * 6 })
+            : key === 'fillText' ? (text: string, x: number, y: number) => { texts.push({ text, x, y }); } : () => undefined),
+        set: () => true,
+    });
+    const canvas = { width: 0, height: 0, clientWidth: 600, clientHeight: 300, ownerDocument: {}, dataset: {} as DOMStringMap, getContext: () => context } as unknown as HTMLCanvasElement;
+    const flat = (level: number): StageView => measured(line([level, level, level]));
+    // The right-hand range is not the left's shifted by a round number: its values at the left's ticks are not round.
+    const right = { min: -93.7, max: -13.7 };
+    const plot = paintOverlay(canvas, { layers: [{ view: flat(-20), color: 'a', full: held(flat(-20)) }] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dBFS]' }),
+        { secondary: { layers: [{ view: flat(-50), color: 'b', full: held(flat(-50)) }], range: R(right), title: T('Level [dB SPL re 20 µPa]') } });
+    assert.ok(plot);
+    const edge = plot.frame.left + plot.frame.width;
+    const ticks = texts.filter(item => item.x > edge && /^−?\d+$/u.test(item.text));
+    assert.ok(ticks.length >= 3, `the right axis has ticks: ${JSON.stringify(texts.filter(item => item.x > edge))}`);
+    for (const tick of ticks) {
+        const value = Number(tick.text.replace('−', '-'));
+        // Its number is the right range's value where it is written, to the pixel.
+        const at = plot.frame.top + (1 - (value - right.min) / (right.max - right.min)) * plot.frame.height;
+        assert.ok(Math.abs(at - tick.y) < 0.5, `${tick.text} is written at ${tick.y}, its value is at ${at}`);
+        assert.ok(Math.abs(value % 10) === 0, `${tick.text} is a round value`);
+    }
+});
+
+/** A context that records each text drawn with its place, alignment and font, measuring 6 px a character at 10 px. */
+function textCanvas(width: number, height: number): { canvas: HTMLCanvasElement; texts: Array<{ text: string; x: number; y: number; font: string; align: string; turned: boolean }>; strokes: number[] } {
+    const texts: Array<{ text: string; x: number; y: number; font: string; align: string; turned: boolean }> = [];
+    const strokes: number[] = [];
+    const state = { font: '10px sans-serif', textAlign: 'left', turned: false };
+    const saved: Array<typeof state> = [];
+    const context = new Proxy({}, {
+        get: (_target, key) => key === 'measureText' ? (text: string) => ({ width: text.length * 6 * fontPixels(state.font) / 10 })
+            : key === 'fillText' ? (text: string, x: number, y: number) => { texts.push({ text, x, y, font: state.font, align: state.textAlign, turned: state.turned }); }
+            : key === 'save' ? () => { saved.push({ ...state }); } : key === 'restore' ? () => { Object.assign(state, saved.pop() ?? state); }
+            : key === 'rotate' ? () => { state.turned = true; }
+            : key === 'moveTo' || key === 'lineTo' ? (x: number) => { if (!state.turned) strokes.push(x); }
+            : key === 'font' || key === 'textAlign' ? state[key] : key === 'createImageData' || key === 'getImageData' ? (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(Math.max(1, w * h * 4)) })
+            : key.toString().startsWith('create') ? () => ({ addColorStop: () => undefined }) : () => undefined,
+        set: (_target, key, value) => { if (key === 'font' || key === 'textAlign') state[key] = String(value); return true; },
+    });
+    const canvas = { width: 0, height: 0, clientWidth: width, clientHeight: height, ownerDocument: {}, dataset: {} as DOMStringMap, getContext: () => context } as unknown as HTMLCanvasElement;
+    return { canvas, texts, strokes };
+}
+
+test('every number along a horizontal axis writes a negative with a true minus (a lag, the time from a trigger), as the value axis does (R4)', () => {
+    const texts = alongAxisTicks(-0.1, 0.1).map(tick => tick.text);
+    assert.ok(texts.some(text => text.startsWith('−')), texts.join(' '));
+    assert.ok(texts.every(text => !text.includes('-')), texts.join(' '));
+});
+
+test('no two numbers along a horizontal axis touch, a log frequency axis on a narrow plot too: one that would is left out (R4)', () => {
+    for (const width of [120, 160, 220, 600]) {
+        const { canvas, texts } = textCanvas(width, 200);
+        const view: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [20, 1000, 24000], values: [-20, -30, -40] };
+        paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }));
+        const along = texts.filter(item => item.y === 200 - 3 && /^[\d.]+k?$/u.test(item.text)).sort((a, b) => a.x - b.x);
+        assert.ok(along.length >= (width >= 600 ? 4 : 1), `${width}: numbers are written`);
+        along.slice(1).forEach((item, index) => assert.ok(item.x >= along[index].x + along[index].text.length * 6, `${width}: "${along[index].text}" and "${item.text}" touch`));
+    }
+});
+
+test('a value axis\'s numbers never cover its name in the gutter: a long one is written smaller to keep clear of it (R4)', () => {
+  // However long the numbers: a window of a few millionths needs as many digits, and is shrunk as far as it takes (A-P3).
+  for (const [low, high] of [[-0.0012, 0.0012], [-1234567.89, -1234567.81]]) {
+    const { canvas, texts } = textCanvas(400, 400);
+    const view: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'Pa', xs: [0, 1, 2], values: [low, (low + high) / 2, high] };
+    paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, R({ min: low, max: high }), N({ x: 'Time [s]', y: 'Sound pressure, uncalibrated [Pa]' }));
+    const name = texts.filter(item => item.turned);
+    const numbers = texts.filter(item => !item.turned && item.align === 'right' && /^−?\d/u.test(item.text));
+    assert.ok(name.length >= 1 && numbers.length >= 2, JSON.stringify(texts));
+    assert.ok(numbers.some(item => item.text.length >= 6), `a long number is drawn: ${numbers.map(item => item.text).join(' ')}`);
+    // The name's two lines are turned along the gutter, side by side, centred 10 px in: its right edge is half a line past the last.
+    const lines = name.length, linePx = 10 * Number(/^([\d.]+)px/u.exec(name[0].font)?.[1] ?? 10) / 10;
+    const nameRight = 10 + ((lines - 1) / 2) * linePx * 1.1 + linePx / 2;
+    for (const item of numbers) {
+        const left = item.x - item.text.length * 6 * fontPixels(item.font) / 10;
+        assert.ok(left >= nameRight, `"${item.text}" starts at ${left.toFixed(1)} px, the name ends at ${nameRight.toFixed(1)} px`);
+    }
+  }
+});
+
+test('a time is written to the digits that tell it from the next point: frames 5.3 ms apart never read the same (R7)', () => {
+    const heat = (x: number, xStep?: number): StageView => ({ frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [1, 2], ys: [100, 1000], matrix: [[0, -5], [0, 0]], peak: { x, y: 100, value: -5, ...(xStep ? { xStep } : {}) } });
+    const at = (x: number, xStep?: number) => stageHeadline(heat(x, xStep), strings).split(' · ')[0];
+    assert.notEqual(at(1.0080, 256 / 48000), at(1.0133, 256 / 48000));
+    assert.equal(at(1.0080, 256 / 48000), '1.008 s');
+    assert.equal(at(1.25), '1.25 s', 'without a spacing, to 10 ms');
+    assert.equal(at(0.5, 1 / 48000), '0.50000 s', 'sample by sample at 48 kHz');
+});
+
+test('a plot notes every text it draws, as it draws it, for a test to read: never a text made again from its data (A27, C6)', () => {
+    const drawn: string[] = [];
+    const context: Record<string, unknown> = {};
+    const noop = (): void => undefined;
+    for (const key of ['clearRect', 'fillRect', 'strokeRect', 'beginPath', 'moveTo', 'lineTo', 'stroke', 'fill', 'save', 'restore', 'setTransform', 'rect', 'clip', 'setLineDash', 'translate', 'rotate', 'scale', 'arc', 'closePath', 'drawImage', 'putImageData']) context[key] = noop;
+    Object.assign(context, {
+        font: '10px sans-serif',
+        measureText: (text: string) => ({ width: text.length * 6 }),
+        createLinearGradient: () => ({ addColorStop: noop }),
+        createImageData: (width: number, height: number) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) }),
+        fillText: (text: string) => { drawn.push(text); },
+    });
+    const canvas = { width: 0, height: 0, clientWidth: 600, clientHeight: 300, ownerDocument: {}, dataset: {} as DOMStringMap, getContext: () => context } as unknown as HTMLCanvasElement;
+    const view = measured(line([-20, -40, -60]));
+    const plot = paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dBFS]' }));
+    assert.ok(plot && drawn.length > 4, JSON.stringify(drawn));
+    assert.deepEqual(plot.drawnTexts, drawn, 'the texts noted are the texts drawn, in order');
+    assert.ok(drawn.includes('−80') && drawn.includes('Level [dBFS]'), JSON.stringify(drawn));
+    // Drawn again, it notes that drawing's texts alone.
+    const again = paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, R({ min: -60, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dBFS]' }));
+    assert.ok(again?.drawnTexts?.includes('−60') && !again.drawnTexts.includes('−80'), JSON.stringify(again?.drawnTexts));
+});
+
+test('a horizontal axis name too long for a narrow plot, even fitted, starts at the plot and never runs into the value axis\'s side (A28)', () => {
+    const name = 'Frequency from a very long named trigger, uncalibrated [Hz]';
+    for (const width of [600, 160, 90, 75, 66]) {
+        const { canvas, texts } = textCanvas(width, 120);
+        const view = measured(line([-20, -40, -60]));
+        const plot = paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, R({ min: -80, max: 0 }), N({ x: name, y: 'Level [dBFS]' }));
+        assert.ok(plot);
+        const drawn = texts.filter(item => !item.turned && (item.text === name || name.startsWith(item.text.replace(/…$/u, '')) || item.text.endsWith('[Hz]')));
+        assert.ok(drawn.length > 0, `${width}: the name is drawn: ${JSON.stringify(texts.map(item => item.text))}`);
+        for (const item of drawn) assert.ok(item.x >= plot.frame.left - 0.5, `${width}: "${item.text}" at ${item.x}, the plot starts at ${plot.frame.left}`);
+    }
+});
+
+test('a colour bar\'s ends are written as the range they end, never rounded off a typed range: −23.5 reads −23.5, and no −0 (A31, C5)', () => {
+    assert.equal(colourEndText(-23.5, 23.5), '−23.5');
+    assert.equal(colourEndText(-80, 80), '−80');
+    assert.equal(colourEndText(0, 80), '0');
+    assert.equal(colourEndText(-0.0001, 80), '−0.0001');
+    // A narrow span still takes the decimals it needs, as the ticks do.
+    assert.equal(colourEndText(0.002, 0.004), '0.0020');
+    const { canvas, texts } = textCanvas(400, 160);
+    const heat: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0, 1], ys: [100, 1000], matrix: [[-40, -40], [-30, -30]] };
+    paintOverlay(canvas, { layers: [{ view: heat, color: '', full: held(heat) }] }, typedColourRange(-23.5, 0, { min: true, max: true }), N({ x: 'Time [s]', y: 'Frequency [Hz]', colour: 'Level [dBFS]' }));
+    assert.ok(texts.some(item => item.text === '−23.5'), JSON.stringify(texts.map(item => item.text)));
+    assert.ok(!texts.some(item => item.text === '−23' || item.text === '−24'), JSON.stringify(texts.map(item => item.text)));
+});
+
+test('the right-hand level axis writes its numbers clear of its name, all smaller where the widest would reach it, as the left axis does (A36, R4)', () => {
+    const { canvas, texts } = textCanvas(400, 200);
+    const flat = (level: number): StageView => measured(line([level, level, level]));
+    // Numbers as wide as "−100000" would reach the name from a 52 px margin unless all are written smaller.
+    const right = { min: -100000, max: 0 };
+    const plot = paintOverlay(canvas, { layers: [{ view: flat(-20), color: 'a', full: held(flat(-20)) }] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dBFS]' }),
+        { secondary: { layers: [{ view: flat(-50), color: 'b', full: held(flat(-50)) }], range: R(right), title: T('Level [dB SPL re 20 µPa]') } });
+    assert.ok(plot);
+    const edge = plot.frame.left + plot.frame.width;
+    const ticks = texts.filter(item => !item.turned && item.x > edge && /\d/u.test(item.text));
+    assert.ok(ticks.length >= 2, JSON.stringify(texts.filter(item => item.x > edge)));
+    // The name is turned and centred 10 px in from the right edge: half a 10 px line either side of it.
+    const nameLeft = 400 - 10 - 5;
+    for (const tick of ticks) {
+        const end = tick.x + tick.text.length * 6 * fontPixels(tick.font) / 10;
+        assert.ok(end <= nameLeft + 0.5, `"${tick.text}" at ${tick.x} in ${tick.font} ends at ${end}, the name starts at ${nameLeft}, the plot ends at ${edge}`);
+    }
+});
+
+test('a report figure\'s title and legend never run past the canvas: the title cut in the middle, each legend name cut to its share of the row (A37, R4)', () => {
+    const title = 'Spectrum of a very long recording name from the third measurement session, channel 2 — 1/3-octave';
+    const legend = [
+        { color: 'a', text: 'Base: a recording whose file name runs on well past the figure, take 12.wav' },
+        { color: 'b', text: 'Compare 1: another recording with an even longer file name than the base, take 13.wav' },
+    ];
+    for (const width of [640, 320, 180, 90]) {
+        const { canvas, texts, strokes } = textCanvas(width, 240);
+        const view = measured(line([-20, -40, -60]));
+        paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dBFS]' }), { labels: { title, legend } });
+        for (const item of texts.filter(entry => !entry.turned)) {
+            const length = item.text.length * 6 * fontPixels(item.font) / 10;
+            const end = item.align === 'center' ? item.x + length / 2 : item.align === 'right' ? item.x : item.x + length;
+            assert.ok(end <= width + 0.5, `${width}: "${item.text}" in ${item.font} ends at ${end}`);
+        }
+        for (const x of strokes) assert.ok(x <= width + 0.5, `${width}: a line drawn to ${x}`);
+        const shownTitle = texts.find(item => item.font.startsWith('bold'));
+        if (width >= 180) {
+            assert.ok(shownTitle && shownTitle.text.includes('…') && title.startsWith(shownTitle.text.split('…')[0]) && title.endsWith(shownTitle.text.split('…')[1]), `${width}: the title is cut in the middle: ${shownTitle?.text}`);
+            assert.ok(texts.filter(item => item.font === '12px sans-serif' && item.y === 34).length === 2, `${width}: both legend names are written`);
+        }
+    }
+    // A title that fits is written whole.
+    const { canvas, texts } = textCanvas(640, 240);
+    const view = measured(line([-20, -40, -60]));
+    paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dBFS]' }), { labels: { title: 'Spectrum', legend: [{ color: 'a', text: 'Base: a.wav' }] } });
+    assert.ok(texts.some(item => item.text === 'Spectrum') && texts.some(item => item.text === 'Base: a.wav'));
+});
+
+test('a time axis strip fits its name as every axis name is: smaller, its quantity shortened, never cut off the strip (A36, R4)', () => {
+    const { canvas, texts } = textCanvas(120, 20);
+    Object.assign(canvas, { width: 120, height: 20 });
+    paintTimeAxis(canvas, [{ x: 10, text: '0' }, { x: 60, text: '1' }], 'Time from the trigger, in seconds [s]', 120, { muted: '#888', line: '#444', text: '#ddd' });
+    const name = texts.find(item => item.text.endsWith('[s]'));
+    assert.ok(name, JSON.stringify(texts.map(item => item.text)));
+    assert.ok(name.x >= 0, `the name starts at ${name.x}, inside the strip`);
+    assert.ok(name.x + name.text.length * 6 * fontPixels(name.font) / 10 <= 120 + 0.5, `"${name.text}" runs past the strip`);
+});
+
+test('a trigger\'s events overlaid are ordered by their samples\' power: without it they are written unmeasured, which the audit of every plot fails (A44, R6)', () => {
+    const events = (scale: number, bins?: StageView['levelBins']): StageLayer => {
+        const view = { frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 1], values: [0, 0], ...(bins ? { levelBins: bins } : {}),
+            events: [{ id: 0, time: 0.5, xs: [0, 1], values: [-scale, scale] }] } as unknown as StageView;
+        return { view, color: 'a', full: held(view) };
+    };
+    const layers = [events(0.5), events(0.01)].flatMap(eventLayers);
+    assert.ok(drawnLevelsText(layers, { xs: [0, 1], xScale: 'linear' }).split(',').every(text => text === '?'), drawnLevelsText(layers, { xs: [0, 1], xScale: 'linear' }));
+    const bins = (power: number): StageView['levelBins'] => ({ of: 'square', edges: [0, 1], power: [power], count: [10] });
+    const measured = [events(0.5, bins(0.25)), events(0.01, bins(0.0001))].flatMap(eventLayers);
+    const texts = drawnLevelsText(measured, { xs: [0, 1], xScale: 'linear' }).split(',').map(Number);
+    assert.ok(texts[0] > texts[1], texts.join(','));
+});
+
+test('a trigger\'s events are ordered by one level, whole and zoomed: the quantity their levelBins say (`of`), every event\'s samples on screen (R6)', async () => {
+    const fix = 'Fix: the level\'s quantity is the backend\'s levelBins.of, used unchanged at every zoom: stagePanes.screenLevels asks a cut window\'s read as `square` when of is \'square\' (never inferred from view.waveform), and the backend reads a trigger\'s events from every event\'s samples (stage_combine.read_points). See docs/display-rules.md R6.';
+    // Two recordings of two events each, 8 samples at 0..7 s from the trigger. A's events are opposite in sign: their
+    // mean is silence, yet over every sample A is the louder. B's are alike and quieter.
+    const xs = Array.from({ length: 8 }, (_, i) => i);
+    const rowsOf = { A: [xs.map(i => (i % 2 ? 0.5 : -0.5)), xs.map(i => (i % 2 ? -0.5 : 0.5))], B: [xs.map(() => 0.3), xs.map(() => 0.3)] };
+    const names = Object.keys(rowsOf) as (keyof typeof rowsOf)[];
+    // Independently of the code under test: the mean square of every event's raw samples inside [x0, x1].
+    const expected = (x0: number, x1: number): string[] => [...names].sort((a, b) => {
+        const meanSquare = (name: keyof typeof rowsOf): number => { const inside = rowsOf[name].flatMap(row => row.filter((_, i) => xs[i] >= x0 && xs[i] <= x1)); return inside.reduce((sum, v) => sum + v * v, 0) / inside.length; };
+        return meanSquare(b) - meanSquare(a);
+    });
+    // The backend (stage_combine.read_points, full_read.read_level) for each recording's events: a 'square' read is
+    // every event's samples squared; a 'db' read is the events' mean taken as dB (what a level line is).
+    const asked: string[] = [];
+    const backend = (rows: number[][]) => fetchedSource((read, done) => {
+        asked.push(String(read.level));
+        setTimeout(() => {
+            const [x0, x1] = read.x;
+            const inside = (row: readonly number[]): number[] => row.filter((_, i) => xs[i] >= x0 && xs[i] <= x1);
+            const values = read.level === 'square' ? rows.flatMap(inside) : inside(xs.map((_, i) => (rows[0][i] + rows[1][i]) / 2));
+            const power = values.reduce((sum, v) => sum + (read.level === 'square' ? v * v : 10 ** (v / 10)), 0) / values.length;
+            done({ xs: [], start: null, end: null, complete: false, level: { power, count: values.length } });
+        }, 0);
+    });
+    // The levelBins the backend sends (stage_combine._event_level_bins): two stretches of every event's squares.
+    const bins = (rows: number[][]): NonNullable<StageView['levelBins']> => {
+        const half = (low: number, high: number) => rows.flatMap(row => row.filter((_, i) => xs[i] >= low && xs[i] < high));
+        const parts = [half(0, 3.5), half(3.5, 8)];
+        return { of: 'square', edges: [0, 3.5, 7], power: parts.map(part => part.reduce((sum, v) => sum + v * v, 0) / part.length), count: parts.map(part => part.length) };
+    };
+    const layers: StageLayer[] = names.map(name => ({ color: name, full: backend(rowsOf[name]), view: {
+        frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs, values: xs.map(() => 0), levelBins: bins(rowsOf[name]),
+        events: rowsOf[name].map((values, id) => ({ id, time: id, xs, values })) } as unknown as StageView }));
+    const axis: StageView = { frame: 'ChannelFrameSegments', kind: 'line', xs: [0, 7], xScale: 'linear' };
+    const order = async (window: { start: number; end: number }): Promise<string[]> => {
+        let ready: () => void = () => undefined;
+        const came = new Promise<void>(resolve => { ready = resolve; });
+        let levels = screenLevels(layers, axis, window, { ready });
+        if ([...levels.values()].some(level => level.state === 'pending')) { await came; await new Promise(resolve => setTimeout(resolve, 0)); levels = screenLevels(layers, axis, window); }
+        assert.ok([...levels.values()].every(level => level.state === 'exact'), `every level must be known: ${JSON.stringify([...levels.values()])}`);
+        return byLevel(layers, axis, window, levels).map(layer => layer.color);
+    };
+    const whole = await order({ start: 0, end: 1 });
+    assert.deepEqual(whole, expected(0, 7), `the whole view must order by every event's samples' mean square. ${fix}`);
+    assert.equal(asked.length, 0, 'whole, the levelBins give the order with nothing read');
+    // Zoomed to 1–5 s: the edge cuts the stretch 0–3.5 s, so each recording's level on screen is read exactly.
+    const zoomed = await order({ start: 1 / 7, end: 5 / 7 });
+    assert.ok(asked.length > 0 && asked.every(kind => kind === 'square'), `a cut window of levelBins of 'square' must be read as 'square', was ${asked.join(',')}. ${fix}`);
+    assert.deepEqual(zoomed, expected(1, 5), `zoomed, the order must be every event's samples' mean square on screen. ${fix}`);
+    assert.deepEqual(zoomed, whole, `the order must not change between whole and zoomed when every sample's level does not. ${fix}`);
+});
+
+/**
+ * docs/display-rules.md R7, "同じ値の点": points that share one x (two recordings of the same value on the entry
+ * distribution) are each stepped onto exactly once by ← / →, in one stable order, and back through the same ones.
+ * Run on the distribution's two pictures of members (dots for a small group, the rug for a large one), built by the
+ * real distributionRows, and stepped by the shared stageStep every chart steps with.
+ */
+test('← / → visit every point sharing one x exactly once, in one order both ways: recordings of the same value on the distribution\'s dots and rug (R7)', () => {
+    const fix = 'Fix: a source that numbers its points must be stepped by place, not by x alone: stagePanes.ts stepStart / stageStep pass LineQuery.from, fullRead.ts seekIn honours it, and entryDistribution.ts distributionRows sorts ties by key. See docs/display-rules.md R7.';
+    const picture: DistributionPicture = {
+        width: 400, rowHeight: 40, strip: false, range: null, slots: [], base: null, labels: new Map(), groupPrefix: '', axisLabel: 'score', unitLabel: 'recordings',
+        format: value => String(value), name: key => key, countOf: (_group, drawn) => String(drawn),
+    };
+    for (const [kind, count] of [['dots', 6], ['rug', 16]] as const) {
+        // Three recordings at 5, given out of key order; the rest spread on both sides.
+        const tied = ['t-b', 't-c', 't-a'].map(key => ({ key, filePath: `/${key}.wav`, value: 5, inRange: false }));
+        const others = Array.from({ length: count - 3 }, (_, index) => ({ key: `o-${String(index).padStart(2, '0')}`, filePath: `/o-${index}.wav`, value: index < (count - 3) / 2 ? 1 + index * 0.25 : 6 + index * 0.25, inRange: false }));
+        const members = [...tied, ...others];
+        const row = distributionRows({ groups: [{ name: 'g', members }], low: 0, high: 12, missing: 0, apart: 0, unit: 'recording' }, picture, { bar: 'grey', barIn: 'silver', slots: [] }, getStrings('en'))[0];
+        const layer = row.layers.find(candidate => candidate.marks === kind);
+        assert.ok(layer, `the distribution draws no ${kind} layer for a group of ${count}: this test steps the ${kind}; update it if the picture changed`);
+        const plot: StagePlot = { frame: { left: 0, top: 0, width: 240, height: 100 }, xAt: value => value * 20, xOf: x => x / 20, ...Y(value => 100 - value * 10, 10), ratioStep: 1.12, lines: [layer], diff: false };
+        // The recording a readout names (its key, which this test's picture.name writes as it is).
+        const names = (read: NonNullable<ReturnType<typeof stageHover>>): string => /\b[to]-[\w]+/u.exec(read.text)?.[0] ?? read.text;
+        const expected = [...members].sort((a, b) => a.value - b.value || (a.key < b.key ? -1 : 1)).map(member => member.key);
+        // From the first member, → to the end, then ← back to the start.
+        let read = stageHover(plot, plot.xAt(expected.length ? Math.min(...members.map(member => member.value)) : 0), plot.yAt(kind === 'dots' ? 0.5 : 0));
+        assert.ok(read?.full, `${kind}: the pointer on the first recording reads nothing`);
+        const forward = [names(read)];
+        for (let next = stageStep(plot, read, 1); next; next = stageStep(plot, read, 1)) { read = next; forward.push(names(read)); assert.ok(forward.length <= count, `${kind}: → never reaches the end (it visits a recording twice). ${fix}`); }
+        assert.deepEqual(forward, expected, `${kind}: → must visit every recording once, by value then key; recordings of the same value (t-a, t-b, t-c at 5) were skipped or out of order. ${fix}`);
+        const backward = [names(read)];
+        for (let next = stageStep(plot, read, -1); next; next = stageStep(plot, read, -1)) { read = next; backward.push(names(read)); assert.ok(backward.length <= count, `${kind}: ← never reaches the start. ${fix}`); }
+        assert.deepEqual(backward, [...expected].reverse(), `${kind}: ← must pass the same recordings → passed, in reverse. ${fix}`);
+    }
+});
+
+/**
+ * docs/display-rules.md R7, "選んだ点は、それが何であるかで覚える": a point the keys stepped to is kept across a redraw
+ * by what it is (StageLayer.identity: on the distribution, the recording's key), never by its index or its x. After
+ * the redraw the same index and the same x may belong to another recording.
+ */
+test('a recording stepped to stays that recording after a redraw that reorders, removes or inserts recordings of the same value; gone, it is let go (R7)', () => {
+    const fix = 'Fix: a kept point must be found again by its identity. Give the layer `identity` (stagePanes.ts StageLayer.identity; entryDistribution.ts gives the recording\'s key) and have stageReadAgain / stageStep '
+        + 'look the point up by it (identifiedPlace), never by read.index or by x alone. See docs/display-rules.md R7.';
+    const picture: DistributionPicture = {
+        width: 400, rowHeight: 40, strip: false, range: null, slots: [], base: null, labels: new Map(), groupPrefix: '', axisLabel: 'score', unitLabel: 'recordings',
+        format: value => String(value), name: key => key, countOf: (_group, drawn) => String(drawn),
+    };
+    const member = (key: string, value: number): { key: string; filePath: string; value: number; inRange: boolean } => ({ key, filePath: `/${key}.wav`, value, inRange: false });
+    const named = (read: ReturnType<typeof stageHover>): string | null => (read ? /\b[tno]-[\w]+/u.exec(read.text)?.[0] ?? read.text : null);
+    for (const [kind, filler] of [['dots', 2], ['rug', 14]] as const) {
+        const others = Array.from({ length: filler }, (_, index) => member(`o-${String(index).padStart(2, '0')}`, index % 2 ? 9 + index * 0.1 : 1 + index * 0.1));
+        const drawing = (members: Array<ReturnType<typeof member>>): StagePlot => {
+            const row = distributionRows({ groups: [{ name: 'g', members }], low: 0, high: 12, missing: 0, apart: 0, unit: 'recording' }, picture, { bar: 'grey', barIn: 'silver', slots: [] }, getStrings('en'))[0];
+            const layer = row.layers.find(candidate => candidate.marks === kind);
+            assert.ok(layer, `the distribution draws no ${kind} layer for ${members.length} recordings: this test reads the ${kind}; update it if the picture changed`);
+            return { frame: { left: 0, top: 0, width: 240, height: 100 }, xAt: value => value * 20, xOf: x => x / 20, ...Y(value => 100 - value * 10, 10), ratioStep: 1.12, lines: [layer], diff: false };
+        };
+        const tied = [member('t-a', 5), member('t-b', 5), member('t-c', 5)];
+        const first = drawing([...others, ...tied]);
+        // Step from the first recording onto t-b, the middle one of the three at 5.
+        let read = stageHover(first, first.xAt(1), first.yAt(kind === 'dots' ? 0.5 : 0));
+        while (read && named(read) !== 't-b') read = stageStep(first, read, 1) ?? null;
+        assert.equal(named(read), 't-b', `${kind}: → never reaches t-b`);
+        const kept = read!;
+        const redraws: Array<[string, Array<ReturnType<typeof member>>, string | null]> = [
+            ['the same recordings given in another order', [...tied].reverse().concat(others), 't-b'],
+            ['a recording of the same value removed before it', [...others, tied[1], tied[2]], 't-b'],
+            ['a recording of the same value inserted before it', [...others, member('n-0', 5), ...tied], 't-b'],
+            ['its own value changed, so it sorts elsewhere', [...others, tied[0], member('t-b', 7), tied[2]], 't-b'],
+            ['it was removed', [...others, tied[0], tied[2]], null],
+        ];
+        for (const [what, members, expected] of redraws) {
+            const again = stageReadAgain(drawing(members), kept);
+            assert.equal(named(again ?? null), expected, expected
+                ? `${kind}, redrawn with ${what}: the readout kept for t-b now reads ${named(again ?? null) ?? 'nothing'}, another recording. ${fix}`
+                : `${kind}, redrawn after ${what}: the readout must be let go (nothing read), not moved to ${named(again ?? null)}. ${fix}`);
+        }
+        // And the keys go on from that very recording on the new drawing: the next one after t-b, not after its old place.
+        const inserted = drawing([...others, member('n-0', 5), ...tied]);
+        const there = stageReadAgain(inserted, kept);
+        assert.equal(named(there ? stageStep(inserted, there, 1) ?? null : null), 't-c', `${kind}: → after a redraw must step from the kept recording (t-b → t-c). ${fix}`);
+        assert.equal(named(there ? stageStep(inserted, there, -1) ?? null : null), 't-a', `${kind}: ← after a redraw must step from the kept recording (t-b → t-a). ${fix}`);
+    }
+});
+
+/**
+ * docs/display-rules.md R7, "選択は見た目だけを変える": a picked range (or any other state of some points) changes how
+ * points look, never what ← / → visit. With a range picked on the distribution the keys still pass every recording
+ * drawn, inside and outside the range, once each, in the same order as with none picked.
+ */
+test('with a range picked on the distribution ← / → still visit every recording and every bar once, in and out of the range, in the order they have with none picked (R7)', () => {
+    const fix = 'Fix: a state of some points (inside a picked range) must not put them on a layer of their own; keep one layer of every point and show the state with StageLayer.colorAt (dots) or StageLayer.share (bars) '
+        + '(entryDistribution.ts distributionRows). See docs/display-rules.md R7.';
+    const range = { low: 4, high: 8 };
+    const pictured = (picked: boolean): DistributionPicture => ({
+        width: 400, rowHeight: 40, strip: false, range: picked ? range : null, slots: [], base: null, labels: new Map(), groupPrefix: '', axisLabel: 'score', unitLabel: 'recordings',
+        format: value => String(value), name: key => key, countOf: (_group, drawn) => String(drawn),
+    });
+    const named = (read: NonNullable<ReturnType<typeof stageHover>>): string => /\b[to]-[\w]+/u.exec(read.text)?.[0] ?? read.text;
+    const walk = (plot: StagePlot, start: NonNullable<ReturnType<typeof stageHover>>, delta: -1 | 1, limit: number, what: (read: NonNullable<ReturnType<typeof stageHover>>) => string): string[] => {
+        const seen = [what(start)];
+        let read = start;
+        for (let next = stageStep(plot, read, delta); next; next = stageStep(plot, read, delta)) { read = next; seen.push(what(read)); assert.ok(seen.length <= limit, `the keys never reach the end: a point is visited twice. ${fix}`); }
+        return seen;
+    };
+    for (const [kind, count] of [['dots', 8], ['rug', 20]] as const) {
+        // Recordings below, inside (three of them at one value) and above the range.
+        const members = (picked: boolean): Array<{ key: string; filePath: string; value: number; inRange: boolean }> => [
+            ...['t-b', 't-c', 't-a'].map(key => ({ key, value: 5 })),
+            ...Array.from({ length: count - 3 }, (_, index) => ({ key: `o-${String(index).padStart(2, '0')}`, value: 1 + index * (10 / (count - 3)) })),
+        ].map(member => ({ ...member, filePath: `/${member.key}.wav`, inRange: !picked || (member.value >= range.low && member.value <= range.high) }));
+        const drawing = (picked: boolean): { plot: StagePlot; layers: StageLayer[] } => {
+            const row = distributionRows({ groups: [{ name: 'g', members: members(picked) }], low: 0, high: 12, missing: 0, apart: 0, unit: 'recording' }, pictured(picked), { bar: 'grey', barIn: 'silver', slots: [] }, getStrings('en'))[0];
+            const of = row.layers.filter(candidate => candidate.marks === kind);
+            return { layers: row.layers, plot: { frame: { left: 0, top: 0, width: 240, height: 100 }, xAt: value => value * 20, xOf: x => x / 20, ...Y(value => 100 - value * 10, 10), ratioStep: 1.12, lines: of, diff: false } };
+        };
+        const orders = [false, true].map(picked => {
+            const { plot, layers } = drawing(picked);
+            assert.equal(plot.lines.length, 1, `${kind}, range ${picked ? 'picked' : 'not picked'}: the recordings are drawn as ${plot.lines.length} layers; they must be one, or the keys cannot cross from one to the other. ${fix}`);
+            assert.equal(layers.filter(layer => layer.view.kind === 'bar').length, kind === 'rug' ? 1 : 0, `${kind}, range ${picked ? 'picked' : 'not picked'}: the bars must be one layer of every bin (the part in the range is StageLayer.share). ${fix}`);
+            const first = stageHover(plot, plot.xAt(1), plot.yAt(kind === 'dots' ? 0.5 : 0));
+            assert.ok(first?.full, `${kind}: the pointer on the first recording reads nothing`);
+            const forward = walk(plot, first, 1, count, named);
+            const last = stageHover(plot, plot.xAt(Math.max(...members(picked).map(member => member.value))), plot.yAt(kind === 'dots' ? 0.5 : 0));
+            assert.ok(last?.full, `${kind}: the pointer on the last recording reads nothing`);
+            assert.deepEqual(walk(plot, last, -1, count, named), [...forward].reverse(), `${kind}, range ${picked ? 'picked' : 'not picked'}: ← must pass the recordings → passed, in reverse. ${fix}`);
+            return forward;
+        });
+        const expected = members(false).sort((a, b) => a.value - b.value || (a.key < b.key ? -1 : 1)).map(member => member.key);
+        assert.deepEqual(orders[0], expected, `${kind}, no range picked: → must visit every recording once, by value then key. ${fix}`);
+        assert.deepEqual(orders[1], expected, `${kind}, with a range picked (4–8): → must visit the same recordings in the same order as with none picked, crossing into the range and out of it. ${fix}`);
+    }
+    // The bars of a large group: every bin with a count, whether the range is picked or not.
+    const bins = [false, true].map(picked => {
+        const row = distributionRows({ groups: [{ name: 'g', members: Array.from({ length: 40 }, (_, index) => ({ key: `o-${index}`, filePath: `/o-${index}.wav`, value: 1 + index * 0.25, inRange: !picked || (1 + index * 0.25 >= range.low && 1 + index * 0.25 <= range.high) })) }], low: 0, high: 12, missing: 0, apart: 0, unit: 'recording' },
+            pictured(picked), { bar: 'grey', barIn: 'silver', slots: [] }, getStrings('en'))[0];
+        const bars = row.layers.filter(layer => layer.view.kind === 'bar');
+        assert.equal(bars.length, 1, `range ${picked ? 'picked' : 'not picked'}: ${bars.length} bar layers. ${fix}`);
+        const plot: StagePlot = { frame: { left: 0, top: 0, width: 240, height: 100 }, xAt: value => value * 20, xOf: x => x / 20, ...Y(value => 100 - value * 10, 10), ratioStep: 1.12, lines: bars, diff: false };
+        const first = stageHover(plot, plot.xAt(1.1), plot.yAt(1));
+        assert.ok(first?.full, 'the pointer on the first bar reads nothing');
+        return walk(plot, first, 1, 60, read => String(read.at));
+    });
+    assert.ok(bins[0].length > 10, 'the bars are stepped');
+    assert.deepEqual(bins[1], bins[0], `with a range picked the keys must pass the same bars as with none picked. ${fix}`);
 });

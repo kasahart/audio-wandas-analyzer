@@ -104,8 +104,9 @@ test('the cursor spectrum zoomed in asks for its slices at full resolution, so t
     await page.setContent(buildExtensionHostPathUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
     const plot = page.locator('#spectrum-overlay-canvas');
     await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe('');
-    const asked = (): Promise<boolean[]> => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; fullResolution?: boolean }> }).__uiSmokePostedMessages
-        .filter(message => message.type === 'request-spectrum-slice').map(message => !!message.fullResolution));
+    // The slices drawn; a read of every bin (`read`: the readout's numbers and the lines' order, R7 and R6) is not one.
+    const asked = (): Promise<boolean[]> => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; fullResolution?: boolean; read?: boolean }> }).__uiSmokePostedMessages
+        .filter(message => message.type === 'request-spectrum-slice' && !message.read).map(message => !!message.fullResolution));
     // The whole spectrum: its thinned rows are enough.
     await expect.poll(async () => (await asked()).length).toBeGreaterThan(0);
     expect((await asked()).every(full => !full)).toBe(true);
@@ -118,12 +119,19 @@ test('the cursor spectrum zoomed in asks for its slices at full resolution, so t
     const read = /([\d.]+) (k?)Hz/u.exec(await page.locator('#spectrum-freq-readout').innerText())!;
     const hz = Number(read[1]) * (read[2] ? 1000 : 1);
     await page.evaluate(hz => { (window as unknown as { __uiSmokeSpikeHz: number }).__uiSmokeSpikeHz = hz; }, hz);
-    /** The highest point (smallest y, CSS px) the drawn spectrum lines reach within 4 px of the pointer: the longest strokes. */
+    /**
+     * The highest point (smallest y, CSS px) the drawn spectrum lines reach within 4 px of the pointer, or the plot's
+     * floor where no part of them is on the plot there. The lines are the colours that draw long strokes (gridlines
+     * are two points), every run of those colours: a line is clipped where it leaves the plot (R2), so a stretch under
+     * the axis is cut off and a spike over it is a short run of its own.
+     */
     const peakNearPointer = (): Promise<number> => plot.evaluate((canvas, x) => {
-        const drawn = (canvas as HTMLCanvasElement & { __plotDrawn?: { strokes: Array<{ points: Array<[number, number]> }> } }).__plotDrawn;
-        const longest = Math.max(0, ...(drawn?.strokes ?? []).map(stroke => stroke.points.length));
-        const lines = (drawn?.strokes ?? []).filter(stroke => stroke.points.length >= longest / 2);
-        return Math.min(Infinity, ...lines.flatMap(stroke => stroke.points.filter(([px]) => Math.abs(px - x) <= 4).map(([, py]) => py)));
+        const drawn = (canvas as HTMLCanvasElement & { __plotDrawn?: { strokes: Array<{ color: string; points: Array<[number, number]> }> } }).__plotDrawn;
+        const strokes = drawn?.strokes ?? [];
+        const colours = new Set(strokes.filter(stroke => stroke.points.length >= 10).map(stroke => stroke.color));
+        const [, top, , height] = (canvas.dataset.plotFrame ?? '').split(' ').map(Number);
+        const floor = top + height;
+        return Math.min(floor, ...strokes.filter(stroke => colours.has(stroke.color)).flatMap(stroke => stroke.points.filter(([px]) => Math.abs(px - x) <= 4).map(([, py]) => py)));
     }, pointer.x - box.x);
     const before = await peakNearPointer();
     await page.keyboard.down('Control');

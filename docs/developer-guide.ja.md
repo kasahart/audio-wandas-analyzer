@@ -30,7 +30,7 @@ Audio Wandas Analyzer は VS Code 拡張機能です。
 npm install
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -c python-backend/constraints.txt -e ".[dev]"
 ```
 
 ## 3. 日常の開発フロー

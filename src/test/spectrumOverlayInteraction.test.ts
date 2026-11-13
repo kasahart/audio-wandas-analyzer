@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { overlayPlotPoint, overlaySpectrumRegionAt, spectrumZoomFromWindow } from '../webview/runtime/spectrumRuntime';
+import { overlayPlotPoint, overlaySpectrumRegionAt, setOverlaySecondaryLevelAxis, spectrumZoomFromWindow } from '../webview/runtime/spectrumRuntime';
 
 const W = 144;
 const H = 126;
@@ -29,4 +29,15 @@ test('overlaySpectrumRegionAt splits the canvas into dB axis, frequency axis and
     assert.equal(overlaySpectrumRegionAt(80, 50, W, H), 'plot');
     assert.equal(overlaySpectrumRegionAt(80, 4, W, H), null);
     assert.equal(overlaySpectrumRegionAt(140, 50, W, H), null);
+});
+
+test('with a right-hand level axis drawn, its margin is a level axis too: it answers the axis gestures as the left one (A48, R13)', () => {
+    setOverlaySecondaryLevelAxis(true);
+    try {
+        assert.equal(overlaySpectrumRegionAt(W + 20, 50, W + 40, H), 'db-axis-right');
+        assert.equal(overlaySpectrumRegionAt(W + 20, H - 4, W + 40, H), null, 'under it, the frequency axis\'s row, is no level axis');
+    } finally {
+        setOverlaySecondaryLevelAxis(false);
+    }
+    assert.equal(overlaySpectrumRegionAt(140, 50, W, H), null, 'without one, the narrow margin is nothing');
 });

@@ -7,6 +7,7 @@
  * pictures come as the steps view's do (stageSource, the Frame's full resolution once zoomed) and are drawn by
  * its painter. Let go, the picture stays 150 ms, so a quick look does not flicker.
  */
+import { createLatestAnswers, type CurrentAnswers, type ShownAnswers } from './answerStore';
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { CompareCombineMessage, CompareScanMessage } from '../../shared/analysis/entryScan';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
@@ -14,14 +15,15 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { recipeKey, recipeNodes, recipeSteps, slotReferenced, timeSignalStep, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { DIFF_COLOR } from '../../shared/gui/roleColors';
-import { deltaViews, withBins, type CompareModel, type LevelInput, type PaneRange } from './comparePanes';
+import { bandsDeltaSource, deltaViews, sameCondition, type CompareModel, type LevelInput, type PaneRange } from './comparePanes';
 import type { PlotMargins, PlotWindow } from './plotInteraction';
-import { axisFractionOf, axisValueAt, paintOverlay, stageAxes, stageDiffRange, stageRange, STAGE_MARGINS, type StageAxes, type StagePlot } from './stagePanes';
+import { axisFractionOf, axisValueAt, drawnMargins, paintOverlay, type StagePlot } from './stagePanes';
+import { dataRange, diffRange, emptyFigure, narrowedRange, stageNames, type FigureNames, type FigureRange } from './figureModel';
 import { createDetailPlanner } from './stageDetail';
-import { createCombineSource, noDeltaNote, type Combined } from './combineSource';
-import { createStageSource, type StageSpec } from './stageSource';
+import { createCombineSource, createLastFine, noDeltaNote, TOO_LARGE_COMBINED } from './combineSource';
+import { createStageSource, stageBasis, type StageSpec } from './stageSource';
 import { createStageReader } from './stageReader';
-import { localLine, type FullRead } from './fullRead';
+import { localLine, NO_FULL_DATA, type FullRead } from './fullRead';
 import { recipeWithout, stepChipLabel, stepLimits } from './stepBar';
 import { withChannel } from '../../shared/recipe/channelSelection';
 
@@ -55,9 +57,16 @@ export interface HeldPlotDeps {
     scheduleSide(): void;
     /** The plot's zoom, kept while it shows the same thing (`key`), whole again for another. */
     keepWindow(name: string, key: string): PlotWindow;
-    results: ReadonlyMap<string, ScanResult>;
+    /** Every file's latest scan (a stale one too): only what each file's pictures are of (stageBasis) is read of it. */
+    shown: ShownAnswers;
+    /** The scans of the current chain and calibration: every number, level reference and axis name is taken from these. */
+    current(): CurrentAnswers;
+    /** How many times a file's calibration changed while the folder is open: its pictures are asked again after one. */
+    /** How often the file's calibration or the file itself changed while the folder is open (the host said so). */
+    fileEpoch?(path: string): string;
     /** The comparison of `comparePath` with its base over `over`, each file as the channel it is compared as (entryBase.comparison). */
-    comparison(comparePath: string, over: ReadonlyMap<string, ScanResult>): CompareModel;
+    /** The screen's comparison of a row (of the answer store's answers), with every Welch bin of `binned` where given. */
+    comparison(comparePath: string, binned?: ReadonlyMap<string, ScanResult>): CompareModel;
     /** The recordings `comparePath` is measured against. */
     basePaths(comparePath: string): readonly string[];
     /** The Recipe the table's scans run (undefined: the host's own), which the held Δ's bins are scanned with too. */
@@ -98,7 +107,7 @@ export interface HeldPlot {
 }
 
 /** A level range narrowed to a window's vertical part. */
-export const narrowed = (range: PaneRange, window: PlotWindow): PaneRange => ({ min: range.min + window.y.start * (range.max - range.min), max: range.min + window.y.end * (range.max - range.min) });
+export const narrowed = (range: FigureRange, window: PlotWindow): FigureRange => narrowedRange(range, window.y);
 
 export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
     const { document, window, strings, held, title, canvas } = deps;
@@ -113,18 +122,20 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         stepRelease?: number;
         plot: HeldPicture | null;
     } = { slot: null, step: null, plot: null };
-    const source = createStageSource('entry-hold', message => deps.post(message), () => deps.scheduleSide());
+    // A file's pictures are of its version and calibration as the table scanned it: a change asks them again.
+    const basis = stageBasis(path => deps.shown.get(path), undefined, path => deps.fileEpoch?.(path) ?? '');
+    const source = createStageSource('entry-hold', message => deps.post(message), () => deps.scheduleSide(), basis);
     // Every Welch bin of a held slot's file and its base: the table's own scans carry only the 192 points.
-    const bins = createStageSource('held-bins', message => deps.post(message), () => deps.scheduleSide());
+    const bins = createStageSource('held-bins', message => deps.post(message), () => deps.scheduleSide(), basis);
     /** The table spectrum each file's bins were last asked for with (by spec and file). */
-    const binsAskedFor = new Map<string, string>();
+    const binsAskedFor = createLatestAnswers<string>();
     // Without the step − with it, taken by the backend from the Frames' full resolution (combineSource.ts).
     const combine = createCombineSource('held-combine', message => deps.post(message), () => deps.scheduleSide());
     // Every number read off the held plot comes from the full data, never its thinned line (R7).
     // A read of values the backend let go: their pictures are scanned again, then read anew.
     const reader = createStageReader('read-held', message => deps.post(message), keys => { source.forgetData(keys); deps.scheduleSide(); });
     /** The last zoomed difference of each held step, drawn until the next zoom's is in. */
-    const lastFine = new Map<string, Combined>();
+    const lastFine = createLastFine();
     const detail = createDetailPlanner(window.performance, window, () => deps.scheduleSide());
 
     /** The step `id`'s picture under `recipe` (the whole file, as the table scans it). */
@@ -151,25 +162,26 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         return end && without ? { with: holdSpec(withRow, end), without: holdSpec(picks && ch ? withChannel(without, ch, true) : without, end) } : null;
     }
     /** The held plot's picture and what it was drawn on, for its readout and an axis's range. */
-    function paintView(view: StageView | null, picture: StageView | null, range: PaneRange, axes: StageAxes, zoom: PlotWindow, options: { diff?: boolean; color: string; empty?: string; full?: FullRead }): void {
-        const drawn = paintOverlay(canvas, { layers: view ? [{ view, color: options.color, width: 2, ...(options.full ? { full: options.full } : {}) }] : [] }, narrowed(range, zoom), axes,
+    function paintView(view: StageView | null, picture: StageView | null, range: FigureRange, axes: FigureNames, zoom: PlotWindow, options: { diff?: boolean; color: string; empty?: string; full: FullRead }): void {
+        const drawn = paintOverlay(canvas, { layers: view ? [{ view, color: options.color, width: 2, full: options.full }] : [] }, narrowed(range, zoom), axes,
             { diff: options.diff, empty: options.empty ?? '', window: { x: zoom.x }, axisView: picture });
-        hold.plot = picture ? { margins: STAGE_MARGINS, x: f => axisValueAt(picture, f), ofX: number => axisFractionOf(picture, number), range, xLabel: axes.x, yLabel: axes.y, drawn: view ? drawn : null } : null;
+        hold.plot = picture ? { margins: drawnMargins(canvas, drawn), x: f => axisValueAt(picture, f), ofX: number => axisFractionOf(picture, number), range, xLabel: axes.x, yLabel: axes.y, drawn: view ? drawn : null } : null;
     }
     function paintStep({ step, path, ch }: { step: RecipeStep; path: string; ch: number | null }): void {
         held.hidden = false;
-        const input = deps.results.get(path)?.input;
         const name = step.name === 'welch' ? strings.stepAverage : strings.stepHeldWithout.replace('{step}', stepChipLabel(step, strings));
         title.textContent = strings.stepHeldRow.replace('{what}', name).replace('{file}', baseName(path));
-        held.classList.remove('is-pending');
+        held.classList.remove('is-pending', 'is-failed');
         const zoom = deps.keepWindow('held', step.id);
         const specs = heldSpecs(step, ch);
+        // The axis names the version the picture is of: the step's own scan of it, else the table's current one (never a stale one's).
+        const input = (specs ? source.result(specs.with, path)?.input : undefined) ?? deps.current().get(path)?.input;
         const waiting = !!specs && [specs.with, specs.without].some(spec => spec && source.ensure(spec, [path]));
         const coarse = specs ? source.view(specs.with, path) ?? null : null;
         const coarseWithout = specs?.without ? source.view(specs.without, path) ?? null : null;
         if (!specs || waiting || !coarse || (specs.without && !coarseWithout)) {
             if (waiting) { held.classList.add('is-pending'); title.textContent += ` · ${strings.comparePending}`; }
-            paintView(null, null, { min: 0, max: 1 }, stageAxes(strings, null, input), zoom, { color: deps.colorOf(path), empty: waiting ? '' : strings.stepNotDrawable.replace('{frame}', coarse?.frame ?? '') });
+            paintView(null, null, emptyFigure().range, stageNames(strings, null, input), zoom, { full: NO_FULL_DATA, color: deps.colorOf(path), empty: waiting ? '' : strings.stepNotDrawable.replace('{frame}', coarse?.frame ?? '') });
             return;
         }
         // Zoomed, from the Frame's full resolution once it is in (the coarse picture until then).
@@ -182,7 +194,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         };
         if (!specs.without) {
             const fine = fineOf(specs.with).map(spec => source.view(spec, path)).find(view => !!view);
-            paintView(fine ?? coarse, coarse, stageRange([coarse]), stageAxes(strings, coarse, input), zoom, { color: deps.colorOf(path), full: reader.of(coarse) });
+            paintView(fine ?? coarse, coarse, dataRange([coarse]), stageNames(strings, coarse, input), zoom, { color: deps.colorOf(path), full: reader.of(coarse) });
             return;
         }
         // Without the step − with it, at full resolution: what the step takes away (negative where it cuts), the
@@ -196,31 +208,34 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
             }
             deps.scheduleSide();
         };
-        const asked = coarse.data && coarseWithout?.data ? { base: [coarse.data], compare: coarseWithout.data } : null;
-        const whole = asked ? combine.get(identity, asked, forget) : { diff: null, tooLarge: false };
+        // A picture whose values were over what the backend keeps has no key: nothing to combine, nothing scanned again.
+        const tooLarge = [specs.with, without].some(spec => !!source.result(spec, path)?.stageDataTooLarge);
+        const asked = !tooLarge && coarse.data && coarseWithout?.data ? { base: [coarse.data], compare: coarseWithout.data } : null;
+        const whole = asked ? combine.get(identity, asked, forget) : tooLarge ? TOO_LARGE_COMBINED : { diff: null, tooLarge: false };
         if (!whole) {
             held.classList.add('is-pending');
             title.textContent += ` · ${strings.comparePending}`;
-            paintView(null, null, { min: 0, max: 1 }, stageAxes(strings, null, input), zoom, { color: DIFF_COLOR, empty: '' });
+            paintView(null, null, emptyFigure().range, stageNames(strings, null, input), zoom, { full: NO_FULL_DATA, color: DIFF_COLOR, empty: '' });
             return;
         }
         const finer = coarse.kind === 'bar' || coarse.kind === 'none' ? null : detail.spec(specs.with, coarse, zoom.x, zoom.y, canvas.clientWidth || 300);
         const fineDetail = finer?.message.detail;
         const zoomed = asked && fineDetail ? combine.get(`${identity}|${JSON.stringify(fineDetail)}`, { ...asked, detail: fineDetail }, forget) : undefined;
-        if (zoomed) lastFine.set(identity, zoomed);
+        // The last zoomed answer, for the pictures it was taken of only (createLastFine, A35).
+        if (zoomed && asked) lastFine.keep(identity, asked, zoomed);
         const delta = whole.diff;
-        const shown = (zoomed ?? (fineDetail ? lastFine.get(identity) : undefined))?.diff ?? delta;
-        paintView(shown, delta, stageDiffRange(delta), stageAxes(strings, delta, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: noDeltaNote(whole, strings), ...(asked ? { full: reader.combined(asked.base, asked.compare, 'diff') } : {}) });
+        const shown = (zoomed ?? (fineDetail && asked ? lastFine.of(identity, asked) : undefined))?.diff ?? delta;
+        paintView(shown, delta, diffRange(delta), stageNames(strings, delta, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: noDeltaNote(whole, strings), full: asked ? reader.combined(asked.base, asked.compare, 'diff') : NO_FULL_DATA });
     }
     /** The held row's Δ spectrum (from the table's own scan), zoomed as its window says. */
     function paintDelta(comparison: CompareModel, key: string, input: LevelInput | undefined): void {
         const zoom = deps.keepWindow('held', `delta|${key}`);
         // From every bin, zoomed or not (R1, R3): the table's per-band Δ only where the scans gave no bins.
         const { picture, view } = deltaViews(comparison, zoom.x);
-        // Read from every bin of the Δ (R7); without the bins, the table's per-band Δ is drawn whole.
+        // Read from every bin of the Δ (R7); without the bins, from every band of the table's per-band Δ.
         const bins = comparison.bins?.diff;
-        const full: FullRead = bins?.length && comparison.bins ? localLine(bins.map((_, bin) => bin * (comparison.bins?.hz ?? 0)), bins) : 'drawn';
-        paintView(view, picture, stageDiffRange(picture), stageAxes(strings, picture, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta, full });
+        const full: FullRead = bins?.length && comparison.bins ? localLine(bins.map((_, bin) => bin * (comparison.bins?.hz ?? 0)), bins) : view?.kind === 'bar' ? bandsDeltaSource(comparison) : NO_FULL_DATA;
+        paintView(view, picture, diffRange(picture), stageNames(strings, picture, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta, full });
     }
 
     /**
@@ -229,30 +244,42 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
      * nothing until they are in (never the table's 192 points). Without a base to measure against there is nothing to ask for.
      */
     function paintSlot(path: string, slot: number): void {
-        const table = deps.comparison(path, deps.results);
+        const current = deps.current();
+        const table = deps.comparison(path);
         const run = deps.scanRecipe();
         const spec: StageSpec = { key: `held-bins|${recipeKey(run)}`, message: { ...(run ? { recipe: run } : {}), spectrumBins: true } };
-        const files = [path, ...deps.basePaths(path)].filter(file => deps.results.get(file)?.ok);
-        // A file scanned again since (changed on disk, the folder opened anew): its kept bins are of the old
-        // spectrum, so they are asked for again, once for each table spectrum (one that never matches is not asked forever).
+        // The bins of the very recordings the comparison counts: the compared one and its base's set.
+        const files = table.compare ? [path, ...(table.baseSet?.paths ?? [])] : [];
+        // A file scanned again since (changed on disk, the folder opened anew): its kept bins are of another
+        // condition, so they are asked for again, once for each table condition (one that never matches is not asked forever).
         for (const file of files) {
             const kept = bins.result(spec, file);
-            const scanned = deps.results.get(file);
-            const own = JSON.stringify(scanned?.ok ? scanned.spectrumDb : null);
+            const scanned = current.get(file);
+            const own = scanned?.ok ? scanned.conditionId ?? '' : '';
             const key = `${spec.key}|${file}`;
-            if (kept?.ok && JSON.stringify(kept.spectrumDb) !== own && binsAskedFor.get(key) !== own) bins.forget(spec, file);
+            if (kept?.ok && !sameCondition(kept, scanned) && binsAskedFor.get(key) !== own) bins.forget(spec, file);
             if (!kept || bins.result(spec, file) === undefined) binsAskedFor.set(key, own);
         }
-        const waiting = !!table.diffDb && bins.ensure(spec, files);
+        const waiting = table.comparable && bins.ensure(spec, files);
         if (waiting) {
             // Nothing of the table's 192 points is drawn meanwhile: the Δ is taken only of every bin (R1, R2).
             held.classList.add('is-pending');
             title.textContent += ` · ${strings.comparePending}`;
-            paintView(null, null, { min: 0, max: 1 }, stageAxes(strings, null, deps.results.get(path)?.input), deps.keepWindow('held', `delta|slot|${slot}`), { color: DIFF_COLOR, empty: '' });
+            paintView(null, null, emptyFigure().range, stageNames(strings, null, current.get(path)?.input), deps.keepWindow('held', `delta|slot|${slot}`), { full: NO_FULL_DATA, color: DIFF_COLOR, empty: '' });
+            return;
+        }
+        // A file whose every bin failed (and may pass: asked again after the pause) leaves the Δ unmeasured, and the plot
+        // says so: never the table's band bars in its place, which are only for scans that give no bins (R1, V7).
+        const failed = table.comparable ? files.filter(file => bins.result(spec, file) === undefined && bins.failure(spec, file) !== undefined) : [];
+        if (failed.length) {
+            held.classList.add('is-failed');
+            const why = strings.heldBinsFailed.replace('{files}', failed.map(baseName).join(', ')).replace('{why}', bins.failure(spec, failed[0]) || '—');
+            title.textContent += ` · ${why}`;
+            paintView(null, null, emptyFigure().range, stageNames(strings, null, current.get(path)?.input), deps.keepWindow('held', `delta|slot|${slot}`), { full: NO_FULL_DATA, color: DIFF_COLOR, empty: why });
             return;
         }
         const binned = new Map(files.flatMap(file => { const result = bins.result(spec, file); return result ? [[file, result] as [string, ScanResult]] : []; }));
-        paintDelta(binned.size ? deps.comparison(path, withBins(deps.results, binned)) : table, `slot|${slot}`, deps.results.get(path)?.input);
+        paintDelta(binned.size ? deps.comparison(path, binned) : table, `slot|${slot}`, (binned.get(path) ?? current.get(path))?.input);
     }
 
     return {
@@ -281,7 +308,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
             }
             if (hold.stepRelease !== undefined) { window.clearTimeout(hold.stepRelease); hold.stepRelease = undefined; }
             const path = deps.focusedFile() ?? deps.slotFiles()[1];
-            if (!path || !deps.results.get(path)?.ok) { document.getElementById('hint-footer')?.replaceChildren(strings.stepHeldNoRow); return; }
+            if (!path || !deps.current().get(path)?.ok) { document.getElementById('hint-footer')?.replaceChildren(strings.stepHeldNoRow); return; }
             hold.step = { step, path, ch: deps.channelOf(path) };
             deps.scheduleSide();
         },
@@ -299,12 +326,12 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         paint(): void {
             if (hold.step) { paintStep(hold.step); return; }
             held.hidden = hold.slot === null;
-            held.classList.remove('is-pending');
+            held.classList.remove('is-pending', 'is-failed');
             if (hold.slot !== null) {
                 const path = deps.slotFiles()[hold.slot] ?? deps.focusedFile();
                 title.textContent = path ? `${hold.slot} · ${baseName(path)}` : '';
                 if (path) paintSlot(path, hold.slot);
-                else paintView(null, null, { min: 0, max: 1 }, stageAxes(strings, null, undefined, true), deps.keepWindow('held', `delta|slot|${hold.slot}`), { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta });
+                else paintView(null, null, emptyFigure().range, stageNames(strings, null, undefined, true), deps.keepWindow('held', `delta|slot|${hold.slot}`), { diff: true, full: NO_FULL_DATA, color: DIFF_COLOR, empty: strings.stageNoDelta });
             }
         },
         handle: message => source.handle(message) || bins.handle(message) || combine.handle(message) || reader.handle(message),

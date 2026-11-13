@@ -119,6 +119,8 @@ function createDomCanvasContextProxy(spy: DomCanvasSpyCtx): CanvasRenderingConte
             return noop;
         },
         set(_target, prop, value) {
+            // A method set on the context (the plot component noting its texts) wraps the spy's own, as on a real context.
+            if (typeof prop === 'string' && prop in counters && typeof value === 'function') { counters[prop] = value as (...args: unknown[]) => void; return true; }
             if (typeof prop === 'string') { stored[prop] = value; }
             return true;
         },

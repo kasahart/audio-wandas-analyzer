@@ -432,14 +432,51 @@ def test_backend_range_is_calibrated_but_wav_export_stays_raw(tmp_path) -> None:
     np.testing.assert_allclose(exported, samples, atol=1.0 / 32768.0)
 
 
-@pytest.mark.parametrize("subtype", ["PCM_16", "PCM_24", "PCM_32", "FLOAT", "DOUBLE"])
-def test_files_are_decoded_straight_to_float32_with_the_samples_a_float64_read_rounds_to(tmp_path, subtype) -> None:
+@pytest.mark.parametrize(
+    ("subtype", "dtype"),
+    [
+        ("PCM_16", np.float32),
+        ("PCM_24", np.float32),
+        ("PCM_32", np.float64),
+        ("FLOAT", np.float32),
+        ("DOUBLE", np.float64),
+    ],
+)
+def test_files_are_cached_in_the_dtype_that_holds_every_sample_of_their_format_exactly(tmp_path, subtype, dtype):
+    # 16- and 24-bit PCM and float32 fit in float32 exactly; 32-bit PCM and 64-bit float do not, and stay float64.
     file_path = tmp_path / f"take-{subtype}.wav"
     rng = np.random.default_rng(7)
     samples = np.clip(rng.normal(scale=0.3, size=(2_048, 2)), -1.0, 1.0)
     sf.write(file_path, samples, 8_000, subtype=subtype)
     cached = AnalysisEngine(cache_limit_bytes=16 * 1024 * 1024).get_file(file_path)
 
-    expected = wd.read(file_path).astype(np.float32).data
-    assert cached.frame.data.dtype == np.float32
+    expected = wd.read(file_path, dtype=np.float64).data
+    assert cached.frame.data.dtype == dtype
+    assert cached.frame_nbytes == samples.size * np.dtype(dtype).itemsize
     np.testing.assert_array_equal(cached.frame.data, expected)
+
+
+def test_a_float64_source_keeps_samples_a_float32_step_apart_through_its_samples_stft_and_delta(tmp_path) -> None:
+    # Two 64-bit float files 0.5 and 0.5 + 2^-30 (a float32 step at 0.5 is 2^-24): read in float32 they would be one.
+    rate, step = 8_000, 2.0**-30
+    tone = np.sin(2 * np.pi * 1000 * np.arange(4_096) / rate)
+    paths = []
+    for name, offset in [("a", 0.0), ("b", step)]:
+        path = tmp_path / f"{name}.wav"
+        sf.write(path, (0.5 + offset) * tone + offset, rate, subtype="DOUBLE")
+        paths.append(path)
+    engine = AnalysisEngine(cache_limit_bytes=64 * 1024 * 1024)
+    a, b = (engine.get_file(path) for path in paths)
+    assert a.frame.data.dtype == b.frame.data.dtype == np.float64
+    # The samples' Δ is the source's, never 0.
+    delta = np.asarray(b.frame.data) - np.asarray(a.frame.data)
+    np.testing.assert_allclose(delta.reshape(-1), step * tone + step, rtol=0, atol=1e-15)
+    assert np.max(delta) == pytest.approx(2 * step, rel=1e-5)
+    # The STFT of each, cached in complex128 of float64 samples: their 1 kHz bins differ as the sources do.
+    first, second = (engine.get_spectrogram(path, 256, 128, "hann") for path in paths)
+    assert np.asarray(first.data).dtype == np.complex128
+    bin_1k = round(1000 / (rate / 256))
+    rows = [np.asarray(spectrogram.data).reshape(-1, *spectrogram.shape[-2:])[0] for spectrogram in (first, second)]
+    cell = [np.abs(row[bin_1k, 4]) for row in rows]
+    ratio = cell[1] / cell[0]
+    assert ratio - 1 == pytest.approx(step / 0.5, rel=1e-3)

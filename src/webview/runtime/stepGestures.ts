@@ -22,7 +22,9 @@ export function attachStepHold(element: HTMLElement, view: Pick<Window, 'setTime
     let pressing: { step: RecipeStep; timer: number } | null = null;
     let held: RecipeStep | null = null;
     let swallowClick = false;
+    let pressedAt = 0;
     element.addEventListener('pointerdown', event => {
+        pressedAt = event.timeStamp;
         const body = (event.target as HTMLElement).closest<HTMLElement>('[data-step-hold]');
         swallowClick = false;
         if (!body || event.button !== 0) return;
@@ -39,11 +41,13 @@ export function attachStepHold(element: HTMLElement, view: Pick<Window, 'setTime
         };
     });
     // A hold also ends when the pointer is lost or the window loses focus, so nothing stays held.
-    for (const type of ['pointerup', 'pointercancel', 'blur']) view.addEventListener(type, () => {
+    for (const type of ['pointerup', 'pointercancel', 'blur']) view.addEventListener(type, event => {
         if (pressing) { view.clearTimeout(pressing.timer); pressing = null; }
         if (!held) return;
         held = null;
-        swallowClick = type === 'pointerup';
+        // A press is a tap or a hold by how long it was pressed (the events' own times), not by when the timer ran:
+        // on a busy page the timer can run after a short press was already let go, and that tap still shows the step.
+        swallowClick = type === 'pointerup' && event.timeStamp - pressedAt >= STEP_TAP_MS;
         element.querySelector('.step-chip.is-held')?.classList.remove('is-held');
         deps.onHold(null);
     });

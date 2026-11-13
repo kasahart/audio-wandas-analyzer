@@ -1,24 +1,25 @@
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
-import { niceRange } from '../../shared/utils/ticks';
 import { linkedSpectrogramBounds, spectrogramDisplayBounds, spectrogramFailureText } from './spectrogramRaster';
 import { laneWaveformOverlay, onColourBar, paintTrackSpectrogram, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
-import { laneReadoutText, spectrogramReadoutText } from './trackLaneHover';
+import { laneClickNorm, laneReadoutText, spectrogramReadoutText } from './trackLaneHover';
 import { createLaneReads, type LaneTrack } from './laneReads';
 import type { FullSource } from './fullRead';
-import { stageHover, stageStep, type StageRead } from './stagePanes';
-import { hidePlotReadout, paintHoverMarks, PLOT_READOUT_ID, showPlotReadout } from './plotHover';
+import { NO_FULL_DATA } from './fullRead';
+import { stageBasis } from './stageSource';
+import { hidePlotReadout, PLOT_READOUT_ID } from './plotHover';
+import { exactFieldText, secondsText, withMinus } from '../plot/plotText';
 import { trackTimelinePlacement, waveformCoverageFromExtent } from './waveformCoverage';
-import { envelopePeak } from '../waveform/envelopePeak';
+import { regionPeak, type PeakWindow } from './regionPeak';
 import { fileOfKey } from '../../shared/dataset/datasetTable';
 import { attachOffsetEditing } from './offsetInlineEditor';
 import { dispatchTestMouseEvent, fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, heightDragFromPayload, loopRegionFromPayload, setTestInputValue, testActionTrackId } from './testActionForms';
 import { nextRequestId } from './hostRequests';
-import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
+import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isOfShownVersion, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
 import type { DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, isOverviewSufficient, isRangeCacheDrawable, parseRangeRequestKey, planLaneRange, rangeCacheCoversView, rangeHasDetail } from '../waveform/rangeRequestPolicy';
-import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
+import { extractSpectrumAtCursor as extractCursorSpectrum, sliceIsAtCursor } from '../spectrum/cursorSpectrum';
 import { spectrogramBandServes, spectrogramWindowServes, spectrogramZoomBand, spectrogramZoomWindow, type SpectrogramBand, type SpectrogramBandSource, type SpectrogramWindow, type SpectrogramZoomSource } from '../spectrum/spectrogramZoom';
-import { buildSpectrumCsv, wavLoopRegions } from './runtimeExports';
+import { buildSpectrumCsv, wavLoopRegions, type CsvSpectrumTrack } from './runtimeExports';
 import { audioById, buttonById, buttonMatching, canvasById, canvasesMatching, eventTarget, requiredElementById } from './domAdapter';
 import { HostMessenger } from './hostMessaging';
 import {
@@ -45,30 +46,32 @@ import { buildTrackSnapshot } from './comparisonSnapshot';
 import { contentBoxWidth, readThenWrite, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpectrogramOverlayCanvasId, trackWaveformOverlayCanvasId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
-import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotHit, type PlotPoint, type PlotPointer, type PlotWindow } from './plotInteraction';
-import { createPlotHoverLayer, notePlotRead, type PlotPlace } from './plotHoverLayer';
+import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotClick, type PlotHit, type PlotPoint, type PlotPointer, type PlotWindow } from './plotInteraction';
+import { plotUnderPointer } from './trackPointerEvents';
+import { clickOnRead, createPlotHoverLayer, notePlotRead, type PlotPlace } from './plotHoverLayer';
 import { attachCanvasFocusHint, attachHoverHints, createHintFooter, createTaskStatus, setHint } from './hintFooter';
 import { attachTrackLaneActions } from './trackLaneActions';
 import { attachGlobalKeyboardListeners } from './globalKeyboardEvents';
 import { keyRouterFor } from './keyRouter';
 import { attachSeparatorKeys } from './separatorKeys';
 import { buildPythonButtonText, buildPythonTooltip, isPythonEnvError } from './pythonEnvironmentLabels';
-import { laneAmplitudeRange, laneAmplitudeTicks, laneTimeTicks, markLanePlot } from './laneAxes';
+import { laneAmplitudeTicks, laneTimeTicks, markLanePlot } from './laneAxes';
 import { createPlaybackDisplay } from './playbackDisplay';
 import { installLayoutResizeHandling } from './layoutResize';
 import { syncPanelToggle, syncSpectrumMaximize } from './panelCollapse';
 import { SpectrumView } from './spectrumView';
 import { WaveformView } from './waveformView';
 import { OVERLAY_LEVEL_AXES, paintOverlaySpectrum, renderSpectrumAxisLegend } from './overlaySpectrumPainter';
-import { amplitudeAxisTitle, paintOverlay, PLOT_TEXT_FONT, type StagePlot } from './stagePanes';
+import { clearSideAxis, linearWindowEnds, paintOverlay, paintTimeAxis, type StagePlot, type StageRead } from './stagePanes';
 import { referenceButtonHtml } from './pairSpectrum';
-import { PAIR_SPLIT_MAX, PAIR_SPLIT_MIN, PairSpectrumPanel } from './pairSpectrumPanel';
+import { noteCursorHz, PAIR_SPLIT_MAX, PAIR_SPLIT_MIN, PairSpectrumPanel } from './pairSpectrumPanel';
 import { collectSpectrumSeries, type CollectedSpectrumSeries, type SpectrumSeriesSource } from './spectrumSeriesCollector';
 import { toolbarHtml } from './toolbarHtml';
 import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions } from './toolbarEvents';
 import { resultsPaneHtml, trackAudioHtml, type SpectrumBandsSetting } from './resultsPaneHtml';
 import { selectionFolderButton, selectionLayoutHtml } from './selectionLayoutHtml';
-import { SpectrumCommitHold } from './spectrumCommitHold';
+import { ShownSpectrumCursor, SpectrumCommitHold } from './spectrumCommitHold';
+import { createLatestAnswers, createRequestClock } from './answerStore';
 import { type AnalysisWindowBand, canvasTimeHit, clampedCanvasNorm, clientToCanvasPixels, CURSOR_LINE_STYLE, drawAnalysisWindowBand, drawDashedTimeLine, drawRectZoomSelection, HOVER_LINE_STYLE, waveformCursorLineStyle } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
@@ -78,27 +81,30 @@ import {
     overlaySpectrumRegionAt,
     spectrumZoomFromWindow,
     spectrumSlicesFromResult,
+    withCalibrationWords,
+    type RightAxisFollow,
 } from './spectrumRuntime';
+import { amplitudeTitle, axisInputOf, colourScale, typedColourRange, unknownLevelTitle, baseLevelOf, emptyFigure, plainTitle, frequencyTitle, laneAmplitudeRange, levelKeyOfReading, windowEnds, levelTitle as figureLevelTitle, paneNames, plainNames, plainRange, shownLevelOf, titleOf, uncalibratedWord, type FigureTitle } from './figureModel';
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
 import { ComparisonTestBridge } from './testBridge';
 import { RuntimeEventFeed } from './runtimeEvents';
-import { TrackStore, type TrackRecord } from './trackStore';
+import { laneDetailState, trackDetailKey, TrackStore, type TrackRecord } from './trackStore';
 import { replaceTrackAudio, retireAudio } from './trackAudioHost';
 import { installTrackReorderDrag } from './trackReorderDrag';
 import { installSpectrogramSettingsPopover } from './spectrogramSettingsPopover';
 import { installReanalyzeOverlay } from './reanalyzeOverlay';
 import { SpectrogramSettingsStore } from './spectrogramSettingsStore';
 import { createEntryScreen } from './entryRuntime';
-import { diffHeadline, paneAxes, trackLevelInput, withBins } from './comparePanes';
+import { binnedAnswers, regionAnswers } from './entryBase';
+import { diffHeadline, trackLevelInput } from './comparePanes';
 import { baseName } from '../../shared/analysis/entryMetadata';
-import { channelResult } from '../../shared/recipe/channelSelection';
-import { reportFiles } from './compareReport';
+import { baseUsed, reportFiles, reportStale } from './compareReport';
 import { regionLabel } from './entryTable';
 import { activeSlotReferenced, recipeKey } from '../../shared/recipe/recipeSteps';
 import { openedRecipe } from '../../shared/recipe/recipeOpen';
 import { isRecipeDocument } from '../../shared/recipe/recipeSelection';
 import { LIGHT_THEME_BODY_SELECTORS, ROLE_COLORS, ownColor, useLightRoleColors } from '../../shared/gui/roleColors';
-import { createTrackStageMode, type StageTrack, type TrackStageMode } from './trackStageMode';
+import { createTrackStageMode, LARGE_BASE, type StageTrack, type TrackStageMode } from './trackStageMode';
 import { attachRoleChips, roleChipHtml, roleChipText, type RoleChipRole } from './roleChip';
 import { triggerAnchorDownload as downloadEntryCsv } from './exportDownloads';
 import {
@@ -152,8 +158,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         };
     }
     const TRACK_HEADER_W = 130;
-    // A failed spectrogram is not asked again for this long, so a lane that keeps failing does not loop.
-    const DETAIL_RETRY_MS = 10_000;
+    // A failed spectrogram (the whole file's, a zoom window's) is not asked again until the answer store's pause has
+    // passed, so a lane that keeps failing does not loop and a passing failure does not stay.
     const AXIS_W = 64;
     const SIDEBAR_WIDTH_MIN = 160;
     /** The window keeps this much beside a widened side panel. */
@@ -193,7 +199,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         cursorNorm: () => viewState.cursor,
         moveCursor,
         centerOn: norm => waveformView.centerOn(norm),
-        invalidateSpectrumRequests: invalidateDesiredSpectrumSliceRequests,
+        // Playback's (a pause, a seek, the loop's wrap) move the cursor: a cursor action, whose answers are held together.
+        invalidateSpectrumRequests: () => invalidateDesiredSpectrumSliceRequests(true),
         scheduleRender,
         refreshSpectrum: scheduleSpectrumRefresh,
         showTime: seconds => updatePlaybackDisplay(seconds),
@@ -296,7 +303,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return !!record && currentTrackIndex !== null && currentTrackIndex === request.trackIndex
                 && request.analysisId === analysisId
                 && request.settingsSignature === currentSpectrumDataSignature()
-                && !record.runtime.hidden && !record.result.error;
+                && !record.runtime.hidden && !record.result.error && !record.sourceChanged;
         },
         send(request) {
             trackStore.require(request.trackId).requests.ask('slice', request.requestId, String(request.cursorNorm), request);
@@ -307,6 +314,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 settingsSignature: request.settingsSignature,
                 trackIndex: request.trackIndex,
                 filePath: request.filePath,
+                sourceVersion: trackStore.require(request.trackId).result.sourceVersion,
                 cursorNorm: request.cursorNorm,
                 ...(request.bandsPerOctave ? { bandsPerOctave: request.bandsPerOctave } : {}),
                 ...(request.fullResolution ? { fullResolution: true as const } : {}),
@@ -348,8 +356,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     type LinkedScale = { peaks: Map<string, number>; levels: Map<string, { minDb: number; maxDb: number }>; maxFrequencyHz: number };
     let linkedScaleMemo: LinkedScale | null = null;
     const amplitudeUnitKey = (ch: ChannelSummary | undefined) => (ch && typeof ch.unit === 'string' ? ch.unit.trim() : '');
-    const levelUnitKey = (level: { unit?: string; axisLabel?: string; referenceValue?: number; referenceUnit?: string }) =>
-        [level.unit ?? '', level.axisLabel ?? '', level.referenceValue ?? '', level.referenceUnit ?? ''].join('|');
+    // Spectrograms share a colour scale only by level identity (figureModel, R1).
+    const levelUnitKey = levelKeyOfReading;
     function displayedLanes(): { record: ReturnType<typeof trackStore.require>; channelIndex: number; ch: ChannelSummary }[] {
         const lanes: { record: ReturnType<typeof trackStore.require>; channelIndex: number; ch: ChannelSummary }[] = [];
         trackStore.displayOrder.forEach(function (trackId) {
@@ -445,11 +453,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
      * place are stale, except while playing, whose own requests keep up with it.
      */
     function moveCursor(norm: number, playing = false): void {
-        if (!playing) invalidateDesiredSpectrumSliceRequests();
+        if (!playing) invalidateDesiredSpectrumSliceRequests(true);
         viewState.setCursor(norm, playing ? 'cursor' : 'all');
+        // Where the cursor is on the lanes' time axis (s), for the test that a lane's click moves it to the time read (R7, R13).
+        const lanes = document.getElementById('tracks-wrapper');
+        const span = trackStore.globalSpan();
+        if (lanes) lanes.dataset.cursorAt = String(span.startSec + norm * span.spanSec);
     }
     /** The cursor spectrum's pointer marks and readout, as every plot's (plotHoverLayer.ts, R7). */
-    const spectrumMarks = createPlotHoverLayer(document, 'spectrum-cursor');
+    const spectrumMarks = createPlotHoverLayer(document, { noValue: STR.plotNoValue }, 'spectrum-cursor');
+    /** The track lanes' pointer marks and readout: the same state machine, one lane at a time (drawLaneHover). */
+    const laneMarks = createPlotHoverLayer(document, { noValue: STR.plotNoValue }, 'track-lane-cursor');
     /** The lanes' and the cursor spectrum's full data, which their numbers are read from (R7): never what they draw. */
     const laneReads = createLaneReads(message => messaging.post(message));
     /** Where the pointer (or an arrow key's step) is over the cursor spectrum, while it is. */
@@ -458,6 +472,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let spectrumFollowHz: number | null = null;
     /** Where the cursor spectrum last drew its lines. */
     let spectrumDrawn: StagePlot | null = null;
+    /** The cursor spectrum's (left) level axis name as last drawn: its range popover names the axis the same way. */
+    let spectrumLevelAxisTitle = '';
+    /** The right-hand level axis as last drawn (a second reference): its name and the levels on screen, with the left's. */
+    let spectrumRightAxis: { title: string; right: { min: number; max: number }; follow: RightAxisFollow } | null = null;
     /** The frequency the power spectrum's cursor last read under the pointer (R7). */
     let overlayReadHz: number | null = null;
     // ── スペクトルズーム ───────────────────────────────────
@@ -482,7 +500,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function createTrackRuntime(): TrackRuntimeState {
         return { offsetSeconds: 0, hidden: false };
     }
-    const trackStore = new TrackStore(state.results, createTrackRuntime);
+    // A lane's failed answer is asked again once its pause is over: drawn again then, its requests made anew.
+    const trackStore = new TrackStore(state.results, createTrackRuntime, () => { scheduleRender(); scheduleRangeRequests(); });
     const runtimeSessionId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
     let analysisGeneration = 0;
     function createAnalysisId(): string {
@@ -493,10 +512,21 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function trackIdAtIndex(index: number): TrackId | null {
         return trackStore.idAtProtocolIndex(index);
     }
-    function trackIdAtProtocolBoundary(index: number, messageType: string): TrackId | null {
+    /** The track a lane's lazy answer is of: none for an index no track has, or an answer of another file version. */
+    function trackIdAtProtocolBoundary(index: number, answer: { type: string; sourceVersion?: string; stftSignature?: string; staleSource?: true }): TrackId | null {
         const trackId = trackIdAtIndex(index);
         if (!trackId) {
-            console.warn('Rejected ' + messageType + ' with invalid trackIndex ' + index);
+            console.warn('Rejected ' + answer.type + ' with invalid trackIndex ' + index);
+            return null;
+        }
+        const record = trackStore.get(trackId);
+        if (!record || !isOfShownVersion(record.result, answer)) return null;
+        if (answer.staleSource) {
+            // The file changed on disk since: no lane of the track asks again; it says so and offers to analyse again.
+            record.sourceChanged = true;
+            scheduleRender();
+            testBridge.publishAfterFrame();
+            return null;
         }
         return trackId;
     }
@@ -541,6 +571,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     return {
                         trackId,
                         filePath: record.result.filePath,
+                        sourceVersion: record.result.sourceVersion,
+                        calibrationSignature: record.result.calibrationSignature,
                         channelIndex,
                         offsetSeconds: record.runtime.offsetSeconds,
                         label: spectrumReadoutTrackLabel(record.result, channelIndex),
@@ -569,7 +601,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         openFrequencyRange: (clientX, clientY) => openSpectrumRangePopup('freq', clientX, clientY),
         openLevelRange(request) {
             openAxisPart(spectrumRangePopover, {
-                mapping: linearAxis(request.min, request.max, request.label), horizontal: false, current: request.current,
+                mapping: linearAxis(request.min, request.max, request.label), horizontal: false, current: request.current, shown: request.shown,
                 clientX: request.clientX, clientY: request.clientY, invalid: STR.specRangeErrorMinMax,
                 set: part => request.set(part.start <= 0 && part.end >= 1 ? null : part),
             });
@@ -610,6 +642,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         },
     }, STR);
     let overlaySpectrumPainted = false;
+    /** The cursor the cursor spectrum's picture is of, which its header names. */
+    const shownSpectrumCursor = new ShownSpectrumCursor();
     function currentSettingsSignature() {
         return spectrogramSettings.dataSignature;
     }
@@ -620,8 +654,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function spectrumSliceRequestKey(trackId: TrackId) {
         return trackId;
     }
-    function invalidateDesiredSpectrumSliceRequests() {
+    /**
+     * The generation whose spectra may not hold the last picture: one started by a change of what the spectra are
+     * (the STFT, the bands, an offset, a new analysis), not by a cursor action. Holding there would keep a picture of
+     * the old conditions on screen (SpectrumCommitHold is for one cursor action's answers arriving together).
+     */
+    let unheldSpectrumGeneration: number | null = null;
+    function invalidateDesiredSpectrumSliceRequests(cursorAction = false) {
         spectrumRequests.invalidate();
+        unheldSpectrumGeneration = cursorAction ? null : spectrumRequests.generation;
     }
     function spectrumReadoutTrackLabel(result: ComparisonTrackState, channelIndex: number) {
         const channels = channelsForResult(result);
@@ -652,7 +693,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function requestTrackDetail(i: number) {
         const result = state.results[i];
         const record = trackRecordAtIndex(i);
-        if (!record || !result || result.error || record.runtime.hidden) {
+        if (!record || !result || result.error || record.runtime.hidden || record.sourceChanged) {
             return;
         }
         const channels = channelsForResult(result);
@@ -660,12 +701,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const settingsSignature = currentSettingsSignature();
-        const failure = record.detailError;
-        if (failure && failure.settingsSignature === settingsSignature && Date.now() - failure.at < DETAIL_RETRY_MS) {
-            return;
-        }
-        const pending = record.requests.pending('detail')?.meta;
-        if (pending && pending.settingsSignature === settingsSignature) {
+        // Answered (even without a spectrogram), failed and pausing, or on its way under this key: not asked. The store
+        // marks it pending as it is asked (trackStore.ts laneDetailState).
+        if (!record.detail.ask(trackDetailKey(result, settingsSignature))) {
             return;
         }
         const requestId = nextRequestId('detail', i);
@@ -677,6 +715,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             settingsSignature: settingsSignature,
             trackIndex: i,
             filePath: result.filePath,
+            sourceVersion: result.sourceVersion,
         });
     }
     /**
@@ -706,8 +745,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const fileView = computeTrackFileView(result, trackIndex);
         return { startNorm: fileView.fileAtZoomStart, endNorm: fileView.fileAtZoomEnd };
     }
-    /** When a zoom window last failed, per track: it is asked again only after a pause, as the whole file's is. */
-    const spectrogramZoomFailedAt = new Map<string, number>();
     /**
      * A lane zoomed past the whole file's spectrogram columns asks for the window it shows (R3): the host sends that
      * window's frames at full resolution, so the lane is drawn again from them instead of the averaged columns stretched.
@@ -726,7 +763,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const whole = channelsForResult(result)[0]?.spectrogram;
         const viewBand = whole ? shownSpectrogramBand(whole) : null;
         const settingsSignature = currentSettingsSignature();
-        const zoom = record.spectrogramZoom;
+        const zoom = record.spectrogramZoom.get();
         const serves = (window: SpectrogramWindow | null, band: SpectrogramBand | null): boolean =>
             (window ? spectrogramWindowServes(source, window, view, width) : !spectrogramZoomWindow(source, view, width))
             && (!bandSource || !viewBand || spectrogramBandServes(bandSource, band, viewBand, height));
@@ -735,7 +772,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const timeWindow = spectrogramZoomWindow(source, view, width);
         const band = bandSource && viewBand ? spectrogramZoomBand(bandSource, viewBand, height) : null;
-        if ((!timeWindow && !band) || Date.now() - (spectrogramZoomFailedAt.get(record.id) ?? -Infinity) < DETAIL_RETRY_MS) {
+        // The window asked for, under the settings and analysis: a failure stands for that window only, not every other.
+        const zoomAsk = [timeWindow ? `${timeWindow.startNorm}|${timeWindow.endNorm}` : '0|1', band ? `${band.lowHz}|${band.highHz}` : ''].join('|');
+        if ((!timeWindow && !band) || record.spectrogramZoom.holds(`${zoomAsk}|${settingsSignature}|${analysisId}`)) {
             return;
         }
         const pending = record.requests.pending('specZoom');
@@ -746,7 +785,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
         }
         const requestId = nextRequestId('specZoom', i);
-        record.requests.ask('specZoom', requestId, [timeWindow ? `${timeWindow.startNorm}|${timeWindow.endNorm}` : '0|1', band ? `${band.lowHz}|${band.highHz}` : ''].join('|'),
+        record.requests.ask('specZoom', requestId, zoomAsk,
             { trackId: record.id, requestId: requestId, analysisId: analysisId, settingsSignature: settingsSignature });
         messaging.post({
             type: 'request-track-detail',
@@ -755,6 +794,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             settingsSignature: settingsSignature,
             trackIndex: i,
             filePath: result.filePath,
+            sourceVersion: result.sourceVersion,
             // The whole file's frames along time when only the band needs its own rows.
             ...(timeWindow ? { startNorm: timeWindow.startNorm, endNorm: timeWindow.endNorm } : {}),
             ...(band ? { lowHz: band.lowHz, highHz: band.highHz } : {}),
@@ -766,7 +806,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!whole) {
             return null;
         }
-        const zoom = trackRecordAtIndex(trackIndex)?.spectrogramZoom;
+        const zoom = trackRecordAtIndex(trackIndex)?.spectrogramZoom.get();
         const zoomed = zoom && zoom.analysisId === analysisId && zoom.settingsSignature === currentSettingsSignature() ? zoom.spectrograms[channelIndex] : null;
         if (!zoom || !zoomed) {
             return { spec: whole, window: null };
@@ -796,7 +836,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         record.requests.drop('detail');
         record.requests.drop('specZoom');
-        record.spectrogramZoom = null;
+        record.spectrogramZoom.clear();
         spectrumRequests.drop(spectrumSliceRequestKey(record.id));
         record.requests.drop('slice');
         record.spectrumSliceCache.clear();
@@ -817,6 +857,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return 0.002;
         }
         return Math.min(0.002, 0.01 / dur);
+    }
+    /** Whether a cached slice is this cursor's: the current settings, transformed at this cursor (cursorSpectrum.ts). */
+    function sliceIsCurrentAt(i: number, slice: SpectrumSlice | null | undefined, cursorNormValue: number): slice is SpectrumSlice {
+        const result = state.results[i];
+        const localNorm = trackLocalCursorNorm(i, cursorNormValue);
+        return !!slice && !!result && localNorm !== null && slice.settingsSignature === currentSpectrumDataSignature()
+            && sliceIsAtCursor(slice, localNorm, spectrumCursorTolerance(result));
     }
     /** The slice wanted or in flight for a track, unless a cursor move since has made its answer stale (it would be dropped). */
     function currentSpectrumSliceRequest(record: NonNullable<ReturnType<typeof trackRecordAtIndex>>) {
@@ -861,8 +908,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // resolution, not the whole spectrum's thinned line stretched); thinned again only to be drawn.
         const fullResolution = spectrumCsvExportOpen || spectrumView.frequencyZoomed();
         const cached = record.spectrumSliceCache.get(0);
-        if (cached && cached.settingsSignature === settingsSignature && Math.abs((cached.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result)
-            && !(fullResolution && cached.frequenciesHz)) {
+        if (sliceIsCurrentAt(i, cached, cursorNormValue) && !(fullResolution && cached.frequenciesHz)) {
             return;
         }
         const key = spectrumSliceRequestKey(record.id);
@@ -897,24 +943,24 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function applySpectrumDisplaySettings(slice: SpectrumSlice) {
         const displaySettings = spectrogramSettings.display;
-        // Typed ends stay as typed; auto ends are widened to round values, as the spectrogram's colour range.
-        const rounded = niceRange(displaySettings.dbMin ?? slice.minDb, displaySettings.dbMax ?? slice.maxDb);
-        const minDb = displaySettings.dbMin != null ? displaySettings.dbMin : rounded.low;
-        const maxDb = displaySettings.dbMax != null ? displaySettings.dbMax : rounded.high;
+        // Typed ends stay as typed; auto ends are the slice's extremes, rounded with every other line's (spectrumLevelRange: R9's dB rule).
+        const minDb = displaySettings.dbMin != null ? displaySettings.dbMin : slice.minDb;
+        const maxDb = displaySettings.dbMax != null ? displaySettings.dbMax : slice.maxDb;
+        const typedDb = { ...(displaySettings.dbMin != null ? { min: displaySettings.dbMin } : {}), ...(displaySettings.dbMax != null ? { max: displaySettings.dbMax } : {}) };
         const requestedMaxFreq = displaySettings.maxFrequencyHz;
         let maxFrequencyHz = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
         if (requestedMaxFreq != null && Number.isFinite(requestedMaxFreq) && requestedMaxFreq > 0) {
             maxFrequencyHz = Math.min(requestedMaxFreq, maxFrequencyHz);
         }
         // A second level reference is read over its own range (a typed range is in the first reference's dB).
-        const auto = niceRange(slice.autoMinDb ?? slice.minDb, slice.autoMaxDb ?? slice.maxDb);
         return Object.assign({}, slice, {
             originalMaxFrequencyHz: slice.originalMaxFrequencyHz || slice.maxFrequencyHz,
             maxFrequencyHz: maxFrequencyHz,
             minDb: minDb,
             maxDb: maxDb,
-            autoMinDb: auto.low,
-            autoMaxDb: auto.high,
+            autoMinDb: slice.autoMinDb ?? slice.minDb,
+            autoMaxDb: slice.autoMaxDb ?? slice.maxDb,
+            typedDb,
         });
     }
     function trackColor(i: number) {
@@ -950,13 +996,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const updatePlaybackDisplay = createPlaybackDisplay(document, STR.playbackTimePrefix || '▶');
     // ── On-demand range cache ──
     let rangeRequestTimer: number | null = null;
-    /** When each lane's range request on its way was sent; a failed one is never answered, so it is asked again after RANGE_RETRY_MS. */
-    const rangeAskedAt = new Map<string, number>();
-    const RANGE_RETRY_MS = 2000;
+    /** When each lane's range request on its way was sent; a failed one is never answered, so it is asked again after the store's UNANSWERED_RETRY_MS. */
+    const rangeClock = createRequestClock(() => performance.now());
     /** When the range each lane draws was asked for, so an older answer arriving late does not replace a newer one. */
-    const rangeLandedAskedAt = new Map<TrackId, number>();
+    const rangeLandedAskedAt = createLatestAnswers<number>();
     // The full data the lanes' readouts read (R7): each read's answer, on its own requests.
     messaging.onMessage(function (msg) {
+        // A read of a file changed since its track was analysed stops the track's lanes as any lane answer does.
+        if (msg && 'trackIndex' in msg && 'staleSource' in msg && msg.staleSource) trackIdAtProtocolBoundary(msg.trackIndex, msg);
         if (msg && laneReads.handle(msg)) testBridge.publishAfterFrame();
     });
     // Receive high-res range data from Extension Host
@@ -965,7 +1012,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const i = msg.trackIndex;
-        const trackId = trackIdAtProtocolBoundary(i, msg.type);
+        const trackId = trackIdAtProtocolBoundary(i, msg);
         const record = trackId ? trackStore.get(trackId) : undefined;
         if (!trackId || !record) {
             return;
@@ -976,14 +1023,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         // ...but never over one asked for later that has already landed.
-        const askedAt = rangeAskedAt.get(msg.requestId) ?? -Infinity;
+        const askedAt = rangeClock.landed(msg.requestId);
         record.requests.settle(msg.requestId);
-        rangeAskedAt.delete(msg.requestId);
         if (askedAt < (rangeLandedAskedAt.get(trackId) ?? -Infinity)) {
             return;
         }
         rangeLandedAskedAt.set(trackId, askedAt);
-        record.rangeCache = { startNorm: msg.startNorm, endNorm: msg.endNorm, channels: msg.channels };
+        record.rangeCache.set({ startNorm: msg.startNorm, endNorm: msg.endNorm, channels: msg.channels });
         renderAll();
     });
     messaging.onMessage(function (msg) {
@@ -991,7 +1037,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const i = msg.trackIndex;
-        const trackId = trackIdAtProtocolBoundary(i, msg.type);
+        const trackId = trackIdAtProtocolBoundary(i, msg);
         const record = trackId ? trackStore.get(trackId) : undefined;
         if (!trackId || !record) {
             return;
@@ -1007,14 +1053,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             record.requests.settle(msg.requestId);
             if (msg.type === 'track-detail-error') {
                 // The lane keeps the whole file's picture; the window is asked again after the pause.
-                spectrogramZoomFailedAt.set(trackId, Date.now());
-                setTimeout(scheduleRangeRequests, DETAIL_RETRY_MS);
+                record.spectrogramZoom.fail(msg.error, `${zoomRequest.key}|${asked.settingsSignature}|${asked.analysisId}`);
                 return;
             }
-            spectrogramZoomFailedAt.delete(trackId);
             if (state.results[i] && state.results[i].filePath === msg.filePath && Array.isArray(msg.channels)) {
-                record.spectrogramZoom = { startNorm, endNorm, band, analysisId: asked.analysisId,
-                    settingsSignature: asked.settingsSignature, spectrograms: msg.channels.map(channel => channel?.spectrogram ?? null) };
+                record.spectrogramZoom.set({ startNorm, endNorm, band, analysisId: asked.analysisId,
+                    settingsSignature: asked.settingsSignature, spectrograms: msg.channels.map(channel => channel?.spectrogram ?? null) });
                 scheduleRender();
                 testBridge.publishAfterFrame();
             }
@@ -1026,13 +1070,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         record.requests.settle(msg.requestId);
         if (msg.type === 'track-detail-error') {
-            record.detailError = { settingsSignature: pending.settingsSignature, message: msg.error, at: Date.now() };
+            // The cause may pass (a restarted backend, memory freed): the slot's pause over, the lane asks again (trackStore's retried).
+            record.detail.fail(trackDetailKey(record.result, pending.settingsSignature), msg.error);
             scheduleRender();
-            // The cause may pass (a restarted backend, memory freed): the lane asks again after the pause.
-            setTimeout(scheduleRender, DETAIL_RETRY_MS);
             return;
         }
-        record.detailError = null;
+        // A valid answer with no spectrogram is the answer under its key (empty): it is not asked again until the key changes.
+        const brought = Array.isArray(msg.channels) && msg.channels.some(channel => !!channel?.spectrogram);
+        if (brought) record.detail.ready(trackDetailKey(record.result, pending.settingsSignature), true);
+        else record.detail.empty(trackDetailKey(record.result, pending.settingsSignature));
         if (state.results[i] && state.results[i].filePath === msg.filePath && Array.isArray(msg.channels)) {
             mergeDetailSpectrograms(state.results[i].channels, msg.channels);
             scheduleRender();
@@ -1049,7 +1095,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const i = msg.trackIndex;
-        const trackId = trackIdAtProtocolBoundary(i, msg.type);
+        const trackId = trackIdAtProtocolBoundary(i, msg);
         const record = trackId ? trackStore.get(trackId) : undefined;
         if (!trackId || !record) {
             spectrumRequests.pump();
@@ -1089,6 +1135,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         else scheduleRender();
         testBridge.publishAfterFrame();
         spectrumRequests.pump();
+    });
+    // A track's file was written on disk (the host's watcher): its lanes are of the old version, so they stop and
+    // offer to analyse again, as when a lazy answer comes back stale-source.
+    messaging.onMessage(function (msg) {
+        if (!msg || msg.type !== 'entry-source-changed') return;
+        trackStore.displayOrder.map(trackId => trackStore.require(trackId)).filter(record => record.result.filePath === msg.filePath)
+            .forEach(record => { record.sourceChanged = true; });
+        scheduleRender();
+        testBridge.publishAfterFrame();
     });
     messaging.onMessage(function (msg) {
         if (msg && pairPanel.handleMessage(msg)) {
@@ -1258,7 +1313,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function checkAndRequestRanges() {
         state.results.forEach(function (result: ComparisonTrackState, i: number) {
             const record = trackRecordAtIndex(i);
-            if (!record || record.runtime.hidden || result.error || !laneInView(i)) {
+            if (!record || record.runtime.hidden || result.error || record.sourceChanged || !laneInView(i)) {
                 return;
             }
             requestSpectrogramZoom(i, result, record);
@@ -1271,12 +1326,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             // Detail is kept for a couple of screens either side, so a pan draws lines already decimated in full.
             const { reqStart, reqEnd, points: pts, keepStart, keepEnd } = planLaneRange(fileView.fileAtZoomStart, fileView.fileAtZoomEnd, W);
             const channelCount = channelsForResult(result).length;
-            if (isCacheSufficient(record.rangeCache, keepStart, keepEnd, pts, W, fileView.fileAtZoomStart, fileView.fileAtZoomEnd, channelCount)) {
+            if (isCacheSufficient(record.rangeCache.get(), keepStart, keepEnd, pts, W, fileView.fileAtZoomStart, fileView.fileAtZoomEnd, channelCount)) {
                 return;
             }
             const pending = record.requests.pending('range');
             // The host answers a failed range with nothing, so a range on its way stops counting after a while and is asked again.
-            const inFlight = pending && performance.now() - (rangeAskedAt.get(pending.requestId) ?? -Infinity) < RANGE_RETRY_MS;
+            const inFlight = pending && rangeClock.waiting(pending.requestId);
             const asked = pending && inFlight ? parseRangeRequestKey(pending.key) : null;
             if (asked && asked.startNorm <= keepStart && asked.endNorm >= keepEnd &&
                 rangeHasDetail(asked.points, asked.startNorm, asked.endNorm, pts, W, fileView.fileAtZoomStart, fileView.fileAtZoomEnd)) {
@@ -1285,17 +1340,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const requestId = nextRequestId('range', record.id);
             // Superseded requests keep their time until answered (an answer may still land); the host cancels most, so
             // the oldest are dropped once many are kept.
-            rangeAskedAt.set(requestId, performance.now());
-            if (rangeAskedAt.size > 256) {
-                const oldest = rangeAskedAt.keys().next().value;
-                if (oldest !== undefined) rangeAskedAt.delete(oldest);
-            }
+            rangeClock.sent(requestId);
             record.requests.ask('range', requestId, `${reqStart}|${reqEnd}|${pts}`, null);
             messaging.post({
                 type: 'request-waveform-range',
                 requestId: requestId,
                 trackIndex: i,
                 filePath: result.filePath,
+                sourceVersion: result.sourceVersion,
                 startNorm: reqStart,
                 endNorm: reqEnd,
                 points: pts,
@@ -1451,7 +1503,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         recipe: () => entryScreen.recipes(comparedChannels()),
         slots: () => entryScreen.slots(),
         basePaths: (comparePath, group) => entryScreen.basePaths(comparePath, group),
-        baseTitle: (comparePath, group) => entryScreen.baseTitle(comparePath, group),
+        baseHeading: (comparePath, group, set, each) => entryScreen.baseHeading(comparePath, group, set, each),
+        baseLeft: (comparePath, group) => entryScreen.baseLeft(comparePath, group),
+        levelOf: path => entryScreen.levelOf(path), levelsOf: paths => entryScreen.levelsOf(paths),
         stageChannel: (path, comparePath, group) => entryScreen.stageChannel(path, comparePath, group),
         rowInfo: path => entryScreen.rowInfo(path),
         roleChip(path) {
@@ -1469,7 +1523,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         recipeChanged: recipe => entryScreen.setRecipe(recipe),
         tracks() {
             const tracks: StageTrack[] = [];
-            const entryResults = entryScreen.compareData().results;
             trackStore.displayOrder.forEach(function (trackId) {
                 const record = trackStore.require(trackId);
                 const result = record.result;
@@ -1481,29 +1534,42 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     const canvas = canvasById(document, trackCanvasId(i, channelIndex));
                     canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
                 });
-                // The file's unit and reference as the entry table scanned it (else as the track was analysed), so the level axis names its reference.
-                const input = trackLevelInput(channelsForResult(result), entryResults.get(result.filePath)?.input);
+                // The file's unit and reference as the entry table scanned it (else as the track was analysed: the channel
+                // the step reads), so the level axis names its reference (C1), never a bare dB for channels calibrated apart.
+                const channels = channelsForResult(result);
+                const read = entryScreen.stageChannel(result.filePath, result.filePath);
+                // Only a fresh scan's (the answer store's ready answer): a stale one's reference is of an earlier calibration.
+                const input = trackLevelInput(read && channels[read - 1] ? [channels[read - 1]] : channels, entryScreen.levelOf(result.filePath), read);
                 tracks.push({ filePath: result.filePath, color: trackColor(i), canvas: canvasById(document, trackCanvasId(i, 0)), axis: canvasById(document, trackAxisCanvasId(i, 0)), input });
             });
             return tracks;
         },
         sampleRate: () => state.results.find(result => !result.error)?.sampleRateHz,
+        // A file's pictures are of its version (the table's scan) and calibration (the track's analysis): a change asks them again.
+        basis: stageBasis(path => entryScreen.compareData().results.get(path), path => state.results.find(result => result.filePath === path && !result.error), path => entryScreen.compareData().fileEpoch?.(path) ?? ''),
         // What a trigger sees: the compared slots' channels (a channel row, its own) of the shown tracks, over the region.
+        // From every sample of each (the lanes' full data, as their readouts read it), never from the envelopes drawn.
         peak: region => {
             const shown = trackStore.displayOrder.map(trackId => trackStore.require(trackId)).filter(record => !record.runtime.hidden && !record.result.error);
             const compared = entryScreen.compareData().slots.filter((slot): slot is string => !!slot);
-            let peak = 0;
+            const windows: PeakWindow[] = [];
             for (const record of shown) {
                 const result = record.result;
                 const slots = compared.filter(slot => fileOfKey(slot) === result.filePath);
                 if (compared.length && !slots.length) continue;
                 const picked = slots.map(slot => /#ch(\d+)$/.exec(slot)?.[1]).filter((ch): ch is string => ch !== undefined).map(ch => Number(ch) - 1);
-                channelsForResult(result).forEach((channel, index) => {
+                // A lane's samples are read on its file's 0..1: the region's seconds over the file's length.
+                const length = result.durationSeconds;
+                const [x0, x1] = region && length > 0 ? [region.start / length, region.end / length] : [0, 1];
+                channelsForResult(result).forEach((_channel, index) => {
                     if (picked.length && !picked.includes(index)) return;
-                    peak = Math.max(peak, envelopePeak(channel.waveform ?? undefined, result.durationSeconds, region));
+                    // A file changed since it was analysed has no full data to read (laneTrack): its peak is unknown.
+                    windows.push({ filePath: result.filePath, full: laneTrackFull(record.protocolIndex, track => laneReads.waveform(track, index)) ?? NO_FULL_DATA, x0, x1 });
                 });
             }
-            return peak > 0 ? peak : undefined;
+            // Nothing on screen waits for the answer: the bar reads it again when a trigger is added, so no redraw is asked.
+            // More recordings than LARGE_BASE (no slots chosen, many tracks shown) are not read unasked.
+            return regionPeak(windows, () => undefined, LARGE_BASE);
         },
         stepFailed: (step, reason) => entryScreen.stepFailed(step, reason),
         channels: () => comparedChannels(),
@@ -1511,6 +1577,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         hint: text => hintFooter.show(text),
         notify: text => taskStatus(text, 'done'),
         busy: text => taskStatus(text, 'busy'),
+        failed: text => taskStatus(text, 'failed'),
         inFront: () => !entryScreen.isOpen(),
         // Esc goes back to where the comparison was opened: the entry table, or the tracks (playback, zoom and
         // selection as they were, the compared recording's lane in sight).
@@ -1542,34 +1609,46 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         playing: () => playingPath(),
         fix(comparePath, groupBase, region, measured) {
             const data = entryScreen.compareData();
-            // Over a region, the files' results over it take the entry table's place.
-            const results = region ? new Map([...data.results, ...measured]) : data.results;
-            // The compared file as the channel it is compared as, against its base as the table defines it.
+            // Over a region, the files' results over it take the entry table's place: only those (a base recording
+            // whose region value is not in yet is pending, never measured by its whole file instead).
+            // Of the answers the comparison is of: the store's (a stale compared or slot-0 recording has none ready), or the
+            // region's scans made now. The compared file as the channel it is compared as, against its base as the table defines it.
+            const source = region ? regionAnswers(measured) : undefined;
             const channel = entryScreen.stageChannel(comparePath, comparePath, groupBase);
-            const result = channel ? channelResult(results.get(comparePath), channel) : results.get(comparePath);
-            const comparison = entryScreen.comparison(comparePath, groupBase, results);
-            if (!result?.ok || !comparison.base || comparison.blocked) return STR.compareRefuseFix.replace('{why}', diffHeadline(comparison, STR));
-            const definition = entryScreen.baseDefinition(comparePath, groupBase);
-            const baseLabel = definition.kind === 'file' ? definition.file ?? baseName(data.slots[0] ?? '') : entryScreen.baseTitle(comparePath, groupBase);
+            const comparison = entryScreen.comparison(comparePath, groupBase, source);
+            const result = comparison.compareResult;
+            if (!result || !comparison.base || !comparison.baseSet || comparison.blocked) return STR.compareRefuseFix.replace('{why}', diffHeadline(comparison, STR));
+            // The base's set, its definition and its name are of the same answers the Δ is; a base recording still being
+            // measured there leaves nothing to fix yet.
+            const definition = entryScreen.baseDefinition(comparePath, groupBase, source);
+            if (definition.left?.pending || definition.left?.['no-identity'] || comparison.pending) return STR.compareRefuseFix.replace('{why}', STR.fixBasePending);
+            const used = baseUsed(comparison);
+            const baseLabel = definition.kind === 'file' ? definition.file ?? baseName(data.slots[0] ?? '') : entryScreen.baseTitle(comparePath, groupBase, source);
             entryScreen.addDerived({
                 parentPath: comparePath, ...(channel ? { ch: channel } : {}), region: regionLabel(region), result, recipeKey: recipeKey(data.runRecipe),
-                base: { leq: comparison.base.leq, bands: comparison.base.bands, label: baseLabel, paths: comparison.base.filePaths, definition },
+                base: { leq: comparison.base.leq, bands: [...comparison.base.bands], label: baseLabel, paths: [...used.paths], definition, level: baseLevelOf(comparison.baseSet) },
             });
             return null;
         },
         report(showDiff, region, measured, binned) {
             const data = entryScreen.compareData();
             // Every bin of the files' spectra, for the figures' median and Δ: over a region, the region's metrics carry
-            // them; without one, the whole files' scans give them to the table's results of the same spectrum.
-            const results = region ? new Map([...data.results, ...measured]) : withBins(data.results, binned);
+            // them; without one, the whole files measured afresh for the report (their version now, the current chain)
+            // stand for the table's scans of them, never dropped for a condition the table's no longer is.
+            const measuredNow = region ? measured : new Map([...binned].filter(([, result]) => result.ok));
+            const results = new Map([...(region ? [] : data.results), ...measuredNow]);
+            // Every count, median and Δ of the report is of answers: the store's with the files measured now standing for theirs, or the region's.
+            const source = region ? regionAnswers(measured) : binnedAnswers({ answers: paths => entryScreen.answersOf(paths) }, measuredNow);
             const { folder, files } = reportFiles(document, {
                 model: data.model, results, slots: data.slots, region, recipe: entryScreen.recipes(comparedChannels())?.runRecipe ?? data.recipe ?? null, recipeName: STR.stepRecipeName, now: new Date(), showDiff,
                 // The comparisons as the table defines their bases (grouping, filters, channel), and what it was narrowed to.
-                compare: path => entryScreen.comparison(path, false, results),
-                rowInfo: path => ({ ...entryScreen.rowInfo(path), channel: entryScreen.stageChannel(path, path), base: entryScreen.baseDefinition(path) }),
+                compare: path => entryScreen.comparison(path, false, source),
+                rowInfo: path => ({ ...entryScreen.rowInfo(path), channel: entryScreen.stageChannel(path, path), base: entryScreen.baseDefinition(path, false, source) }),
                 selection: entryScreen.selection(),
                 derived: entryScreen.derivedRows(),
                 slotReference: activeSlotReferenced(data.recipe),
+                // Which numbers are of an earlier chain or calibration (the report's chain column): the table's stale ones not measured afresh over the region.
+                stale: reportStale(data.stale, measuredNow),
             }, STR);
             messaging.post({ type: 'save-report-folder', folder, files });
             hintFooter.show(STR.reportSaved + folder);
@@ -1606,17 +1685,25 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return spectrogramSettings.reanalyzeBusy;
     }
 
+    /** A spectrogram lane's colour bar name, as the comparison's heatmaps name their colour: the level, with the channel's reference. */
+    function spectrogramLevelTitle(ch: ChannelSummary | null | undefined): FigureTitle {
+        return titleOf(paneNames(STR, trackLevelInput([ch], undefined)).level);
+    }
     /** A waveform lane's amplitude axis: what it shows from bottom to top (as the waveform is drawn), its ticks and its title. */
     function laneAmplitudeAxis(result: ComparisonTrackState, channelIndex: number) {
         const ch = channelsForResult(result)[channelIndex];
         const range = laneAmplitudeRange(amplitudeScaleFor(ch), waveformView.isAmplitudeZoomed() ? { minNorm: waveformView.amplitudeMin, maxNorm: waveformView.amplitudeMax } : undefined);
         const unit = ch && typeof ch.unit === 'string' && ch.unit.trim() ? ch.unit.trim() : undefined;
-        return { range, ticks: laneAmplitudeTicks(range), title: amplitudeAxisTitle(STR, unit, trackLevelInput([ch], undefined)) };
+        return { range, ticks: laneAmplitudeTicks(range), title: amplitudeTitle(STR, unit, trackLevelInput([ch], undefined)) };
     }
-    /** The lanes' visible time span in seconds (the ruler's and every lane's time axis). */
+    /**
+     * The lanes' visible time span in seconds (the ruler's and every lane's time axis): the ends each lane is painted
+     * with (paintOverlay's window at the range field's numbers, R9), which the time range popover writes.
+     */
     function laneVisibleSeconds() {
         const gs = trackStore.globalSpan();
-        return { start: gs.startSec + waveformView.start * gs.spanSec, end: gs.startSec + waveformView.end * gs.spanSec };
+        const ends = linearWindowEnds(gs.startSec, gs.startSec + gs.spanSec, waveformView.timeRange());
+        return { start: ends.min, end: ends.max };
     }
     function waveformAxisLabelsForResult(result: ComparisonTrackState, _trackIndex: number) {
         const axis = laneAmplitudeAxis(result, 0);
@@ -1642,6 +1729,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             spectrogramDisplay: spectrogramSettings.display,
             peekSlice: track => peekSpectrumAtCursor(track.result, track.trackIndex, track.offsetSeconds, spectrumCursorNorm),
             waveformAxisLabels: track => waveformAxisLabelsForResult(track.result, track.trackIndex),
+            spectrumTexts: () => [...(spectrumDrawn?.drawnTexts ?? [])],
+            spectrogramTexts: track => {
+                const canvas = document.getElementById(trackSpecCanvasId(track.trackIndex, 0));
+                const plot = canvas instanceof HTMLCanvasElement ? spectrogramPlots.get(canvas) : undefined;
+                return [...(plot?.drawnTexts ?? [])];
+            },
         });
         let latestSpectrogram;
         try {
@@ -1844,6 +1937,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }, STR);
     }
     // ── Rendering ──
+    /** Each track whose file changed after it was analysed shows its "analyse again" button; the others hide it. */
+    function syncSourceChanged(): void {
+        trackStore.displayOrder.forEach(trackId => {
+            const button = buttonMatching(document, '[data-action="reanalyze-changed"][data-track-id="' + trackId + '"]');
+            if (button) button.hidden = !trackStore.require(trackId).sourceChanged;
+        });
+    }
     function renderAll() {
         playWhenReady();
         pairPanel.sync();
@@ -1855,6 +1955,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // Back from the comparison: the spectra are drawn from what is held, and the cursor's slices asked for if missing.
         if (spectraHidden && contentType !== 'stage') { spectraHidden = false; refreshSpectrumViews(); scheduleSpectrumRefresh('interactive'); }
         syncRoleChips();
+        syncSourceChanged();
         updateVisibility();
         updateOffsetDisplays();
         emitWaveformZoom();
@@ -1918,30 +2019,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // The ticks follow the lanes' time span: the waveform's width.
         const lane = canvasesMatching(document, '.track-canvas:not(.track-spec-canvas)').find(function (c) { return c.width > 1 && c.offsetParent !== null; });
         const timeW = lane ? Math.min(W, lane.width) : W;
-        const H = canvas.height;
-        ctx.clearRect(0, 0, W, H);
         const seconds = laneVisibleSeconds();
         const style = getComputedStyle(document.body);
-        // The lanes' time axis as every plot's: its ticks and their numbers, and its name at the right end; a number the
-        // name would overlap is left out.
-        ctx.font = PLOT_TEXT_FONT;
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'alphabetic';
-        const title = STR.axisTime;
-        const titleLeft = timeW - ctx.measureText(title).width - 2;
-        ctx.fillStyle = style.getPropertyValue('--muted').trim() || '#888';
-        ctx.strokeStyle = style.getPropertyValue('--line').trim() || '#444';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        laneTimeTicks(seconds.start, seconds.end, timeW).forEach(function (tick) {
-            const x = Math.round(tick.x) + 0.5;
-            ctx.moveTo(x, H - 4);
-            ctx.lineTo(x, H);
-            if (tick.x + 2 + ctx.measureText(tick.text).width < titleLeft - 4) ctx.fillText(tick.text, tick.x + 2, H - 6);
+        // The lanes' time axis, drawn by the plot component as every plot's (R13): its ticks, their numbers and its name.
+        paintTimeAxis(canvas, laneTimeTicks(seconds.start, seconds.end, timeW), STR.axisTime, timeW, {
+            muted: style.getPropertyValue('--muted').trim() || '#888',
+            line: style.getPropertyValue('--line').trim() || '#444',
+            text: style.getPropertyValue('--text').trim() || '#ddd',
         });
-        ctx.stroke();
-        ctx.fillStyle = style.getPropertyValue('--text').trim() || '#ddd';
-        ctx.fillText(title, titleLeft, H - 6);
     }
     function renderStackedTracks() {
         linkedScaleMemo = null;
@@ -1996,6 +2081,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 return;
             }
             if (!laneInView(i)) {
+                // Not drawn until scrolled to: its axes beside it are left empty by the plot component meanwhile.
+                channelsForResult(result).forEach(function (_, channelIndex: number) {
+                    for (const id of [trackAxisCanvasId(i, channelIndex), trackSpecAxisCanvasId(i, channelIndex)]) {
+                        const axis = canvasById(document, id);
+                        if (axis && !axis.hasAttribute('data-plot-axis-canvas')) clearSideAxis(axis);
+                    }
+                });
                 return;
             }
             const color = trackColor(i);
@@ -2005,7 +2097,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     return;
                 }
                 const axisC = canvasById(document, trackAxisCanvasId(i, channelIndex));
-                axisC?.getContext('2d')?.clearRect(0, 0, axisC.width, axisC.height);
+                if (axisC) clearSideAxis(axisC);
                 drawTrackWaveform(canvas, result, i, channelIndex, trackRuntimeAt(i).offsetSeconds, color);
                 const specCanvas = canvasById(document, trackSpecCanvasId(i, channelIndex));
                 if (specCanvas) {
@@ -2050,7 +2142,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const ch = channelsForResult(result)[channelIndex];
         const fullWaveform = ch && ch.waveform ? ch.waveform : null;
         const amplitudeScale = fullWaveform ? amplitudeScaleFor(ch) : undefined;
-        const c = trackRecordAtIndex(trackIndex)?.rangeCache ?? null;
+        const c = trackRecordAtIndex(trackIndex)?.rangeCache.get() ?? null;
         const cachedChannel = c && c.channels ? c.channels[channelIndex] : null;
         const canvas = canvasById(document, trackCanvasId(trackIndex, channelIndex));
         const W = (canvas ? canvas.width : 0) || 800;
@@ -2073,11 +2165,22 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     /** A track as its lanes' reads name it (R7): its index on the protocol, its file and the analysis drawn. */
     function laneTrack(trackIndex: number): LaneTrack | null {
         const result = state.results[trackIndex];
-        return result ? { trackIndex, filePath: result.filePath, analysisId, settingsSignature: currentSettingsSignature() } : null;
+        // A file changed since it was analysed is read no more (its answers would be of another version).
+        return result && !trackRecordAtIndex(trackIndex)?.sourceChanged ? { trackIndex, filePath: result.filePath, sourceVersion: result.sourceVersion, calibrationSignature: result.calibrationSignature,
+            stftSignature: result.stftSignature,
+            analysisId, settingsSignature: currentSettingsSignature() } : null;
     }
+    /**
+     * A lane's full data, or none for a track no read names (laneTrack): a file changed since it was analysed. Its
+     * lanes still show the pictures drawn of the old version, with no readout (laneReadable), so no number is read.
+     */
     function laneTrackFull(trackIndex: number, read: (track: LaneTrack) => FullSource): FullSource | undefined {
         const track = laneTrack(trackIndex);
         return track ? read(track) : undefined;
+    }
+    /** Whether a lane gives a readout: not once its file changed since it was analysed (R7: nothing is read of it). */
+    function laneReadable(trackIndex: number): boolean {
+        return !trackRecordAtIndex(trackIndex)?.sourceChanged;
     }
     /** What each lane's plot component drew last (CSS pixels), which the pointer reads through (R7). */
     const lanePlots = new WeakMap<HTMLCanvasElement, StagePlot>();
@@ -2100,10 +2203,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const lane = laneWaveformOverlay(src, { ...trackStore.globalSpan(), ...placement }, color, unit, laneTrackFull(trackIndex, track => laneReads.waveform(track, channelIndex)));
         const ratio = W / (canvas.clientWidth || W);
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        const lanePlot = paintOverlay(canvas, lane.overlay, axis.range, { x: STR.axisTime, y: axis.title }, {
+        const lanePlot = paintOverlay(canvas, lane.overlay, axis.range, plainNames(plainTitle(STR, 'axisTime'), axis.title), {
             axisCanvas: options.drawAxis === false ? null : canvasById(document, trackAxisCanvasId(trackIndex, channelIndex)),
+            // The time axis every lane shares, drawn once above them by the component (paintTimeAxis).
+            xAxisCanvas: canvasById(document, 'ruler-canvas'),
             axisView: lane.axisView,
             window: { x: { start: waveformView.start, end: waveformView.end } },
+            ...(laneReadable(trackIndex) ? {} : { readout: false as const }),
             onSignalPoint: (x, y, _value, _time, seen) => {
                 minX = Math.min(minX, x); maxX = Math.max(maxX, x);
                 if (seen) { minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
@@ -2140,7 +2246,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const W = layer.width, H = layer.height;
         ctx.clearRect(0, 0, W, H);
         drawWaveformCursorLayers(ctx, W, H, trackIndex, channelIndex);
-        if (hovered) drawLaneHover(ctx, W, H, result, channelIndex, color);
+        if (hovered) drawLaneHover(result, channelIndex, color);
         else drawHoverLineOnCanvas(ctx, W, H);
         drawRectZoomSelectionOnCanvas(ctx, W, H, trackIndex);
     }
@@ -2173,19 +2279,19 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
         }
         const axisCanvas = canvasById(document, trackSpecAxisCanvasId(trackIndex, channelIndex));
-        const axisCtx = axisCanvas ? axisCanvas.getContext('2d') : null;
-        if (axisCanvas && axisCtx) {
-            axisCtx.clearRect(0, 0, axisCanvas.width, axisCanvas.height);
-        }
+        if (axisCanvas) clearSideAxis(axisCanvas);
         const ch = channelsForResult(result)[channelIndex];
         if (!ch || !ch.spectrogram) {
             requestTrackDetail(trackIndex);
-            const failure = trackRecordAtIndex(trackIndex)?.detailError;
-            const message = failure && failure.settingsSignature === currentSettingsSignature()
-                ? spectrogramFailureText(STR, failure.message)
-                : STR.spectrogramLoading;
+            const detail = trackRecordAtIndex(trackIndex)?.detail;
+            const key = trackDetailKey(result, currentSettingsSignature());
+            const lane = detail ? laneDetailState(detail, key) : 'pending';
+            // Answered under this key with no spectrogram for this channel: the lane says so, never "Loading" for ever.
+            const message = trackRecordAtIndex(trackIndex)?.sourceChanged ? STR.sourceChangedLane : lane === 'failed'
+                ? spectrogramFailureText(STR, detail?.reason(key) ?? '')
+                : lane === 'answered' ? STR.spectrogramNone : STR.spectrogramLoading;
             // An empty plot with its message, drawn by the plot component as an empty pane is: no axes named yet.
-            paintOverlay(canvas, { layers: [] }, { min: 0, max: 1 }, { x: STR.axisTime, y: STR.axisFrequency }, { axisCanvas: null, empty: message });
+            paintOverlay(canvas, { layers: [] }, plainRange(0, 1), plainNames(plainTitle(STR, 'axisTime'), plainTitle(STR, 'axisFrequency')), { axisCanvas: null, empty: message });
             delete canvas.dataset.plotAxis;
             delete canvas.dataset.plotWindow;
             return;
@@ -2195,19 +2301,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const shown = shownSpectrogram(result, trackIndex, channelIndex);
         const spec = shown ? shown.spec : whole;
         const { offsetNorm: trackStart, trackDurRatio } = trackTimelinePlacement(offsetSeconds, result.durationSeconds, trackStore.globalSpan());
-        const { dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq } = shownSpectrogramBounds(whole);
+        const { dbLo, dbHi, dbTyped, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq } = shownSpectrogramBounds(whole);
         const record = trackRecordAtIndex(trackIndex);
         if (!record) {
             return;
         }
         const cacheId = record.id + ':' + channelIndex;
         const theme = drawTheme(), text = getComputedStyle(document.body).getPropertyValue('--text').trim() || '#ddd';
-        // The colour bar is named as the comparison's heatmaps name their colour: the level, with the channel's reference.
-        const title = paneAxes(STR, trackLevelInput([ch], undefined)).level.y;
+        const title = spectrogramLevelTitle(ch);
         const painted = paintTrackSpectrogram(canvas, axisCanvas, spec, { ...trackStore.globalSpan(), offsetNorm: trackStart, trackDurRatio }, {
-            window: { start: waveformView.start, end: waveformView.end }, dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq,
-            durationSec: result.durationSeconds,
-        }, spectrogramRasterCache.get(cacheId), { colour: title, frequency: STR.axisFrequency, time: STR.axisTime }, [text, theme.bgColor, theme.lineColor].join(':'),
+            window: { start: waveformView.start, end: waveformView.end }, dbLo, dbHi, dbTyped, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq,
+            durationSec: result.durationSeconds, timeAxis: canvasById(document, 'ruler-canvas'), ...(laneReadable(trackIndex) ? {} : { readout: false as const }),
+        }, spectrogramRasterCache.get(cacheId), { colour: title, frequency: plainTitle(STR, 'axisFrequency'), time: plainTitle(STR, 'axisTime') }, [text, theme.bgColor, theme.lineColor].join(':'),
         laneTrackFull(trackIndex, track => laneReads.spectrogram(track, channelIndex, shown?.window ?? null)));
         spectrogramRasterCache.set(cacheId, painted);
         if (painted.plot) spectrogramPlots.set(canvas, painted.plot); else spectrogramPlots.delete(canvas);
@@ -2271,8 +2376,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const slice = record.spectrumSliceCache.get(channelIndex) ?? record.spectrumSliceCache.get(0);
         // A slice from another cursor (one still on its way after playback or a move) would put the band elsewhere.
-        if (!slice || slice.settingsSignature !== currentSpectrumDataSignature()
-            || slice.cursorNorm === undefined || Math.abs(slice.cursorNorm - localNorm) >= spectrumCursorTolerance(result)
+        if (!sliceIsCurrentAt(trackIndex, slice, spectrumCursorNorm)
             || slice.windowStartNorm === undefined || slice.windowEndNorm === undefined) {
             return null;
         }
@@ -2284,7 +2388,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         };
     }
     /** The bands last drawn, kept while one action's cursor spectra are still arriving so every track's band moves together. */
-    const shownWindowBands = new Map<string, AnalysisWindowBand | null>();
+    const shownWindowBands = createLatestAnswers<AnalysisWindowBand | null>();
     const spectrumCommitHold = new SpectrumCommitHold({
         now: spectrumNow,
         setTimeout: (handler, ms) => window.setTimeout(handler, ms),
@@ -2304,7 +2408,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const record = trackStore.require(trackId);
             return !record.runtime.hidden && isSpectrumSliceRequestPendingForCursor(record.protocolIndex, spectrumCursorNorm);
         });
-        holdingThisPass = spectrumCommitHold.holds(pending, spectrumRequests.generation);
+        holdingThisPass = spectrumCommitHold.holds(pending && spectrumRequests.generation !== unheldSpectrumGeneration, spectrumRequests.generation);
         // Every lane drawn in this pass sees the same answer, so the cap never splits a frame.
         queueMicrotask(function () { holdingThisPass = null; });
         return holdingThisPass;
@@ -2350,67 +2454,55 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let laneHover: { canvas: HTMLCanvasElement; clientX: number; clientY: number } | null = null;
     /** The pointer over a spectrogram lane (client pixels), whose lane reads the cell under it on every paint (R7). */
     let spectrogramHover: { canvas: HTMLCanvasElement; clientX: number; clientY: number } | null = null;
-    // A scroll under a still pointer moves the lane from under it: the point read goes with it.
-    document.addEventListener('scroll', () => { if (laneHover || spectrogramHover) { hideLaneHover(); scheduleRender(); } }, true);
-    /** The point a lane's readout last read and the plot it read it on, for an arrow key to step from (R7). */
-    let laneRead: { canvas: HTMLCanvasElement; plot: StagePlot; read: StageRead } | null = null;
+    // A scroll under a still pointer reads the lane, or the place, now under it: the shared gestures hover there again
+    // (trackPointerEvents.ts), as a pointer moved there would (R7).
     /**
-     * The point an arrow key stepped to on a lane, with the pointer place it was shown at: the lane reads that point
-     * there, not whichever point shares its pixel, until the pointer moves (R7).
+     * The lanes' readout (R7): the one state machine every plot reads through (plotHoverLayer.ts), so a lane reads,
+     * steps, waits for its samples, takes a key pressed meanwhile once they are in, and reads a point stepped to again
+     * on a lane drawn anew (a zoom, a pan, playback) or lets it go off the window, as every other plot does (laneMarks).
      */
-    let laneStepped: { canvas: HTMLCanvasElement; clientX: number; clientY: number; read: StageRead } | null = null;
-    /** The stepped point on the lane's plot as now drawn (a repaint may have moved it), if the pointer is still there. */
-    function steppedRead(canvas: HTMLCanvasElement, plot: StagePlot, clientX: number, clientY: number): StageRead | null {
-        const step = laneStepped;
-        if (!step || step.canvas !== canvas || step.clientX !== clientX || step.clientY !== clientY) return null;
-        const { read } = step;
-        if (read.at === undefined) return read;
-        if (read.image) return plot.image && read.row !== undefined ? { ...read, x: plot.image.placeOf(read.at, read.row).x } : read;
-        return read.value === undefined ? read : { ...read, x: plot.xAt(read.at), y: plot.yAt(read.value) };
-    }
     function hideLaneHover(): void {
-        laneRead = null;
-        laneStepped = null;
         laneHover = null;
         spectrogramHover = null;
+        laneMarks.hide();
         hidePlotReadout(document.getElementById(PLOT_READOUT_ID));
     }
-    function drawLaneHover(ctx: CanvasRenderingContext2D, W: number, H: number, result: ComparisonTrackState, channelIndex: number, color: string): void {
+    /** Where a point a lane reads is on the lanes' time axis (0–1), as the ruler and the cursor show it (a shifted track's offset included); null with no time. */
+    function laneReadNorm(read: StageRead): number | null {
+        if (read.at === undefined || (read.image && !read.full)) return null;
+        const span = trackStore.globalSpan();
+        return span.spanSec > 0 ? (read.at - span.startSec) / span.spanSec : 0;
+    }
+    /** The lane's readout shown now at the pointer it holds (a lane shows it on its next frame): what a click acts on is what it reads. */
+    function showLaneReadout(canvas: HTMLCanvasElement): void {
+        const trackIndex = trackIndexFromElement(canvas);
+        const result = trackIndex === null ? undefined : state.results[trackIndex];
+        if (trackIndex === null || !result) return;
+        if (laneHover?.canvas === canvas) drawLaneHover(result, channelIndexAttribute(canvas) ?? 0, trackColor(trackIndex));
+        else if (spectrogramHover?.canvas === canvas) showSpectrogramReadout(canvas, spectrogramHover.clientX, spectrogramHover.clientY);
+    }
+    /** The pointer's marks and readout over the waveform lane under it, read from the lane's samples (R7). */
+    function drawLaneHover(result: ComparisonTrackState, channelIndex: number, color: string): void {
         if (!laneHover) return;
         const { canvas, clientX, clientY } = laneHover;
         const rect = canvas.getBoundingClientRect();
-        const ratioX = rect.width > 0 ? W / rect.width : 1, ratioY = rect.height > 0 ? H / rect.height : 1;
-        const plot = lanePlots.get(canvas);
         const slot = document.getElementById(PLOT_READOUT_ID);
-        const x = clientX - rect.left, y = clientY - rect.top;
-        // Read from the lane's samples (R7); while those around the pointer are fetched, the lane paints again once in.
-        const read = plot ? steppedRead(canvas, plot, clientX, clientY) ?? stageHover(plot, x, y, scheduleRender) : null;
-        notePlotRead(canvas, read);
-        laneRead = plot && read ? { canvas, plot, read } : null;
-        if (!read || read.pending || read.at === undefined || read.value === undefined) {
-            if (read?.pending) {
-                // No number until the samples are in: the cursor at the pointer, the readout empty.
-                ctx.save();
-                ctx.scale(ratioX, ratioY);
-                paintHoverMarks(ctx, { left: 0, top: 0, width: W / ratioX, height: H / ratioY }, x, null, '');
-                ctx.restore();
-            } else drawHoverLineOnCanvas(ctx, W, H);
-            hidePlotReadout(slot);
-            return;
-        }
-        ctx.save();
-        ctx.scale(ratioX, ratioY);
-        paintHoverMarks(ctx, { left: 0, top: 0, width: W / ratioX, height: H / ratioY }, read.x, read.y, color);
-        ctx.restore();
-        const range = waveformView.timeRange();
-        const span = trackStore.globalSpan();
-        const secondsPerPixel = rect.width > 0 ? (range.end - range.start) * span.spanSec / rect.width : 0.01;
-        // On the lanes' time axis, as the ruler and the cursor show it (a shifted track's offset included).
-        const readNorm = span.spanSec > 0 ? (read.at - span.startSec) / span.spanSec : 0;
-        // The other lanes and the time shown follow the point read, not the pointer beside it (as the spectra do).
-        if (viewState.hover === null || Math.abs(viewState.hover - readNorm) > 1e-9) viewState.setHover(readNorm);
         const unit = channelsForResult(result)[channelIndex]?.unit?.trim() || null;
-        showPlotReadout(slot, spectrumReadoutTrackLabel(result, channelIndex), laneReadoutText('', read.at, secondsPerPixel, read.value, unit), color);
+        laneMarks.show(canvas, lanePlots.get(canvas) ?? null, clientX, clientY, slot, {
+            of(read) {
+                if (read.at === undefined || read.value === undefined) return null;
+                const range = waveformView.timeRange();
+                const secondsPerPixel = rect.width > 0 ? (range.end - range.start) * trackStore.globalSpan().spanSec / rect.width : 0.01;
+                return { name: spectrumReadoutTrackLabel(result, channelIndex), values: laneReadoutText('', read.at, secondsPerPixel, read.value, unit, read.step), color };
+            },
+            read(read) {
+                // On the lanes' time axis: the other lanes and the time shown follow the point read, not the pointer
+                // beside it (as the spectra do), and so does a click (endLaneDrag).
+                const readNorm = read ? laneReadNorm(read) : null;
+                if (readNorm === null) return;
+                if (viewState.hover === null || Math.abs(viewState.hover - readNorm) > 1e-9) viewState.setHover(readNorm);
+            },
+        });
     }
     /**
      * The pointer over a spectrogram lane reads the real STFT cell under it in the toolbar (R7): one frame and one bin
@@ -2426,21 +2518,29 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const spec = result && trackIndex !== null ? shownSpectrogram(result, trackIndex, channelIndex)?.spec : undefined;
         const plot = spectrogramPlots.get(canvas);
         const rect = canvas.getBoundingClientRect();
-        if (trackIndex === null || !result || !spec || !plot || rect.height <= 0 || rect.width <= 0) { laneRead = null; notePlotRead(canvas, null); hidePlotReadout(slot); return; }
+        if (trackIndex === null || !result || !spec || !plot || rect.height <= 0 || rect.width <= 0) { laneMarks.hide(); notePlotRead(canvas, null); hidePlotReadout(slot); return; }
         const view = waveformView.timeRange();
         const span = trackStore.globalSpan();
-        const again = (): void => { if (spectrogramHover?.canvas === canvas) showSpectrogramReadout(canvas, spectrogramHover.clientX, spectrogramHover.clientY); };
-        const read = steppedRead(canvas, plot, clientX, clientY) ?? stageHover(plot, clientX - rect.left, clientY - rect.top, again);
-        notePlotRead(canvas, read);
-        laneRead = read ? { canvas, plot, read } : null;
-        // The other lanes' time line follows the pointer's time, as before the cell under it is read.
+        // The pointer's time, until a cell is read under it.
         const norm = view.start + Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * (view.end - view.start);
-        if (viewState.hover === null || Math.abs(viewState.hover - norm) > 1e-9) viewState.setHover(norm);
-        if (!read || read.pending) { hidePlotReadout(slot); return; }
         const label = spectrumReadoutTrackLabel(result, channelIndex);
-        if (!read.full || read.at === undefined || read.row === undefined || read.value === undefined) { showPlotReadout(slot, label, read.values, trackColor(trackIndex)); return; }
-        const secondsPerPixel = (view.end - view.start) * span.spanSec / rect.width;
-        showPlotReadout(slot, label, spectrogramReadoutText('', read.at, secondsPerPixel, { frequencyHz: read.row, level: read.value, ...(read.rowStep !== undefined ? { stepHz: read.rowStep } : {}) }, spec.unit ?? 'dB'), trackColor(trackIndex));
+        // The level in the reference its colour bar names (dB re 1 V, dB SPL re 20 µPa, dBFS), never bare dB (R7).
+        const levelUnit = trackLevelInput([channelsForResult(result)[channelIndex]], undefined).levelReferenceLabel;
+        laneMarks.show(canvas, plot, clientX, clientY, slot, {
+            of(read) {
+                // A number only of the full data (R7): until its cell is read there, the readout stays empty, never the drawn picture's.
+                if (!read.full || read.at === undefined || read.row === undefined || read.value === undefined) return null;
+                const secondsPerPixel = (view.end - view.start) * span.spanSec / rect.width;
+                return { name: label, values: spectrogramReadoutText('', read.at, secondsPerPixel, { frequencyHz: read.row, level: read.value, ...(read.rowStep !== undefined ? { stepHz: read.rowStep } : {}) }, levelUnit, read.step), color: trackColor(trackIndex) };
+            },
+            read(read) {
+                // The other lanes' time line and the time shown follow the cell read (its frame's time), from the
+                // readout's own state (R7): a cell stepped to and read again on a lane drawn anew keeps its time, never
+                // the time now under the place it was read at; with none read yet, the pointer's.
+                const readNorm = (read?.full ? laneReadNorm(read) : null) ?? norm;
+                if (viewState.hover === null || Math.abs(viewState.hover - readNorm) > 1e-9) viewState.setHover(readNorm);
+            },
+        });
     }
     function drawHoverLineOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
         if (viewState.hover !== null) {
@@ -2646,6 +2746,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'toggle-playback': ({ trackId }) => playback.toggle(trackId),
             'stop-playback': ({ trackId }) => playback.stop(trackId),
             'remove-track': ({ trackId }) => removeTrack(trackId),
+            // The file changed on disk after it was analysed: every track is analysed again (unchanged ones keep their version).
+            'reanalyze-changed': () => reanalyzeSpectrogram(STR.reanalyzingChanged),
             'configure-calibration': ({ trackId, trackIndex, event }) => {
                 if (trackIndex === null) {
                     return;
@@ -2708,7 +2810,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             showBox: showLaneBox,
             hideBox() { rectZoomSelection = null; },
             zoomToBox: zoomLanesToBox,
-            tap: (_plot, e) => endLaneDrag(e, false),
+            // A click moves the time cursor to the time the readout read at the press and clears the loop, at once; a
+            // double click's second press puts both back (R7, R13).
+            tap: (_plot, e, current) => endLaneDrag(e, false, true, current),
             altDrag: {
                 start() { if (lanePress) lanePress.dragType = loopGripAt(viewState.loop, lanePress.startNorm, waveformView.span()) ?? 'loop'; },
                 move: moveLaneDrag,
@@ -2721,9 +2825,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             },
             openAxisRange: (_hit, clientX, clientY, element) => openTrackAxisRange(element, clientX, clientY),
             axes: {
-                selector: '.track-axis-canvas',
+                selector: '.track-axis-canvas, #ruler-canvas',
                 locate(axis, clientX, clientY) {
                     if (contentType === 'stage') return null;
+                    // The lanes' time axis: the first lane shown, at the time under the pointer.
+                    if (axis.id === 'ruler-canvas') {
+                        const first = canvasesMatching(document, '.track-canvas:not(.track-spec-canvas)').find(function (c) { return c.width > 1 && c.offsetParent !== null; });
+                        return first ? { plot: first, point: lanePoint(first, clientX, first.getBoundingClientRect().top + 1), axis: 'x' } : null;
+                    }
                     const lane = laneOfAxis(axis);
                     return { plot: lane ?? axis, point: lane ? lanePoint(lane, clientX, clientY) : { fx: 0, fy: 0.5 }, axis: 'y' };
                 },
@@ -2842,6 +2951,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (!active) {
                     return;
                 }
+                // The pointer on another plot (one showing nothing yet too): the key is that plot's, never the
+                // focused lane's time (R7).
+                const under = plotUnderPointer(document);
+                if (under && under !== active) {
+                    return;
+                }
                 const step = arrowCursorStep(shiftKey, trackStore.globalSpan().spanSec, waveformView.start, waveformView.end, (active as HTMLCanvasElement).width || 800);
                 moveCursor(viewState.cursor + direction * step);
             },
@@ -2866,19 +2981,30 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 zoomBox.className = 'compare-zoom-box';
                 zoomBox.hidden = true;
                 document.body.append(zoomBox);
+                // The level axis's part on screen, as a part of the levels shown before a box zoomed it (R13): known
+                // while the dB range is the one the box set; another (typed, a key's zoom) is a new whole.
+                let boxedDb: { min: number; max: number; y: { start: number; end: number } } | null = null;
+                const spectrumWindow = (): PlotWindow => ({
+                    x: { start: spectrumView.freqStart, end: spectrumView.freqEnd },
+                    y: boxedDb && spectrumView.dbMin === boxedDb.min && spectrumView.dbMax === boxedDb.max ? boxedDb.y : FULL_PLOT_WINDOW.y,
+                });
                 attachPlotInteraction(overlayCanvas.parentElement ?? overlayCanvas, document, '#spectrum-overlay-canvas', {
                     locate(target, clientX, clientY) {
                         if (target !== overlayCanvas || !spectrumView.hasData()) return null;
                         const at = canvasPoint(clientX, clientY);
                         const region = overlaySpectrumRegionAt(at.x, at.y, overlayCanvas.width, overlayCanvas.height);
                         if (!region) return null;
-                        return { plot: overlayCanvas, point: pointOn(clientX, clientY), axis: region === 'db-axis' ? 'y' : region === 'freq-axis' ? 'x' : null };
+                        return { plot: overlayCanvas, point: pointOn(clientX, clientY), axis: region === 'db-axis' || region === 'db-axis-right' ? 'y' : region === 'freq-axis' ? 'x' : null, ...(region === 'db-axis-right' ? { right: true } : {}) };
                     },
                     pointOn: (_plot, clientX, clientY) => pointOn(clientX, clientY),
-                    window: () => ({ x: { start: spectrumView.freqStart, end: spectrumView.freqEnd }, y: FULL_PLOT_WINDOW.y }),
+                    window: spectrumWindow,
                     setWindow(_plot, next) {
-                        if (!next) { specZoomReset(); return; }
-                        spectrumView.applyBoxZoom(spectrumZoomFromWindow(next, spectrumView.paintedDb()));
+                        if (!next) { boxedDb = null; specZoomReset(); return; }
+                        // The box is a part of the window shown; its dB, a part of the levels painted now.
+                        const shown = spectrumWindow().y, span = shown.end - shown.start || 1;
+                        const y = { start: (next.y.start - shown.start) / span, end: (next.y.end - shown.start) / span };
+                        spectrumView.applyBoxZoom(spectrumZoomFromWindow({ x: next.x, y }, spectrumView.paintedDb()));
+                        if (spectrumView.dbMin !== null && spectrumView.dbMax !== null && (y.start !== 0 || y.end !== 1)) boxedDb = { min: spectrumView.dbMin, max: spectrumView.dbMax, y: next.y };
                         scheduleSpectrumRefresh('immediate');
                     },
                     hover(event, hit) {
@@ -2904,7 +3030,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                         zoomBox.hidden = false;
                     },
                     hideBox() { zoomBox.hidden = true; },
-                    openAxisRange(hit, clientX, clientY) { openSpectrumRangePopup(hit.axis === 'y' ? 'db' : 'freq', clientX, clientY); return true; },
+                    // The right-hand level axis opens its own range, as on every plot with two level axes (R13).
+                    openAxisRange(hit, clientX, clientY) { openSpectrumRangePopup(hit.axis === 'y' ? (hit.right && spectrumRightAxis ? 'db-right' : 'db') : 'freq', clientX, clientY); return true; },
                 });
                 attachCanvasFocusHint(overlayCanvas, hintFooter, STR.hintSpectrumPlot);
             }
@@ -3300,7 +3427,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const pending = requests?.pending(slot);
                 if (pending) ids.add(pending.requestId);
             });
-            // A redraw asks again for zoom detail only past the range on its way or after RANGE_RETRY_MS: the same span is the same wait.
+            // A redraw asks again for zoom detail only past the range on its way or after UNANSWERED_RETRY_MS: the same span is the same wait.
             const range = requests?.pending('range');
             if (range) ids.add('range:' + i + ':' + range.key);
         });
@@ -3386,7 +3513,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         let missing = false;
-        const tracks: Array<{ name: string; slice: SpectrumSlice }> = [];
+        const tracks: CsvSpectrumTrack[] = [];
         const omitted: string[] = [];
         trackStore.activeIds().forEach(function (trackId) {
             const record = trackStore.require(trackId);
@@ -3399,19 +3526,21 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const slice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, viewState.cursor, channelIndex);
                 // A lane out of view may still hold the spectrum of an earlier cursor position while this one is on its way.
                 const cached = record.spectrumSliceCache.get(channelIndex);
-                const current = cached?.settingsSignature === currentSpectrumDataSignature();
+                // Only this cursor's slice is written: one from an earlier cursor (its successor failed or still on its
+                // way) is left out, never written as this cursor's row.
+                const current = sliceIsCurrentAt(i, cached, viewState.cursor);
                 const stale = current && isSpectrumSliceRequestPendingForCursor(i, viewState.cursor);
                 // Inside the track only the backend's every-bin row is written: never the row cut for display, nor
                 // the spectrogram column drawn while that row is on its way.
                 const inside = trackLocalCursorNorm(i, viewState.cursor) !== null;
                 const waiting = stale || (inside && (!current || !!cached.frequenciesHz));
                 const name = (result.fileName || ('track' + (i + 1))) + ' ' + channelLabel(result, channelIndex);
-                if (waiting || !slice || !slice.values || slice.values.length === 0) {
+                if (waiting || !slice || !slice.values || !slice.frequencyBins) {
                     missing = missing || waiting || inside;
                     if (waiting || inside) omitted.push(name);
                     return;
                 }
-                tracks.push({ name, slice: slice });
+                tracks.push({ name, slice, levelTitle: spectrogramLevelTitle(channelsForResult(result)[channelIndex]) });
             });
         });
         // A spectrum still on its way: write once the requests the export asked for are answered (or after a while).
@@ -3425,7 +3554,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             taskStatus(STR.announceExportCsvFailed, 'failed');
             return;
         }
-        const csv = buildSpectrumCsv(tracks);
+        const csv = buildSpectrumCsv(tracks, frequencyTitle(STR));
         // A spectrum the backend failed (or never answered) is left out rather than written from the row cut for display.
         const left = omitted.length > 0 ? STR.exportCsvOmitted.replace('{count}', String(omitted.length)).replace('{names}', omitted.join(', ')) : '';
         if (left) messaging.post({ type: 'show-info', message: left });
@@ -3583,14 +3712,36 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         position: positionPopover,
     });
     function openSpectrumRangePopup(axis: string, clientX: number, clientY: number) {
+        if (axis === 'db-right' && spectrumRightAxis) {
+            const right = spectrumRightAxis;
+            // The right axis follows the left one's levels as the same part of its own range: its range typed here is
+            // the left one's range that shows it (rightAxisLeftRange), and its fields are its ends as painted (R9).
+            spectrumRangePopover.open({
+                axisLabel: spectrumRightAxis.title || unknownLevelTitle(STR),
+                horizontal: false,
+                min: exactFieldText(right.right.min), max: exactFieldText(right.right.max),
+                clientX, clientY,
+                apply(min, max) {
+                    if (min === null || max === null) { spectrumView.setDbRange(null, null); scheduleSpectrumRefresh('immediate'); return; }
+                    spectrumView.applyRightDbFields(right.right, right.follow, min, max);
+                    scheduleSpectrumRefresh('immediate');
+                },
+                auto() {
+                    spectrumView.setDbRange(null, null);
+                    scheduleSpectrumRefresh('immediate');
+                },
+            });
+            return;
+        }
         if (axis === 'db') {
             spectrumRangePopover.open({
-                axisLabel: STR.specRangeAxisDb,
+                // The popover names the axis as the plot does (R4): its level axis' own name, never a bracketless "(dB)".
+                axisLabel: spectrumLevelAxisTitle || unknownLevelTitle(STR),
                 horizontal: false,
                 ...spectrumView.dbRangeFields(),
                 clientX, clientY,
                 apply(min, max) {
-                    spectrumView.setDbRange(min, max);
+                    spectrumView.applyDbFields(min, max);
                     scheduleSpectrumRefresh('immediate');
                 },
                 auto() {
@@ -3601,7 +3752,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         spectrumRangePopover.open({
-            axisLabel: STR.specRangeAxisFreq,
+            axisLabel: STR.axisFrequency,
             horizontal: true,
             ...spectrumView.frequencyRangeFieldsHz(),
             clientX, clientY,
@@ -3637,7 +3788,20 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (element.classList.contains('track-spec-canvas')) {
             return onSpectrogramColourBar(element as HTMLCanvasElement, clientX, clientY) && openSpectrogramRangePopup(element, 'level', clientX, clientY);
         }
+        if (element.id === 'ruler-canvas') return openTimeRangePopup(clientX, clientY);
         return element.classList.contains('track-axis-canvas') && openWaveformRangePopup(element, clientX, clientY);
+    }
+    // The lanes' time axis: the part of the tracks' time they show, typed in seconds (blank: that end of it).
+    function openTimeRangePopup(clientX: number, clientY: number): boolean {
+        const gs = trackStore.globalSpan();
+        if (!(gs.spanSec > 0)) return false;
+        const seconds = laneVisibleSeconds();
+        openAxisPart(waveformRangePopover, {
+            mapping: linearAxis(gs.startSec, gs.startSec + gs.spanSec, STR.axisTime), horizontal: true,
+            current: waveformView.timeRange(), shown: { min: seconds.start, max: seconds.end }, clientX, clientY, invalid: STR.specRangeErrorMinMax,
+            set: part => setLaneWindow(part.start <= 0 && part.end >= 1 ? null : { x: part, y: FULL_PLOT_WINDOW.y }),
+        });
+        return true;
     }
     // The spectrogram's ranges are display settings shared by every lane, like the ⚙ popover's.
     function openSpectrogramRangePopup(element: Element, axis: 'frequency' | 'level', clientX: number, clientY: number): boolean {
@@ -3651,40 +3815,47 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // What the lane shows (a box zoom's band included), so the popover starts from what is on screen.
         const bounds = shownSpectrogramBounds(spec);
         const zoomed = spectrogramFrequencyView !== null;
-        const field = (value: number) => String(Number(value.toPrecision(4)));
-        // An edge left as shown keeps its setting (auto, or a top clamped to this lane's Nyquist), so the clicked lane's
-        // own range is not set on every lane.
-        const typed = (value: number | null, shown: number, setting: number | null | undefined) =>
-            value !== null && field(value) === field(shown) ? setting ?? null : value;
+        // An edge applied as shown (the same number, `value === shown`) keeps its setting (auto, or a top clamped to
+        // this lane's Nyquist), so the clicked lane's own range is not set on every lane.
+        // The dB ends are typed for this lane's level identity: another identity's setting is not this lane's (R1).
+        const key = levelUnitKey(spec), ownLevels = typedLevelKey() === key;
+        const kept = (value: number | null, shown: number, setting: number | null | undefined) => (value === shown ? setting ?? null : value);
         if (axis === 'level') {
+            // The colour scale the lane is painted from (figureModel.colourScale, as paintOverlay takes it), written
+            // exactly: the colour bar writes these numbers too (R9). An end applied as shown keeps its setting.
+            const scale = spectrogramPlots.get(element as HTMLCanvasElement)?.colourScale ?? colourScale(typedColourRange(bounds.dbLo, bounds.dbHi, bounds.dbTyped), false);
             waveformRangePopover.open({
-                axisLabel: STR.specRangeAxisDb,
+                axisLabel: spectrogramLevelTitle(channelsForResult(result as ComparisonTrackState)[channelIndexAttribute(element) ?? 0]),
                 horizontal: false,
-                min: field(bounds.dbLo),
-                max: field(bounds.dbHi),
+                min: exactFieldText(scale.low),
+                max: exactFieldText(scale.high),
                 clientX, clientY,
                 apply(min, max) {
-                    setSpectrogramDisplay({ ...display, dbMin: typed(min, bounds.dbLo, display.dbMin), dbMax: typed(max, bounds.dbHi, display.dbMax) });
+                    setSpectrogramDisplay({ ...display, dbMin: kept(min, scale.low, ownLevels ? display.dbMin : null), dbMax: kept(max, scale.high, ownLevels ? display.dbMax : null), dbLevelKey: key });
                 },
                 auto() {
-                    setSpectrogramDisplay({ ...display, dbMin: null, dbMax: null });
+                    setSpectrogramDisplay({ ...display, dbMin: null, dbMax: null, dbLevelKey: null });
                 },
             });
             return true;
         }
+        // The band as the lane painted its rows (StagePlot.rowRange), written exactly (R9).
+        const plot = spectrogramPlots.get(laneOfAxis(element as HTMLElement) ?? (element as HTMLCanvasElement));
+        const band = plot?.rowRange ?? { min: bounds.minFrequencyHz, max: bounds.maxFrequencyHz };
         waveformRangePopover.open({
-            axisLabel: STR.specRangeAxisFreq,
+            axisLabel: STR.axisFrequency,
             horizontal: false,
-            min: field(bounds.minFrequencyHz),
-            max: field(bounds.maxFrequencyHz),
+            min: exactFieldText(band.min),
+            max: exactFieldText(band.max),
             clientX, clientY,
             apply(min, max) {
-                const bottom = min !== null && min > 0 ? min : null;
+                const given = min === band.min ? (zoomed ? min : display.minFrequencyHz ?? null) : min;
+                const bottom = given !== null && given > 0 ? given : null;
                 if (max !== null && max <= (bottom ?? 0)) {
                     return STR.specRangeErrorMinMax;
                 }
                 spectrogramFrequencyView = null;
-                setSpectrogramDisplay({ ...display, minFrequencyHz: bottom, maxFrequencyHz: zoomed ? max : typed(max, bounds.maxFrequencyHz, display.maxFrequencyHz) });
+                setSpectrogramDisplay({ ...display, minFrequencyHz: bottom, maxFrequencyHz: zoomed ? max : kept(max, band.max, display.maxFrequencyHz) });
             },
             auto() {
                 spectrogramFrequencyView = null;
@@ -3704,17 +3875,20 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return false;
         }
         const peak = amplitudeScaleFor(channel);
-        const unit = typeof channel.unit === 'string' ? channel.unit.trim() : '';
-        const painted = waveformView.paintedAmplitudeRange();
-        const field = (norm: number) => String(Number((norm * peak).toPrecision(4)));
+        // The lane's amplitude as painted (figureModel.laneAmplitudeRange, at the field's numbers), written exactly (R9).
+        const shown = laneAmplitudeAxis(result as ComparisonTrackState, channelIndexAttribute(axis) ?? 0).range, painted = waveformView.paintedAmplitudeRange();
         waveformRangePopover.open({
-            axisLabel: unit ? STR.waveRangeAxisAmplitude + ' (' + unit + ')' : STR.waveRangeAxisAmplitude,
+            axisLabel: laneAmplitudeAxis(result as ComparisonTrackState, channelIndexAttribute(axis) ?? 0).title,
             horizontal: false,
-            min: field(painted.min),
-            max: field(painted.max),
+            min: exactFieldText(shown.min),
+            max: exactFieldText(shown.max),
             clientX, clientY,
             apply(min, max) {
-                const error = waveformView.setAmplitudeRange(min === null ? null : min / peak, max === null ? null : max / peak);
+                // Applied as shown, the lane keeps its range: an end left so keeps its place (`value === shown`).
+                if (min === shown.min && max === shown.max) return;
+                const zoomed = waveformView.isAmplitudeZoomed();
+                const norm = (value: number | null, end: number, place: number): number | null => (value === null ? null : value === end && zoomed ? place : value / peak);
+                const error = waveformView.setAmplitudeRange(norm(min, shown.min, painted.min), norm(max, shown.max, painted.max));
                 if (error) {
                     return error === 'narrow' ? STR.waveRangeErrorTooNarrow : STR.specRangeErrorMinMax;
                 }
@@ -3746,8 +3920,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return canvas.classList.contains('track-spec-canvas') ? point.fy : waveformView.canvasYToAmplitude((1 - point.fy) * canvas.height, canvas.height);
     }
     /** The frequency band a spectrogram lane shows: its display settings' band, or the box zoom's band (the same Hz on every lane). */
+    /** The level identity the typed dB ends are of: as set, else (saved before, typed in ⚙) the first lane's shown. */
+    function typedLevelKey(): string | null {
+        const given = spectrogramSettings.display.dbLevelKey;
+        if (given) return given;
+        const first = displayedLanes().find(lane => lane.ch.spectrogram)?.ch.spectrogram;
+        return first ? levelUnitKey(first) : null;
+    }
     function shownSpectrogramBounds(whole: SpectrogramData) {
-        const bounds = spectrogramDisplayBounds(whole, spectrogramSettings.display, spectrogramAutoBounds(whole));
+        const bounds = spectrogramDisplayBounds(whole, spectrogramSettings.display, spectrogramAutoBounds(whole), { lane: levelUnitKey(whole), typed: typedLevelKey() });
         return spectrogramFrequencyView ? { ...bounds, minFrequencyHz: spectrogramFrequencyView.lowHz, maxFrequencyHz: spectrogramFrequencyView.highHz } : bounds;
     }
     /** The lane under the pointer, while the lanes are not the steps mode's; a spectrogram's colour bar is its level axis. */
@@ -3780,19 +3961,22 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleRender();
     }
     /**
-     * Where a wheel zooms or pans the lanes' time: the lane under it, or beside the lanes (their headers and axes) the
-     * time at the pointer's place across them, the middle off it. A spectrogram's colour bar is no time to zoom around.
+     * Where a wheel zooms or pans the lanes' time: the lane under it, or beside the lanes (their headers) the time at
+     * the pointer's place across them, the middle off it. Over an axis (a lane's axis canvas, the time ruler, a
+     * spectrogram's colour bar) the hit says so, and a zoom is about the middle, as on every plot.
      */
-    function laneWheelAt(target: EventTarget | null, clientX: number, clientY: number, gesture: 'zoom' | 'pan'): PlotHit | null {
+    function laneWheelAt(target: EventTarget | null, clientX: number, clientY: number, _gesture: 'zoom' | 'pan'): PlotHit | null {
         if (contentType === 'stage') return null;
         const hit = laneHit(target, clientX, clientY);
-        if (hit) return gesture === 'zoom' && hit.axis ? null : hit;
+        if (hit) return hit;
         const wrapper = document.getElementById('tracks-wrapper');
         const lane = wrapper?.querySelector<HTMLElement>('.track-canvas');
         if (!wrapper || !lane) return null;
+        const element = target as Partial<Element> | null;
+        const axis = typeof element?.closest !== 'function' ? null : element.closest('#ruler-canvas') ? 'x' : element.closest('.track-axis-canvas') ? 'y' : null;
         const rect = wrapper.getBoundingClientRect();
         const plotX = clientX - rect.left - TRACK_HEADER_W, width = rect.width - TRACK_HEADER_W;
-        return { plot: lane, point: { fx: width > 0 && plotX >= 0 && plotX <= width ? plotX / width : 0.5, fy: 0.5 }, axis: null };
+        return { plot: lane, point: { fx: width > 0 && plotX >= 0 && plotX <= width ? plotX / width : 0.5, fy: 0.5 }, axis };
     }
     function hoverLane(e: PlotPointer & Partial<Pick<MouseEvent, 'altKey' | 'shiftKey'>>): void {
         if (contentType === 'stage') return;
@@ -3816,8 +4000,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const norm = hit.norm;
-        if (canvas.classList.contains('track-spec-canvas')) { hideLaneHover(); showSpectrogramReadout(canvas, e.clientX, e.clientY); }
-        else laneHover = { canvas, clientX: e.clientX, clientY: e.clientY };
+        // One readout for every lane (laneMarks): the pointer moves to the lane it is on, a step waiting there kept.
+        if (canvas.classList.contains('track-spec-canvas')) { laneHover = null; showSpectrogramReadout(canvas, e.clientX, e.clientY); }
+        else { spectrogramHover = null; laneHover = { canvas, clientX: e.clientX, clientY: e.clientY }; }
         // The hint names the drag that will run: Alt on a loop's edge moves it, Alt sets the loop, Shift shifts the track.
         const gripType = e.altKey ? loopGripAt(viewState.loop, norm, waveformView.span()) : null;
         const action = gripType ? STR.tooltipLoopResize
@@ -3889,8 +4074,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const pressed = state.results[trackIndexForId(selection.trackId)];
             const whole = pressed ? channelsForResult(pressed)[0]?.spectrogram : undefined;
             if (whole) {
-                const shown = shownSpectrogramBounds(whole), span = shown.maxFrequencyHz - shown.minFrequencyHz;
-                spectrogramFrequencyView = { lowHz: shown.minFrequencyHz + target.amplitudeMin * span, highHz: shown.minFrequencyHz + target.amplitudeMax * span };
+                const shown = shownSpectrogramBounds(whole);
+                // At the numbers the range popover writes for it (figureModel.windowEnds, R9).
+                const band = windowEnds({ min: shown.minFrequencyHz, max: shown.maxFrequencyHz }, { start: target.amplitudeMin, end: target.amplitudeMax });
+                spectrogramFrequencyView = { lowHz: band.min, highHz: band.max };
             }
         }
         else if (target) {
@@ -3926,20 +4113,35 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleRender();
     }
     /** A press let go after its drag, or where it was (a click: the cursor goes there and the loop is cleared). */
-    function endLaneDrag(e: MouseEvent, dragged: boolean): void {
+    function endLaneDrag(e: MouseEvent, dragged: boolean, waits = false, current: () => boolean = () => true): PlotClick | undefined {
         const press = lanePress;
         lanePress = null;
-        if (!press) return;
+        if (!press) return undefined;
+        let click: PlotClick | undefined;
         if (!dragged) {
+            // The time the lane's readout read at the press (R7, R13: clickOnRead, the point read and its time as the
+            // other lanes' time line shows it), never the pixel's own time: a plain click's is returned for
+            // plotInteraction.ts to do at once, with how to put the cursor and the loop back for a double click's second
+            // press. Seeking is an act on a time, not on a point: where the readout reads nothing at all (no value, a
+            // file changed since it was analysed, no readout on the lane), nothing is claimed, so the click seeks to the
+            // pointer's time at the press (laneClickNorm); a read still on its way is waited for (R13).
             const canvas = trackStore.protocolIndexForId(press.trackId) === null ? null : canvasById(document, press.canvasId);
-            const hit = canvas ? trackCanvasTimeHit(canvas, e.clientX, e.clientY) : null;
-            if (hit) {
-                moveCursor(hit.norm);
-                setLoopRegion(null);
+            if (canvas) {
+                showLaneReadout(canvas);
+                const seek = (norm: number): (() => void) => {
+                    const cursorBefore = viewState.cursor, loopBefore = viewState.loop;
+                    moveCursor(norm); setLoopRegion(null); scheduleSpectrumRefresh('immediate');
+                    return () => { moveCursor(cursorBefore); setLoopRegion(loopBefore); scheduleSpectrumRefresh('immediate'); };
+                };
+                click = clickOnRead(laneMarks, canvas, current, got => seek(laneClickNorm(got, laneReadNorm, press.startNorm)),
+                    () => seek(laneClickNorm(null, laneReadNorm, press.startNorm)));
             }
         }
-        scheduleSpectrumRefresh('immediate');
+        // A click asks for the spectra at the cursor it moves to (its own refresh), not first at the one it leaves.
+        if (!click) scheduleSpectrumRefresh('immediate');
         followPointerAfterDrag(e);
+        if (!waits) { click?.(); return undefined; }
+        return click;
     }
     /**
      * ← / → over a lane (R7): the next full-resolution point of the lane's data (a waveform's next sample, a
@@ -3949,34 +4151,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function stepLaneFrom(plot: HTMLElement, delta: -1 | 0 | 1, arrived?: (at: PlotPlace) => void): PlotPlace | null {
         const hovered = contentType === 'stage' ? null : laneHover?.canvas === plot ? laneHover : spectrogramHover?.canvas === plot ? spectrogramHover : null;
         if (!hovered) return null;
-        const here = { clientX: hovered.clientX, clientY: hovered.clientY };
-        if (delta === 0) return here;
-        const from = laneRead;
-        if (!from || from.canvas !== plot || from.read.pending) return null;
-        const spectrogram = spectrogramHover?.canvas === plot;
-        const placeOf = (next: StageRead): PlotPlace => {
-            const rect = from.canvas.getBoundingClientRect();
-            const clientX = rect.left + next.x;
-            const clientY = spectrogram && spectrogramHover ? spectrogramHover.clientY : rect.top + next.y;
-            laneStepped = { canvas: from.canvas, clientX, clientY, read: next };
-            return { clientX, clientY };
-        };
-        // The next points were not in: the step is taken once they are, if the lane still reads the point it did (a
-        // repaint reads that point anew).
-        const still = (): boolean => !!laneRead && laneRead.canvas === from.canvas && laneRead.read.layer === from.read.layer
-            && laneRead.read.at === from.read.at && laneRead.read.row === from.read.row && laneRead.read.index === from.read.index;
-        const ready = (): void => {
-            if (!still()) return;
-            const next = stageStep(from.plot, from.read, delta, ready);
-            if (next && arrived) arrived(placeOf(next));
-        };
-        const next = stageStep(from.plot, from.read, delta, ready);
-        if (next === undefined) return here;
-        return next ? placeOf(next) : null;
+        const canvas = hovered.canvas;
+        return laneMarks.stepFrom(canvas, lanePlots.get(canvas) ?? spectrogramPlots.get(canvas) ?? null, delta, arrived);
     }
     /** The readout follows the pointer again from where the drag ended, in the view it leaves (a box zoom's zoomed one), or shows the cursor off the lanes. */
     function followPointerAfterDrag(e: MouseEvent): void {
-        const under = document.elementFromPoint(e.clientX, e.clientY);
+        const under = typeof document.elementFromPoint === 'function' ? document.elementFromPoint(e.clientX, e.clientY) : null;
         const canvas = under instanceof HTMLCanvasElement && under.classList.contains('track-canvas') ? under : null;
         const hit = canvas ? trackCanvasTimeHit(canvas, e.clientX, e.clientY) : null;
         if (hit) renderWithHoverAt(hit.norm);
@@ -4014,6 +4194,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             channelIndex: chIdx,
             cached: trackIndex >= 0 ? trackRecordAtIndex(trackIndex)?.spectrumSliceCache.get(chIdx) ?? null : null,
             settingsSignature: currentSpectrumDataSignature(),
+            cursorTolerance: spectrumCursorTolerance(result),
             bands: spectrumBandsPerOctave !== 0,
             requestSlice,
             applyDisplaySettings: applySpectrumDisplaySettings,
@@ -4049,20 +4230,32 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const canvas = canvasById(document, 'spectrum-overlay-canvas');
         const slot = document.getElementById('spectrum-freq-readout');
         overlayReadHz = null;
-        if (!canvas || !spectrumShown()) { spectrumMarks.hide(); return; }
+        if (!canvas || !spectrumShown()) { spectrumMarks.hide(); if (canvas) noteCursorHz(canvas, null); return; }
         if (spectrumPointer) {
-            spectrumMarks.show(canvas, spectrumDrawn, spectrumPointer.clientX, spectrumPointer.clientY, slot);
-            const read = spectrumMarks.reading();
-            overlayReadHz = read?.full && read.at !== undefined ? read.at
-                : read && read.index !== undefined && read.index >= 0 ? read.layer.view.xs?.[read.index] ?? null : null;
+            const pointer = spectrumPointer;
+            let showing = true;
+            // The frequency the pair plot follows: the point read, from the readout's own state (R7), on this show and
+            // again when its slice comes in under a still pointer, never the pointer's column beside it.
+            const follow = (read: StageRead | null): void => {
+                if (spectrumPointer !== pointer) return;
+                // Only a point of the full data is followed: never the place of a point drawn (R7).
+                const hz = read && !read.pending && !read.failed && read.full && read.at !== undefined ? read.at : null;
+                const changed = hz !== overlayReadHz;
+                overlayReadHz = hz;
+                noteCursorHz(canvas, hz);
+                if (!showing && changed) pairPanel.followHost();
+            };
+            spectrumMarks.show(canvas, spectrumDrawn, pointer.clientX, pointer.clientY, slot, { read: follow });
+            showing = false;
             return;
         }
         const x = spectrumFollowHz !== null && spectrumDrawn ? spectrumDrawn.xAt(spectrumFollowHz) : null;
         if (x !== null && spectrumDrawn && x >= spectrumDrawn.frame.left && x <= spectrumDrawn.frame.left + spectrumDrawn.frame.width) {
             spectrumMarks.line(canvas, spectrumDrawn, canvas.getBoundingClientRect().left + x);
+            noteCursorHz(canvas, spectrumFollowHz);
             hidePlotReadout(slot);
         }
-        else spectrumMarks.hide();
+        else { spectrumMarks.hide(); noteCursorHz(canvas, null); }
     }
 
     function renderOverlaySpectrum() {
@@ -4090,13 +4283,28 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const W = canvas.width, H = canvas.height;
-        const { series: slices, pending: pendingVisibleSlice } = spectrumSeriesAt(spectrumCursorNorm);
+        const { series: collected, pending: pendingVisibleSlice } = spectrumSeriesAt(spectrumCursorNorm);
+        // Each line carries its recording's level identity: lines share a level axis only by it (figureModel, R1).
+        // A slice that names no reference of its own is in its channel's, as wandas named it (never a bare dB, R4, A50).
+        const slices = collected.map(series => {
+            const channel = channelsForResult(state.results[series.index])[series.channelIndex];
+            const measurement = channel?.measurement;
+            const level = measurement ? { unit: measurement.referenceUnit, ref: measurement.referenceValue, levelReferenceLabel: measurement.levelReferenceLabel }
+                : channel?.sourceLevelReferenceLabel ? { levelReferenceLabel: channel.sourceLevelReferenceLabel } : undefined;
+            if (!level) return series;
+            const slice = shownLevelOf(series.slice) ? series.slice : { ...series.slice, unit: level.levelReferenceLabel };
+            return { ...series, slice, level };
+        });
         if (holdingSpectrumCommit() && overlaySpectrumPainted && pendingVisibleSlice) {
+            // The last picture stays: its header keeps that picture's time (ShownSpectrumCursor).
+            shownSpectrumCursor.keep();
             return;
         }
+        shownSpectrumCursor.drawn(spectrumCursorNorm);
         if (slices.length === 0) {
             // Empty, the plot component says why in its middle, as every plot does (R13).
-            paintOverlay(canvas, { layers: [] }, { min: 0, max: 1 }, { x: '', y: '' }, { size: { width: W, height: H }, empty: STR.spectrumNoData });
+            const none = emptyFigure();
+            paintOverlay(canvas, { layers: [] }, none.range, none.names, { size: { width: W, height: H }, empty: STR.spectrumNoData });
             spectrumDrawn = null;
             showSpectrumMarks();
             // No line is drawn: none is named.
@@ -4104,19 +4312,21 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             overlaySpectrumPainted = false;
             return;
         }
-        spectrumView.followLevelReference(overlayLevelAxes(slices, spectrumView.state())[0].reference);
-        // A level axis is named as Compare names it: amplitude, uncalibrated unless every line read on it is calibrated.
-        const levelTitle = (reference: string, series: readonly SpectrumSeries[]): string => {
-            const calibrated = series.every(s => channelsForResult(state.results[s.index])[s.channelIndex]?.measurement?.calibrationStatus === 'calibrated');
-            return (calibrated ? STR.axisLevelCal : STR.axisLevelUncal).replace('{label}', reference);
-        };
+        spectrumView.followLevelReference(overlayLevelAxes(slices, spectrumView.state())[0].key);
+        // A level axis says uncalibrated only when every line read on it is (R4, as the comparison's overlay); on one
+        // that mixes them, each uncalibrated line says so in its legend and readout (withCalibrationWords, A49).
+        const calibratedSeries = (s: SpectrumSeries): boolean => channelsForResult(state.results[s.index])[s.channelIndex]?.measurement?.calibrationStatus === 'calibrated';
+        const levelTitle = (reference: string, series: readonly SpectrumSeries[]) => figureLevelTitle(STR, reference, axisInputOf(series.map(s => ({ calibrationStatus: calibratedSeries(s) ? 'calibrated' : 'uncalibrated' })))?.calibrationStatus === 'calibrated');
         // A slice cut for display is read at every bin (R7): the same slice asked for again at full resolution.
-        const read = slices.map(series => {
+        const read = withCalibrationWords(slices, calibratedSeries, uncalibratedWord(STR)).map(series => {
             const track = series.slice.frequenciesHz && !series.slice.bandCentersHz && series.slice.cursorNorm !== undefined ? laneTrack(series.index) : null;
             return track && series.slice.cursorNorm !== undefined ? { ...series, full: laneReads.slice(track, series.slice.cursorNorm, series.channelIndex) } : series;
         });
-        const paint = paintOverlaySpectrum(canvas, W, H, read, spectrumView.state(), STR.axisFrequency, levelTitle);
+        const paint = paintOverlaySpectrum(canvas, W, H, read, spectrumView.state(), frequencyTitle(STR), levelTitle);
         spectrumDrawn = paint.plot;
+        spectrumLevelAxisTitle = paint.levelAxes[0]?.title ?? '';
+        const [leftAxis, rightAxis] = paint.levelAxes;
+        spectrumRightAxis = leftAxis?.visible && rightAxis?.visible && rightAxis.follow ? { title: rightAxis.title, right: { min: rightAxis.visible.dbMin, max: rightAxis.visible.dbMax }, follow: rightAxis.follow } : null;
         spectrumView.recordPaint(paint);
         renderSpectrumAxisLegend(document.getElementById('spectrum-axis-legend'), paint.levelAxes);
         showSpectrumMarks();
@@ -4136,7 +4346,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const el = document.getElementById('spectrum-cursor-time');
         if (el) {
             const gs = trackStore.globalSpan();
-            el.textContent = '@ ' + formatClockTime(gs.startSec + spectrumCursorNorm * gs.spanSec) + analysisWindowCaption();
+            // While the last picture is kept, its time: the lines, readouts and window caption are of that picture.
+            const shownNorm = contentType !== 'stage' ? shownSpectrumCursor.at(spectrumCursorNorm) : spectrumCursorNorm;
+            el.textContent = '@ ' + formatClockTime(gs.startSec + shownNorm * gs.spanSec) + analysisWindowCaption();
         }
     }
     function analysisWindowCaption() {
@@ -4147,9 +4359,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const band = displayedWindowBand(trackStore.require(trackId).protocolIndex, 0, holding);
             if (band) {
                 const ms = (band.endNorm - band.startNorm) * gs.spanSec * 1000;
+                // Written by the plots' own number text (a true minus): "−0.012–0.010 s (21.33 ms)".
                 captions.add(STR.spectrumAnalysisWindow + (band.window ? ' ' + band.window : '') + ' '
-                    + (gs.startSec + band.startNorm * gs.spanSec).toFixed(3) + '–' + (gs.startSec + band.endNorm * gs.spanSec).toFixed(3)
-                    + ' s (' + ms.toFixed(ms < 10 ? 2 : 1) + ' ms)');
+                    + withMinus((gs.startSec + band.startNorm * gs.spanSec).toFixed(3)) + '–' + secondsText(gs.startSec + band.endNorm * gs.spanSec, 3)
+                    + ' (' + withMinus(ms.toFixed(ms < 10 ? 2 : 1)) + ' ms)');
             }
         }
         if (captions.size === 0) {
@@ -4209,8 +4422,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             gear.style.display = contentType === 'stage' ? 'none' : '';
         }
     }
-    function setSpectrogramDisplay(display: SpectrogramDisplaySettings): void {
+    function setSpectrogramDisplay(given: SpectrogramDisplaySettings): void {
         const before = spectrogramSettings.display;
+        // dB ends typed in ⚙ (no identity given) are of the identity they were shown for: kept while unchanged, else the first lane's (R1).
+        const sameEnds = given.dbMin === before.dbMin && given.dbMax === before.dbMax;
+        const display: SpectrogramDisplaySettings = given.dbLevelKey !== undefined ? given
+            : { ...given, dbLevelKey: given.dbMin == null && given.dbMax == null ? null : sameEnds ? before.dbLevelKey ?? typedLevelKey() : typedLevelKey() };
         // A frequency range set (here, the axis' popover or ⚙) replaces the box zoom's band; a level range keeps it.
         if (display.minFrequencyHz !== before.minFrequencyHz || display.maxFrequencyHz !== before.maxFrequencyHz) spectrogramFrequencyView = null;
         spectrogramSettings.setDisplay(display);
@@ -4221,20 +4438,34 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleSpectrumRefresh('immediate');
         testBridge.publishAfterFrame();
     }
+    /**
+     * The STFT the spectra are made of changed (⚙ Apply, or Reset back from another): every track is analysed again
+     * with it, and spectra and reads asked for under the old one are stale, so lanes, readouts and the cursor spectrum
+     * stay of one STFT. The only way the settings' data signature changes. A file changed on disk after it was
+     * analysed is analysed again the same way (its "analyse again" button).
+     */
+    function reanalyzeSpectrogram(busy: string = STR.reanalyzingStft): void {
+        invalidateDesiredSpectrumSliceRequests();
+        laneReads.clear();
+        setReanalyzeBusy(true, busy);
+        messaging.post({ type: 'request-reanalyze', settings: spectrogramSettings.settings });
+    }
     const specSettingsPopover = installSpectrogramSettingsPopover(document, {
         strings: STR,
         getSettings: () => spectrogramSettings.settings,
         onDisplayChange: setSpectrogramDisplay,
         onReset() {
-            spectrogramSettings.reset();
+            const before = spectrogramSettings.display;
+            if (spectrogramSettings.reset()) { spectrogramFrequencyView = null; reanalyzeSpectrogram(); return; }
+            // The STFT is as it was: only the display range goes back (the box zoom's band with a frequency range).
+            if (before.minFrequencyHz !== spectrogramSettings.display.minFrequencyHz || before.maxFrequencyHz !== spectrogramSettings.display.maxFrequencyHz) spectrogramFrequencyView = null;
             messaging.post({ type: 'update-spectrogram-settings', settings: spectrogramSettings.settings });
             scheduleRender();
+            scheduleSpectrumRefresh('immediate');
         },
         onApply(settings) {
             spectrogramSettings.applyStft(settings);
-            invalidateDesiredSpectrumSliceRequests();
-            setReanalyzeBusy(true, STR.reanalyzingStft);
-            messaging.post({ type: 'request-reanalyze', settings: spectrogramSettings.settings });
+            reanalyzeSpectrogram();
         },
     });
     const reanalyzeOverlay = installReanalyzeOverlay(document, {

@@ -54,7 +54,7 @@ const rowStrings = {
     ariaResizeTrackHeight: 'Track height',
     hintRemoveTrack: 'Remove this track', hintOffsetUp: '+10 ms', hintOffsetDown: '-10 ms', hintTrackHeightResizer: 'Drag height',
     trackMoreHint: 'Time offset', offsetStepUp: '+10 ms', offsetStepDown: '−10 ms', offsetEdit: 'Type…', offsetReset: 'Reset to 0',
-    trackNoAudio: 'No audio',
+    trackNoAudio: 'No audio', reanalyzeChanged: 'Analyse again', reanalyzeChangedHint: 'Changed on disk',
     peakLabel: 'Pk', calibrationBadgeUncalibratedHint: 'Full scale', calibrationBadgeRawHint: 'Raw', calibrationBadgePartialHint: 'Partial', calibrationFactorLabel: 'k',
 } satisfies TrackRowStrings;
 
@@ -76,13 +76,19 @@ test('track row renders header, controls and the given lanes', () => {
     assert.ok(html.startsWith('<div class="track-row" id="track-row-2" data-track-id="track-3" data-file-path="/x/a&amp;b.wav">'));
     assert.ok(html.includes('<i>chip</i>'));
     assert.ok(html.includes('<div class="track-name" data-hint="/x/a&amp;b.wav" aria-description="/x/a&amp;b.wav">a&amp;b.wav</div>'));
-    assert.ok(html.includes('<div class="track-meta">2 ch &nbsp;48.0kHz</div>'));
+    assert.ok(html.includes('<div class="track-meta">2 ch &nbsp;48 kHz</div>'));
     assert.ok(html.includes('id="offset-val-2"'));
     assert.ok(html.includes('<div class="track-channel-lanes"><i>lanes</i></div>'));
     assert.ok(html.includes('aria-label="Track height"'));
     assert.ok(html.includes('data-action="toggle-playback"') && html.includes('data-action="stop-playback"'));
     assert.ok(!html.includes(' disabled'));
     assert.ok(!html.includes('clip-badge'));
+});
+
+test('a track row writes its sample rate as every plot writes a frequency (plotText.frequencyText)', () => {
+    for (const [rate, text] of [[48000, '48 kHz'], [44100, '44.1 kHz'], [22050, '22.05 kHz'], [16000, '16 kHz'], [8000, '8 kHz']] as const) {
+        assert.ok(trackRowHtml({ ...baseRow, sampleRateHz: rate }, rowStrings).includes(`<div class="track-meta">2 ch &nbsp;${text}</div>`), text);
+    }
 });
 
 test('track row disables transport buttons without audio', () => {
@@ -96,7 +102,7 @@ test('track row disables transport buttons without audio', () => {
 test('mono track row appends the channel summary to the meta line', () => {
     const channel = { label: 'L', peakAbsolute: 1.5, peakLevelDb: 80, fullScale: true, waveform: { min: [], max: [], samples: [], absolutePeak: 0 }, spectrogram: null } as unknown as ChannelSummary;
     const html = trackRowHtml({ ...baseRow, channelCount: 1, channels: [channel] }, rowStrings);
-    assert.ok(html.includes('<div class="track-meta">1 ch &nbsp;48.0kHz &nbsp; <span>Pk 80.0 dB</span></div>'));
+    assert.ok(html.includes('<div class="track-meta">1 ch &nbsp;48 kHz &nbsp; <span>Pk 80.0 dBFS</span></div>'));
     assert.ok(html.includes('data-hint="Full scale"'));
     assert.ok(html.includes('class="clip-badge"'));
     const csv = trackRowHtml({ ...baseRow, channelCount: 1, channels: [{ ...channel, fullScale: false, clipped: null }] }, rowStrings);

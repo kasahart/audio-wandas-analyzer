@@ -19,7 +19,7 @@ async function bandColumns(page: Page, canvasId: string): Promise<number[]> {
 
 test('analysis window band follows the cursor on the waveform only and the header names it', async ({ page }) => {
     await page.setContent(buildExtensionHostPathUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
-    await expect(page.locator('#spectrum-cursor-time')).toHaveText(/(window|解析窓) hann -?\d+\.\d{3}–\d+\.\d{3} s \(\d+(\.\d+)? ms\)/);
+    await expect(page.locator('#spectrum-cursor-time')).toHaveText(/(window|解析窓) hann −?\d+\.\d{3}–\d+\.\d{3} s \(\d+(\.\d+)? ms\)/);
 
     const canvas = page.locator('#track-canvas-0');
     const box = (await canvas.boundingBox())!;

@@ -4,6 +4,7 @@ import type {
     CalibrationRequestContext, PairSpectrumResult, RangeResult, SpectrumSlicePayload, SpectrumSliceResult, StageRead,
     TrackDetailPayload, TrackDetailResult, ExportWavLoopResult,
 } from '../protocol/backendProtocol';
+import { scanSpecOf } from '../protocol/backendProtocol';
 import type { PairSourceRef, PairSpectrumRequest, SpectrumSliceRequest, TrackDetailRequest, WaveformRangeRequest } from '../utils/audioTarget';
 
 export type AnalyzeOptions = Omit<AnalyzePayload, 'filePath'>;
@@ -35,6 +36,11 @@ export class RequestCancellation implements AnalysisCancellationSignal {
         this.cancelled = true;
         this.listeners.forEach(listener => listener());
     }
+}
+
+/** The file version a lazy request is of (sourceVersion), named only when the asking track has one. */
+function versionPayload(sourceVersion: string | undefined): { sourceVersion?: string } {
+    return sourceVersion !== undefined ? { sourceVersion } : {};
 }
 
 export abstract class AnalysisClient {
@@ -80,10 +86,12 @@ export abstract class AnalysisClient {
         calibration: CalibrationRequestContext = {},
         cancellation?: AnalysisCancellationSignal,
         read?: StageRead,
+        sourceVersion?: string,
     ): Promise<RangeResult> {
         return this.request(
             'range',
-            { filePath, startNorm, endNorm, points, ...(read ? { read } : {}), ...this.calibrationPayload(this.requestContext(filePath, calibration)) },
+            { filePath, startNorm, endNorm, points, ...(read ? { read } : {}), ...versionPayload(sourceVersion),
+                ...this.calibrationPayload(this.requestContext(filePath, calibration)) },
             requestId,
             cancellation,
         );
@@ -106,6 +114,7 @@ export abstract class AnalysisClient {
                 ...(payload.startNorm !== undefined && payload.endNorm !== undefined ? { startNorm: payload.startNorm, endNorm: payload.endNorm } : {}),
                 ...(payload.lowHz !== undefined && payload.highHz !== undefined ? { lowHz: payload.lowHz, highHz: payload.highHz } : {}),
                 ...(payload.read ? { read: payload.read } : {}),
+                ...versionPayload(payload.sourceVersion),
                 ...this.calibrationPayload(this.requestContext(filePath, payload)),
             },
             requestId,
@@ -134,6 +143,7 @@ export abstract class AnalysisClient {
                 ...(payload.bandsPerOctave ? { bandsPerOctave: payload.bandsPerOctave } : {}),
                 ...(payload.fullResolution ? { fullResolution: true } : {}),
                 ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
+                ...versionPayload(payload.sourceVersion),
                 ...this.calibrationPayload(this.requestContext(filePath, payload)),
             },
             requestId,
@@ -146,8 +156,8 @@ export abstract class AnalysisClient {
         contexts: ReadonlyMap<string, CalibrationRequestContext>,
         requestId: string,
     ): Promise<PairSpectrumResult> {
-        const source = (ref: PairSourceRef) => ({
-            ...ref, ...this.calibrationPayload(this.requestContext(ref.filePath, contexts.get(ref.filePath) ?? {})),
+        const source = ({ sourceVersion, ...ref }: PairSourceRef) => ({
+            ...ref, ...versionPayload(sourceVersion), ...this.calibrationPayload(this.requestContext(ref.filePath, contexts.get(ref.filePath) ?? {})),
         });
         return this.request(
             'pair-spectrum',
@@ -192,6 +202,11 @@ export abstract class AnalysisClient {
         return this.request('scan', { ...payload, ...(calibration ? { calibration } : {}), ...(reference ? { reference } : {}) });
     }
 
+    /** What decides a scan's numbers besides its file, calibration and Recipe (the analysis spec and wandas' versions). */
+    async scanSpec(): Promise<string> {
+        return scanSpecOf(await this.request('scan-spec', {}));
+    }
+
     /** A base group's median and a recording's difference from it, from the values its scans kept (stage_combine.py). */
     stageCombine(payload: StageCombinePayload): Promise<StageCombineResult> {
         return this.request('stage-combine', payload);
@@ -216,12 +231,12 @@ export async function executeLazyAnalysis(
     cancellation?: AnalysisCancellationSignal,
 ) {
     if (message.type === 'request-waveform-range') {
-        const result = await backend.requestRange(message.filePath, message.startNorm, message.endNorm, message.points, message.requestId, context, cancellation, message.read);
-        return { type: 'waveform-range-result' as const, analysisRevision: result.analysisRevision, requestId: message.requestId,
+        const result = await backend.requestRange(message.filePath, message.startNorm, message.endNorm, message.points, message.requestId, context, cancellation, message.read, message.sourceVersion);
+        return { type: 'waveform-range-result' as const, analysisRevision: result.analysisRevision, sourceVersion: result.sourceVersion, requestId: message.requestId,
             trackIndex: message.trackIndex, startNorm: message.startNorm, endNorm: message.endNorm, channels: result.channels, ...(result.points ? { points: result.points } : {}) };
     }
     const payload = { trackIndex: message.trackIndex, analysisId: message.analysisId,
-        settingsSignature: message.settingsSignature, ...context };
+        settingsSignature: message.settingsSignature, ...context, sourceVersion: message.sourceVersion };
     const window = message.type === 'request-track-detail' && message.startNorm !== undefined && message.endNorm !== undefined
         ? { startNorm: message.startNorm, endNorm: message.endNorm } : undefined;
     const band = message.type === 'request-track-detail' && message.lowHz !== undefined && message.highHz !== undefined
@@ -233,7 +248,8 @@ export async function executeLazyAnalysis(
             { ...payload, cursorNorm: message.cursorNorm, ...(message.bandsPerOctave ? { bandsPerOctave: message.bandsPerOctave } : {}),
                 ...(message.fullResolution ? { fullResolution: true } : {}) }, message.requestId, cancellation);
     const identity = { requestId: message.requestId, analysisId: message.analysisId,
-        settingsSignature: message.settingsSignature, trackIndex: message.trackIndex, filePath: message.filePath };
+        settingsSignature: message.settingsSignature, trackIndex: message.trackIndex, filePath: message.filePath, sourceVersion: result.sourceVersion,
+        ...(result.stftSignature !== undefined ? { stftSignature: result.stftSignature } : {}) };
     if ('frequencyBins' in result) {
         return { ...identity, analysisRevision: result.analysisRevision, type: 'spectrum-slice-result' as const, channels: result.channels,
             frequencyBins: result.frequencyBins, maxFrequencyHz: result.maxFrequencyHz, computeMs: result.computeMs,
@@ -248,6 +264,7 @@ export async function executeLazyAnalysis(
 export function lazyAnalysisError(message: TrackDetailRequest | SpectrumSliceRequest, reason: string) {
     return { requestId: message.requestId, analysisId: message.analysisId,
         settingsSignature: message.settingsSignature, trackIndex: message.trackIndex, filePath: message.filePath,
+        ...versionPayload(message.sourceVersion),
         type: message.type === 'request-track-detail' ? 'track-detail-error' as const : 'spectrum-slice-error' as const,
         error: reason,
         ...(message.type === 'request-track-detail' && message.startNorm !== undefined && message.endNorm !== undefined

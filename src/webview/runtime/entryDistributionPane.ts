@@ -3,8 +3,8 @@
  * table (low rows, two in view) while a comparison is open. Rows without the value are counted, not drawn. Each
  * group's row is drawn by the plot component (R13) on one value axis, drawn on its own strip below them, and answers
  * its gestures: a drag zooms into its box (the value axis), Ctrl+wheel zooms, a double-click shows the whole again
- * and on the axis strip opens its range. Alt+drag picks a range of the value; a press that stays put picks that bin,
- * or on a dot goes to its row.
+ * and on the axis strip opens its range. Alt+drag picks a range of the value; a press that stays put acts on what the
+ * readout reads there: a dot's row, a bar's bin, or the bin of the value under it.
  */
 import type { UiStrings } from '../../shared/i18n/strings';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
@@ -13,12 +13,16 @@ import { distribution, groupLabels, type Distribution } from '../../shared/datas
 import { groupOf, isComputed, valueOf, type DatasetRow, type GroupId, type ValueId } from '../../shared/dataset/datasetTable';
 import { installRangePopover, linearAxis, openAxisPart } from '../rangePopover';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
-import { DIST_MARGINS, DIST_ROW_MAX, DIST_ROW_MIN, DIST_ROW_PAD, DIST_STRIP_ROW, distributionAxisView, distributionLegendHtml, distributionRows, distributionScale, pickedRange, type DistributionRow, type DistributionScale } from './entryDistribution';
-import { attachPlotInteraction, FULL_PLOT_WINDOW, plotPointIn, type PlotMargins, type PlotWindow } from './plotInteraction';
-import { createPlotHoverLayer } from './plotHoverLayer';
-import { showPlotReadout } from './plotHover';
-import { paintOverlay, type StagePlot } from './stagePanes';
+import { DIST_MARGINS, DIST_ROW_MAX, DIST_ROW_MIN, DIST_ROW_PAD, DIST_STRIP_ROW, distributionAxisView, distributionClick, distributionLegendHtml, distributionRows, distributionScale, pickedRange, type DistributionRow, type DistributionScale } from './entryDistribution';
+import { attachPlotInteraction, FULL_PLOT_WINDOW, notePlotWindow, plotPointIn, type PlotClick, type PlotMargins, type PlotWindow, type VerticalAxis } from './plotInteraction';
+import { clickOnRead, createPlotHoverLayer } from './plotHoverLayer';
+import { linearWindowEnds, paintOverlay, type StagePlot } from './stagePanes';
+import { countTitle, csvColumnTitle, plainNames, plainRange, setDrawnCount, setExclusionText, setOver, type FigureSet, type FigureTitle, type PlainTitle } from './figureModel';
+import { NO_POINTS } from './fullRead';
 import { positionPopover } from './settingsPopover';
+
+/** The rows' vertical axis is the count per group, defined to show every count always (R13). */
+const DIST_VERTICAL: VerticalAxis = 'all-counts';
 
 /** What the table gives the distribution each time it is drawn. */
 export interface DistributionInputs {
@@ -29,24 +33,43 @@ export interface DistributionInputs {
     results: ReadonlyMap<string, ScanResult>;
     /** The range picked on the value. */
     range: { low: number; high: number } | null;
+    /**
+     * A level's recordings as one set of the folder's reference (entryBase.folderSet): the heading counts its n and
+     * says what it left out, with why (computing, failed, stale, another reference); null for a value that is not a level.
+     */
+    set?: FigureSet<unknown> | null;
     /** Whether a row's value counts (a computed one only when it is of the current chain). */
     usable: (row: DatasetRow) => boolean;
     slots: readonly (string | null)[];
     rowOf: (key: string | null) => DatasetRow | undefined;
-    /** The group whose median is the base (slot 0 empty, a grouping chosen), or null. */
-    baseGroup: string | null;
-    valueLabel: string;
+    /** The group whose median is the base (slot 0 empty, a grouping chosen) and that median (entryBase.groupBase), or null. */
+    base: { group: string; value: number | null } | null;
+    /**
+     * Whether a row's level is of the value axis's reference (a level of another is not drawn on it, but counted);
+     * always true for a value that is not a level. Required: whoever draws a level here says which reference its axis is.
+     */
+    onAxis: (row: DatasetRow) => boolean;
+    /** The value axis' name: a level's named by its reference (figureModel), else a non-level's. */
+    valueLabel: FigureTitle | PlainTitle;
     format: (value: number, step?: number) => string;
     rowName: (key: string) => string;
+}
+
+/**
+ * A CSV column's value axis: its name and the unit its header gives ("temp [°C]", "temp (°C)"), or that the unit is not
+ * known (R4: every axis names its unit).
+ */
+export function csvAxisName(column: string, strings: Pick<UiStrings, 'dsDistCsvAxis' | 'axisUnitUnknown'>): PlainTitle {
+    return csvColumnTitle(column, strings);
 }
 
 export interface DistributionPaneDeps {
     screen: HTMLElement;
     strings: UiStrings;
-    /** A range of the value picked on the plot. */
-    pick(range: { low: number; high: number }): void;
-    /** A dot pressed: that row. */
-    dot(key: string): void;
+    /** A range of the value picked on the plot; returns how to put the table back (a double click's second press, R13). */
+    pick(range: { low: number; high: number }): (() => void) | void;
+    /** A dot pressed: that row; returns how to put the table back (a double click's second press, R13). */
+    dot(key: string): (() => void) | void;
 }
 
 export interface DistributionPane {
@@ -59,8 +82,6 @@ export interface DistributionPane {
 
 /** A row's plot fills its canvas: its names are beside it, its axis on the strip below. */
 const ROW_MARGINS: PlotMargins = { left: 0, top: 0, right: 0, bottom: 0 };
-/** A press that stays put picks its bin once no second click (a double-click, which resets the zoom) follows. */
-const CLICK_WAIT_MS = 260;
 
 export function createDistributionPane(deps: DistributionPaneDeps): DistributionPane {
     const { screen, strings } = deps;
@@ -81,7 +102,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
     const count = query<HTMLElement>('[data-entry-dist-count]');
     const legend = query<HTMLElement>('[data-entry-dist-legend]');
     const entryBody = query<HTMLElement>('.entry-body');
-    const marks = createPlotHoverLayer(document, '', screen);
+    const marks = createPlotHoverLayer(document, { noValue: strings.plotNoValue }, '', screen);
     let strip = true;
     /** Just folded above the table: its two rows in view go to the compared row's group. */
     let scrollToSlot = false;
@@ -96,7 +117,6 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
     let last: DistributionInputs | null = null;
     /** An Alt+drag picking a range: where it started, in the rows' own pixels. */
     let pick: { x0: number; left: number } | null = null;
-    let pendingClick: ReturnType<typeof setTimeout> | null = null;
 
     function place(maximized: boolean): void {
         if (maximized) { if (box.parentElement !== area) area.prepend(box); }
@@ -111,8 +131,10 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
     function paint(inputs: DistributionInputs): void {
         if (screen.hidden) return;
         last = inputs;
-        const { pool, value, group, results, range, usable, slots, rowOf, baseGroup } = inputs;
-        const dist = distribution(pool, value, group, results, range, usable);
+        const { pool, value, group, results, range, usable, slots, rowOf, base } = inputs;
+        const { onAxis } = inputs;
+        const dist = distribution(pool, value, group, results, range, usable, onAxis);
+        const baseGroup = base?.group ?? null;
         drawn = dist;
         // Another value or grouping is another axis: its zoom starts whole.
         const key = `${value}|${group}`;
@@ -122,15 +144,22 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         const labels = groupLabels(dist.groups.map(item => item.name));
         if (group === 'none') labels.set('', strings.dsDistAll);
         const prefix = group === 'ch' ? `${strings.dsCh} ` : '';
+        // A level's heading is its set's: its n (of recordings; channels are counted as drawn) and what it left out, with why.
+        const set = inputs.set ?? null;
+        // Of the set's recordings alone, in the unit drawn (a level's channels: the drawn channels of its recordings).
+        const drawnMembers = dist.groups.flatMap(item => item.members);
         count.textContent = members
-            ? `${members.toLocaleString()} ${unit}${dist.groups.length > 4 ? ` · ${strings.dsDistGroups.replace('{n}', String(dist.groups.length))}` : ''}`
+            ? `${(set ? setDrawnCount(set, drawnMembers, dist.unit === 'ch') : members).toLocaleString()} ${unit}${dist.groups.length > 4 ? ` · ${strings.dsDistGroups.replace('{n}', String(dist.groups.length))}` : ''}`
             : strings.dsRows.replace('{n}', pool.length.toLocaleString());
+        // (A level of another reference is only ever drawn apart with its set given, which says it with the rest.)
+        if (set) count.textContent += setExclusionText(set, strings);
         const legendHtml = members ? distributionLegendHtml(slots, baseGroup !== null ? `${prefix}${labels.get(baseGroup) ?? baseGroup}` : null, strings) : '';
         if (legend.innerHTML !== legendHtml) legend.innerHTML = legendHtml;
         note.textContent = members && !range && !strip ? strings.dsDistDrag : '';
         box.dataset.groups = String(dist.groups.length);
         box.dataset.drawn = String(members);
         box.dataset.missing = String(dist.missing);
+        box.dataset.apart = String(dist.apart);
         box.dataset.unit = dist.unit;
         plots.clear();
         if (!members) {
@@ -151,13 +180,21 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         const keys = new Set(pool.map(row => row.key));
         const slotted = slots.flatMap((key, slot) => {
             const row = rowOf(key);
-            const number = row && keys.has(row.key) && usable(row) ? valueOf(row, value, results) : null;
+            const number = row && keys.has(row.key) && usable(row) && onAxis(row) ? valueOf(row, value, results) : null;
             return row && number !== null ? [{ slot, key: row.key, group: groupOf(row, group), value: number }] : [];
         });
-        const axisLabel = value.startsWith('csv:') ? strings.dsDistCsvAxis.replace('{col}', value.slice(4)) : inputs.valueLabel;
+        const axisLabel = value.startsWith('csv:') ? csvAxisName(value.slice(4), strings) : inputs.valueLabel;
         rows = distributionRows(dist, {
-            width, rowHeight, strip, range, slots: slotted, baseGroup, labels, groupPrefix: prefix, unitLabel: unit, axisLabel,
+            width, rowHeight, strip, range, slots: slotted, base, labels, groupPrefix: prefix, unitLabel: unit, axisLabel,
             format: inputs.format, name: inputs.rowName,
+            countOf: (name, drawn) => {
+                if (!set) return `${drawn} ${unit}`;
+                const paths = [...new Set(pool.filter(row => groupOf(row, group) === name).map(row => row.filePath))];
+                // A level's channels: those drawn of the set's recordings in the group.
+                if (dist.unit === 'ch') return `${setDrawnCount(set, dist.groups.find(item => item.name === name)?.members ?? [], true)} ${unit}`;
+                // Its n of the one set (what the set left out is said once, in the heading above the groups).
+                return `${setOver(set, paths).n} ${unit}`;
+            },
         }, {
             bar: colourOf('--dist-bar', '#5b6470'), barIn: colourOf('--dist-bar-in', '#aab3be'),
             slots: ['--entry-base', '--entry-compare', '--entry-slot-2', '--entry-slot-3'].map(name => colourOf(name, '#888')),
@@ -167,22 +204,22 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         const plotHeight = Math.max(1, rowHeight - DIST_ROW_PAD.top - DIST_ROW_PAD.bottom);
         groups.innerHTML = `<div class="entry-dist-plot" data-entry-dist-plot style="width:${width}px">${rows.map(row => `<div class="entry-dist-row" data-dist-group="${escapeHtml(row.group)}" data-dist-slots="${row.slots.join(' ')}"${row.base ? ' data-dist-base' : ''} style="height:${rowHeight}px">`
             + `<div class="entry-dist-label"><span class="entry-dist-name" title="${escapeHtml(row.title)}">${escapeHtml(row.label)}</span>${row.count ? `<span class="entry-dist-count">${escapeHtml(row.count)}</span>` : ''}${row.max ? `<span class="entry-dist-max">${escapeHtml(row.max)}</span>` : ''}</div>`
-            + `<canvas class="entry-dist-canvas" data-dist-canvas data-plot-axis="entry-dist-axis-canvas" style="width:${plotWidth}px;height:${plotHeight}px"></canvas></div>`).join('')}<div class="entry-dist-brush" data-dist-brush hidden></div></div>`;
+            + `<canvas class="entry-dist-canvas" data-dist-canvas data-plot-key="dist:${escapeHtml(row.group)}" data-plot-axis="entry-dist-axis-canvas" data-plot-names="entry-dist-count-axis" style="width:${plotWidth}px;height:${plotHeight}px"></canvas></div>`).join('')}<div class="entry-dist-brush" data-dist-brush hidden></div></div>`;
         const axisView = distributionAxisView(dist);
         const zoom = { x: zoomWindow.x };
-        const windowText = [zoomWindow.x.start, zoomWindow.x.end, 0, 1].map(part => part.toFixed(3)).join(' ');
         groups.querySelectorAll<HTMLCanvasElement>('[data-dist-canvas]').forEach((canvas, index) => {
             const row = rows[index];
-            const plot = paintOverlay(canvas, { layers: row.layers }, row.range, { x: axisLabel, y: strings.dsDistCountAxis.replace('{unit}', unit) },
-                { axisView, window: zoom, margins: ROW_MARGINS, xAxisLabels: false, yAxisLabels: false, ...(range ? { highlight: { start: range.low, end: range.high } } : {}) });
+            const plot = paintOverlay(canvas, { layers: row.layers }, row.range, plainNames(axisLabel, countTitle(strings, unit)),
+                { axisView, window: zoom, margins: ROW_MARGINS, xAxisLabels: false, yAxisLabels: false, xAxisCanvas: axisCanvas, ...(range ? { highlight: { start: range.low, end: range.high } } : {}) });
             if (plot) plots.set(canvas, plot);
-            canvas.dataset.plotWindow = windowText;
-            // Its dots, where they are drawn (CSS pixels on the canvas), for a press on one and for tests.
+            notePlotWindow(canvas, { x: zoomWindow.x, y: FULL_PLOT_WINDOW.y }, DIST_VERTICAL);
+            // Its dots, where they are drawn (CSS pixels on the canvas), for tests (a click acts on the readout's read, not on these).
             canvas.dataset.dots = row.dots.map(dot => `${dot.key}\t${plot ? plot.xAt(dot.value).toFixed(1) : ''}\t${plot ? plot.yAt(dot.level + 0.5).toFixed(1) : ''}`).join('\n');
         });
         // The value axis below them, drawn by the same component: its numbers and name; what a bar's height counts beside it.
+        // It holds no values: nothing to read.
         axisCanvas.style.width = `${width}px`;
-        paintOverlay(axisCanvas, { layers: [{ view: axisView, color: '', full: 'drawn' }] }, { min: 0, max: 1 }, { x: axisLabel, y: strings.dsDistCountAxis.replace('{unit}', unit) },
+        paintOverlay(axisCanvas, { layers: [{ view: axisView, color: '', full: NO_POINTS }] }, plainRange(0, 1), plainNames(axisLabel, countTitle(strings, unit)),
             { window: zoom, margins: { left: DIST_MARGINS.left, right: DIST_MARGINS.right, top: 0, bottom: 19 }, yAxisLabels: false });
         countAxis.textContent = strings.dsDistCountAxis.replace('{unit}', unit);
         if (strip && scrollToSlot) {
@@ -191,36 +228,54 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
             const index = compared ? dist.groups.findIndex(item => item.name === compared.group) : -1;
             if (index >= 0) groups.scrollTop = Math.max(0, index * rowHeight - 4);
         }
+        showMarksAgain();
     }
 
     const repaint = (): void => { if (last) paint(last); };
-    /** The dot under (x, y) on a row's canvas (its own CSS pixels), within its radius and a little. */
-    function dotAt(canvas: HTMLElement, x: number, y: number): string | null {
-        for (const line of (canvas.dataset.dots ?? '').split('\n')) {
-            const [key, dx, dy] = line.split('\t');
-            if (key && Math.hypot(Number(dx) - x, Number(dy) - y) <= 5) return key;
-        }
-        return null;
+    /** Where the pointer reads a row now: a redraw makes the rows anew, and the marks and readout follow it there (A26). */
+    let hovered: { x: number; y: number } | null = null;
+    /**
+     * The marks and readout at (x, y) on a row's plot, through the one readout (plotHoverLayer): a bar, a dot or a
+     * tick read there, else where on the value axis the pointer is. A hover, a redraw and a scroll all show it so.
+     */
+    /** Where on the value axis the pointer at `x` (CSS pixels on a row's canvas) is: what the readout says off any point, and a click there picks. */
+    const valueAt = (x: number): number => (scale ? scale.at(DIST_MARGINS.left + x) : Number.NaN);
+    const words = {
+        none(x: number): { name: string; values: string } | null {
+            return scale && last ? { name: last.valueLabel, values: last.format(valueAt(x)) } : null;
+        },
+    };
+    function showAt(canvas: HTMLElement, plot: StagePlot, x: number, y: number): void {
+        marks.show(canvas, plot, x, y, readout, words);
     }
+    function showMarksAgain(): void {
+        if (!hovered) return;
+        const doc = groups.ownerDocument;
+        const under = typeof doc.elementFromPoint === 'function' ? doc.elementFromPoint(hovered.x, hovered.y) : null;
+        const canvas = under instanceof HTMLCanvasElement && under.hasAttribute('data-dist-canvas') ? under : null;
+        const plot = canvas ? plots.get(canvas) : undefined;
+        if (!canvas || !plot) { marks.hide(); return; }
+        showAt(canvas, plot, hovered.x, hovered.y);
+    }
+    // The rows scroll under a still pointer: the row now under it is read there, never the one that was (R7).
+    groups.addEventListener('scroll', () => showMarksAgain());
     const canvasOf = (target: EventTarget | null): HTMLElement | null => (target as HTMLElement | null)?.closest?.<HTMLElement>('[data-dist-canvas]') ?? null;
 
-    // A press that stayed put (no box drawn): on a dot, its row; elsewhere, the bin under it once no double-click follows.
-    groups.addEventListener('click', event => {
-        const canvas = canvasOf(event.target);
-        if (!canvas || !scale || event.altKey) return;
-        const bounds = canvas.getBoundingClientRect();
-        const dot = dotAt(canvas, event.clientX - bounds.left, event.clientY - bounds.top);
-        if (dot) { deps.dot(dot); return; }
-        if (pendingClick !== null) { clearTimeout(pendingClick); pendingClick = null; return; }
-        const plot = groups.querySelector<HTMLElement>('[data-entry-dist-plot]');
-        const x = event.clientX - (plot ?? canvas).getBoundingClientRect().left;
-        pendingClick = setTimeout(() => {
-            pendingClick = null;
+    // A press that stayed put (no box drawn; the plot gestures' tap) acts on what the readout read at the press, never
+    // on a hit test of its own (R7, R13: clickOnRead): a dot's or tick's row, a bar's bin, else the bin of the value the
+    // readout says the pointer is at; over a gap's "no value", or on the base's median, nothing. Done at once; a double
+    // click's second press puts the table back (plotInteraction.ts arbitrates every plot's click, R13).
+    const tap = (canvas: HTMLElement, event: MouseEvent, current: () => boolean): PlotClick | undefined => {
+        if (!scale || event.altKey || !current()) return undefined;
+        return clickOnRead(marks, canvas, current, got => {
             const on = scale;
-            const range = on ? pickedRange(on, x, x, false) : null;
-            if (range) deps.pick(range);
-        }, CLICK_WAIT_MS);
-    });
+            if (!on) return undefined;
+            const click = distributionClick(rows, on, got, () => valueAt(got.read ? 0 : got.x));
+            if ('row' in click) return deps.dot(click.row) ?? undefined;
+            if ('range' in click) return deps.pick(click.range) ?? undefined;
+            return undefined;
+        });
+    };
 
     // The plot component's gestures on every row (R13): the value axis' window is shared, the counts stay whole.
     const zoomBox = document.createElement('div');
@@ -241,23 +296,18 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
             return { fx, fy };
         },
         window: () => zoomWindow,
-        setWindow(_plot, next) {
-            // A double-click (the whole value axis again) takes back the bin its first click was to pick.
-            if (!next && pendingClick !== null) { clearTimeout(pendingClick); pendingClick = null; }
-            setWindow(next);
-        },
+        setWindow(_plot, next) { setWindow(next); },
         hover(event, hit) {
             const plot = hit ? plots.get(hit.plot) : undefined;
+            hovered = hit && plot ? { x: event.clientX, y: event.clientY } : null;
             if (!hit || !plot) { marks.hide(); return; }
-            // Off any bar, dot or tick the readout says where on the value axis the pointer is.
-            if (marks.show(hit.plot, plot, event.clientX, event.clientY, readout) === null && scale && last) {
-                const bounds = hit.plot.getBoundingClientRect();
-                showPlotReadout(readout, last.valueLabel, last.format(scale.at(DIST_MARGINS.left + event.clientX - bounds.left)), "");
-            }
+            // Off any bar, dot or tick the readout says where on the value axis the pointer is (words.none).
+            showAt(hit.plot, plot, event.clientX, event.clientY);
             document.getElementById('hint-footer')?.replaceChildren(`${strings.dsDistDrag} · ${strings.compareHintPlot}`);
         },
-        clearHover() { marks.hide(); },
+        clearHover() { hovered = null; marks.hide(); },
         stepFrom: (plot, delta, arrived) => marks.stepFrom(plot, plots.get(plot) ?? null, delta, arrived),
+        tap,
         showBox(plot, from, to) {
             const rect = plot.getBoundingClientRect(), outer = screen.getBoundingClientRect();
             const [x0, x1] = [Math.min(from.fx, to.fx), Math.max(from.fx, to.fx)];
@@ -278,8 +328,10 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         openAxisRange(hit, clientX, clientY) {
             if (hit.plot !== axisCanvas || !drawn) return false;
             const whole = drawn;
+            // The value axis's ends as its strip and rows are painted (paintOverlay's window on it, R9), written exactly.
+            const shown = linearWindowEnds(whole.low, whole.high, zoomWindow.x);
             openAxisPart(rangePopover, {
-                mapping: linearAxis(whole.low, whole.high, last?.valueLabel ?? ''), horizontal: true, current: zoomWindow.x, clientX, clientY, invalid: strings.specRangeErrorMinMax,
+                mapping: linearAxis(whole.low, whole.high, last?.valueLabel ?? ''), horizontal: true, current: zoomWindow.x, shown, clientX, clientY, invalid: strings.specRangeErrorMinMax,
                 set(part) { setWindow({ x: part, y: FULL_PLOT_WINDOW.y }); },
             });
             return true;
@@ -308,7 +360,8 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
                 if (range) deps.pick(range);
             },
         },
-        horizontalOnly: true,
+        // Its vertical axis is the count per group, defined to show every count always (R13): a box zooms the value axis.
+        verticalAxis: DIST_VERTICAL,
     });
     return { place, paint, last: () => drawn };
 }

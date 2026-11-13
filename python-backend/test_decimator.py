@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from conftest import assert_not_drawn
 from decimator import decimated_waveform
 
 
@@ -32,8 +33,9 @@ def test_min_max_values_are_correct():
 def test_minT_maxT_are_normalized_to_full_file():
     samples = np.array([0.1, -0.9, 0.3, 0.7], dtype=np.float64)
     result = decimated_waveform(samples, 1, start_sample=100, total_samples=200)
-    assert result["minT"][0] == pytest.approx(101 / 199)
-    assert result["maxT"][0] == pytest.approx(103 / 199)
+    # Sample i of n is at i / n of the file: times its duration n / fs, i / fs (wandas' frame.time).
+    assert result["minT"][0] == pytest.approx(101 / 200)
+    assert result["maxT"][0] == pytest.approx(103 / 200)
 
 
 def test_minT_within_0_1():
@@ -47,6 +49,17 @@ def test_absolute_peak():
     samples = np.array([0.3, -0.9, 0.5], dtype=np.float64)
     result = decimated_waveform(samples, 3, 0, 3)
     assert result["absolutePeak"] == pytest.approx(0.9)
+
+
+def test_absolute_peak_is_every_samples_not_a_line_thinned_by_averaging():
+    # One sample far above a quiet tone, thinned to 50 points: the peak is that sample's.
+    samples = 0.1 * np.sin(np.arange(5000) * 0.3)
+    samples[3210] = -0.95
+    result = decimated_waveform(samples, 50, 0, 5000)
+    assert len(result["max"]) < samples.size
+    assert result["absolutePeak"] == pytest.approx(0.95)
+    averaged = np.abs(samples.reshape(50, -1).mean(axis=1))
+    assert_not_drawn(result["absolutePeak"], float(averaged.max()))
 
 
 def test_point_limit_zero_returns_empty():
@@ -70,8 +83,8 @@ def test_vectorized_buckets_preserve_extrema_positions_and_midpoints(length, poi
     buckets = np.array_split(np.arange(length), min(length, points))
     np.testing.assert_equal(result["min"], [samples[b].min() for b in buckets])
     np.testing.assert_equal(result["max"], [samples[b].max() for b in buckets])
-    np.testing.assert_equal(result["minT"], [(23 + b[samples[b].argmin()]) / 149 for b in buckets])
-    np.testing.assert_equal(result["maxT"], [(23 + b[samples[b].argmax()]) / 149 for b in buckets])
+    np.testing.assert_equal(result["minT"], [(23 + b[samples[b].argmin()]) / 150 for b in buckets])
+    np.testing.assert_equal(result["maxT"], [(23 + b[samples[b].argmax()]) / 150 for b in buckets])
     np.testing.assert_equal(result["samples"], [samples[b[len(b) // 2]] for b in buckets])
 
 
@@ -87,7 +100,7 @@ def test_vectorized_extrema_keep_first_nan_positions():
     result = decimated_waveform(samples, 1, 0, 4)
     assert np.isnan(result["min"][0])
     assert np.isnan(result["max"][0])
-    assert result["minT"] == result["maxT"] == [1 / 3]
+    assert result["minT"] == result["maxT"] == [1 / 4]
 
 
 @pytest.mark.parametrize("first", [0.0, -0.0])
@@ -128,10 +141,11 @@ def test_long_waveforms_keep_bounded_scratch_and_cross_block_extrema(monkeypatch
     maximum_indices = [b[np.argmax(samples[b])] for b in buckets]
     np.testing.assert_equal(result["min"], samples[minimum_indices])
     np.testing.assert_equal(result["max"], samples[maximum_indices])
-    np.testing.assert_equal(result["minT"], (17 + np.array(minimum_indices)) / 299999)
-    np.testing.assert_equal(result["maxT"], (17 + np.array(maximum_indices)) / 299999)
+    np.testing.assert_equal(result["minT"], (17 + np.array(minimum_indices)) / 300000)
+    np.testing.assert_equal(result["maxT"], (17 + np.array(maximum_indices)) / 300000)
     np.testing.assert_equal(result["samples"], [samples[b[len(b) // 2]] for b in buckets])
-    assert np.isnan(result["absolutePeak"])
+    # The peak is of the samples with a value: a NaN is a gap (R2), no peak (and no NaN the wire could not carry).
+    assert result["absolutePeak"] == 10.0
 
 
 def test_all_zero_signal_reports_positive_zero_peak():
@@ -153,10 +167,8 @@ def test_bucket_starts_follow_array_split(n, count):
 @pytest.mark.parametrize("n,points", [(7, 4), (31, 8), (1001, 64), (48000, 1024)])
 def test_every_time_decimation_shares_the_bucket_rule(n, points):
     """The lanes' waveform (decimated_waveform) and the comparison's lines (stage_view._envelope) put the same
-    samples in a bucket and keep the same points: each bucket's lowest and highest sample, each at its own place.
-    A trigger's events, which share one x list, keep the same extremes at each bucket's first and last sample."""
-    from decimator import bucket_starts
-    from stage_view import _envelope, _shared_envelope
+    samples in a bucket and keep the same points: each bucket's lowest and highest sample, each at its own place."""
+    from stage_view import _envelope
 
     xs = np.arange(n, dtype=float)
     values = np.random.default_rng(n).normal(size=n)
@@ -165,16 +177,10 @@ def test_every_time_decimation_shares_the_bucket_rule(n, points):
     waveform = decimated_waveform(values, count, 0, n)
     np.testing.assert_allclose(waveform["min"], [part.min() for part in parts])
     np.testing.assert_allclose(waveform["max"], [part.max() for part in parts])
-    at = np.round(np.concatenate([waveform["minT"], waveform["maxT"]]) * (n - 1)).astype(int)
+    at = np.round(np.concatenate([waveform["minT"], waveform["maxT"]]) * n).astype(int)
     line_xs, line_values = _envelope(xs, values, points)
     np.testing.assert_equal(line_xs, np.unique(at))
     np.testing.assert_equal(line_values, values[np.unique(at)])
-    starts = bucket_starts(n, count)
-    ends = np.append(starts[1:], n) - 1
-    shared_xs, shared = _shared_envelope(xs, values[np.newaxis], points)
-    np.testing.assert_equal(shared_xs, np.stack([starts, ends], axis=1).reshape(-1))
-    np.testing.assert_allclose(shared[0][0::2], [part.min() for part in parts])
-    np.testing.assert_allclose(shared[0][1::2], [part.max() for part in parts])
 
 
 @pytest.mark.parametrize("n,buckets", [(100, 30), (1001, 64), (2000, 1024)])

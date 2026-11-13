@@ -6,11 +6,12 @@
  */
 import type { CompareCombineMessage, ComparePublication } from '../../shared/analysis/entryScan';
 import type { StagePoints, StageRead, StageView } from '../../shared/protocol/backendProtocol';
-import { fetchedSource, type FullRead, type FullSource } from './fullRead';
+import { answerKey, createAnswerStore } from './answerStore';
+import { fetchedSource, NO_FULL_DATA, sourceWith, type FullRead, type FullSource } from './fullRead';
 
 export interface StageReader {
-    /** A recording's own picture's full data, by the key its scan kept it under; undefined without one. */
-    of(view: StageView | null | undefined): FullRead | undefined;
+    /** A recording's own picture's full data, by the key its scan kept it under (a band table's own bars); NO_FULL_DATA without one. */
+    of(view: StageView | null | undefined): FullRead;
     /** A combined picture's: the median of the `base` keys, or `compare` − that median (`of: 'diff'`). */
     combined(base: readonly string[], compare: string | null, of: 'base' | 'diff'): FullSource;
     /** Takes the host's answers to this reader's requests; false for anything else. */
@@ -23,28 +24,26 @@ export interface StageReader {
  */
 export function createStageReader(prefix: string, post: (message: CompareCombineMessage) => void, missing: (keys: readonly string[]) => void = () => undefined): StageReader {
     const waiting = new Map<string, (points: StagePoints | null | undefined) => void>();
-    const sources = new Map<string, FullSource>();
+    // Each picture's source with the windows it read, kept while its pictures come and go with the zoom: the least
+    // recently used ones are let go. Its keys are the backend's data keys (each of a file version, Recipe, region,
+    // channels, calibration and step).
+    const sources = createAnswerStore<FullSource>({ capacity: 256 });
     let count = 0;
-    const source = (base: readonly string[], compare: string | null, of: 'base' | 'diff', event?: number): FullSource => {
-        const key = JSON.stringify([base, compare, of, event ?? null]);
-        const known = sources.get(key);
-        if (known) return known;
-        const made: FullSource = {
-            ...fetchedSource((read: StageRead, done) => {
+    const source = (base: readonly string[], compare: string | null, of: 'base' | 'diff', event?: number): FullSource =>
+        sources.keep(answerKey({ ask: ['combined-read', base, compare, of, event ?? null], version: { by: 'data-keys' } }), () => {
+            const fetched = fetchedSource((read: StageRead, done) => {
                 const requestId = `${prefix}-${++count}`;
                 waiting.set(requestId, done);
                 post({ type: 'compare-combine', requestId, base: [...base], ...(compare ? { compare } : {}), read: { ...read, of, ...(event !== undefined ? { event } : {}) } });
-            }),
+            });
             // A trigger's events: each its own line, read by its id.
-            ...(event === undefined ? { event: (id: number) => source(base, compare, of, id) } : {}),
-        };
-        sources.set(key, made);
-        // Pictures come and go with the zoom: the sources of the least recently made ones are let go.
-        if (sources.size > 256) sources.delete(sources.keys().next().value as string);
-        return made;
-    };
+            return event === undefined ? sourceWith(fetched, { event: (id: number) => source(base, compare, of, id) }) : fetched;
+        });
     return {
-        of: view => (view?.data ? source([view.data], null, 'base') : undefined),
+        // Every picture, a band table's bars too, is read through the full read of its step's values (its key):
+        // its `values` are drawn points by the schema (x-drawn), never taken as full data, even where they happen
+        // to be every band (display rules R7). A picture without a key has none to read.
+        of: view => (view?.data ? source([view.data], null, 'base') : NO_FULL_DATA),
         combined: (base, compare, of) => source(base, compare, of),
         handle(message) {
             if (message.type !== 'compare-combine-result') return false;

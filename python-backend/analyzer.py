@@ -112,6 +112,8 @@ class AnalysisResult(TypedDict):
     channels: list[ChannelSummary]
     units: NotRequired[AnalysisUnits]
     analysisRevision: NotRequired[int]
+    sourceVersion: NotRequired[str]
+    stftSignature: NotRequired[str]
 
 
 def sample_range(start_norm: float, end_norm: float, sample_count: int) -> tuple[int, int]:
@@ -233,25 +235,29 @@ def resample_frequency_bins(spectrogram: np.ndarray, target_bin_count: int) -> n
 
 
 def min_max_spectrum(rows_db: np.ndarray, max_frequency_hz: float) -> tuple[np.ndarray, np.ndarray | None]:
-    """The cursor spectrum to draw: whole rows within the budget, else DC and every channel's lowest and highest bin
-    per log-spaced bucket (stage_view.min_max_rows, the decimation Compare's spectra use), each at its own
-    frequency, so a tone keeps its level and noise keeps its spread. ``None`` means the rows are whole.
+    """The cursor spectrum to draw: whole rows within the budget, else DC and every channel's lowest and highest bin per
+    bucket (stage_view.min_max_rows, the decimation Compare's spectra use), each at its own frequency, so a tone
+    keeps its level and noise keeps its spread. The buckets are made in the scale of the axis the cursor spectrum
+    is drawn on, which is linear from 0 Hz (spectrumRuntime.spectrumVisibleWindow: only bands, never cut, are on a
+    log axis): equally wide, so a narrow peak high up keeps its own place (display rules R2), where log buckets
+    many pixels wide there would keep one peak of several. ``None`` means the rows are whole.
     """
     _channel_count, bin_count = rows_db.shape
     if bin_count <= SPECTRUM_DISPLAY_POINT_LIMIT:
         return rows_db, None
     freqs = np.arange(bin_count) * (max_frequency_hz / (bin_count - 1))
     buckets = _cursor_buckets(bin_count, rows_db.shape[0])
-    bins = np.concatenate(([0], min_max_rows(freqs, rows_db, buckets, (freqs[1], freqs[-1]))))
+    # DC kept, so the line starts at the axis' 0 Hz.
+    bins = np.union1d([0], min_max_rows(freqs, rows_db, buckets, False))
     return rows_db[:, bins], freqs[bins]
 
 
 @functools.lru_cache(maxsize=16)
 def _cursor_buckets(bin_count: int, channel_count: int) -> int:
-    """The cursor spectrum's bucket count for its FFT size: the most whose points fit the budget beside DC (the same
-    for any frequency scale, since the buckets are equally wide on a log axis from bin 1 to the last)."""
+    """The cursor spectrum's bucket count for its FFT size: the most equally wide buckets (its axis is linear,
+    min_max_spectrum) whose points fit the budget beside DC."""
     bins = np.arange(bin_count, dtype=np.float64)
-    return rows_bucket_count(bins, channel_count, SPECTRUM_DISPLAY_POINT_LIMIT - 1, (1.0, float(bin_count - 1)))
+    return rows_bucket_count(bins, channel_count, SPECTRUM_DISPLAY_POINT_LIMIT - 1, False)
 
 
 def _time_bin_boundaries(frame_count: int, target_bin_count: int) -> np.ndarray:
@@ -368,11 +374,15 @@ def _build_spectrogram(
     if spectrogram.ndim != 2:
         raise ValueError(f"Expected 2D spectrogram data, got shape {spectrogram.shape}")
 
+    # The colour range is every STFT cell's, before the cells are power-averaged to draw: a short loud cell or a narrow
+    # dip averaged away still sets an end. Only a cell of no level at all (-inf) is left out; with none left, the
+    # floor the averaged cells have.
+    finite = spectrogram[np.isfinite(spectrogram)]
+    min_db = float(np.min(finite)) if finite.size else _MEAN_POWER_FLOOR_DB
+    max_db = float(np.max(finite)) if finite.size else _MEAN_POWER_FLOOR_DB
+
     spectrogram = _resample_time_bins(spectrogram, time_bin_limit)
     spectrogram = resample_frequency_bins(spectrogram, frequency_bin_limit)
-
-    min_db = float(np.min(spectrogram))
-    max_db = float(np.max(spectrogram))
 
     payload: SpectrogramPayload = {
         "values": spectrogram.tolist(),
@@ -426,6 +436,13 @@ def normalize_stft_options(stft_options: Mapping[str, object] | None) -> StftOpt
         raise InputError(f"window must be one of {sorted(_ALLOWED_WINDOWS)}, got {window!r}")
     hop_size = max(1, round(n_fft * (1 - overlap_percent / 100)))
     return {"n_fft": n_fft, "hop_size": hop_size, "window": window}
+
+
+def stft_signature(sample_count: int, stft_options: Mapping[str, object] | None) -> str:
+    """The STFT a file's spectrogram and spectra are taken with (window length, hop, window), as every answer of it
+    names it (stftSignature): an answer of another STFT than the analysis drawn is not read over it."""
+    n_fft, hop, window = resolve_stft_params(sample_count, stft_options)
+    return f"{n_fft}/{hop}/{window}"
 
 
 def resolve_stft_params(

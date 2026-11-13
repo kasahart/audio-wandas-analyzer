@@ -11,13 +11,13 @@ test('SpectrumView starts at the full range with no painted data', () => {
     assert.deepEqual(view.frequencyRangeFieldsHz(), { min: '0', max: '0' });
 });
 
-test('SpectrumView popover fields prefer overrides and fall back to the rounded painted range', () => {
+test('SpectrumView popover fields prefer overrides and fall back to the painted range, exactly as painted (R9)', () => {
     const view = new SpectrumView();
     view.recordPaint({ maxFrequencyHz: 24000, dbMin: -80.4, dbMax: -3.6 });
     assert.equal(view.hasData(), true);
-    assert.deepEqual(view.dbRangeFields(), { min: '-80', max: '-4' });
+    assert.deepEqual(view.dbRangeFields(), { min: '-80.4', max: '-3.6' }, 'R9: a value axis\'s range fields are the ends it is painted with, never rounded off them');
     view.setDbRange(-60, null);
-    assert.deepEqual(view.dbRangeFields(), { min: '-60', max: '-4' });
+    assert.deepEqual(view.dbRangeFields(), { min: '-60', max: '-3.6' });
     view.freqStart = 0.25;
     view.freqEnd = 0.5;
     assert.deepEqual(view.frequencyRangeFieldsHz(), { min: '6000', max: '12000' });

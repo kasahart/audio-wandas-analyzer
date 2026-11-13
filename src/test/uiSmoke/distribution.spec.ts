@@ -60,7 +60,7 @@ test('the separated high tail of the 3.15 kHz band, by rpm: dragged, the table k
     // Groups by number (900 before 1500), the recording without a CSV row last; computed values count channels.
     await expect.poll(async () => (await dist(page))?.groups.map(group => group.name)).toEqual(['900', '1200', '1500', '1800', '']);
     await expect.poll(async () => (await dist(page))?.unit).toBe('ch');
-    await expect.poll(() => axisName(page)).toBe(STR.dsBand.replace('{band}', bandLabel(BAND_3150)).replace('{label}', 'dBFS'));
+    await expect.poll(() => axisName(page)).toBe(STR.dsBand.replace('{band}', bandLabel(BAND_3150)).replace('{uncal}', STR.axisUncalibrated).replace('{label}', 'dBFS'));
     await expect(page.locator('[data-entry-dist-note]')).toHaveText(STR.dsDistDrag);
     // Nothing marks the high ones: the user sees the tail and drags over it.
     const values = bandValues().sort((a, b) => b - a);
@@ -115,7 +115,8 @@ test('a value not computed yet says so and offers 計算 in its header; computed
     const STR = getStrings('ja');
     await openEntry(page, scanned!, { language: 'ja', answered: 0 });
     // No CSV: Leq is the value, the whole folder one group; nothing is computed by itself.
-    await expect(page.locator('[data-entry-dist-empty]')).toHaveText(STR.dsDistNotComputed.replace('{value}', STR.dsLeq.replace('{label}', 'dBFS')));
+    // Nothing read yet: the value names no reference, never a guessed dBFS (class sweep 3, reference V9).
+    await expect(page.locator('[data-entry-dist-empty]')).toHaveText(STR.dsDistNotComputed.replace('{value}', STR.dsLeq.replace('{uncal}', '').replace(' [{label}]', '')));
     const compute = page.locator('[data-entry-dist] [data-action="entry-compute"]');
     await expect(compute).toHaveText(new RegExp(`^${STR.dsCompute.replace('{n}', '100').replace(' · 約 {time}', '')}`));
     await compute.click();
@@ -141,7 +142,7 @@ test('a value not computed yet says so and offers 計算 in its header; computed
     await expect.poll(async () => (await dist(page))?.groups.map(group => group.name)).toEqual(['L1', 'L2', 'L3', '']);
 });
 
-test('a group of two recordings is drawn as dots, and a dot goes to its row; a click without a drag picks one bin (I9)', async ({ page }) => {
+test('a group of two recordings is drawn as dots, and a dot goes to its row; a click off every dot picks the bin of the value the readout says there (I9, R7, R13)', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     await openEntry(page, scanned!);
     await pickCsv(page, 'motor.csv', entry100Metadata());
@@ -155,22 +156,29 @@ test('a group of two recordings is drawn as dots, and a dot goes to its row; a c
     const dot = (await dots())[2];
     const at = (await dotCanvas.boundingBox())!;
     await page.mouse.click(at.x + dot.x, at.y + dot.y);
-    expect((await snapshot(page)).focused).toBe(dot.key);
-    // A press that stays put on the plot picks the bin under it (once no second click makes it a double-click).
-    // The plot is drawn again once the row is focused: its bars are read after that.
+    // Gone to at once (plotInteraction.ts arbitrates every plot's click, R13).
+    await expect.poll(async () => (await snapshot(page)).focused).toBe(dot.key);
+    // A press that stays put acts on what the readout reads there, at once (a double click's second press would take
+    // it back, R13). The plot is drawn again once the row is focused: it is read after that.
     await expect(page.locator('[data-entry-rows] tr.is-focused')).toHaveAttribute('data-key', dot.key);
     await painted(page);
-    // Off the dot, at its value: the bin holding it.
-    const off = (await dots())[0];
-    await page.mouse.click(at.x + off.x, off.y > 14 ? at.y + off.y - 12 : at.y + off.y + 12);
+    // Off every dot (out of the pick radius of each): the readout says where on the value axis the pointer is, and the
+    // click picks the bin of that value (R7, R13: a click acts on the point the readout reads).
+    const drawn = await dots();
+    const across = Array.from({ length: Math.floor(at.width) }, (_, x) => x + 0.5);
+    const far = across.reduce((best, x) => (Math.min(...drawn.map(item => Math.abs(item.x - x))) > Math.min(...drawn.map(item => Math.abs(item.x - best))) ? x : best), across[0]);
+    expect(Math.min(...drawn.map(item => Math.abs(item.x - far)))).toBeGreaterThan(20);
+    await page.mouse.move(at.x + far, at.y + 4);
+    const said = Number(((await page.locator('.entry-dist-note > [data-plot-readout]').textContent()) ?? '').split(' / ').pop()?.replace('−', '-').replace(/[^\d.+-]/gu, ''));
+    await page.mouse.down();
+    await page.mouse.up();
     await expect.poll(async () => (await dist(page)).range).not.toBeNull();
     const range = (await dist(page)).range!;
     const { low, high } = await dist(page);
     expect(range.high - range.low).toBeCloseTo((high - low) / 48, 5);
-    // The bin picked is the one the dot is drawn in: its value, read where the canvas drew it.
-    const value = low + off.x / at.width * (high - low);
-    expect(value).toBeGreaterThanOrEqual(range.low - (high - low) * 1e-3);
-    expect(value).toBeLessThanOrEqual(range.high + (high - low) * 1e-3);
+    // The bin picked holds the value the readout said there (written to its digits).
+    expect(said).toBeGreaterThanOrEqual(range.low - (high - low) / 48);
+    expect(said).toBeLessThanOrEqual(range.high + (high - low) / 48);
     // Each row's canvas spans the value axis strip's plot: drawing, the axis and picking share one origin.
     const plot = (await page.locator('[data-entry-dist-plot]').boundingBox())!;
     expect(at.x - plot.x).toBeCloseTo(92, 0);
@@ -231,7 +239,8 @@ test('a CSV value counts recordings once; slot 1 keeps its tick when another val
     // 98 recordings with a row, each once though it has two channels.
     await expect.poll(async () => (await dist(page))?.unit).toBe('recording');
     await expect(page.locator('[data-entry-dist-count]')).toHaveText(`98 ${STR.dsUnitRecording}`);
-    await expect.poll(() => axisName(page)).toBe(STR.dsDistCsvAxis.replace('{col}', 'temp_c'));
+    // The CSV header gives no unit: the axis says it is not known (R4).
+    await expect.poll(() => axisName(page)).toBe(STR.dsDistCsvAxis.replace('{col}', 'temp_c').replace('{unit}', STR.axisUnitUnknown));
     await page.locator('[data-entry-table]').focus();
     await page.keyboard.press('1');
     await expect(page.locator('[data-dist-slots~="1"]')).toHaveCount(1);

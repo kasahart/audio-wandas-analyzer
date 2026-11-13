@@ -22,7 +22,7 @@ function files(dir) {
 if (process.argv.includes('--check')) {
     const expected = files(source).filter(file => !codexOnly(join(source, file)));
     const actual = files(copy);
-    const text = (dir, file) => readFileSync(join(dir, file), 'utf8').replaceAll('\r\n', '\n');
+    const text = (dir, file) => readFileSync(join(dir, file), 'utf8');
     const drift = [
         ...expected.filter(file => !actual.includes(file) || text(source, file) !== text(copy, file)),
         ...actual.filter(file => !expected.includes(file)),

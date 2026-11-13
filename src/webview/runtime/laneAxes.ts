@@ -4,19 +4,8 @@
  * amplitude, or a spectrogram's frequency) is painted by the plot component itself (paintOverlay's paintSideAxis).
  */
 import type { AxisTick } from '../../shared/gui-core/index';
-import { WAVEFORM_HALF_HEIGHT_RATIO } from '../waveform/waveformLayout';
 import type { PaneRange } from './comparePanes';
 import { alongAxisTicks, valueAxisTicks } from './stagePanes';
-
-/**
- * The amplitude a waveform lane shows from its bottom edge to its top, in the channel's unit, as makeCoordTransform
- * places it: unzoomed, the peak at WAVEFORM_HALF_HEIGHT_RATIO of the half height; zoomed, the window's own ends.
- */
-export function laneAmplitudeRange(peak: number, viewport?: { minNorm: number; maxNorm: number }): PaneRange {
-    if (viewport) return { min: viewport.minNorm * peak, max: viewport.maxNorm * peak };
-    const edge = peak / (2 * WAVEFORM_HALF_HEIGHT_RATIO);
-    return { min: -edge, max: edge };
-}
 
 /** A waveform lane's amplitude ticks: every plot's value axis rule. */
 export function laneAmplitudeTicks(range: PaneRange): AxisTick[] {

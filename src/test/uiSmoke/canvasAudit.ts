@@ -16,11 +16,23 @@
  *
  * And (R6): a plot on screen that drew a louder compared line over a quieter one fails it, whichever plot it is. The
  * plot component writes the levels of the lines it compared, in the order it drew them (`data-plot-order`); they
- * never rise, so the quietest line is on top on every plot, and each is measured from the values before thinning
- * (`levelBins`), never from the drawn points ('?').
+ * never rise, so the quietest line is on top on every plot, and each is measured from every value on screen before
+ * thinning (`levelBins`, or the line's full data), never from the drawn points ('?'); a level still being fetched
+ * ('…'), or whose read failed and is asked again after the answer store's pause ('!'), is judged once it is in, and
+ * a plot that stays so fails.
  *
  * And (R7): a plot on screen that draws a layer without saying where its full data is read (`data-plot-full`
  * "missing: …", fullRead.ts) fails it: its readout would read the points thinned to be drawn.
+ *
+ * And (R4): a plot on screen with an axis whose name (`data-plot-axes`) gives no quantity and unit in closing brackets
+ * ("Phase [°]", "Coherence γ² [–]", "temp_c (CSV column) [unit unknown]") fails it, whichever plot it is; so does a
+ * plot on screen with two tick labels of one axis (numbers written in one column: the same alignment and x) whose
+ * ink overlaps, however short the plot is; so does a heatmap whose colour bar does not draw what its colour measures
+ * (`data-plot-colour`), whole or fitted as an axis name is; so does a plot whose axis name, said in its attributes, is
+ * not drawn for a while: on the plot, on a canvas the plot component bound to it as drawing its axes (by id,
+ * `data-plot-named-by`: its value axis's canvas, the time axis the lanes share, the bottom plot of a stack), or as
+ * text in the element it names for its axis names (`data-plot-names`). A name drawn only on some other canvas does
+ * not count, and a plot that binds none must draw its names itself. What is checked is what is drawn.
  */
 import { test as base } from '@playwright/test';
 import { DRAWN_OUTSIDE_PENDING, PLOT_LAYERS, PLOTS_PENDING, SVG_CHARTS_PENDING } from './plotRegistry';
@@ -32,8 +44,11 @@ export * from '@playwright/test';
  * so 6 frames and 100 ms (both, for a slow machine's long frames) is a canvas that will not be drawn again.
  */
 const SETTLE = { frames: 6, ms: 100 };
+/** How long a plot on screen may show a level still being fetched for its order (R6) before it fails. */
+const MEASURE_MS = 5000;
 const AUDIT = {
     settle: SETTLE,
+    measureMs: MEASURE_MS,
     others: [...PLOTS_PENDING.map(item => item.selector), ...PLOT_LAYERS].join(', '),
     drawnOutside: DRAWN_OUTSIDE_PENDING.map(item => item.selector).join(', '),
     svgCharts: SVG_CHARTS_PENDING.map(item => item.selector).join(', '),
@@ -42,12 +57,110 @@ const AUDIT = {
 const SVG_CHART_MIN = { width: 64, height: 40 };
 
 declare global {
-    interface Window { __canvasAudit?: string[]; __readoutAudit?: string[]; __plotAudit?: string[]; __drawnAudit?: string[]; __svgAudit?: string[]; __orderAudit?: string[]; __fullAudit?: string[]; __plotPainting?: number }
+    interface Window { __canvasAudit?: string[]; __readoutAudit?: string[]; __plotAudit?: string[]; __drawnAudit?: string[]; __svgAudit?: string[]; __orderAudit?: string[]; __fullAudit?: string[]; __unitAudit?: string[]; __colourEndAudit?: string[]; __tickAudit?: string[]; __tickPlaceAudit?: string[]; __tickPlaces?: (canvas: HTMLCanvasElement) => TickPlaces; __titleAudit?: string[]; __plotPainting?: number; __settle?: SettleTracker }
+}
+
+/**
+ * What a plot's vertical axes write, held to where they paint it (display rules R9, R14): `judged` tick labels were
+ * read as numbers and found at the place the plot's own transform paints that number (its `__plotTickPlaces`, set by
+ * paintOverlay); `wrong` says each one that was not; `declared` is false for a plot that does not say where it paints.
+ */
+export interface TickPlaces { declared: boolean; judged: number; wrong: string[] }
+
+/** What the page still has to do in answer to what it was given: its frames and short timers not yet run, and what it asked for from outside itself and has not been given (settled()). */
+interface SettleTracker {
+    busy(): number;
+    frame(callback: () => void): void;
+    /** Requests of these types the page posts are answered from outside it (a real backend, realBackend.ts): each is waited for until `answered`. */
+    awaitHost(types: readonly string[]): void;
+    answered(requestId: string): void;
+}
+/** The longest timer the page is waiting on as part of its answer (a debounce, a reply posted later); longer ones (a retry after 5 s) are not. */
+const SETTLE_TIMER_MS = 1000;
+
+/**
+ * Runs in the page, before its own scripts: counts the animation frames it asked for and the short timers it set that
+ * have not run yet, so a test waits for the page to finish answering an input (settled()) instead of a fixed time.
+ * The audit's own frames are not counted.
+ *
+ * It also counts what the page asked for from outside itself and has not been given yet: a fetch (a test's
+ * page.route answers it from the test's own process, which a loaded machine makes slow) and a read of a file's or a
+ * response's bytes, and a message posted to the page itself until it is delivered (an answer a timer posts arrives
+ * a task later). The page draws again when each arrives, so until then it has not finished answering. Anything new
+ * the page waits on from outside its own thread belongs here too; otherwise settled() ends early on a slow machine
+ * and the test acts on a page that is about to move.
+ */
+function installSettleTracker(timerMs: number): void {
+    if (window.__settle) return;
+    const nativeFrame = window.requestAnimationFrame.bind(window), nativeCancelFrame = window.cancelAnimationFrame.bind(window);
+    const nativeTimeout = window.setTimeout.bind(window), nativeClear = window.clearTimeout.bind(window);
+    const frames = new Set<number>(), timers = new Set<number>();
+    window.requestAnimationFrame = (callback: FrameRequestCallback): number => {
+        const id: number = nativeFrame(time => { frames.delete(id); callback(time); });
+        frames.add(id);
+        return id;
+    };
+    window.cancelAnimationFrame = (id: number): void => { frames.delete(id); nativeCancelFrame(id); };
+    window.setTimeout = ((handler: TimerHandler, ms?: number, ...args: unknown[]): number => {
+        if (typeof handler !== 'function' || (ms ?? 0) > timerMs) return nativeTimeout(handler, ms, ...args);
+        const id: number = nativeTimeout(() => { timers.delete(id); (handler as (...rest: unknown[]) => void)(...args); }, ms);
+        timers.add(id);
+        return id;
+    }) as typeof window.setTimeout;
+    window.clearTimeout = ((id?: number): void => { if (id !== undefined) timers.delete(id); nativeClear(id); }) as typeof window.clearTimeout;
+    // A fetch, and a read of the bytes of a file or of a response, until it is given or fails.
+    let outside = 0;
+    const untilGiven = <T>(asked: Promise<T>): Promise<T> => {
+        outside++;
+        const given = (): void => { outside--; };
+        asked.then(given, given);
+        return asked;
+    };
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = (...args: Parameters<typeof window.fetch>) => untilGiven(nativeFetch(...args));
+    for (const owner of [Blob.prototype, Response.prototype] as const) {
+        for (const read of ['arrayBuffer', 'text', 'json'] as const) {
+            const native = (owner as unknown as Record<string, ((this: unknown) => Promise<unknown>) | undefined>)[read];
+            if (native) (owner as unknown as Record<string, unknown>)[read] = function (this: unknown): Promise<unknown> { return untilGiven(native.call(this)); };
+        }
+    }
+    // A message posted to the page itself (window.postMessage: the stand-in host's answer from its timer, a test's
+    // scan results, the real-backend bridge's answers), until it is delivered. It arrives in a task of its own after
+    // the one that posts it, and frames can run in between: a timer that posts an answer is no longer counted once it
+    // has run, so without this the page looked quiet with the answer still on its way, and a test read it as it was
+    // before the answer. Delivered in posting order; counted off as its dispatch begins (busy() is read only between
+    // tasks, so by then every listener has handled it and what it draws from it is counted above). One that cannot
+    // arrive (another target origin) is not counted.
+    let inFlight = 0;
+    const nativePost = window.postMessage.bind(window) as (message: unknown, options?: unknown, transfer?: Transferable[]) => void;
+    window.postMessage = ((message: unknown, options?: string | WindowPostMessageOptions, transfer?: Transferable[]): void => {
+        nativePost(message, options, transfer);
+        const origin = typeof options === 'string' ? options : options?.targetOrigin ?? '/';
+        if (origin === '*' || origin === '/' || origin === window.location.origin) inFlight++;
+    }) as typeof window.postMessage;
+    const delivered = (event: MessageEvent): void => { if (event.source === window && inFlight > 0) inFlight--; };
+    window.addEventListener('message', delivered, true);
+    window.addEventListener('messageerror', delivered, true);
+    // Requests the test answers from outside the page: posted (the stand-in host's __uiSmokePostedMessages) and not answered yet.
+    const awaited = new Set<string>(), answered = new Set<string>();
+    const unanswered = (): number => {
+        if (!awaited.size) return 0;
+        const posted = (window as unknown as { __uiSmokePostedMessages?: Array<{ type?: string; requestId?: string }> }).__uiSmokePostedMessages ?? [];
+        return posted.filter(message => awaited.has(message.type ?? '') && !answered.has(message.requestId ?? '')).length;
+    };
+    window.__settle = {
+        busy: () => frames.size + timers.size + outside + inFlight + unanswered(),
+        frame: callback => { nativeFrame(() => callback()); },
+        awaitHost: types => { for (const type of types) awaited.add(type); },
+        answered: requestId => { answered.add(requestId); },
+    };
 }
 
 /** Runs in the page: samples the canvases on screen and records each one that stayed at another size. */
-function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }: { settle: { frames: number; ms: number }; others: string; drawnOutside: string; svgCharts: string; svgMin: { width: number; height: number } }): void {
+function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts, svgMin }: { settle: { frames: number; ms: number }; measureMs: number; others: string; drawnOutside: string; svgCharts: string; svgMin: { width: number; height: number } }): void {
     if (window.__canvasAudit) return;
+    // The audit samples every frame on frames of its own, which the page's settling does not wait for.
+    const nextFrame = (callback: () => void): void => { if (window.__settle) window.__settle.frame(callback); else window.requestAnimationFrame(callback); };
     const canvasName = (canvas: HTMLCanvasElement): string => (canvas.id ? `#${canvas.id}` : `canvas${Array.from(canvas.attributes).filter(a => a.name === 'class' || (a.name.startsWith('data-') && !a.name.startsWith('data-plot'))).map(a => (a.name === 'class' ? `.${a.value.trim().split(/\s+/).join('.')}` : `[${a.name}]`)).join('')}`);
     // What drew each plot: a draw into a canvas the plot component marked, made while the component is not drawing,
     // is recorded. A picture copied in from another canvas (drawImage) is a draw too: only the component, while it
@@ -68,7 +181,8 @@ function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }:
             const paper = method === 'fillRect' && this.globalCompositeOperation === 'destination-over';
             if (canvas instanceof HTMLCanvasElement && !(window.__plotPainting ?? 0) && !paper && !(drawnOutside && canvas.matches(drawnOutside))) {
                 const name = `${canvasName(canvas)}: ${method}`;
-                if (canvas.isConnected && canvas.hasAttribute('data-plot')) reportDrawn(name);
+                // A plot, or an axis the component draws on a canvas of its own (data-plot-axis-canvas), is the component's.
+                if (canvas.isConnected && (canvas.hasAttribute('data-plot') || canvas.hasAttribute('data-plot-axis-canvas'))) reportDrawn(name);
                 else {
                     const kept = unseen.get(canvas) ?? new Set<string>();
                     kept.add(name);
@@ -80,14 +194,65 @@ function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }:
     }
     // The words each canvas shows (fillText), whoever drew them, since the whole of it was last cleared: what a test
     // reads to see an axis's name on screen, not only in the plot's attributes.
-    type Texted = HTMLCanvasElement & { __plotTexts?: string[] };
+    // Each tick box keeps where its text is anchored too: in the context's own units (a plot's CSS pixels, as
+    // paintOverlay draws it) and on the bitmap, and how it is aligned, for the audit of where ticks are (R9, R14).
+    type Texted = HTMLCanvasElement & { __plotTexts?: string[]; __tickBoxes?: Array<{ text: string; column: string; row: string; x: number; top: number; bottom: number; align: string; at: { x: number; y: number }; bitmap: { x: number; y: number } }> };
     const fillText = proto.fillText;
+    const measureText = proto.measureText;
+    const tickText = /^[−+-]?\d[\d.]*(e[−+-]?\d+)?k?$/u;
+    // Axis names drawn (partly) outside their canvas (docs/display-rules.md R4: the plot component fits every name
+    // inside it). Judged as each is drawn, against the bitmap it is drawn on, on every plot and plot axis canvas of
+    // every test, at whatever size the test gives the page. A name is told by its unit in closing brackets
+    // ("Level [dBFS]", or the unit's own line "[dBFS]" of a name on two lines, whose quantity line was drawn just
+    // before it at the same turn).
+    const outside: string[] = [];
+    const outsideSeen = new Set<string>();
+    window.__titleAudit = outside;
+    type InkBox = { text: string; left: number; top: number; right: number; bottom: number; turn: string };
+    const lastText = new WeakMap<HTMLCanvasElement, InkBox>();
+    /** Where a text's ink lands on the bitmap, through the context's transform (a name up a value axis is turned). */
+    const inkBox = (context: CanvasRenderingContext2D, text: string, x: number, y: number): InkBox => {
+        const metrics = measureText.call(context, text) as TextMetrics;
+        const at = context.getTransform();
+        const corners = [[x - metrics.actualBoundingBoxLeft, y - metrics.actualBoundingBoxAscent], [x + metrics.actualBoundingBoxRight, y - metrics.actualBoundingBoxAscent],
+            [x - metrics.actualBoundingBoxLeft, y + metrics.actualBoundingBoxDescent], [x + metrics.actualBoundingBoxRight, y + metrics.actualBoundingBoxDescent]].map(([px, py]) => at.transformPoint({ x: px, y: py }));
+        return { text, left: Math.min(...corners.map(c => c.x)), right: Math.max(...corners.map(c => c.x)), top: Math.min(...corners.map(c => c.y)), bottom: Math.max(...corners.map(c => c.y)), turn: `${at.a.toFixed(3)},${at.b.toFixed(3)}` };
+    };
+    const checkInside = (canvas: HTMLCanvasElement, box: InkBox): void => {
+        // A pixel and a half of slack: the ink's own antialiasing at the edge.
+        const slack = 1.5;
+        if (box.left >= -slack && box.top >= -slack && box.right <= canvas.width + slack && box.bottom <= canvas.height + slack) return;
+        const where = canvas.id ? `#${canvas.id.replace(/\d+/gu, 'N')}` : canvas.getAttribute('data-stage-canvas') ? `[data-stage-canvas="${canvas.getAttribute('data-stage-canvas')}"]` : canvas.className || 'canvas';
+        const message = `${where} (${canvas.width}×${canvas.height} bitmap): "${box.text}" is drawn from (${Math.round(box.left)}, ${Math.round(box.top)}) to (${Math.round(box.right)}, ${Math.round(box.bottom)})`;
+        const key = `${where}|${box.text}|${canvas.width}×${canvas.height}`;
+        if (!outsideSeen.has(key)) { outsideSeen.add(key); outside.push(message); }
+    };
     proto.fillText = function (this: CanvasRenderingContext2D, ...args: unknown[]) {
         const canvas = this.canvas as Texted;
+        if (canvas instanceof HTMLCanvasElement && typeof args[0] === 'string' && !tickText.test(args[0]) && (canvas.hasAttribute('data-plot') || canvas.hasAttribute('data-plot-axis-canvas'))) {
+            const box = inkBox(this, args[0], Number(args[1]), Number(args[2]));
+            if (/\[[^\]]+\]$/u.test(args[0].trim())) {
+                checkInside(canvas, box);
+                // The unit's own line: the quantity's line was drawn just before it, turned the same way.
+                const before = lastText.get(canvas);
+                if (/^\[[^\]]+\]$/u.test(args[0].trim()) && before && before.turn === box.turn) checkInside(canvas, before);
+            }
+            lastText.set(canvas, box);
+        }
         if (canvas instanceof HTMLCanvasElement && typeof args[0] === 'string') {
             canvas.__plotTexts ??= [];
             canvas.__plotTexts.push(args[0]);
             if (canvas.__plotTexts.length > 400) canvas.__plotTexts.shift();
+            // A number written unturned: a tick label, kept with its ink's extent up the canvas (in its bitmap's pixels).
+            const at = this.getTransform();
+            if (tickText.test(args[0]) && at.b === 0 && at.c === 0) {
+                const metrics = measureText.call(this, args[0]) as TextMetrics;
+                const [x, y] = [Number(args[1]), Number(args[2])];
+                canvas.__tickBoxes ??= [];
+                canvas.__tickBoxes.push({ text: args[0], column: `${this.textAlign}@${Math.round(at.a * x + at.e)}`, row: `${this.textAlign}/${this.textBaseline}@${Math.round(at.d * y + at.f)}`, x: at.a * x + at.e, top: at.d * (y - metrics.actualBoundingBoxAscent) + at.f, bottom: at.d * (y + metrics.actualBoundingBoxDescent) + at.f,
+                    align: this.textAlign, at: { x, y }, bitmap: { x: at.a * x + at.e, y: at.d * y + at.f } });
+                if (canvas.__tickBoxes.length > 400) canvas.__tickBoxes.shift();
+            }
         }
         return fillText.apply(this, args);
     };
@@ -98,7 +263,7 @@ function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }:
         // In the bitmap's own pixels, through the context's transform.
         const at = this.getTransform();
         const corner = at.transformPoint({ x, y }), far = at.transformPoint({ x: x + width, y: y + height });
-        if (canvas instanceof HTMLCanvasElement && corner.x <= 0 && corner.y <= 0 && far.x >= canvas.width - 1 && far.y >= canvas.height - 1) canvas.__plotTexts = [];
+        if (canvas instanceof HTMLCanvasElement && corner.x <= 0 && corner.y <= 0 && far.x >= canvas.width - 1 && far.y >= canvas.height - 1) { canvas.__plotTexts = []; canvas.__tickBoxes = []; }
         return clearRect.apply(this, args);
     };
     /** A plot with draws from outside the component still on it (made before it was marked, or off the page): reported. */
@@ -271,12 +436,120 @@ function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }:
     // Each plot on screen that draws a layer with no full data declared for its readout (R7).
     const undeclared: string[] = [];
     window.__fullAudit = undeclared;
+    // Each plot on screen with an axis named without its quantity and unit (R4).
+    const unitless: string[] = [];
+    window.__unitAudit = unitless;
+    const colourEnds: string[] = [];
+    window.__colourEndAudit = colourEnds;
+    // Each plot on screen with two tick labels of one axis whose ink overlaps.
+    const crowded: string[] = [];
+    window.__tickAudit = crowded;
+    const overlappingTicks = (canvas: Texted): string[] => {
+        const columns = new Map<string, Array<{ text: string; top: number; bottom: number }>>();
+        for (const box of canvas.__tickBoxes ?? []) columns.set(box.column, [...(columns.get(box.column) ?? []), box]);
+        const found: string[] = [];
+        for (const boxes of columns.values()) {
+            boxes.sort((a, b) => a.top - b.top);
+            boxes.forEach((box, index) => { const next = boxes[index + 1]; if (next && next.top < box.bottom - 0.5) found.push(`"${box.text}"/"${next.text}"`); });
+            // Two ticks of one axis that read the same number (R7, C3: a tick has the digits that tell it from its neighbours).
+            const texts = boxes.map(box => box.text);
+            texts.forEach((text, index) => { if (texts.indexOf(text) !== index && Math.abs(boxes[index].top - boxes[texts.indexOf(text)].top) > 1) found.push(`"${text}" twice`); });
+        }
+        // So for a horizontal axis's ticks: numbers centred under their ticks along one baseline (a value axis's
+        // numbers, left and right of the plot, are aligned to its sides).
+        const rows = new Map<string, Array<{ text: string; x: number }>>();
+        for (const box of canvas.__tickBoxes ?? []) if (box.row.startsWith('center/')) rows.set(box.row, [...(rows.get(box.row) ?? []), box]);
+        for (const boxes of rows.values()) {
+            const seen = new Map<string, number>();
+            for (const box of boxes) {
+                const first = seen.get(box.text);
+                if (first !== undefined && Math.abs(first - box.x) > 2) { found.push(`"${box.text}" twice`); break; }
+                if (first === undefined) seen.set(box.text, box.x);
+            }
+        }
+        return found;
+    };
+    const named = (name: string): boolean => /^.*\S\s*\[[^\]]*[^\]\s][^\]]*\]$/su.test(name.trim());
+    // A colour bar's name as drawn on its canvas (R4): whole, or on two lines (quantity, then "[unit]"), or with its
+    // quantity shortened to its symbol or first characters with an ellipsis (axisTitle.ts fitAxisTitle); never left out.
+    const colourNameDrawn = (texts: readonly string[], name: string): boolean => {
+        const parts = /^(.*\S)\s*\[([^\]]+)\]$/su.exec(name.trim());
+        if (!parts) return false;
+        const [, quantity, unit] = parts;
+        const words = quantity.split(/\s+/u);
+        const isQuantity = (text: string): boolean => text === quantity || (words.length > 1 && text === words[words.length - 1])
+            || (text.length > 1 && text.endsWith('…') && quantity.startsWith(text.slice(0, -1)));
+        const oneLine = texts.some(text => { const drawn = /^(.*\S)\s*\[([^\]]+)\]$/su.exec(text.trim()); return !!drawn && drawn[2] === unit && isQuantity(drawn[1]); });
+        return oneLine || (texts.includes(`[${unit}]`) && texts.some(isQuantity));
+    };
     const rises = (order: string): boolean => order.split(';').some(axis => {
         // A compared level ordered with no levels from the values before thinning ('?', drawnLevelsText) fails too.
         if (axis.split(',').includes('?')) return true;
+        // A level still being fetched ('…'), or whose read failed and is asked again ('!'), is not judged yet: the
+        // plot draws itself again once it is in.
+        if (axis.split(',').some(level => level === '…' || level === '!')) return false;
         const levels = axis.split(',').map(level => (level === '-inf' ? -Infinity : Number(level)));
         return levels.some((level, index) => index > 0 && level > levels[index - 1]);
     });
+    // Since when each plot on screen has shown a level still being fetched: one that never comes in fails too.
+    const measuringSince = new WeakMap<HTMLCanvasElement, number>();
+    // Since when each plot on screen has named an axis it does not draw: drawn soon after (its axis canvas painted
+    // next), it is not reported; never drawn, it is.
+    const undrawnSince = new WeakMap<HTMLCanvasElement, number>();
+    // Whether an axis name is drawn where a reader sees it (as plotContract.spec's 'axes' check reads it): on the plot,
+    // on a canvas the plot component bound to it by id as one drawing its axes (data-plot-named-by: its value axis's
+    // canvas, the horizontal axis it shares with the plots stacked on it), or as text in the element the plot names
+    // for its axis names (data-plot-names). Never on another canvas that happens to draw the same words.
+    const nameShown = (canvas: HTMLCanvasElement, name: string): boolean => {
+        const bound = (canvas.dataset.plotNamedBy ?? '').split(' ').filter(Boolean)
+            .map(id => document.getElementById(id) as Texted | null).filter((other): other is Texted => !!other && !!shownBox(other));
+        if (colourNameDrawn([...((canvas as Texted).__plotTexts ?? []), ...bound.flatMap(other => other.__plotTexts ?? [])], name)) return true;
+        const names = canvas.dataset.plotNames ? document.getElementById(canvas.dataset.plotNames) : null;
+        return !!names && [names, ...Array.from(names.querySelectorAll<HTMLElement>('*'))].some(element => element.children.length === 0 && element.checkVisibility() && element.textContent?.trim() === name);
+    };
+    // Each plot on screen with a vertical axis's tick label written where that axis does not paint its number (R9, R14).
+    const misplaced: string[] = [];
+    window.__tickPlaceAudit = misplaced;
+    /**
+     * Every number a plot's vertical axes write, read as the user reads it (a true minus, "k" for a thousand), held to
+     * the place its axis paints that number (the plot's own transform, __plotTickPlaces): on the plot's left edge (the
+     * level axis, or a heatmap's rows: a numbered row axis's numbers are its rows'), on its right-hand level axis, and
+     * on the canvas beside a lane that holds its value axis (data-plot-axis), within half a pixel.
+     */
+    const tickPlaces = (canvas: HTMLCanvasElement): TickPlaces => {
+        const places = (canvas as HTMLCanvasElement & { __plotTickPlaces?: { left: (label: number) => number; right?: (label: number) => number } }).__plotTickPlaces;
+        const frame = (canvas.getAttribute('data-plot-frame') ?? '').split(' ').map(Number);
+        if (!places || frame.length !== 4 || !frame.every(Number.isFinite)) return { declared: false, judged: 0, wrong: [] };
+        const [left, , width] = frame;
+        const read = (text: string): number => (text.endsWith('k') ? Number(text.slice(0, -1).replace(/−/gu, '-')) * 1000 : Number(text.replace(/−/gu, '-')));
+        const wrong: string[] = [];
+        let judged = 0;
+        const judge = (text: string, drawnY: number, expectedY: number, where: string): void => {
+            if (!Number.isFinite(read(text))) return;
+            judged += 1;
+            if (!(Math.abs(drawnY - expectedY) <= 0.5)) wrong.push(`"${text}" on its ${where} is written at y = ${drawnY.toFixed(2)} px, where that axis paints ${text} at y = ${expectedY.toFixed(2)} px`);
+        };
+        for (const box of (canvas as Texted).__tickBoxes ?? []) {
+            if (box.align === 'right' && Math.abs(box.at.x - (left - 2)) <= 0.5) judge(box.text, box.at.y, places.left(read(box.text)), 'left axis');
+            else if (places.right && box.align === 'left' && Math.abs(box.at.x - (left + width + 4)) <= 0.5) judge(box.text, box.at.y, places.right(read(box.text)), 'right-hand axis');
+        }
+        // A lane's value axis on the canvas beside it: both on the page, the plot's place through its bitmap's ratio
+        // (as paintOverlay sizes a lane), the axis canvas's along its own height (paintSideAxis's frame is its bitmap).
+        const axis = canvas.dataset.plotAxis ? document.getElementById(canvas.dataset.plotAxis) : null;
+        if (axis instanceof HTMLCanvasElement && axis.height > 0 && canvas.height > 0 && canvas.clientWidth > 0) {
+            const plotBox = canvas.getBoundingClientRect(), axisBox = axis.getBoundingClientRect();
+            const plotScale = plotBox.height / (canvas.height / (canvas.width / canvas.clientWidth));
+            for (const box of (axis as Texted).__tickBoxes ?? []) {
+                if (box.align !== 'right' || Math.abs(box.bitmap.x - (axis.width - 2)) > 0.5) continue;
+                judge(box.text, axisBox.top + box.bitmap.y * axisBox.height / axis.height, plotBox.top + places.left(read(box.text)) * plotScale, 'value axis beside it');
+            }
+        }
+        return { declared: true, judged, wrong };
+    };
+    window.__tickPlaces = tickPlaces;
+    // Since when each plot on screen has written a tick away from its place: a plot drawn anew a frame later (its
+    // axis canvas painted next) is not reported; one that stays so is.
+    const misplacedSince = new WeakMap<HTMLCanvasElement, { frame: number; at: number }>();
     const samplePlots = (): void => {
         const now = performance.now();
         for (const canvas of Array.from(document.querySelectorAll('canvas'))) {
@@ -285,13 +558,62 @@ function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }:
                 const name = `order ${canvasName(canvas)}: ${order}`;
                 if (!reported.has(name)) { reported.add(name); misordered.push(`${canvasName(canvas)} drew levels ${order}`); }
             }
+            if (order && /[…!]/u.test(order) && canvas.hasAttribute('data-plot') && shownBox(canvas)) {
+                const since = measuringSince.get(canvas) ?? now;
+                measuringSince.set(canvas, since);
+                const name = `measuring ${canvasName(canvas)}`;
+                if (now - since > measureMs && !reported.has(name)) { reported.add(name); misordered.push(`${canvasName(canvas)} never measured its levels on screen: ${order} ('…': the level read was not answered; '!': it failed. Look at the backend's answer to the read with "level" for this plot, full_read.read_level)`); }
+            } else measuringSince.delete(canvas);
             if (shownBox(canvas)) reportUnseen(canvas, 'drawn before it was a plot, or off the page');
+            const axes = canvas.getAttribute('data-plot-axes');
+            const bare = axes && canvas.hasAttribute('data-plot') && shownBox(canvas) ? axes.split('|').filter(name => !named(name)) : [];
+            // The plot's own ticks, and those on the canvas beside it that holds its value axis (a lane's).
+            const axisCanvas = canvas.dataset.plotAxis ? document.getElementById(canvas.dataset.plotAxis) : null;
+            const crowd = canvas.hasAttribute('data-plot') && shownBox(canvas)
+                ? [...overlappingTicks(canvas), ...(axisCanvas instanceof HTMLCanvasElement ? overlappingTicks(axisCanvas) : [])] : [];
+            if (crowd.length) {
+                const name = `ticks ${canvasName(canvas)}: ${crowd.join(' ')}`;
+                if (!reported.has(name)) { reported.add(name); crowded.push(`${canvasName(canvas)} (${canvas.clientWidth}×${canvas.clientHeight}) writes ${crowd.join(', ')} over each other`); }
+            }
+            if (bare.length) {
+                const name = `units ${canvasName(canvas)}: ${bare.join(' | ')}`;
+                if (!reported.has(name)) { reported.add(name); unitless.push(`${canvasName(canvas)} names ${bare.map(text => `"${text}"`).join(', ')}`); }
+            }
+            const undrawn = axes && canvas.hasAttribute('data-plot') && shownBox(canvas) ? axes.split('|').filter(text => named(text) && !nameShown(canvas, text)) : [];
+            if (undrawn.length) {
+                const since = undrawnSince.get(canvas) ?? now;
+                undrawnSince.set(canvas, since);
+                const name = `undrawn ${canvasName(canvas)}: ${undrawn.join(' | ')}`;
+                if (now - since > measureMs && !reported.has(name)) { reported.add(name); unitless.push(`${canvasName(canvas)} (${canvas.clientWidth}×${canvas.clientHeight}) names ${undrawn.map(text => `"${text}"`).join(', ')} but does not draw it`); }
+            } else undrawnSince.delete(canvas);
+            const ticksWrong = canvas.hasAttribute('data-plot') && shownBox(canvas) ? tickPlaces(canvas).wrong : [];
+            if (ticksWrong.length) {
+                const from = misplacedSince.get(canvas) ?? { frame, at: now };
+                misplacedSince.set(canvas, from);
+                const name = `tick places ${canvasName(canvas)}: ${ticksWrong.join(' ')}`;
+                if (frame - from.frame >= settle.frames && now - from.at >= settle.ms && !reported.has(name)) { reported.add(name); misplaced.push(`${canvasName(canvas)} (${canvas.clientWidth}×${canvas.clientHeight}): ${ticksWrong.join('; ')}`); }
+            } else misplacedSince.delete(canvas);
+            const colour = canvas.getAttribute('data-plot-colour');
+            if (colour && canvas.hasAttribute('data-plot') && shownBox(canvas) && !colourNameDrawn((canvas as Texted).__plotTexts ?? [], colour)) {
+                const name = `colour ${canvasName(canvas)}: ${colour}`;
+                if (!reported.has(name)) { reported.add(name); unitless.push(`${canvasName(canvas)} (${canvas.clientWidth}×${canvas.clientHeight}) draws its colour bar without its name "${colour}"`); }
+            }
+            // A colour bar's end numbers are its scale (R9): each, read back (true minus undone), is the end its
+            // colours are painted from (data-plot-colour-scale, exact), and is drawn on the canvas.
+            const scale = canvas.getAttribute('data-plot-colour-scale'), ends = canvas.getAttribute('data-plot-colour-ends');
+            if (scale && ends && canvas.hasAttribute('data-plot') && shownBox(canvas)) {
+                const painted = scale.split(' ').map(Number), written = JSON.parse(ends) as string[];
+                const drawnTexts = (canvas as Texted).__plotTexts ?? [];
+                const wrong = written.filter((text, index) => Number(text.replace(/−/gu, '-')) !== painted[index] || !drawnTexts.includes(text));
+                const name = `colour ends ${canvasName(canvas)}: ${ends} ${scale}`;
+                if (wrong.length && !reported.has(name)) { reported.add(name); colourEnds.push(`${canvasName(canvas)} writes its colour bar's ends ${written.map(text => `"${text}"`).join(' and ')} but paints its colours from ${painted.join(' to ')}`); }
+            }
             const full = canvas.getAttribute('data-plot-full');
             if (full?.startsWith('missing') && canvas.hasAttribute('data-plot') && shownBox(canvas)) {
                 const name = `full ${canvasName(canvas)}: ${full}`;
                 if (!reported.has(name)) { reported.add(name); undeclared.push(`${canvasName(canvas)} ${full}`); }
             }
-            if (canvas.hasAttribute('data-plot') || (others && canvas.matches(others)) || !shownBox(canvas)) { unmarkedSince.delete(canvas); continue; }
+            if (canvas.hasAttribute('data-plot') || canvas.hasAttribute('data-plot-axis-canvas') || (others && canvas.matches(others)) || !shownBox(canvas)) { unmarkedSince.delete(canvas); continue; }
             const from = unmarkedSince.get(canvas) ?? { frame, at: now };
             unmarkedSince.set(canvas, from);
             if (frame - from.frame < settle.frames || now - from.at < settle.ms) continue;
@@ -299,8 +621,8 @@ function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }:
             if (!reported.has(`plot ${name}`)) { reported.add(`plot ${name}`); unregistered.push(name); }
         }
     };
-    const tick = (): void => { sample(); sampleReadouts(); samplePlots(); sampleSvgs(); window.requestAnimationFrame(tick); };
-    window.requestAnimationFrame(tick);
+    const tick = (): void => { sample(); sampleReadouts(); samplePlots(); sampleSvgs(); nextFrame(tick); };
+    nextFrame(tick);
 }
 
 /** The page with the audit installed by its first script, before any of its own run. */
@@ -308,12 +630,36 @@ export function withAuditFirst(html: string): string {
     const first = html.search(/<script\b/u);
     if (first < 0) return html;
     const nonce = /<script nonce="([^"]+)"/u.exec(html)?.[1];
-    const script = `<script${nonce ? ` nonce="${nonce}"` : ''}>(${installCanvasAudit.toString()})(${JSON.stringify({ ...AUDIT, svgMin: SVG_CHART_MIN })});</script>`;
+    const script = `<script${nonce ? ` nonce="${nonce}"` : ''}>(${installSettleTracker.toString()})(${SETTLE_TIMER_MS});(${installCanvasAudit.toString()})(${JSON.stringify({ ...AUDIT, svgMin: SVG_CHART_MIN })});</script>`;
     return html.slice(0, first) + script + html.slice(first);
+}
+
+/**
+ * Waits until the page has answered what the test just did: two frames in a row with no frame it asked for, no
+ * short timer it set still to run (a redraw, a debounce, a reply the stand-in host posts later, the next step of a
+ * read), no fetch or file read it is still waiting for and no message posted to it not yet delivered. Use it where a test would otherwise wait a fixed time before reading what the page shows: a slow machine
+ * then waits longer and a fast one less, and the page read is the one the input led to. A page that keeps drawing
+ * (playback) never settles: after `timeoutMs` the wait ends, and the read is the page as it is then.
+ */
+export async function settled(page: import('@playwright/test').Page, timeoutMs = 10_000): Promise<boolean> {
+    return page.evaluate(timeout => new Promise<boolean>(resolve => {
+        const tracker = window.__settle;
+        if (!tracker) { resolve(false); return; }
+        const start = performance.now();
+        let quiet = 0;
+        const check = (): void => {
+            quiet = tracker.busy() === 0 ? quiet + 1 : 0;
+            if (quiet >= 2) resolve(true);
+            else if (performance.now() - start > timeout) resolve(false);
+            else tracker.frame(check);
+        };
+        tracker.frame(check);
+    }), timeoutMs);
 }
 
 export const test = base.extend<{ canvasAudit: void }>({
     canvasAudit: [async ({ page }, use) => {
+        await page.addInitScript(installSettleTracker, SETTLE_TIMER_MS);
         await page.addInitScript(installCanvasAudit, { ...AUDIT, svgMin: SVG_CHART_MIN });
         // setContent writes the document without a navigation, so the init script does not run for it: the audit goes
         // in as the document's first script (with the page's nonce), so the first drawing is audited too.
@@ -337,6 +683,19 @@ export const test = base.extend<{ canvasAudit: void }>({
         base.expect.soft(misorderedFound, 'plots that drew a louder compared line over a quieter one (R6: paintOverlay draws the quietest last, on top)').toEqual([]);
         const undeclaredFound = await page.evaluate(() => window.__fullAudit ?? []);
         base.expect.soft(undeclaredFound, 'plots that draw a layer without its full data declared (R7: give the layer `full`, fullRead.ts)').toEqual([]);
+        const unitlessFound = await page.evaluate(() => window.__unitAudit ?? []);
+        base.expect.soft(unitlessFound, 'plots with an axis or a colour bar named without its quantity and unit (R4: "Quantity [unit]", "[–]" when dimensionless)').toEqual([]);
+        const colourEndsFound = await page.evaluate(() => window.__colourEndAudit ?? []);
+        base.expect.soft(colourEndsFound, 'colour bars whose end numbers are not the scale their colours are painted from (docs/display-rules.md R9: '
+            + 'make the scale where the range is made, figureModel.colourScale, and write it with stagePanes.colourEndText, which never rounds)').toEqual([]);
+        const titlesOutside = await page.evaluate(() => window.__titleAudit ?? []);
+        base.expect.soft(titlesOutside, 'axis names drawn outside their canvas (docs/display-rules.md R4: every name is fitted inside its canvas by the plot component. '
+            + 'Fix in the shared code, not per chart: along the axis, give fitAxisTitle (src/webview/plot/axisTitle.ts) the room the name really has; across it, keep the name between the canvas\'s edge and the plot (stagePanes.ts paintValueTitle\'s gutter, the colour bar\'s box))').toEqual([]);
+        const crowdedFound = await page.evaluate(() => window.__tickAudit ?? []);
+        base.expect.soft(crowdedFound, 'plots with two tick labels of one axis over each other (fewer ticks on a short plot: valueAxisTicks, spacedTicks), or two that read the same number (tickTexts)').toEqual([]);
+        const misplacedFound = await page.evaluate(() => window.__tickPlaceAudit ?? []);
+        base.expect.soft(misplacedFound, 'plots with a tick label written where its axis does not paint that number (docs/display-rules.md R9, R14: place each tick by the transform '
+            + 'the picture is painted with, stagePanes.placedTicks; choose a numbered row axis\'s ticks as rows, stagePanes.rowNumberTicks; never relabel a tick\'s place with another number)').toEqual([]);
         const svgFound = await page.evaluate(() => window.__svgAudit ?? []);
         base.expect.soft(svgFound, 'charts drawn as SVG (R13: draw them with paintOverlay, or list them in plotRegistry.ts while they wait)').toEqual([]);
     }, { auto: true }],

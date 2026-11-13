@@ -83,7 +83,14 @@ test('a held slot draws its own channel\'s Δ against its base from every bin th
         }
         await expect(page.locator('[data-entry-held]')).not.toHaveClass(/is-pending/);
         // Channel 2's three bins are 12 dB up; channel 1 is the same as its base's.
-        expect(await largestReadDelta(page)).toBeCloseTo(expected, 1);
+        const largest = await largestReadDelta(page);
+        expect(largest).toBeCloseTo(expected, 1);
+        if (key === second) {
+            // Both channels power-averaged before the difference (as the table's points are) would read about 9.3 dB.
+            const [quiet, loud] = (result(FILES[0], true).spectrumBinsDb as number[][]).map(channel => channel[NARROW[1]]);
+            const averaged = 10 * Math.log10((10 ** (quiet / 10) + 10 ** (loud / 10)) / 2) - quiet;
+            expect(largest).not.toBeCloseTo(averaged, 1);
+        }
         await page.keyboard.up('1');
         await expect(page.locator('[data-entry-held]')).toBeHidden();
     }

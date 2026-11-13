@@ -6,8 +6,8 @@ import type {
     SpectrogramSettings,
     StftOptions,
 } from '../analysis/analysisTypes';
-import { saveSession, runCompareCombine, runCompareScan, runEntryProbe, runEntryScan, type ComparePublication, type EntryProbePublication, type EntryPublication, type EntryScanPorts } from '../analysis/entryScan';
-import { userErrorText, type CalibrationRequestContext, type ErrorSummaryStrings, type PairSpectrumResult } from '../protocol/backendProtocol';
+import { compareScanAsker, saveSession, runCompareCombine, runCompareScan, runEntryProbe, runEntryScan, type ComparePublication, type EntryProbePublication, type EntryPublication, type EntryScanPorts } from '../analysis/entryScan';
+import { backendErrorCode, userErrorText, type CalibrationRequestContext, type ErrorSummaryStrings, type PairSpectrumResult } from '../protocol/backendProtocol';
 import { parsePanelMessage, type PanelMessage, type SaveRecipeMessage } from '../protocol/panelMessages';
 import type { AnalyzeSelectedFilesMessage, ConfigureCalibrationMessage, ExportReportOptionsMessage, ExportWavLoopMessage, PairSpectrumRequest, SelectionTargetKind } from '../utils/audioTarget';
 import { exportWavRegions, reportArtifact, type ReportFormat, type WavExportSink, type WavExportSource } from '../utils/exportArtifact';
@@ -28,7 +28,12 @@ export type SessionPublication =
 
 export type PairSpectrumPublication =
     | ({ type: 'pair-spectrum-result'; requestId: string } & Omit<PairSpectrumResult, 'analysisRevision' | 'calibrationSignature'>)
-    | { type: 'pair-spectrum-error'; requestId: string; analysisId: string; settingsSignature: string; error: string };
+    | { type: 'pair-spectrum-error'; requestId: string; analysisId: string; settingsSignature: string; error: string; staleSource?: true };
+
+/** A failure no asking again can mend: the file changed on disk since its track was analysed (stale-source). */
+export function staleSourceOf(error: unknown): { staleSource?: true } {
+    return backendErrorCode(error) === 'stale-source' ? { staleSource: true } : {};
+}
 
 /** Publication validity captured when one panel message starts. */
 export interface SessionScope {
@@ -175,7 +180,7 @@ export class ComparisonSessionController {
                 case 'compare-scan': {
                     const entry = this.ports.entry;
                     if (!entry) { this.ports.unsupported(message.type); return; }
-                    const source = message.requestId.replace(/-[^-]*$/, '');
+                    const source = compareScanAsker(message.requestId);
                     const scan = ++this.compareScanCount;
                     this.compareScans.set(source, scan);
                     await runCompareScan(entry, message, publication => this.ports.publish(publication),
@@ -248,12 +253,14 @@ export class ComparisonSessionController {
             if (cancellation.isCancellationRequested) return;
             if (!scope.canPublish(request.filePath, context?.analysisRevision)) return;
             const reason = this.reasonOf(error);
+            const stale = staleSourceOf(error);
             this.ports.lazyFailed?.(request, reason);
-            if (request.type !== 'request-waveform-range') { const pending = this.ports.publish(lazyAnalysisError(request, reason)); if (thenable(pending)) await pending; }
-            else if (request.read) {
-                // A read waits for its answer: one that failed is answered with no points (the readout shows none).
-                const pending = this.ports.publish({ type: 'waveform-range-result', requestId: request.requestId, trackIndex: request.trackIndex,
-                    startNorm: request.startNorm, endNorm: request.endNorm, channels: [] });
+            if (request.type !== 'request-waveform-range') { const pending = this.ports.publish({ ...lazyAnalysisError(request, reason), ...stale }); if (thenable(pending)) await pending; }
+            else if (request.read || stale.staleSource) {
+                // A read waits for its answer: one that failed is answered with no points (the readout shows none). A
+                // range of a file changed since is answered too, so the lane stops asking (staleSource).
+                const pending = this.ports.publish({ type: 'waveform-range-result', requestId: request.requestId, trackIndex: request.trackIndex, sourceVersion: request.sourceVersion,
+                    startNorm: request.startNorm, endNorm: request.endNorm, channels: [], ...stale });
                 if (thenable(pending)) await pending;
             }
         } finally {
@@ -281,7 +288,7 @@ export class ComparisonSessionController {
         } catch (error) {
             if (!sources.every(source => scope.canPublish(source.filePath, contexts.get(source.filePath)?.analysisRevision))) return;
             const pending = this.ports.publish({ type: 'pair-spectrum-error', requestId: request.requestId,
-                analysisId: request.analysisId, settingsSignature: request.settingsSignature, error: this.reasonOf(error) });
+                analysisId: request.analysisId, settingsSignature: request.settingsSignature, error: this.reasonOf(error), ...staleSourceOf(error) });
             if (thenable(pending)) await pending;
         }
     }

@@ -70,14 +70,14 @@ test('the cursor spectrum names its level axis as Compare does, uncalibrated, an
     const legend = page.locator('#spectrum-axis-legend');
     await expect(legend).toBeVisible();
     await expect(legend.locator('.spectrum-axis-legend-label').first()).not.toBeEmpty();
-    await expect(legend.locator('.spectrum-axis-legend-reference')).toHaveText(/^Amplitude, uncalibrated \[dB/);
+    await expect(legend.locator('.spectrum-axis-legend-reference')).toHaveText(/^Level, uncalibrated \[dB/);
     expect((await overlayTexts()).some(text => text.startsWith('Spectrum amplitude level'))).toBe(false);
     // 1/3 octave bands are named the same way, not "Band level".
     await page.locator('[data-action="spectrum-octave-3"]').click();
     await page.evaluate(() => { (window as unknown as { __overlayTexts: string[] }).__overlayTexts.length = 0; });
     await hoverOverlayAt(page, 0.5);
     await expect.poll(() => sliceRequests(page).then(requests => requests.some(request => request.bandsPerOctave === 3))).toBe(true);
-    await expect(legend.locator('.spectrum-axis-legend-reference')).toHaveText(/^Amplitude, uncalibrated \[dB/);
+    await expect(legend.locator('.spectrum-axis-legend-reference')).toHaveText(/^Level, uncalibrated \[dB/);
     expect((await overlayTexts()).some(text => text.startsWith('Band level'))).toBe(false);
 });
 

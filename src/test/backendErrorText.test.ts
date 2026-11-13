@@ -69,7 +69,7 @@ test('a failed spectrogram request reaches the lane as the localized summary wit
     } as unknown as ComparisonSessionPorts;
 
     await new ComparisonSessionController(ports).handle({
-        type: 'request-track-detail', requestId: 'd1', analysisId: 'a', settingsSignature: 's', trackIndex: 0, filePath: '/short.wav',
+        type: 'request-track-detail', requestId: 'd1', analysisId: 'a', settingsSignature: 's', trackIndex: 0, filePath: '/short.wav', sourceVersion: undefined,
     });
 
     const expected = `${ja.errorAnalysisSettings}\n${SCIPY}`;

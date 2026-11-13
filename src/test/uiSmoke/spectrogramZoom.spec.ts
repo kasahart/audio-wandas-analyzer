@@ -3,7 +3,7 @@
  * and draws and reads that window's frames instead of the whole file's columns stretched. Zoomed back out, it draws
  * the whole file's again.
  */
-import { expect, test } from './canvasAudit';
+import { expect, settled, test } from './canvasAudit';
 import { buildExtensionHostPathUiSmokeHtml } from './buildHtml';
 
 type Posted = Array<Record<string, unknown>>;
@@ -63,7 +63,7 @@ test('a zoomed spectrogram lane asks for its window again and draws it from that
     // may ask more than once: wait until it has stopped asking and draws the last window it asked for.
     await expect.poll(async () => {
         const before = await windowRequests();
-        await page.waitForTimeout(250);
+        await settled(page);
         const asked = await windowRequests();
         const last = asked[asked.length - 1];
         const drawn = (await lane.getAttribute('data-spectrogram-window')) ?? '';
@@ -99,13 +99,14 @@ test('a spectrogram lane boxed to a narrow band asks for that band\'s own bins a
                 answered.add(request.requestId);
                 const count = 20;
                 const times = Array.from({ length: count }, (_, k) => (k + 0.5) * duration / count);
-                const read = request.read as { x: number[]; y?: number[]; beyond?: number } | undefined;
+                const read = request.read as { x: number[]; y?: number[]; beyond?: number; rows?: number } | undefined;
                 if (read) {
-                    // A readout's read (R7): the STFT's real cells around the place, from all 1025 bins.
+                    // A readout's read (R7): the STFT's real cells around the place, from all 1025 bins, `beyond`
+                    // columns and `rows` rows (two unless asked) either side, as full_read.read_cells answers.
                     const nearest = (axis: number[], value: number): number => axis.reduce((best, at, index) => (Math.abs(at - value) < Math.abs(axis[best] - value) ? index : best), 0);
                     const bins = Array.from({ length: 1025 }, (_, bin) => bin * binHz);
                     const column = nearest(times, read.x[0]), row = nearest(bins, read.y?.[0] ?? 0), beyond = read.beyond ?? 1;
-                    const c0 = Math.max(0, column - beyond), c1 = Math.min(count, column + beyond + 1), r0 = Math.max(0, row - 2), r1 = Math.min(1025, row + 3);
+                    const c0 = Math.max(0, column - beyond), c1 = Math.min(count, column + beyond + 1), either = read.rows ?? 2, r0 = Math.max(0, row - either), r1 = Math.min(1025, row + either + 1);
                     const ys = bins.slice(r0, r1), xs = times.slice(c0, c1);
                     window.postMessage({
                         type: 'track-detail-result', requestId: request.requestId, analysisId: request.analysisId,
@@ -167,12 +168,27 @@ test('a spectrogram lane boxed to a narrow band asks for that band\'s own bins a
     // The pointer reads the band's own rows: the 1 kHz bin at −20 dB, at its own frequency.
     const zoomed = (await lane.boundingBox())!;
     const readout = page.locator('#plot-readout');
+    // Everything asked of the host for the lane: its pictures (the band's bins) and its readout's reads.
+    const reads = () => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Posted }).__uiSmokePostedMessages
+        .filter((message) => message.type === 'request-track-detail').length);
+    // The first reads, at the band's top, middle and bottom, are answered by the host (above, every 20 ms): their
+    // cells, 16 rows either side of each (with the reads made while boxing, at its corners), hold the band's every row.
+    const placeAt = (step: number) => page.mouse.move(zoomed.x + zoomed.width / 2, zoomed.y + zoomed.height * step / 40);
+    for (const step of [0, 20, 40]) {
+        await placeAt(step);
+        await expect(readout).not.toBeEmpty();
+    }
+    const asked = await reads();
+    // Moving inside those kept cells, the view unchanged, the pointer asks the host nothing new and the readout never
+    // goes empty (R7): each place is read at once from what came.
     let found = '';
-    for (let step = 0; step <= 40 && !found; step++) {
-        await page.mouse.move(zoomed.x + zoomed.width / 2, zoomed.y + zoomed.height * step / 40);
+    for (let step = 0; step <= 40; step++) {
+        await placeAt(step);
         const text = (await readout.textContent()) ?? '';
+        expect(text, `R7: the readout went empty at step ${step}, inside the cells already read. A pointer moving inside a kept read reads it at once (fullRead.fetchedSource cells): find why it asked again.`).not.toBe('');
         if (/−20\.0 dB/.test(text)) found = text;
     }
+    expect(await reads(), 'R7: moves inside the cells already read, the view unchanged, asked the host again (a read or the band\'s picture): a kept read answers every place inside it, and the band is asked once').toBe(asked);
     expect(found).toMatch(/1(\.000)? kHz/);
     // Double-click resets the zoom: the whole range's rows again.
     await lane.dblclick();

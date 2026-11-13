@@ -40,6 +40,9 @@ SUPPORTED_KEYWORDS = frozenset(
         "items",
         "anyOf",
         "x-tsType",
+        "x-drawn",
+        "x-whole",
+        "x-place",
     }
 )
 # ``anyOf`` is limited to the nullable form ``{"anyOf": [schema, {"type": "null"}]}`` with no siblings, so
@@ -61,8 +64,34 @@ _BROWSER_LIMIT_KEYS = (
 )
 
 _NUMBER: Schema = {"type": "number"}
-_NUMBERS: Schema = {"type": "array", "items": _NUMBER}
-_NULLABLE_NUMBERS: Schema = {"type": "array", "items": {"anyOf": [_NUMBER, _NULL]}}
+# Every array of numbers says which of three things it holds, so no array of thinned points can pass for data
+# (test_protocol_schema.py fails on an array that says none, or more than one):
+#
+# - ``x-drawn``: points thinned to be drawn (a line's buckets, an image's averaged cells, a waveform's envelope or
+#   its picked samples). It makes the generated TypeScript type ``Drawn`` (src/shared/provenance.ts), which no code
+#   can compute with or write as text, so a number a user reads is never taken of these arrays.
+# - ``x-whole``: every value of the data, none left out: a full read's points, a scan's every bin and band, a
+#   number taken per channel of every sample. Only these may be given to the webview as full data
+#   (src/webview/runtime/wholeAnswers.ts; the generated ``WholeFields`` lists them).
+# - ``x-place``: not data values at all: where points sit along an axis (a picture's ``xs``), an axis's limits,
+#   band centres, bin edges, a request's window in pixels.
+#
+# The markers carry no constraint on the wire. When you add an array, choose by asking: did anything upstream pick
+# some of the values and drop others (``x-drawn``), or is this every one (``x-whole``)?
+_DRAWN: Schema = {"type": "number", "x-drawn": True}
+_DRAWN_LINE: Schema = {"type": "array", "items": _DRAWN}
+_DRAWN_GAPPED: Schema = {"type": "array", "items": {"anyOf": [_DRAWN, _NULL]}}
+_WHOLE: Schema = {"type": "number", "x-whole": True}
+_WHOLE_LINE: Schema = {"type": "array", "items": _WHOLE}
+_WHOLE_GAPPED: Schema = {"type": "array", "items": {"anyOf": [_WHOLE, _NULL]}}
+_PLACE: Schema = {"type": "number", "x-place": True}
+_PLACES: Schema = {"type": "array", "items": _PLACE}
+# One axis of a picture's source data (stage_view.StageSourceAxis).
+_SOURCE_AXIS: Schema = {
+    "type": "object",
+    "required": ["count", "first", "last"],
+    "properties": {"count": {"type": "integer", "minimum": 1}, "first": _PLACE, "last": _PLACE, "step": _PLACE},
+}
 
 DEFINITIONS: dict[str, Schema] = {
     # Deep calibration validation stays in calibration_profile.py / calibrationModel.ts.
@@ -88,11 +117,11 @@ DEFINITIONS: dict[str, Schema] = {
         "type": "object",
         "required": ["min", "max", "samples", "absolutePeak"],
         "properties": {
-            "min": _NUMBERS,
-            "max": _NUMBERS,
-            "minT": _NUMBERS,
-            "maxT": _NUMBERS,
-            "samples": _NUMBERS,
+            "min": _DRAWN_LINE,
+            "max": _DRAWN_LINE,
+            "minT": _DRAWN_LINE,
+            "maxT": _DRAWN_LINE,
+            "samples": _DRAWN_LINE,
             "absolutePeak": _NUMBER,
         },
     },
@@ -153,7 +182,7 @@ DEFINITIONS: dict[str, Schema] = {
             "maxDb",
         ],
         "properties": {
-            "values": {"type": "array", "items": _NUMBERS},
+            "values": {"type": "array", "items": _DRAWN_LINE},
             "timeBins": {"type": "integer"},
             "frequencyBins": {"type": "integer"},
             "windowSize": {"type": "integer"},
@@ -166,7 +195,7 @@ DEFINITIONS: dict[str, Schema] = {
             "referenceValue": {"$ref": "#/$defs/SafeCalibrationValue"},
             "referenceUnit": {"type": "string"},
             "levelReferenceLabel": {"type": "string"},
-            "timeCentersSec": _NUMBERS,
+            "timeCentersSec": _PLACES,
             # A zoomed band's rows run from bandLowHz (its first FFT bin kept) to bandHighHz;
             # absent: 0 to maxFrequencyHz.
             "bandLowHz": _NUMBER,
@@ -237,6 +266,9 @@ DEFINITIONS: dict[str, Schema] = {
             "calibrationSignature": {"type": "string"},
             "calibrationProfile": {"$ref": "#/$defs/CalibrationProfile"},
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
+            "sourceVersion": {"type": "string"},
+            # The STFT the answer is taken with (window/hop/window name): not read over an analysis of another.
+            "stftSignature": {"type": "string"},
             # Compatibility metadata for results whose channels share one reference.
             "units": {"$ref": "#/$defs/AnalysisUnits"},
             "channels": {"type": "array", "items": {"$ref": "#/$defs/ChannelSummary"}},
@@ -253,6 +285,8 @@ DEFINITIONS: dict[str, Schema] = {
             "stftOptions": {"$ref": "#/$defs/StftOptions"},
             "calibrationProfile": {"$ref": "#/$defs/CalibrationProfile"},
             "analysisRevision": {"$ref": "#/$defs/AnalysisRevision"},
+            # The version of the file the asking track was drawn from: a file changed since is refused (stale-source).
+            "sourceVersion": {"type": "string"},
             # A zoomed lane's time window (fractions of the file): its spectrogram from the frames in it, at full
             # resolution up to the display limits (R3); absent for the whole file.
             "startNorm": _NUMBER,
@@ -277,6 +311,9 @@ DEFINITIONS: dict[str, Schema] = {
             "channels": {"type": "array", "items": {"$ref": "#/$defs/ChannelSummary"}},
             "calibrationSignature": {"type": "string"},
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
+            "sourceVersion": {"type": "string"},
+            # The STFT the answer is taken with (window/hop/window name): not read over an analysis of another.
+            "stftSignature": {"type": "string"},
             "points": {"$ref": "#/$defs/StagePoints"},
         },
     },
@@ -290,6 +327,8 @@ DEFINITIONS: dict[str, Schema] = {
             "points": {"type": "integer", "minimum": 1, "maximum": MAX_WAVEFORM_POINTS},
             "calibrationProfile": {"$ref": "#/$defs/CalibrationProfile"},
             "analysisRevision": {"$ref": "#/$defs/AnalysisRevision"},
+            # The version of the file the asking track was drawn from: a file changed since is refused (stale-source).
+            "sourceVersion": {"type": "string"},
             # Only the samples the lane reads (StageRead, x the file's 0..1, channel), never its envelope.
             "read": {"$ref": "#/$defs/StageRead"},
         },
@@ -310,6 +349,8 @@ DEFINITIONS: dict[str, Schema] = {
             "stftOptions": {"$ref": "#/$defs/StftOptions"},
             "calibrationProfile": {"$ref": "#/$defs/CalibrationProfile"},
             "analysisRevision": {"$ref": "#/$defs/AnalysisRevision"},
+            # The version of the file the asking track was drawn from: a file changed since is refused (stale-source).
+            "sourceVersion": {"type": "string"},
         },
     },
     "RangeResult": {
@@ -321,6 +362,7 @@ DEFINITIONS: dict[str, Schema] = {
             "channels": {"type": "array", "items": {"$ref": "#/$defs/WaveformEnvelope"}},
             "calibrationSignature": {"type": "string"},
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
+            "sourceVersion": {"type": "string"},
             "points": {"$ref": "#/$defs/StagePoints"},
         },
     },
@@ -329,7 +371,11 @@ DEFINITIONS: dict[str, Schema] = {
         "required": ["channelIndex", "values", "minDb", "maxDb"],
         "properties": {
             "channelIndex": {"type": "integer"},
-            "values": _NUMBERS,
+            # As drawn: every bin (or band) when the result has no ``frequenciesHz``, else cut for display.
+            "values": _DRAWN_LINE,
+            # Every bin (or band) of the row, sent only when the row is not cut for display
+            # (analysis_service.spectrum_slice): what the webview reads, orders and exports (R7).
+            "bins": _WHOLE_LINE,
             "minDb": _NUMBER,
             "maxDb": _NUMBER,
             "unit": {"type": "string"},
@@ -364,17 +410,20 @@ DEFINITIONS: dict[str, Schema] = {
             "maxFrequencyHz": _NUMBER,
             # Octave-band results only: the bands' nominal centres and the fixed log axis lower edge.
             "bandsPerOctave": {"type": "integer", "enum": [1, 3]},
-            "bandCentersHz": _NUMBERS,
+            "bandCentersHz": _PLACES,
             "minFrequencyHz": _NUMBER,
             # FFT results cut for display only: each point's frequency, the peak bin of its log-spaced group.
             # Absent when the values hold every FFT bin, evenly spaced from 0 Hz to maxFrequencyHz.
-            "frequenciesHz": _NUMBERS,
+            "frequenciesHz": _PLACES,
             "windowStartNorm": _NUMBER,
             "windowEndNorm": _NUMBER,
             "window": {"type": "string", "enum": ["hann", "hamming", "blackman", "boxcar"]},
             "computeMs": _NUMBER,
             "calibrationSignature": {"type": "string"},
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
+            "sourceVersion": {"type": "string"},
+            # The STFT the answer is taken with (window/hop/window name): not read over an analysis of another.
+            "stftSignature": {"type": "string"},
         },
     },
     "PairSource": {
@@ -386,6 +435,8 @@ DEFINITIONS: dict[str, Schema] = {
             "offsetSeconds": _NUMBER,
             "calibrationProfile": {"$ref": "#/$defs/CalibrationProfile"},
             "analysisRevision": {"$ref": "#/$defs/AnalysisRevision"},
+            # The version of the file the asking track was drawn from: a file changed since is refused (stale-source).
+            "sourceVersion": {"type": "string"},
         },
     },
     # Averages the reference against each response over their overlap on the global timeline,
@@ -429,16 +480,19 @@ DEFINITIONS: dict[str, Schema] = {
             "averages": {"type": "integer", "minimum": 0},
             "resampled": {"type": "boolean"},
             # null where a quantity is undefined, e.g. the gain where the reference has no power.
-            "gainDb": _NULLABLE_NUMBERS,
-            "phaseRad": _NULLABLE_NUMBERS,
-            "coherence": _NULLABLE_NUMBERS,
+            "gainDb": _WHOLE_GAPPED,
+            "phaseRad": _WHOLE_GAPPED,
+            "coherence": _WHOLE_GAPPED,
             "unit": {"type": "string"},
             "axisLabel": {"type": "string"},
             "referenceValue": {"$ref": "#/$defs/SafeCalibrationValue"},
             "referenceUnit": {"type": "string"},
             "levelReferenceLabel": {"type": "string"},
+            # The pair's calibration: calibrated only when both the reference channel and the response channel are.
+            "calibrationStatus": {"type": "string", "enum": ["uncalibrated", "calibrated"]},
             "calibrationSignature": {"type": "string"},
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
+            "sourceVersion": {"type": "string"},
         },
     },
     "PairSpectrumResult": {
@@ -469,6 +523,9 @@ DEFINITIONS: dict[str, Schema] = {
             "computeMs": _NUMBER,
             "calibrationSignature": {"type": "string"},
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
+            "sourceVersion": {"type": "string"},
+            # The STFT the answer is taken with (window/hop/window name): not read over an analysis of another.
+            "stftSignature": {"type": "string"},
             "responses": {"type": "array", "items": {"$ref": "#/$defs/PairSpectrumResponse"}},
         },
     },
@@ -489,6 +546,14 @@ DEFINITIONS: dict[str, Schema] = {
     },
     # Nothing to report; the reply only settles the request.
     "ReleaseTrackDetailResult": {"type": "object", "properties": {}},
+    "ScanSpecPayload": {"type": "object", "properties": {}},
+    # What decides a scan's numbers besides the file, its calibration and the Recipe:
+    # a stored scan of another is not reused.
+    "ScanSpecResult": {
+        "type": "object",
+        "required": ["specVersion", "wandasVersion"],
+        "properties": {"specVersion": {"type": "integer"}, "wandasVersion": {"type": "string"}},
+    },
     "RecipeChannel": {
         "type": "object",
         "required": ["filePath", "channelIndex"],
@@ -559,30 +624,42 @@ DEFINITIONS: dict[str, Schema] = {
         "type": "object",
         "required": ["x", "points"],
         "properties": {
-            "x": {"type": "array", "items": _NUMBER},
-            "y": {"type": "array", "items": _NUMBER},
+            "x": _PLACES,
+            "y": _PLACES,
             "points": {"type": "integer", "minimum": 2, "maximum": MAX_WAVEFORM_POINTS},
+            "peakX": _PLACES,
+            "peakY": _PLACES,
         },
     },
     # What a plot reads under its pointer or steps to with an arrow key (full_read.py): its window [x0, x1] (or
     # [x]) in the axis's own units, an image's row place ``y`` (and ``rows`` either side of it), points past each
     # end (``beyond``) and, for a window too dense to send whole, ``columns`` pixel columns across it (log-spaced on
-    # a ``log`` axis) and the level ``near`` the pointer. ``event`` names a trigger's event, ``of`` a combined
-    # picture, ``channel`` a lane's.
+    # a ``log`` axis) and the level ``near`` the pointer, with its place ``at`` and the screen's ``pixels`` per unit
+    # of each axis, for the point nearest it on screen; ``seek`` asks for an arrow key's next point to read past x,
+    # however far; ``plain`` reads every finite value of a line of plain values (no silent floor). ``event`` names
+    # a trigger's event, ``of`` a combined picture, ``channel`` a lane's. ``level`` asks instead for the power of
+    # every value in the window (R6).
     "StageRead": {
         "type": "object",
         "required": ["x"],
         "properties": {
-            "x": {"type": "array", "items": _NUMBER},
-            "y": {"type": "array", "items": _NUMBER},
+            "x": _PLACES,
+            "y": _PLACES,
             "beyond": {"type": "integer", "minimum": 0, "maximum": 4096},
             "rows": {"type": "integer", "minimum": 0, "maximum": 64},
             "near": _NUMBER,
             "columns": {"type": "integer", "minimum": 1, "maximum": 512},
             "log": {"type": "boolean"},
+            "at": _NUMBER,
+            "pixels": _PLACES,
+            # The values the plot shows (its level or amplitude axis, zoomed): a dense window's nearest is on screen.
+            "shown": _PLACES,
+            "seek": {"type": "integer", "enum": [-1, 1]},
+            "plain": {"type": "boolean"},
             "event": {"type": "integer", "minimum": 0},
             "of": {"type": "string", "enum": ["base", "diff"]},
             "channel": {"type": "integer", "minimum": 0},
+            "level": {"type": "string", "enum": ["db", "square"]},
         },
     },
     # Real points of the full-resolution data a plot reads (full_read.py): a line's ``values`` over ``xs``, an
@@ -591,13 +668,24 @@ DEFINITIONS: dict[str, Schema] = {
         "type": "object",
         "required": ["xs", "start", "end", "complete"],
         "properties": {
-            "xs": _NUMBERS,
-            "values": _NULLABLE_NUMBERS,
-            "ys": _NUMBERS,
-            "matrix": {"type": "array", "items": _NULLABLE_NUMBERS},
+            "xs": _WHOLE_LINE,
+            "values": _WHOLE_GAPPED,
+            "ys": _WHOLE_LINE,
+            "matrix": {"type": "array", "items": _WHOLE_GAPPED},
             "start": {"anyOf": [_NUMBER, _NULL]},
             "end": {"anyOf": [_NUMBER, _NULL]},
             "complete": {"type": "boolean"},
+            # Of a dense window read at the pointer's place: the index in ``xs`` of the point under the pointer.
+            "under": {"type": "integer", "minimum": 0},
+            # A line's points: each one's distance to its nearer neighbour in the source data (the readout's digits).
+            "steps": {"type": "array", "items": {"anyOf": [_PLACE, _NULL]}},
+            # A level read's answer: the mean power of the window's ``count`` finite values; of a signal ("square")
+            # also its ``peak``, the largest |sample| among them.
+            "level": {
+                "type": "object",
+                "required": ["power", "count"],
+                "properties": {"power": _NUMBER, "count": {"type": "integer", "minimum": 0}, "peak": _NUMBER},
+            },
         },
     },
     # One step's Frame as the comparison draws it (stage_view.py). Line and bar give ``values`` over
@@ -615,13 +703,15 @@ DEFINITIONS: dict[str, Schema] = {
                 "enum": ["level", "gain", "coherence", "value", "roughness", "cepstrum", "correlation"],
             },
             "unit": {"type": "string"},
-            "xs": _NUMBERS,
+            "xs": _PLACES,
             # A log axis's ends when its xs are drawn points, not band centres (a spectrum's 20 Hz to Nyquist).
-            "xLimits": _NUMBERS,
-            "ys": _NUMBERS,
+            "xLimits": _PLACES,
+            "ys": _PLACES,
+            # An image's rows' ends on a log axis when its ys are drawn rows (a spectrogram's 20 Hz to Nyquist).
+            "yLimits": _PLACES,
             "yAxis": {"type": "string", "enum": ["frequency", "bark", "quefrency"]},
-            "values": _NULLABLE_NUMBERS,
-            "matrix": {"type": "array", "items": _NULLABLE_NUMBERS},
+            "values": _DRAWN_GAPPED,
+            "matrix": {"type": "array", "items": _DRAWN_GAPPED},
             "whole": {"type": "array", "items": {"type": "boolean"}},
             # A cross-channel Frame's one drawn pair: the compared channel (output) over the reference (input), from 1.
             "pair": {
@@ -636,18 +726,21 @@ DEFINITIONS: dict[str, Schema] = {
             },
             # Set on a picture of only part of its axes (StageDetail): the range it covers.
             "detail": {"type": "boolean"},
-            # What a time signal's values are when a step made them from the sound (stage_view.SIGNAL_MEASURES):
-            # a windowed RMS, a time-weighted RMS or the squared signal, for its value axis to name.
-            "measure": {"type": "string", "enum": ["rms", "timeWeightedRms", "power"]},
+            # What a time signal's values are when steps made them from the sound (stage_view.signal_measure, from
+            # the walk that makes its unit): a windowed RMS, a time-weighted RMS, the squared signal, the amplitude
+            # or an RMS raised to measureExponent, or not known ("unknown": the axis claims no quantity or unit).
+            "measure": {"type": "string", "enum": ["amplitude", "rms", "timeWeightedRms", "power", "unknown"]},
+            # The power measure is raised to (3 after power(3)); absent when it is 1.
+            "measureExponent": {"type": "number"},
             # A time signal's waveform as the lanes draw it: per bucket min and max at the times they occurred.
             "waveform": {
                 "type": "object",
                 "required": ["min", "max", "minT", "maxT", "absolutePeak", "unit", "ref"],
                 "properties": {
-                    "min": _NULLABLE_NUMBERS,
-                    "max": _NULLABLE_NUMBERS,
-                    "minT": _NULLABLE_NUMBERS,
-                    "maxT": _NULLABLE_NUMBERS,
+                    "min": _DRAWN_GAPPED,
+                    "max": _DRAWN_GAPPED,
+                    "minT": _DRAWN_GAPPED,
+                    "maxT": _DRAWN_GAPPED,
                     "absolutePeak": _NUMBER,
                     "unit": {"type": "string"},
                     "ref": _NUMBER,
@@ -658,26 +751,48 @@ DEFINITIONS: dict[str, Schema] = {
             # A compared line's power in stretches of its axis, from every value before thinning (R6's order).
             "levelBins": {
                 "type": "object",
-                "required": ["edges", "power", "count"],
+                "required": ["of", "edges", "power", "count"],
                 "properties": {
-                    "edges": _NUMBERS,
-                    "power": _NUMBERS,
+                    # What power is (stage_combine.level_bins): a mean square of samples, or a mean of 10^(dB/10).
+                    # The webview orders by it unchanged at every zoom and reads an edge-cut window as it (R6).
+                    "of": {"type": "string", "enum": ["square", "dbPower"]},
+                    "edges": _PLACES,
+                    "power": _WHOLE_LINE,
                     "count": {"type": "array", "items": {"type": "integer", "minimum": 0}},
                 },
             },
+            # The lowest and highest of every full-resolution value in the part drawn (a cepstrogram's 99th percentile
+            # magnitude too), before thinning or averaging into cells: what the axis and colour ranges are set from.
+            "valueRange": {
+                "type": "object",
+                "required": ["min", "max"],
+                "properties": {"min": _NUMBER, "max": _NUMBER, "robust": _NUMBER},
+            },
+            # The picture's source data's x axis (and an image's rows), before thinning and whatever part is drawn:
+            # the whole view's x range, and which pictures share an axis. Places along an axis, not data values.
+            "xSource": _SOURCE_AXIS,
+            "ySource": _SOURCE_AXIS,
+            # A difference's largest magnitude over the part on screen, from every value before thinning (headline).
+            "peak": {
+                "type": "object",
+                "required": ["x", "value"],
+                "properties": {"x": _NUMBER, "y": _NUMBER, "value": _NUMBER, "xStep": _NUMBER, "yStep": _NUMBER},
+            },
             # A trigger's segments: each event's signal (channels averaged) over the time from its trigger, drawn as
-            # its own line; ``values`` are their mean.
+            # its own line at its own ``xs``; the picture's ``values`` are their mean.
             "events": {
                 "type": "array",
                 "items": {
                     "type": "object",
-                    "required": ["id", "time", "values"],
+                    "required": ["id", "time", "xs", "values"],
                     "properties": {
                         # wandas' event ID, from 0: it stays the same when other events are dropped.
                         "id": {"type": "integer", "minimum": 0},
                         # When it triggered, seconds into the file.
                         "time": _NUMBER,
-                        "values": _NULLABLE_NUMBERS,
+                        # The event's own times from the trigger, one per value.
+                        "xs": _PLACES,
+                        "values": _DRAWN_GAPPED,
                     },
                 },
             },
@@ -739,6 +854,14 @@ DEFINITIONS: dict[str, Schema] = {
             "calibrationStatus": {"type": "string", "enum": ["uncalibrated", "calibrated"]},
             # false: the source (a CSV) holds raw input units, so an uncalibrated level is dB re 1 input unit.
             "fullScale": {"type": "boolean"},
+            # Each channel's own calibration status, in ``channels``' order: a channel taken alone names its own.
+            "channelCalibration": {
+                "type": "array",
+                "items": {"type": "string", "enum": ["uncalibrated", "calibrated"]},
+            },
+            # Scanned against the base slot's recording: the status of the base channel it is paired with, since
+            # a pair's values are calibrated only when both of its sides are.
+            "baseCalibrationStatus": {"type": "string", "enum": ["uncalibrated", "calibrated"]},
         },
     },
     # A file that cannot be scanned answers ``ok: false`` with a one-line ``reason`` and nothing else;
@@ -751,20 +874,22 @@ DEFINITIONS: dict[str, Schema] = {
             "reason": {"type": "string"},
             "conditionId": {"type": "string"},
             "input": {"$ref": "#/$defs/ScanInput"},
-            "leqDbA": _NUMBERS,
-            "peakHz": {"type": "array", "items": {"type": "integer"}},
-            "spectrumDb": {"type": "array", "items": _NUMBERS},
+            "leqDbA": _WHOLE_LINE,
+            "peakHz": _WHOLE_LINE,
+            "spectrumDb": {"type": "array", "items": _DRAWN_LINE},
             # Every Welch bin per channel (bin k at k × spectrumBinHz), for medians and differences.
-            "spectrumBinsDb": {"type": "array", "items": _NUMBERS},
+            "spectrumBinsDb": {"type": "array", "items": _WHOLE_LINE},
             "spectrumBinHz": _NUMBER,
-            "thirdOctDb": {"type": "array", "items": _NULLABLE_NUMBERS},
-            "crest": _NUMBERS,
+            "thirdOctDb": {"type": "array", "items": _WHOLE_GAPPED},
+            "crest": _WHOLE_LINE,
             "specVersion": {"type": "integer", "minimum": 1},
             "wandasVersion": {"type": "string"},
             "elapsedMs": _NUMBER,
             # The type of the Frame the Recipe's chain ends in, e.g. "SpectralFrame".
             "endFrame": {"type": "string"},
             "stage": {"$ref": "#/$defs/StageView"},
+            # With ``stage``: its full-resolution values are over the store's budget and not kept (no ``data``).
+            "stageDataTooLarge": {"type": "boolean"},
             # With ``ok: false``: the Recipe step (node id) that failed on this file.
             "failedStep": {"type": "string"},
         },
@@ -775,7 +900,7 @@ DEFINITIONS: dict[str, Schema] = {
         "type": "object",
         "required": ["code", "kind", "message"],
         "properties": {
-            "code": {"type": "string", "enum": ["input-error", "stale-calibration", "internal-error"]},
+            "code": {"type": "string", "enum": ["input-error", "stale-calibration", "stale-source", "internal-error"]},
             "kind": {
                 "type": "string",
                 "enum": ["analysis-settings", "unreadable-file", "out-of-memory", "invalid-input", "analysis-failed"],
@@ -849,6 +974,7 @@ COMMANDS: dict[str, dict[str, str]] = {
     "release-track-detail": {"payload": "ReleaseTrackDetailPayload", "result": "ReleaseTrackDetailResult"},
     "build-recipe": {"payload": "BuildRecipePayload", "result": "BuildRecipeResult"},
     "scan": {"payload": "ScanPayload", "result": "ScanResult"},
+    "scan-spec": {"payload": "ScanSpecPayload", "result": "ScanSpecResult"},
     "stage-combine": {"payload": "StageCombinePayload", "result": "StageCombineResult"},
 }
 

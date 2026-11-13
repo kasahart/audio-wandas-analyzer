@@ -119,6 +119,39 @@ function waveformTicksSpanZero(labels: readonly string[]): boolean {
     return values.some((value) => value < 0) && values.includes(0) && values.some((value) => value > 0);
 }
 
+/** A tick label is a plain number (R4/R14): its unit lives in the axis name, never on the tick. */
+function isPlainNumber(label: string): boolean {
+    return /^−?\d+(\.\d+)?$/.test(label);
+}
+
+/**
+ * What the drawn axis texts break of R4: each plot names its axes with quantity + [unit/reference],
+ * every other text is a plain-number tick. Empty when waveform, spectrogram and cursor spectrum all follow it.
+ */
+function axisLabelProblems(waveform: readonly string[], spectrogram: readonly string[], spectrum: readonly string[]): string[] {
+    const problems: string[] = [];
+    const frequencyName = /^Frequency \[Hz\]$/;
+    const levelName = /^Level\b.*\[dB[^\]]*\]$/;
+    const amplitudeName = /^Amplitude\b.*\[[^\]]+\]$/;
+    const check = (plot: string, labels: readonly string[], names: readonly RegExp[]): void => {
+        for (const name of names) {
+            if (!labels.some((label) => name.test(label))) { problems.push(`${plot}: no axis named ${name}`); }
+        }
+        const ticks = labels.filter((label) => !names.some((name) => name.test(label)));
+        const unitTicks = ticks.filter((label) => !isPlainNumber(label));
+        if (unitTicks.length) { problems.push(`${plot}: ticks must be plain numbers: ${JSON.stringify(unitTicks)}`); }
+    };
+    check('waveform', waveform, [amplitudeName]);
+    if (!waveformTicksSpanZero(waveform)) { problems.push('waveform: amplitude ticks must span zero'); }
+    check('spectrogram', spectrogram, [frequencyName, levelName]);
+    if (!spectrogram.includes('0') || !spectrogram.some((label) => isPlainNumber(label) && Number(label.replace('−', '-')) > 0)) {
+        problems.push('spectrogram: frequency ticks must include 0 and a non-zero frequency');
+    }
+    check('spectrum', spectrum, [frequencyName, levelName]);
+    if (!spectrum.includes('0')) { problems.push('spectrum: frequency ticks must include 0'); }
+    return problems;
+}
+
 function formatProgress(passed: number, total: number): string {
     return `[${passed}/${total}]`;
 }
@@ -634,43 +667,18 @@ export async function run(): Promise<void> {
             requires: 'single-track',
             run: async () => {
                 await runViewModeScenario(['content-waveform']);
+                // R4: an axis NAME carries the quantity, the unit and its reference ("Frequency [Hz]",
+                // "Level, uncalibrated [dBFS]"); its ticks are plain numbers ("0", "10000", "−25").
                 const axisSnapshot = await waitForSnapshotWhere((snapshot) => {
                     const axes = snapshot.renderedUi?.axisLabels;
                     if (!axes) { return false; }
-                    const wf = axes.waveformPerTrack[0] ?? [];
-                    const sg = axes.spectrogramPerTrack[0] ?? [];
-                    const overlay = axes.spectrumOverlay;
-                    return waveformTicksSpanZero(wf)
-                        && wf.some((s) => s.includes('Amp'))
-                        && sg.includes('0 Hz')
-                        && sg.some((s) => /Hz$/.test(s) && s !== '0 Hz')
-                        && sg.some((s) => s.includes('dB'))
-                        && overlay.includes('0 Hz')
-                        && overlay.some((s) => s.includes('dB'));
+                    return axisLabelProblems(axes.waveformPerTrack[0] ?? [], axes.spectrogramPerTrack[0] ?? [], axes.spectrumOverlay).length === 0;
                 });
                 assert.ok(axisSnapshot.renderedUi, 'Rendered UI snapshot should exist');
                 const axes = axisSnapshot.renderedUi.axisLabels;
                 assert.ok(axes, 'axisLabels must be present in snapshot');
-
-                const wf = axes.waveformPerTrack[0] ?? [];
-                assert.ok(waveformTicksSpanZero(wf),
-                    `waveform axis labels missing: ${JSON.stringify(wf)}`);
-                assert.ok(wf.some((s) => s.includes('Amp')),
-                    `waveform axis title (Amp) missing: ${JSON.stringify(wf)}`);
-
-                const sg = axes.spectrogramPerTrack[0] ?? [];
-                assert.ok(sg.includes('0 Hz'),
-                    `spectrogram should include "0 Hz": ${JSON.stringify(sg)}`);
-                assert.ok(sg.some((s) => /Hz$/.test(s) && s !== '0 Hz'),
-                    `spectrogram should include a non-zero frequency label: ${JSON.stringify(sg)}`);
-                assert.ok(sg.some((s) => s.includes('dB')),
-                    `spectrogram colorbar dB label missing: ${JSON.stringify(sg)}`);
-
-                const overlay = axes.spectrumOverlay;
-                assert.ok(overlay.includes('0 Hz'),
-                    `overlay spectrum should include "0 Hz": ${JSON.stringify(overlay)}`);
-                assert.ok(overlay.some((s) => s.includes('dB')),
-                    `overlay spectrum dB label missing: ${JSON.stringify(overlay)}`);
+                const problems = axisLabelProblems(axes.waveformPerTrack[0] ?? [], axes.spectrogramPerTrack[0] ?? [], axes.spectrumOverlay);
+                assert.deepEqual(problems, [], JSON.stringify(axes));
             },
         },
         {
@@ -1061,7 +1069,8 @@ function throwSnapshotTimeout(expectedActionId?: string): never {
         + `contentType=${snapshot?.renderedUi?.contentType ?? 'none'} `
         + `reanalyzeBusy=${snapshot?.renderedUi?.reanalyzeBusy ?? 'none'} `
         + `trackRowCount=${snapshot?.renderedUi?.trackRowCount ?? 'none'} `
-        + `latestSpectrogram=${JSON.stringify(latest ?? null)}`
+        + `latestSpectrogram=${JSON.stringify(latest ?? null)} `
+        + `axisLabels=${JSON.stringify(snapshot?.renderedUi?.axisLabels ?? null)}`
     );
 }
 

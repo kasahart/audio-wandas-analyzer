@@ -57,6 +57,7 @@ export interface PanelBackend extends Pick<AnalysisClient,
     | 'exportWavLoop'
     | 'buildRecipe'
     | 'scan'
+    | 'scanSpec'
     | 'stageCombine'
     | 'calibrationFor'> {}
 
@@ -102,6 +103,10 @@ export interface PanelControllerHost {
     showError(message: string): void;
     language(): string;
     withProgress: AnalysisHost['withProgress'];
+    /** A file's version on disk (storedScanIdentity when left out): what a cached analysis of it is kept under. */
+    fileVersion?: (filePath: string) => Promise<string | undefined>;
+    /** Calls `changed` with a file's path whenever a file directly in `folder` is written, created or deleted. */
+    watchFolder?: (folder: string, changed: (filePath: string) => void) => vscode.Disposable;
 }
 
 const defaultPanelFactory: PanelFactory = {
@@ -146,6 +151,12 @@ const defaultHost: PanelControllerHost = {
     showError: (message) => { void vscode.window.showErrorMessage(message); },
     language: () => vscode.env.language,
     withProgress: (options, task) => vscode.window.withProgress(options, task),
+    watchFolder: (folder, changed) => {
+        const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(folder), '*'));
+        const on = (uri: vscode.Uri): void => changed(uri.fsPath);
+        watcher.onDidChange(on); watcher.onDidCreate(on); watcher.onDidDelete(on);
+        return watcher;
+    },
 };
 
 /** The calibration revisions a panel's results are checked against, and their change events. */
@@ -154,10 +165,32 @@ export type PanelCalibration = Pick<CalibrationStore, 'analysisRevision' | 'onDi
 /** The Python environment status a panel shows, and its change events. */
 export type PanelPythonEnvironment = Pick<PythonEnvironment, 'getCurrentPythonEnvironmentState' | 'onDidChangePythonEnvironmentState'>;
 
+/**
+ * A file's version as the stored scans are kept under, as the backend's file_version knows it (size, ns mtime, ns ctime,
+ * inode): a recording copied over the old one with its size and times kept (cp -p, rsync -a) is another version.
+ */
+export async function storedScanIdentity(filePath: string): Promise<string | undefined> {
+    try {
+        const real = await fs.realpath(filePath);
+        const stat = await fs.stat(real, { bigint: true });
+        return `${real}|${stat.size}|${stat.mtimeNs}|${stat.ctimeNs}|${stat.ino}`;
+    } catch {
+        return undefined;
+    }
+}
+
+/** What an analysis of each file is made under now: the STFT asked and the file's version on disk (storedScanIdentity). */
+export async function analysedUnder(filePaths: readonly string[], stftOptions: StftOptions | undefined, version: (filePath: string) => Promise<string | undefined> = storedScanIdentity): Promise<Map<string, string>> {
+    const stft = JSON.stringify(stftOptions ?? null);
+    return new Map(await Promise.all(filePaths.map(async (filePath) => [filePath, JSON.stringify([stft, await version(filePath) ?? null])] as [string, string])));
+}
+
 export class PanelController implements vscode.Disposable {
     private readonly sessions = new Map<PanelHandle, PanelSession<PanelHandle>>();
     private readonly calibrationRefreshQueues = new WeakMap<PanelSession<PanelHandle>, Promise<void>>();
     private readonly calibrationChangeDisposable: vscode.Disposable;
+    /** Each panel's watched folders (the folders of every file it may name), so a file rewritten on disk is told. */
+    private readonly watchers = new WeakMap<PanelSession<PanelHandle>, Map<string, vscode.Disposable>>();
 
     constructor(
         private readonly context: SpectrogramSettingsContext & { extensionUri: vscode.Uri; storageUri?: vscode.Uri; globalStorageUri?: vscode.Uri },
@@ -171,6 +204,11 @@ export class PanelController implements vscode.Disposable {
     ) {
         this.calibrationChangeDisposable = calibration.onDidChange((event) => {
             for (const session of this.sessions.values()) {
+                // The entry table's scans of the file (a track or not) are of the old calibration: told under each path the
+                // panel names it by (the event's key is canonical, calibrationFileKey: symlinks, /private/tmp, drive case).
+                for (const filePath of session.knownFilePaths().filter((known) => calibrationFileKey(known) === event.filePath)) {
+                    void session.postMessage({ type: 'entry-calibration-changed', filePath });
+                }
                 // The event carries the canonical key, which differs from the panel's path on Windows (drive-letter
                 // case, resolved root) and for symlinked files; refresh under every path the panel shows for it.
                 const filePaths = new Set(session.getActiveFilePaths()
@@ -182,6 +220,38 @@ export class PanelController implements vscode.Disposable {
                 }
             }
         });
+    }
+
+    /**
+     * Watches the folders of every file the panel may name. A file written on disk (recorded again, replaced) is told
+     * to the panel under each path it names it by: its scans and tracks are of the old version from then on.
+     */
+    private analysedUnder(filePaths: readonly string[], stftOptions: StftOptions | undefined): Promise<Map<string, string>> {
+        return analysedUnder(filePaths, stftOptions, this.host.fileVersion);
+    }
+
+    private syncWatchers(session: PanelSession<PanelHandle>): void {
+        const watch = this.host.watchFolder;
+        if (!watch) return;
+        const held = this.watchers.get(session) ?? new Map<string, vscode.Disposable>();
+        this.watchers.set(session, held);
+        const folders = new Set(session.knownFilePaths().map((filePath) => path.dirname(filePath)));
+        for (const [folder, watcher] of held) if (!folders.has(folder)) { watcher.dispose(); held.delete(folder); }
+        for (const folder of folders) {
+            if (held.has(folder)) continue;
+            held.set(folder, watch(folder, (changedPath) => {
+                const key = calibrationFileKey(changedPath);
+                for (const filePath of session.knownFilePaths().filter((known) => calibrationFileKey(known) === key)) {
+                    session.forgetCached(filePath);
+                    void session.postMessage({ type: 'entry-source-changed', filePath });
+                }
+            }));
+        }
+    }
+
+    private disposeWatchers(session: PanelSession<PanelHandle>): void {
+        for (const watcher of this.watchers.get(session)?.values() ?? []) watcher.dispose();
+        this.watchers.delete(session);
     }
 
     async analyzeTarget(
@@ -236,6 +306,7 @@ export class PanelController implements vscode.Disposable {
                 cachedResultsByFilePath: new Map(),
             });
             session.setActiveResults([]);
+            this.syncWatchers(session);
             this.postPythonEnvironmentState(session, this.pythonEnvironment.getCurrentPythonEnvironmentState());
             return;
         }
@@ -255,7 +326,7 @@ export class PanelController implements vscode.Disposable {
 
     dispose(): void {
         this.calibrationChangeDisposable.dispose();
-        for (const session of this.sessions.values()) { session.dispose(); }
+        for (const session of this.sessions.values()) { this.disposeWatchers(session); session.dispose(); }
         this.sessions.clear();
     }
 
@@ -295,6 +366,7 @@ export class PanelController implements vscode.Disposable {
         const session = this.ensureSession(panel);
         session.clearDirectorySelection();
         session.setActiveResults(results.map((result) => result.filePath));
+        this.syncWatchers(session);
         await this.refreshStalePanelResults(session);
     }
 
@@ -363,6 +435,7 @@ export class PanelController implements vscode.Disposable {
             this.postPythonEnvironmentState(session, state);
         }));
         panel.onDidDispose(() => {
+            this.disposeWatchers(session);
             session.dispose();
             this.sessions.delete(panel);
         });
@@ -418,18 +491,14 @@ export class PanelController implements vscode.Disposable {
                 this.host.showInformation(this.strings().reportSaved + target);
             },
             entry: {
-                // Path, size and mtime: the same file unchanged gets its stored metrics back without a scan.
+                // The file's version as the backend's file_version knows it (size, mtime, ctime, inode): the same file
+                // unchanged gets its stored metrics back without a scan; one copied over with its times kept (cp -p) does not.
                 identity: async (filePath) => {
                     this.assertListed(session, filePath);
-                    try {
-                        const real = await fs.realpath(filePath);
-                        const stat = await fs.stat(real, { bigint: true });
-                        return `${real}|${stat.size}|${stat.mtimeNs}`;
-                    } catch {
-                        return undefined;
-                    }
+                    return storedScanIdentity(filePath);
                 },
                 calibration: (filePath) => JSON.stringify(this.backend.calibrationFor(filePath) ?? null),
+                spec: () => this.backend.scanSpec(),
                 scan: async (filePath, region, recipe, stage, detail, reference, spectrumBins) => {
                     this.assertListed(session, filePath);
                     if (reference) { this.assertListed(session, reference.filePath); }
@@ -498,17 +567,15 @@ export class PanelController implements vscode.Disposable {
         }
 
         const newlyAdded = new Set(delta.addedFilePaths);
+        // Each file's cached analysis stands only under the STFT saved now and the file as it is on disk (V3).
+        const stftOptions = loadPersistedStftOptions(this.context);
+        const under = await this.analysedUnder(selectedFilePaths, stftOptions);
+        const cached = (filePath: string): boolean => session.hasCachedResult(filePath, this.calibration.analysisRevision(filePath), under.get(filePath) ?? '');
         const uncached = [
-            ...delta.addedFilePaths.filter((filePath) => (
-                !session.hasCachedResult(filePath, this.calibration.analysisRevision(filePath))
-            )),
-            ...selectedFilePaths.filter((filePath) => {
-                return !newlyAdded.has(filePath)
-                    && !session.hasCachedResult(filePath, this.calibration.analysisRevision(filePath));
-            }),
+            ...delta.addedFilePaths.filter((filePath) => !cached(filePath)),
+            ...selectedFilePaths.filter((filePath) => !newlyAdded.has(filePath) && !cached(filePath)),
         ];
         if (uncached.length > 0) {
-            const stftOptions = loadPersistedStftOptions(this.context);
             const analyzedResults = await this.analysis.analyzeFiles(
                 uncached,
                 stftOptions,
@@ -516,7 +583,7 @@ export class PanelController implements vscode.Disposable {
             if (session.isDisposed || session.directorySelection !== selection) { return; }
             const newResults = await this.settleLiveResults(analyzedResults, stftOptions);
             if (session.isDisposed || session.directorySelection !== selection) { return; }
-            for (const result of newResults) { selection.cachedResultsByFilePath.set(result.filePath, result); }
+            session.cacheResults(newResults, (filePath) => under.get(filePath) ?? '');
         }
         if (!session.isCurrent(revision, message.requestId)) { return; }
         this.analysis.warmup();
@@ -554,6 +621,7 @@ export class PanelController implements vscode.Disposable {
         const fresh = filePaths.filter((filePath) => !selection.allFilePaths.includes(filePath));
         selection.extraFilePaths = [...(selection.extraFilePaths ?? []), ...fresh];
         selection.allFilePaths = [...selection.allFilePaths, ...fresh];
+        this.syncWatchers(session);
         await session.postMessage({ type: 'directory-selection', rootPath: selection.rootPath, filePaths: selection.allFilePaths });
         await this.handleSelection(session, {
             type: 'analyze-selected-files',
@@ -568,24 +636,19 @@ export class PanelController implements vscode.Disposable {
         scope: SessionScope,
     ): Promise<AnalysisResultWithError[] | undefined> {
         const filePaths = session.getActiveFilePaths();
-        const results = await this.analysis.analyzeFiles(
+        // A file calibrated anew while it was analysed is analysed again under the new settings too: the result shown
+        // before (of the old STFT) never stands in for one of the new settings.
+        const acceptedResults = await this.settleLiveResults(await this.analysis.analyzeFiles(
             filePaths,
             stftOptions,
             this.progressTitle('progressRecomputeSpectrogram', filePaths.length),
             session,
-        );
+        ), stftOptions);
         if (!scope.isCurrent()) { return undefined; }
-        const displayedByPath = new Map(
-            this.panelFactory.getResults(session.panel).map((result) => [result.filePath, result]),
-        );
-        const acceptedResults = results.map((result) => {
-            if (this.isLiveResult(result)) {
-                return result;
-            }
-            return displayedByPath.get(result.filePath) ?? result;
-        });
-        session.cacheResults(acceptedResults);
+        const under = await this.analysedUnder(filePaths, stftOptions);
+        session.cacheResults(acceptedResults, (filePath) => under.get(filePath) ?? '');
         session.setActiveResults(acceptedResults.map((result) => result.filePath));
+        this.syncWatchers(session);
         this.panelFactory.updateResults(session.panel, acceptedResults);
         return acceptedResults;
     }
@@ -616,9 +679,12 @@ export class PanelController implements vscode.Disposable {
             || this.calibration.analysisRevision(message.filePath) !== message.analysisRevision) {
             return;
         }
+        // The STFT saved now, as every other analysis of the panel: never the automatic one beside a manual setting (V4).
+        const stftOptions = loadPersistedStftOptions(this.context);
+        const under = await this.analysedUnder([message.filePath], stftOptions);
         const [result] = await this.analysis.analyzeFiles(
             [message.filePath],
-            undefined,
+            stftOptions,
             this.progressTitle('progressApplyCalibration', 1),
             undefined,
             false,
@@ -632,7 +698,7 @@ export class PanelController implements vscode.Disposable {
         if (!this.isLiveResult(result) || result.analysisRevision !== message.analysisRevision) { return; }
         const results = this.panelFactory.replaceResult(session.panel, result);
         if (!results) { return; }
-        session.cacheResults([result]);
+        session.cacheResults([result], (filePath) => under.get(filePath) ?? '');
         await session.postMessage({ type: 'analysis-update', results } satisfies AnalysisUpdateMessage);
     }
 
@@ -677,6 +743,7 @@ export class PanelController implements vscode.Disposable {
         results: AnalysisResultWithError[],
     ): Promise<void> {
         session.setActiveResults(results.map((result) => result.filePath));
+        this.syncWatchers(session);
         // The selection goes with the results, so the webview's tracks follow files the host added (＋ Add files).
         await this.panelFactory.updateDirectoryResults(
             results,

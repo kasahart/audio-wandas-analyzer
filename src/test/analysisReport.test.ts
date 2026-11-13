@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { assertNotDrawn } from './fullNotDrawn';
 import test from 'node:test';
 import { buildMarkdownReport, buildNotebook, type ReportTrack } from '../shared/report/analysisReport';
 
@@ -38,10 +39,33 @@ test('measurements: a source without a full scale reports neither a full-scale p
     };
     const measured = (fileName: string, rawPeakFullScale: number, clipped: boolean | null): ReportTrack => {
         const base = track(fileName, 0);
-        base.result.channels = [{ label: 'ch', peakAbsolute: rawPeakFullScale, peakLevelDb: 0, rawPeakFullScale, fullScale: clipped !== null, sourceUnit: clipped !== null ? 'FS' : '', sourceLevelReferenceLabel: clipped !== null ? 'dBFS' : 'dB re 1 input unit', clipped, measurement, waveform, spectrogram: null }];
+        const own = { ...measurement, levelReferenceLabel: clipped !== null ? 'dBFS' : 'dB re 1 input unit' };
+        base.result.channels = [{ label: 'ch', peakAbsolute: rawPeakFullScale, peakLevelDb: 0, rawPeakFullScale, fullScale: clipped !== null, sourceUnit: clipped !== null ? 'FS' : '', sourceLevelReferenceLabel: clipped !== null ? 'dBFS' : 'dB re 1 input unit', clipped, measurement: own, waveform, spectrogram: null }];
         return base;
     };
     const report = buildMarkdownReport([measured('full.wav', 1, true), measured('vib.csv', 1.414, null)], undefined, new Date());
-    assert.match(report, /\| full\.wav \| Channel 1 \(ch\) \| 1\.00  \| 0\.0 dB \| 1\.00 FS \| Yes \|/);
-    assert.match(report, /\| vib\.csv \| Channel 1 \(ch\) \| 1\.41  \| 0\.0 dB \| — \| — \|/);
+    assert.match(report, /\| full\.wav \| Channel 1 \(ch\) \| 1\.00  \| 0\.0 dBFS \(uncalibrated\) \| 1\.00 FS \| Yes \|/);
+    assert.match(report, /\| vib\.csv \| Channel 1 \(ch\) \| 1\.41  \| 0\.0 dB re 1 input unit \(uncalibrated\) \| — \| — \|/);
+});
+
+test('the markdown report writes every sample\'s peak and level and the file\'s own length, never the envelope thinned to draw it', () => {
+    // The envelope drawn holds a few points and none of the file's peak; its last point is not the file's end either.
+    const thinned = { min: [-0.2, -0.25], max: [0.3, 0.2], minT: [0.1, 0.9], maxT: [0.2, 1.1], samples: [], absolutePeak: 0.3 };
+    const measurement = {
+        calibrationStatus: 'uncalibrated' as const, calibrationSource: 'default' as const, factor: 1, linearUnit: 'FS',
+        referenceValue: 1, referenceUnit: 'FS', levelUnit: 'dBFS', levelReferenceLabel: 'dBFS',
+    };
+    const spike = track('spike.wav', 0, 12.5);
+    spike.result.channels = [{
+        label: 'mic', peakAbsolute: 0.8125, peakLevelDb: 20 * Math.log10(0.8125), rawPeakFullScale: 0.8125, fullScale: true,
+        sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS', clipped: false, measurement, waveform: thinned, spectrogram: null,
+    }];
+    const report = buildMarkdownReport([spike], undefined, new Date('2026-11-09T00:00:00Z'));
+    // The backend's peak of every sample (0.8125 FS, −1.8 dBFS), not the envelope's 0.3; the length is the file's.
+    assert.match(report, /\| spike\.wav \| [^|]+ \| 48000 Hz \| 12\.500 ?s \| 1 \| −1\.8 dBFS \|/);
+    assert.match(report, /\| 0\.813 FS \| −1\.8 dBFS \(uncalibrated\) \|/);
+    const written = /\| (\d+\.\d+) FS \|/u.exec(report)?.[1];
+    assert.equal(written, '0.813');
+    assertNotDrawn(written, Math.max(...thinned.max, ...thinned.min.map(Math.abs)).toFixed(3), 'not the peak of the envelope drawn');
+    assert.doesNotMatch(report, /\b0\.30\b/);
 });

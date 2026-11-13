@@ -132,6 +132,8 @@ export interface FolderKeys {
      * content at open (to hash it) would read a folder of 10-minute recordings in full before showing a row.
      */
     identity(path: string): string | undefined;
+    /** A picked file's content (SHA-256), what the stored scans are kept under; undefined (never reused) without one. */
+    contentIdentity(path: string): Promise<string | undefined>;
 }
 
 const FOLDER_KEY = /^awa\.(scanIndex|session|sessionCsv)\./;
@@ -144,7 +146,6 @@ function shortHash(text: string): string {
 }
 
 export function createFolderKeys(folder: ReadonlyMap<string, File>): FolderKeys {
-    const folderTags = new Map<string, Promise<string>>();
     function identity(path: string): string | undefined {
         const file = folder.get(path);
         return file ? `${file.name}|${file.size}|${(file as File & { lastModified?: number }).lastModified ?? ''}` : undefined;
@@ -152,16 +153,22 @@ export function createFolderKeys(folder: ReadonlyMap<string, File>): FolderKeys 
     return {
         isFolderKey: key => FOLDER_KEY.test(key),
         identity,
+        async contentIdentity(path) {
+            const file = folder.get(path);
+            const subtle = globalThis.crypto?.subtle;
+            if (!file || !subtle) return undefined;
+            try {
+                const digest = new Uint8Array(await subtle.digest('SHA-256', await file.arrayBuffer()));
+                return `${file.name}|${file.size}|${Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('')}`;
+            } catch {
+                return undefined;
+            }
+        },
         tagged(key) {
             const root = key.slice(key.indexOf(':') + 1);
             const paths = [...folder.keys()].filter(path => !root || path.startsWith(`${root}/`)).sort();
-            const listing = `${root}|${paths.length}|${paths.slice(0, 3).join('|')}`;
-            let tag = folderTags.get(listing);
-            if (!tag) {
-                tag = Promise.resolve(`${paths.length}:${shortHash(paths.slice(0, 3).map(path => identity(path) ?? '-').join('/'))}`);
-                folderTags.set(listing, tag);
-            }
-            return tag.then(value => `${key}#${value}`);
+            // Taken anew each time from the files as they are now: a tag kept by the listing alone would outlive a file's new version.
+            return Promise.resolve(`${key}#${paths.length}:${shortHash(paths.slice(0, 3).map(path => identity(path) ?? '-').join('/'))}`);
         },
     };
 }

@@ -119,14 +119,14 @@ test('extractSpectrumAtCursor: sweeping cursor during playback yields distinct s
 
 
 function spectrumContext(patch: Partial<CursorSpectrumContext> = {}): CursorSpectrumContext {
-    return { trackIndex: 2, channelIndex: 0, cached: null, settingsSignature: 'current',
+    return { trackIndex: 2, channelIndex: 0, cached: null, settingsSignature: 'current', cursorTolerance: 0.002,
         requestSlice: () => undefined, applyDisplaySettings: (slice) => slice, ...patch };
 }
 
-test('cursor spectrum requests data and prioritizes a cache with matching settings', () => {
+test('cursor spectrum requests data and prioritizes a cache with matching settings at this cursor', () => {
     const calls: Array<[number, number]> = [];
     const cached = { values: [-10, -20], frequencyBins: 2, maxFrequencyHz: 1000, minDb: -90, maxDb: 0,
-        settingsSignature: 'current' };
+        settingsSignature: 'current', cursorNorm: 0.5 };
     const context = spectrumContext({ cached, requestSlice: (index, norm) => calls.push([index, norm]),
         applyDisplaySettings: (slice) => ({ ...slice, maxFrequencyHz: 500 }) });
     const slice = extractSpectrumAtCursor(makeSource(), 0, 0.5, { startSec: 0, spanSec: 1 }, context);
@@ -136,6 +136,31 @@ test('cursor spectrum requests data and prioritizes a cache with matching settin
     const stale = extractSpectrumAtCursor(makeSource(), 0, 0.5, { startSec: 0, spanSec: 1 },
         { ...context, cached: { ...cached, settingsSignature: 'old' } });
     assert.deepEqual(stale!.values, [-60, -40, -20, 0]);
+    assert.equal(stale!.standIn, 'pending');
+});
+
+test('a cached slice from an earlier cursor is never drawn or read as this cursor\'s (R7)', () => {
+    const calls: number[] = [];
+    const earlier = { values: [-10, -20], frequencyBins: 2, maxFrequencyHz: 1000, minDb: -90, maxDb: 0,
+        settingsSignature: 'current', cursorNorm: 0.2 };
+    const context = spectrumContext({ cached: earlier, requestSlice: (_, norm) => calls.push(norm) });
+    const slice = extractSpectrumAtCursor(makeSource(), 0, 0.5, { startSec: 0, spanSec: 1 }, context)!;
+    assert.deepEqual(calls, [0.5], 'this cursor\'s slice is asked for');
+    assert.notDeepEqual(slice.values, earlier.values, 'the earlier cursor\'s bins are not drawn as this cursor\'s');
+    assert.equal(slice.standIn, 'pending', 'the spectrogram column stands in, read as nothing');
+    // A slice with no cursor at all cannot be shown to be this cursor's either.
+    const unknown = extractSpectrumAtCursor(makeSource(), 0, 0.5, { startSec: 0, spanSec: 1 },
+        { ...context, cached: { ...earlier, cursorNorm: undefined } })!;
+    assert.equal(unknown.standIn, 'pending');
+    // Within the tolerance it is the cursor's own slice.
+    const near = extractSpectrumAtCursor(makeSource(), 0, 0.5, { startSec: 0, spanSec: 1 },
+        { ...context, cached: { ...earlier, cursorNorm: 0.5005 } })!;
+    assert.equal(near.values, earlier.values);
+    assert.equal(near.standIn, undefined);
+    // Octave bands have no column at this cursor to stand in: an earlier cursor's bands (another point) are not drawn.
+    assert.equal(extractSpectrumAtCursor(makeSource(), 0, 0.5, { startSec: 0, spanSec: 1 }, { ...context, bands: true }), null);
+    assert.equal(extractSpectrumAtCursor(makeSource(), 0, 0.5, { startSec: 0, spanSec: 1 },
+        { ...context, bands: true, cached: null }), null);
 });
 
 test('cursor spectrum uses the requested channel and does not request outside the track', () => {
@@ -172,7 +197,7 @@ test('octave-band cursor spectrum never falls back to the FFT spectrogram column
     const span = { startSec: 0, spanSec: 1 };
     assert.equal(extractSpectrumAtCursor(makeSource(), 0, 0.5, span, context), null);
     assert.equal(extractSpectrumAtCursor(makeSource(), 0, 0.5, span, { ...context, cached: { ...cached, settingsSignature: 'current' } }), null);
-    assert.deepEqual(extractSpectrumAtCursor(makeSource(), 0, 0.5, span, { ...context, cached })!.bandCentersHz, [500, 1000]);
+    assert.deepEqual(extractSpectrumAtCursor(makeSource(), 0, 0.5, span, { ...context, cached: { ...cached, cursorNorm: 0.5 } })!.bandCentersHz, [500, 1000]);
     assert.deepEqual(extractSpectrumAtCursor(makeSource(), 0, 2, span, { ...context, cached })!.values, [-30, -30]);
     assert.equal(extractSpectrumAtCursor(makeSource(), 0, 2, span, context), null);
 });

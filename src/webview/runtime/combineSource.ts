@@ -9,6 +9,8 @@
  */
 import type { CompareCombineMessage, ComparePublication } from '../../shared/analysis/entryScan';
 import type { StageDetail, StageView } from '../../shared/protocol/backendProtocol';
+import { answerKey, createAnswerStore, UNREAD_LEVEL, type AnswerKey } from './answerStore';
+import type { Answer, AnswerIdentity } from './answerTypes';
 
 /** What a combination gives: the median (of two or more recordings) and the difference. */
 export interface Combined {
@@ -18,10 +20,13 @@ export interface Combined {
     tooLarge?: boolean;
     /** Why there is no difference when it is not the axes: time signals at other sample rates, or in another unit. */
     noDelta?: 'rate' | 'unit';
+    /** The backend failed to take it (an error, not a reason the pictures cannot be combined). */
+    failed?: boolean;
 }
 
 /** What the Δ plot and its headline say when there is no line: too much data, other sample rates or units, or other axes. */
-export function noDeltaNote(combined: Pick<Combined, 'tooLarge' | 'noDelta'> | undefined, strings: { stageNoDelta: string; stageTooLarge: string; stageNoDeltaRate: string; stageNoDeltaUnit: string }): string {
+export function noDeltaNote(combined: Pick<Combined, 'tooLarge' | 'noDelta' | 'failed'> | undefined, strings: { stageNoDelta: string; stageTooLarge: string; stageNoDeltaRate: string; stageNoDeltaUnit: string; stageCombineFailed: string }): string {
+    if (combined?.failed) return strings.stageCombineFailed;
     if (combined?.tooLarge) return strings.stageTooLarge;
     if (combined?.noDelta === 'rate') return strings.stageNoDeltaRate;
     if (combined?.noDelta === 'unit') return strings.stageNoDeltaUnit;
@@ -30,11 +35,39 @@ export function noDeltaNote(combined: Pick<Combined, 'tooLarge' | 'noDelta'> | u
 
 export const NOTHING_COMBINED: Combined = { base: null, diff: null };
 
+/** Nothing combined because a picture's values were over what the backend keeps (its scan said stageDataTooLarge). */
+export const TOO_LARGE_COMBINED: Combined = { ...NOTHING_COMBINED, tooLarge: true };
+
+/** Nothing combined because the backend failed (its answer ok: false with nothing missing). */
+export const FAILED_COMBINED: Combined = { ...NOTHING_COMBINED, failed: true };
+
 export interface CombineRequest {
     base: readonly string[];
     compare: string | null;
     detail?: StageDetail;
 }
+
+/**
+ * The last zoomed answer a plot keeps on screen while the next window's comes (A35, C2): kept for the pictures it was
+ * taken of (the request's data keys, which a new scan, a calibration or a file's new version changes), so a picture
+ * taken since never shows it.
+ */
+export interface LastFine {
+    keep(identity: string, asked: CombineRequest, combined: Combined): void;
+    of(identity: string, asked: CombineRequest): Combined | undefined;
+}
+
+export function createLastFine(): LastFine {
+    const kept = createAnswerStore<Combined>({ capacity: KEPT_FINE });
+    const key = (identity: string, asked: CombineRequest): AnswerKey => answerKey({ ask: ['last-fine', asked.base, asked.compare], version: { by: 'data-keys' }, condition: identity });
+    return {
+        keep(identity, asked, combined) { kept.ready(key(identity, asked), combined); },
+        of: (identity, asked) => kept.value(key(identity, asked)),
+    };
+}
+
+/** Last zoomed answers kept: one per held plot and step, so a handful. */
+const KEPT_FINE = 64;
 
 export interface CombineSource {
     /**
@@ -43,39 +76,52 @@ export interface CombineSource {
      * keys the backend no longer has.
      */
     get(identity: string, request: CombineRequest, forget: (keys: readonly string[]) => void): Combined | undefined;
+    /** The combination as an answer, with the identity it was answered under (combineIdentity); asks nothing. */
+    answer(identity: string, request: CombineRequest): Answer<Combined>;
     /** Takes the host's answers to this source's requests; false for anything else. */
     handle(message: { type: string }): boolean;
 }
 
 const CACHED = 64;
 
-const requestKey = (request: CombineRequest): string => JSON.stringify([request.base, request.compare, request.detail ?? null]);
+/**
+ * A combination's key: the data keys it combines (each the backend's hash of the file's version, the Recipe, region,
+ * channels, calibration and step, scan_service._data_key) and the part on screen exactly as it is sent.
+ */
+const combineKey = (request: CombineRequest): AnswerKey => answerKey({ ask: ['combine', request.base, request.compare], version: { by: 'data-keys' }, region: JSON.stringify(request.detail ?? null) });
 
-export function createCombineSource(prefix: string, post: (message: CompareCombineMessage) => void, changed: () => void): CombineSource {
-    const results = new Map<string, Combined>();
-    const asked = new Map<string, { key: string; identity: string; forget: (keys: readonly string[]) => void }>();
-    const retried = new Set<string>();
+/**
+ * What a combination is of: the recording compared, the data keys combined (each the backend's hash of the file's
+ * version, Recipe, region, channels, calibration and step: they stand for those parts), the part on screen and what
+ * the screen names it by. Its levels are the pictures' (read off them by the figure model), so none is claimed here.
+ */
+export function combineIdentity(identity: string, request: CombineRequest): AnswerIdentity {
+    return { path: request.compare ?? '', fileVersion: JSON.stringify([request.base, request.compare]), calibrationSignature: '', level: UNREAD_LEVEL, recipeKey: '', region: JSON.stringify(request.detail ?? null), conditionId: identity };
+}
+
+export function createCombineSource(prefix: string, post: (message: CompareCombineMessage) => void, changed: () => void, now: () => number = () => Date.now()): CombineSource {
+    // A failed combination is asked again once its pause is over: the screen draws again then (the store keeps the time).
+    const answers = createAnswerStore<Combined>({ capacity: CACHED, now, retried: () => changed() });
+    /** The requests on their way, by id: what each asks, of what, and how to drop pictures the backend let go. */
+    const asked = new Map<string, { key: AnswerKey; identity: AnswerIdentity; forget: (keys: readonly string[]) => void }>();
     let count = 0;
-    function keep(key: string, combined: Combined): void {
-        results.delete(key);
-        results.set(key, combined);
-        for (const oldest of results.keys()) {
-            if (results.size <= CACHED) break;
-            results.delete(oldest);
-        }
-    }
     return {
         get(identity, request, forget) {
-            const key = requestKey(request);
-            const done = results.get(key);
-            if (done) return done;
-            if (![...asked.values()].some(item => item.key === key)) {
+            const key = combineKey(request);
+            const state = answers.state(key);
+            if (state === 'ready') return answers.value(key);
+            if (state === 'failed') return FAILED_COMBINED;
+            // Missing and not to be asked: the backend could not keep its values even when they were scanned again.
+            if (state === 'missing' && !answers.ask(key)) return TOO_LARGE_COMBINED;
+            // Asked just now (a pending one is on its way).
+            if (state === 'missing') {
                 const requestId = `${prefix}-${++count}`;
-                asked.set(requestId, { key, identity, forget });
+                asked.set(requestId, { key, identity: combineIdentity(identity, request), forget });
                 post({ type: 'compare-combine', requestId, base: [...request.base], ...(request.compare ? { compare: request.compare } : {}), ...(request.detail ? { detail: request.detail } : {}) });
             }
             return undefined;
         },
+        answer: (identity, request) => answers.answer(combineKey(request), combineIdentity(identity, request)),
         handle(message) {
             if (message.type !== 'compare-combine-result') return false;
             const publication = message as Extract<ComparePublication, { type: 'compare-combine-result' }>;
@@ -84,15 +130,11 @@ export function createCombineSource(prefix: string, post: (message: CompareCombi
             if (!request) return true;
             asked.delete(publication.requestId);
             const { result } = publication;
-            if (result.ok) {
-                retried.delete(request.identity);
-                keep(request.key, { base: result.base ?? null, diff: result.diff ?? null, ...(result.noDelta ? { noDelta: result.noDelta } : {}) });
-            } else if (!retried.has(request.identity)) {
-                retried.add(request.identity);
-                request.forget(result.missing ?? []);
-            } else {
-                keep(request.key, { ...NOTHING_COMBINED, tooLarge: true });
-            }
+            if (result.ok) answers.ready(request.key, { base: result.base ?? null, diff: result.diff ?? null, ...(result.noDelta ? { noDelta: result.noDelta } : {}) }, { group: request.key.id, identity: request.identity });
+            else if (!result.missing?.length) answers.fail(request.key);
+            // Once per combination: its data keys name the files' versions and calibrations (scan_service._data_key), so a
+            // rescan brings the same keys back and a new version or calibration is a new combination, tried again once itself.
+            else if (answers.unreached(request.key, request.key.id) === 'again') request.forget(result.missing ?? []);
             changed();
             return true;
         },

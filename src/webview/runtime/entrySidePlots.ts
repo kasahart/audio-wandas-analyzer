@@ -4,21 +4,31 @@
  * above them. Each keeps its zoom as the lanes do (box zoom, Ctrl+wheel, Shift+wheel, a double click to reset or
  * to type an axis's range); a press that stays put is still a click: a row gone to on the strip.
  */
+import type { WholeLine } from '../../shared/provenance';
+import { scanWhole } from './wholeAnswers';
+import { createLatestAnswers, type ScanAnswer } from './answerStore';
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { rowKey, type DatasetRow } from '../../shared/dataset/datasetTable';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
-import { sharedLevelLabel } from '../../shared/utils/format';
+import { calibrationWordsBy, levelKeyOf, ofReference, ownReferenceMark, templatedLevelName, unreferencedName, uncalibratedWord, type FigureTitle, type FolderReference } from './figureModel';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import type { HeldPicture } from './entryHeldPlot';
-import { OVERVIEW_MARGINS, paintOverview } from './entryPlots';
+import { OVERVIEW_MARGINS, overviewRowKey, paintOverview } from './entryPlots';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, plotPointIn, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { positionPopover } from './settingsPopover';
 import { BAND_CENTERS_HZ } from './entryTable';
 import { STAGE_MARGINS, type StagePlot } from './stagePanes';
-import { createPlotHoverLayer } from './plotHoverLayer';
+import { clickOnRead, createPlotHoverLayer } from './plotHoverLayer';
 
 export interface SidePlotsDeps {
+    /**
+     * The folder's one level reference (the entry model's figureModel.folderReference, of fresh answers only): the
+     * overview's colour scale, the distribution's axis and the table's columns all take this one choice.
+     */
+    reference(): FolderReference;
+    /** The recordings' answers (answerStore.answers): a recording's calibration word is read from its fresh answer only. */
+    answers(paths: readonly string[]): readonly ScanAnswer[];
     document: Document;
     window: Pick<Window, 'requestAnimationFrame'>;
     strings: UiStrings;
@@ -37,8 +47,8 @@ export interface SidePlotsDeps {
     /** The held plot drawn (or hidden), and what it last drew. */
     paintHeld(): void;
     heldPicture(): HeldPicture | null;
-    /** A row picked on the strip. */
-    pickRow(key: string): void;
+    /** A row picked on the strip; returns how to put the table back (a double click's second press, R13). */
+    pickRow(key: string): (() => void) | void;
 }
 
 export interface SidePlots {
@@ -46,7 +56,7 @@ export interface SidePlots {
     window(name: string): PlotWindow;
     /** A plot's zoom while it shows the same thing (`key`); for something else it starts whole again. */
     keepWindow(name: string, key: string): PlotWindow;
-    /** A table row's 1/3-octave levels as the strip draws them (its key: rowKey), once its recording is scanned. */
+    /** A table row's 1/3-octave levels as the strip draws them (its key: rowKey), while its recording's answer is fresh and of the folder's reference. */
     levels(key: string): readonly (number | null)[] | undefined;
     /** A result arrived: its recording's bands (each channel's, a row per channel as the table has) are kept for the strip. */
     noteResult(filePath: string, result: ScanResult): void;
@@ -54,6 +64,17 @@ export interface SidePlots {
     clear(): void;
     /** The level reference the scanned recordings share ("dBFS", "dB SPL re 20 µPa"), plain dB when they differ: the overview's colour scale and the table's level values name it. */
     levelLabel(): string;
+    /** A level value's name ("Leq A特性{uncal} [{label}]"): the most common reference, and 未校正 while it is uncalibrated. */
+    levelName(template: string): FigureTitle;
+    /** A recording's own calibration word where its level axis mixes calibration statuses (R1, R4): '' otherwise. */
+    levelWordOf(filePath: string): string;
+    /** What a recording's value says beside a heading of the folder's reference (R1): '' on it, else its own reference (ownReferenceMark). */
+    levelMarkOf(filePath: string): string;
+    /**
+     * Whether a recording's levels are of the level identity (R1: unit, reference value, level reference name) `levelLabel` names: the one test every level axis beside the
+     * table (the overview's colours, the distribution's value axis) keeps its levels to. A recording not scanned yet is not.
+     */
+    onLevelAxis(filePath: string): boolean;
     /** The side plots painted on the next frame; `distribution`: the distribution too, not only the strip's window. */
     schedule(distribution?: boolean): void;
     /** The gestures on the plots, and a click on the strip. */
@@ -71,7 +92,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
     const { document, strings, screen, side, body, tableWrap, overview, heldCanvas } = deps;
     // The held plot's pointer marks and readout (R7): its readout in its own head row, just above it.
     // In the entry screen: maximized, it is laid over the window above the page, and the marks must be above it.
-    const marks = createPlotHoverLayer(document, '', screen);
+    const marks = createPlotHoverLayer(document, { noValue: strings.plotNoValue }, '', screen);
     let pointer: { plot: HTMLElement; clientX: number; clientY: number } | null = null;
     /** What the strip last drew, for its readout. */
     let overviewDrawn: StagePlot | null = null;
@@ -94,20 +115,44 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
      * Each scanned recording's bands by table row (a channel's own, keyed as its row: rowKey) and the level reference
      * wandas names its levels by, kept as results arrive so scrolling does not redo them.
      */
-    const levels = new Map<string, (number | null)[]>();
-    /** The rows of `levels` each recording has, so a result that replaces it takes all of them away. */
-    const levelRows = new Map<string, string[]>();
-    const levelLabels = new Map<string, string>();
-    /** The recordings scanned with a calibration (their levels are not relative to full scale). */
-    const calibrated = new Set<string>();
+    const levels = createLatestAnswers<WholeLine>();
+    /** Each scanned recording's rows of `levels`, so a result that replaces it takes all of them away. */
+    const scanned = createLatestAnswers<{ rows: string[] }>();
     /** Bumped on every change to them, so the strip knows when to draw its cells again. */
     let version = 0;
-    let shared = { version: -1, label: '' };
-    /** The scanned recordings' level reference as wandas names it, once per change rather than per call. */
-    function levelLabel(): string {
-        if (shared.version !== version) shared = { version, label: sharedLevelLabel(levelLabels.values()) };
-        return shared.label;
+    /** Of each fresh recording, whether it is on the folder's reference and its own calibration word: made again with `shared`. */
+    const ownMarks = createLatestAnswers<{ on: boolean; word: string; mark: string }>();
+    let shared: { version: number; folder: FolderReference | null; label: string; calibrated: boolean; levels: Map<string, WholeLine> } = { version: -1, folder: null, label: '', calibrated: false, levels: new Map() };
+    /**
+     * The folder's reference (deps.reference: the most common one of the fresh answers, chosen once for the header,
+     * the overview, the distribution and the table), whether any of its recordings is calibrated, the levels of only
+     * its recordings (a level of another reference or a stale one is never coloured on the same scale), and each
+     * recording's own calibration word, from its fresh answer. Once per change rather than per call.
+     */
+    function reference(): typeof shared {
+        const folder = deps.reference();
+        if (shared.version === version && shared.folder === folder) return shared;
+        const keys = new Set(folder.paths.flatMap(path => scanned.get(path)?.rows ?? []));
+        // Each recording's word where its axis mixes calibration statuses (R1, R4): of fresh answers only.
+        const known = deps.answers([...scanned.view.keys()]);
+        const ready = known.flatMap(answer => (answer.state === 'ready' ? [answer.identity] : []));
+        const words = calibrationWordsBy(ready, item => levelKeyOf(item.level), item => item.level.calibrationStatus === 'calibrated', uncalibratedWord(strings));
+        ownMarks.clear();
+        // A value of another reference or a stale one names its own reference, whatever the heading names (R1).
+        for (const answer of known) {
+            if (answer.state !== 'ready' && answer.state !== 'stale') continue;
+            const ready = answer.state === 'ready';
+            ownMarks.set(answer.identity.path, { on: ready && ofReference(folder, answer.identity.level), word: ready ? words(answer.identity) : '', mark: ownReferenceMark(strings, folder, answer) });
+        }
+        // Before any recording is read, no reference is named (none is known yet, R4).
+        shared = { version, folder, label: folder.label, calibrated: folder.calibrated, levels: new Map([...levels.view].filter(([key]) => keys.has(key))) };
+        return shared;
     }
+    /** A recording's own calibration word (one function, so the strip's cells are kept while it is the same). */
+    const wordOf = (filePath: string): string => { reference(); return ownMarks.get(filePath)?.word ?? ''; };
+    const levelLabel = (): string => reference().label;
+    /** A level value's name: the template with the reference and, while uncalibrated, the word that says so (R4). */
+    const levelName = (template: string): FigureTitle => { const level = reference(); return level.label ? templatedLevelName(strings, template, level.label, level.calibrated) : unreferencedName(template); };
     const pending = { frame: false, distribution: true };
 
     function paint(): void {
@@ -117,8 +162,9 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         const rows = deps.rows();
         const rowHeight = (body.querySelector('tr') as HTMLElement | null)?.offsetHeight || 22;
         const first = Math.floor(tableWrap.scrollTop / rowHeight);
-        overviewDrawn = paintOverview(overview, strings, rows, levels, { first, last: first + Math.ceil(tableWrap.clientHeight / rowHeight) - 2 }, deps.focusedRow(), keepWindow('overview', String(rows.length)),
-            { label: levelLabel(), calibrated: levelLabels.size > 0 && calibrated.size === levelLabels.size }, version).drawn;
+        const level = reference();
+        overviewDrawn = paintOverview(overview, strings, rows, level.levels, { first, last: first + Math.ceil(tableWrap.clientHeight / rowHeight) - 2 }, deps.focusedRow(), keepWindow('overview', String(rows.length)),
+            { label: level.label, calibrated: level.calibrated }, version, wordOf).drawn;
         // The zoom on each plot, for tests: "x0-x1|y0-y1".
         for (const [name, canvas] of [['overview', overview], ['held', heldCanvas]] as const) {
             const zoom = plotWindow(name);
@@ -136,15 +182,6 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
     }
 
     function attach(): void {
-        overview.addEventListener('click', event => {
-            const rows = deps.rows();
-            const box = overview.getBoundingClientRect();
-            // The strip's rows (top first) over the part of it on screen.
-            const zoom = plotWindow('overview');
-            const plotTop = box.top + OVERVIEW_MARGINS.top, plotHeight = box.height - OVERVIEW_MARGINS.top - OVERVIEW_MARGINS.bottom;
-            const row = rows[Math.floor(((1 - zoom.y.end) + (event.clientY - plotTop) / Math.max(1, plotHeight) * (zoom.y.end - zoom.y.start)) * rows.length)];
-            if (row) deps.pickRow(row.key);
-        });
         const zoomBox = document.createElement('div');
         zoomBox.className = 'entry-zoom-box';
         zoomBox.hidden = true;
@@ -180,6 +217,16 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
             },
             clearHover() { pointer = null; marks.hide(); /* the panel's own hints stay */ },
             stepFrom(plot, delta, arrived) { return marks.stepFrom(plot, plot === heldCanvas ? deps.heldPicture()?.drawn ?? null : overviewDrawn, delta, arrived); },
+            // A press on the strip that stayed put (a drag zooms instead) goes to the row whose cell the readout read at
+            // the press (R7, R13: clickOnRead), never to a row of a hit test of its own; on a cell with no level (the
+            // readout's "no value"), nowhere. At once; a double click's second press goes back (plotInteraction.ts).
+            tap(plot, _event, current) {
+                if (plot !== overview) return undefined;
+                return clickOnRead(marks, plot, current, got => {
+                    const key = got.read ? overviewRowKey(deps.rows(), got.read) : null;
+                    return key === null ? undefined : deps.pickRow(key) ?? undefined;
+                });
+            },
             showBox(plot, from, to) {
                 const box = plot.getBoundingClientRect(), outer = side.getBoundingClientRect(), margins = marginsOf(plot);
                 const width = box.width - margins.left - margins.right, height = box.height - margins.top - margins.bottom;
@@ -193,9 +240,12 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
                 const zoom = plotWindow(name);
                 if (name === 'overview' && hit.axis === 'y') {
                     // The strip's rows, counted down from the top as its axis counts them: its window runs up from the bottom.
-                    const total = deps.rows().length;
+                    // Its rows as painted (StagePlot.rowRange, minus the row counted down), written exactly (R9).
+                    const total = deps.rows().length, rows = overviewDrawn?.rowRange;
+                    if (!rows) return false;
                     openAxisPart(rangePopover, {
                         mapping: linearAxis(0, total, strings.axisEntryRows), horizontal: false, current: { start: 1 - zoom.y.end, end: 1 - zoom.y.start }, clientX, clientY, invalid: strings.specRangeErrorMinMax,
+                        shown: { min: -rows.max + 0, max: -rows.min + 0 },
                         set(range) { windows.set(name, { ...zoom, y: { start: 1 - range.end, end: 1 - range.start } }); schedule(); },
                     });
                     return true;
@@ -203,9 +253,13 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
                 const picture = deps.heldPicture();
                 const mapping: AxisMapping | null = name === 'held' && picture ? (hit.axis === 'x' ? { at: picture.x, of: picture.ofX, label: picture.xLabel } : linearAxis(picture.range.min, picture.range.max, picture.yLabel))
                     : name === 'overview' ? bandAxis(strings.axisBand) : null;
-                if (!mapping) return false;
+                // The axis's ends as painted, written exactly (R9): across, its window; up, the held step's level axis.
+                const plot = name === 'held' ? picture?.drawn : overviewDrawn;
+                const shown = hit.axis === 'x' ? plot?.xRange : plot?.valueRange;
+                if (!mapping || !shown) return false;
                 openAxisPart(rangePopover, {
                     mapping, horizontal: hit.axis === 'x', current: hit.axis === 'x' ? zoom.x : zoom.y, clientX, clientY, invalid: strings.specRangeErrorMinMax,
+                    shown,
                     set(range) { windows.set(name, hit.axis === 'x' ? { ...zoom, x: range } : { ...zoom, y: range }); schedule(); },
                 });
                 return true;
@@ -217,27 +271,25 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         window: plotWindow,
         keepWindow,
         levelLabel,
-        levels: key => levels.get(key),
+        levelName,
+        levelWordOf: wordOf,
+        levelMarkOf: filePath => { reference(); const own = ownMarks.get(filePath); return own?.mark || own?.word || ''; },
+        onLevelAxis: filePath => { reference(); return !!ownMarks.get(filePath)?.on; },
+        // Only of a recording whose answer is fresh now (reference(): of the folder's ready answers): one kept from
+        // before its file was written over, or of another chain, is not read as a level (B4).
+        levels: key => reference().levels.get(key),
         noteResult(filePath: string, result: ScanResult): void {
             version++;
-            const bands = result.thirdOctDb;
-            for (const key of levelRows.get(filePath) ?? []) levels.delete(key);
-            levelRows.delete(filePath);
-            if (result.ok && bands?.length) {
-                // A row per channel, as the table has: each channel's own levels.
-                const keys = bands.map((channel, index) => { const key = rowKey(filePath, index + 1, bands.length); levels.set(key, channel); return key; });
-                levelRows.set(filePath, keys);
-            }
-            if (result.ok && result.input) levelLabels.set(filePath, result.input.levelReferenceLabel);
-            else levelLabels.delete(filePath);
-            if (result.ok && result.input?.calibrationStatus === 'calibrated') calibrated.add(filePath);
-            else calibrated.delete(filePath);
+            // Every band of each channel, as full data (the schema's x-whole thirdOctDb).
+            const bands = result.ok ? scanWhole(result, 'thirdOctDb') : undefined;
+            for (const key of scanned.get(filePath)?.rows ?? []) levels.delete(key);
+            // A row per channel, as the table has: each channel's own levels.
+            const rows = result.ok && bands?.length ? bands.map((channel, index) => { const key = rowKey(filePath, index + 1, bands.length); levels.set(key, channel); return key; }) : [];
+            scanned.set(filePath, { rows });
         },
         clear(): void {
             levels.clear();
-            levelRows.clear();
-            levelLabels.clear();
-            calibrated.clear();
+            scanned.clear();
             version++;
         },
         schedule,

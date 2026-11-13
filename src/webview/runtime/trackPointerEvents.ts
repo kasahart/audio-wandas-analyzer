@@ -1,4 +1,5 @@
 import { isTextEntryTarget, type KeyRouter } from './keyRouter';
+import { zoomKeyAction } from './shortcuts';
 
 export interface TrackPointerHandlers {
     resetZoom(): void;
@@ -9,14 +10,32 @@ export interface TrackPointerHandlers {
     press(e: MouseEvent): void;
     drag(e: MouseEvent): void;
     release(e: MouseEvent): void;
+    /**
+     * The end of a press was lost (its release never reached the page: the pointer let go outside it, the window lost
+     * the focus or was hidden, the pointer was cancelled or its capture lost): the press and any drag end there, with
+     * nothing done, so the readout and the keys answer again on every plot (R7). `e` is the move that found the
+     * button up, where the pointer is now; none for the window's blur or hiding.
+     */
+    abandon?(e?: MouseEvent): void;
+    /**
+     * The second press of a double click (the browser's: `detail` 2), anywhere on the page, before any surface takes
+     * the press: what a click on a plot changed can move what is under the pointer, and the double click is still that
+     * plot's (R13).
+     */
+    secondPress?(e: MouseEvent): void;
     zoomWheel(e: WheelEvent): void;
     /** `swipe`: a sideways swipe, moved as far as the fingers went; else a Shift+wheel notch, by the lanes' step. */
     panWheel(e: WheelEvent, swipe: boolean): void;
     /**
      * ← / → over a plot (or on a focused one): its readout steps to the next point that way (0, a plot given the focus
-     * with the pointer elsewhere: it reads where it starts). False when the plot reads nothing, so the key goes on.
+     * with the pointer elsewhere: it reads where it starts). False when it could not step (nothing read, the data's
+     * end, the edge of the window on screen, a drag under way): the key is the plot's all the same and goes to no
+     * other surface's cursor (R7). Null when these gestures do not answer the plot now (another mode's gestures on the
+     * same surface do: the lanes' and the steps' view share it), so the key goes on to them.
      */
-    step(plot: Element, delta: -1 | 0 | 1): boolean;
+    step(plot: Element, delta: -1 | 0 | 1, pointer?: { clientX: number; clientY: number } | null): boolean | null;
+    /** + / − / 0 over a plot: its horizontal axis zoomed in or out around its middle, or shown whole. False when the plot shows nothing, so the key goes on. */
+    zoomKey(plot: Element, action: 'in' | 'out' | 'reset'): boolean;
 }
 
 type PointerSurface = Pick<HTMLElement, 'addEventListener' | 'contains'>;
@@ -29,6 +48,28 @@ export interface PlotSelectors {
     focusKeepsArrows?: boolean;
 }
 
+/**
+ * The plot the pointer is over on any surface of the page, shared by every surface's listeners (on the document, as
+ * the key router is on the window): a key the pointer's plot would take is never taken first by a plot of another
+ * surface that only has the focus (A47, R7).
+ */
+const POINTER_PLOT = Symbol.for('audio-wandas-analyzer.pointerPlot');
+type PointerPlot = { plot: Element | null; event: Event | null };
+type PointerPlotHolder = { [POINTER_PLOT]?: PointerPlot };
+function pointerPlotOf(doc: object): PointerPlot {
+    const holder = doc as PointerPlotHolder;
+    return holder[POINTER_PLOT] ??= { plot: null, event: null };
+}
+
+/**
+ * The plot under the pointer, of any surface, whether or not its gestures answer it now (a spectrum with no data yet):
+ * a key over it is never another surface's, a focused lane's time cursor (R7).
+ */
+export function plotUnderPointer(doc: object): Element | null {
+    const plot = pointerPlotOf(doc).plot;
+    return plot && plot.isConnected ? plot : null;
+}
+
 /** Wheel events further apart than this start a new swipe. */
 const SWIPE_PAUSE_MS = 150;
 
@@ -37,11 +78,11 @@ const TRACK_SELECTORS: PlotSelectors = { plot: '.track-canvas', axis: '.track-ax
 /**
  * The analyzer's pointer gestures on its plots, as the track lanes define them: hover, press–drag–release
  * (followed on the document), Ctrl+wheel to zoom, Shift+wheel or a sideways swipe on a plot to pan, double-click
- * to reset (or, on an axis, to set its range), and ← / → to step the readout of the plot under the pointer one
- * point at a time (R7). plotInteraction.ts attaches every plot, the lanes too, through these listeners, and
+ * to reset (or, on an axis, to set its range), ← / → to step the readout of the plot under the pointer one
+ * point at a time (R7), and + / − / 0 to zoom that plot's horizontal axis around its middle or show it whole. plotInteraction.ts attaches every plot, the lanes too, through these listeners, and
  * nothing else attaches them (src/test/plotGestures.test.ts).
  */
-export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: Pick<Document, 'addEventListener'>, keys: Pick<KeyRouter, 'add'>, handlers: TrackPointerHandlers, selectors: PlotSelectors = TRACK_SELECTORS): void {
+export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: Pick<Document, 'addEventListener'> & Partial<Pick<Document, 'elementFromPoint'>>, keys: Pick<KeyRouter, 'add'>, handlers: TrackPointerHandlers, selectors: PlotSelectors = TRACK_SELECTORS): void {
     tracksWrapper.addEventListener('dblclick', function (e) {
         const target = e.target as Partial<Element> | null;
         const hit = target && target.closest ? target.closest([selectors.plot, selectors.axis].filter(Boolean).join(', ')) : null;
@@ -66,27 +107,107 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
         const plot = element && element.closest ? element.closest(selectors.plot) : null;
         return plot && tracksWrapper.contains(plot) ? plot : null;
     };
-    tracksWrapper.addEventListener('mousemove', function (e) { over = plotOf(e.target); handlers.hover(e); });
-    tracksWrapper.addEventListener('mouseleave', function () { over = null; handlers.clearHover(); });
+    /** Where the pointer last was, so a key finds the plot under it after the one it was over is made again. */
+    let pointer: { x: number; y: number } | null = null;
+    const underPointer = (): Element | null => {
+        if (over && over.isConnected) return over;
+        const doc = (tracksWrapper as Partial<HTMLElement>).ownerDocument;
+        return pointer && doc && typeof doc.elementFromPoint === 'function' ? plotOf(doc.elementFromPoint(pointer.x, pointer.y)) : null;
+    };
+    const shared = pointerPlotOf(doc);
+    /**
+     * The plot this surface finds under the pointer, told to every surface: a surface inside another (the steps' plots
+     * inside the lanes' wrapper) sees the event first, and the one around it, which finds none of its own plots
+     * there, does not take that plot back (A47).
+     */
+    const notePointer = (plot: Element | null, event: Event): void => {
+        if (plot || shared.event !== event) shared.plot = plot;
+        shared.event = event;
+    };
+    /** The pointer is over a plot, of any surface, other than `plot`. */
+    const pointerElsewhere = (plot: Element): boolean => !!shared.plot && shared.plot !== plot && shared.plot.isConnected;
+    /** The plot whose readout the focus gave (none since the pointer read one here): only that readout goes with the focus. */
+    let focusGave: Element | null = null;
+    tracksWrapper.addEventListener('mousemove', function (e) { over = plotOf(e.target); notePointer(over, e); focusGave = null; pointer = { x: e.clientX, y: e.clientY }; handlers.hover(e); });
+    // A scroll under a still pointer moves another place of a plot, or another plot, under it: read there, as a
+    // pointer moved there would (R7), never a readout only taken away, nor one left where the plot was.
+    doc.addEventListener('scroll', function (e) {
+        const at = pointer;
+        const under = at && typeof doc.elementFromPoint === 'function' ? doc.elementFromPoint(at.x, at.y) : null;
+        if (!at || !under) return;
+        // Scrolled off this surface altogether: its readout and marks go, as when the pointer leaves it.
+        if (!tracksWrapper.contains(under)) {
+            if (shared.plot && shared.plot === over) shared.plot = null;
+            over = null;
+            pointer = null;
+            handlers.clearHover();
+            return;
+        }
+        over = plotOf(under);
+        notePointer(over, e);
+        handlers.hover({ clientX: at.x, clientY: at.y, target: under, altKey: false, shiftKey: false, ctrlKey: false, metaKey: false, buttons: 0 } as unknown as MouseEvent);
+    }, true);
+    tracksWrapper.addEventListener('mouseleave', function () { if (shared.plot && shared.plot === over) shared.plot = null; over = null; pointer = null; handlers.clearHover(); });
     // A plot given the focus from the keyboard reads where it starts, so the arrows have a point to step from;
     // let go of the focus with the pointer elsewhere, its readout goes.
-    tracksWrapper.addEventListener('focusin', function (e) { const plot = plotOf(e.target); if (plot && !over && !selectors.focusKeepsArrows) handlers.step(plot, 0); });
-    tracksWrapper.addEventListener('focusout', function (e) { const plot = plotOf(e.target); if (plot && plot !== over) handlers.clearHover(); });
+    // With the pointer over a plot, of this surface or another (one inside it too), the readout is the pointer's (A47).
+    tracksWrapper.addEventListener('focusin', function (e) {
+        const plot = plotOf(e.target);
+        if (!plot || over || selectors.focusKeepsArrows || pointerElsewhere(plot)) return;
+        if (handlers.step(plot, 0)) focusGave = plot;
+    });
+    // Only a readout the focus gave goes: one the pointer read since, here or on a plot inside this surface, stays.
+    tracksWrapper.addEventListener('focusout', function (e) {
+        const plot = plotOf(e.target);
+        if (!plot || focusGave !== plot) return;
+        focusGave = null;
+        if (!over) handlers.clearHover();
+    });
     keys.add({
         layer: 'plot',
         keydown(e) {
+            // + / − / 0 zoom the plot under the pointer (not one only focused: the view's own keys take those).
+            const zoom = zoomKeyAction(e.key);
+            if (zoom) {
+                const plot = e.ctrlKey || e.metaKey || e.altKey || isTextEntryTarget(e.target) ? null : underPointer();
+                if (!plot || !handlers.zoomKey(plot, zoom)) return false;
+                e.preventDefault();
+                return true;
+            }
             const delta = e.code === 'ArrowLeft' ? -1 : e.code === 'ArrowRight' ? 1 : 0;
             if (!delta || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || isTextEntryTarget(e.target)) return false;
-            const plot = over && over.isConnected ? over : plotOf(e.target);
+            // The plot under the pointer, found again where the one it was over was made anew (a redrawn
+            // distribution row), as + / − / 0 find it: the arrows step the plot the pointer is on (A26).
+            // A plot that only has the focus takes the arrows only while the pointer is over no other plot (A47): the
+            // plot under the pointer, on another surface too, is the one they step.
+            const elsewhere = shared.plot && shared.plot.isConnected && !tracksWrapper.contains(shared.plot);
+            // With the pointer on no plot (a header of this surface, a gap), the focused plot steps from its own
+            // point, read at its place: the pointer's place there is no point of it, and it does not become the
+            // pointer's plot (+ / − / 0 stay the view's).
+            const under = underPointer();
+            const plot = under ?? (elsewhere ? null : plotOf(e.target));
+            if (under && under !== over) over = under;
             // A key goes to the focused element: a lane with the focus moves its cursor, as its arrows always have.
-            if (!plot || (selectors.focusKeepsArrows && plot === e.target) || !handlers.step(plot, delta)) return false;
+            if (!plot || (selectors.focusKeepsArrows && plot === e.target)) return false;
+            // The plot's readout steps; one that cannot (nothing read, an end, the edge of what is on screen) keeps the
+            // key all the same: it never moves another surface's cursor, a focused lane's time (R7).
+            // Where the pointer really is, with it on that plot: the step is read there, its own place kept apart (R7).
+            if (handlers.step(plot, delta, under === plot && pointer ? { clientX: pointer.x, clientY: pointer.y } : null) === null) return false;
             e.preventDefault();
             return true;
         },
     });
     tracksWrapper.addEventListener('mousedown', function (e) { handlers.press(e); });
-    doc.addEventListener('mousemove', function (e) { handlers.drag(e); });
+    doc.addEventListener('mousedown', function (e) { if (e.detail > 1) handlers.secondPress?.(e); }, true);
+    // A move with no button down is a press whose release was lost (let go outside the page): it ends there.
+    doc.addEventListener('mousemove', function (e) { if (e.buttons === 0 && handlers.abandon) handlers.abandon(e); else handlers.drag(e); });
     doc.addEventListener('mouseup', function (e) { handlers.release(e); });
+    // Every other way a press ends without its release reaching the page ends it too, with nothing done.
+    const lost = (): void => handlers.abandon?.();
+    doc.addEventListener('pointercancel', lost, true);
+    doc.addEventListener('lostpointercapture', lost, true);
+    doc.addEventListener('visibilitychange', function () { if ((doc as Partial<Document>).hidden) lost(); });
+    (doc as Partial<Document>).defaultView?.addEventListener('blur', lost);
     // A swipe keeps the direction its first events took until it pauses, so a diagonal one does not
     // alternate between panning the time and scrolling the lanes.
     let swipe: { sideways: boolean; at: number } | null = null;

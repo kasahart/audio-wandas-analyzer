@@ -1,8 +1,8 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { expect, test, type Locator, type Page } from './canvasAudit';
-import { openEntry, type ScannedFile } from './entryHelpers';
+import { expect, settled, test, type Locator, type Page } from './canvasAudit';
+import { backendRequired, openEntry, type ScannedFile } from './entryHelpers';
 import { bridgeComparison, RealBackend, runFixture } from './realBackend';
 
 /**
@@ -47,7 +47,7 @@ test.afterAll(() => {
 });
 
 const ready = (): boolean => {
-    if (!files && process.env.AWA_REQUIRE_BACKEND === '1') throw new Error(`AWA_REQUIRE_BACKEND=1 but the narrow fixture could not be analysed: ${fixtureError}`);
+    if (!files && backendRequired()) throw new Error(`the Python backend is required here (AWA_REQUIRE_BACKEND, or the repo's .venv) but the narrow fixture could not be analysed: ${fixtureError}`);
     return !!files;
 };
 
@@ -69,8 +69,22 @@ async function openComparison(page: Page): Promise<() => Promise<string[]>> {
     await expect(page.locator('.track-stage')).toBeVisible();
     const bar = page.locator('.track-stage-bar');
     await expect(bar.locator('[data-step-hold="node-2"]')).toBeVisible();
-    if (!(await bar.locator('.step-chip.is-current').getAttribute('data-step-hold'))?.includes('node-2')) await bar.locator('[data-step-hold="node-2"]').click();
-    await expect.poll(() => lines(page.locator('[data-stage-canvas="overlay"]')).then(found => found.length), { timeout: 30_000 }).toBeGreaterThanOrEqual(2);
+    // The Welch step shown: its chip made current (the first opening shows the input), then the bar showing it.
+    const welch = bar.locator('[data-step-hold="node-2"]');
+    const welchChip = bar.locator('.step-chip[data-step-id="node-2"]');
+    if (!((await welchChip.getAttribute('class')) ?? '').split(/\s+/u).includes('is-current')) await welch.click();
+    await expect(welchChip).toHaveClass(/(?:^|\s)is-current(?:\s|$)/u);
+    await expect(bar).toHaveAttribute('data-stage', 'node-2', { timeout: 30_000 });
+    // Drawn: the Welch step's own picture (not the step shown before it), every file in, its lines' order measured,
+    // and both recordings' lines on the plot.
+    const overlay = page.locator('[data-stage-canvas="overlay"]');
+    await expect.poll(async () => ({
+        stage: await bar.getAttribute('data-stage'),
+        pending: await page.locator('.track-stage').getAttribute('data-pending'),
+        measuring: ((await overlay.getAttribute('data-plot-order')) ?? '…').includes('…'),
+        axes: ((await overlay.getAttribute('data-plot-axes')) ?? '').startsWith('Frequency'),
+        lines: (await lines(overlay)).length >= 2,
+    }), { timeout: 30_000 }).toEqual({ stage: 'node-2', pending: '', measuring: false, axes: true, lines: true });
     return stop;
 }
 
@@ -151,7 +165,7 @@ async function zoomInto(page: Page, plot: Locator, [x, y]: Point, notches: numbe
     const box = (await plot.boundingBox())!;
     await page.mouse.move(box.x + x, box.y + y);
     await page.keyboard.down('Control');
-    for (let notch = 0; notch < notches; notch++) { await page.mouse.wheel(0, -240); await page.waitForTimeout(60); }
+    for (let notch = 0; notch < notches; notch++) { await page.mouse.wheel(0, -240); await settled(page); }
     await page.keyboard.up('Control');
     await page.mouse.move(1, 1);
 }

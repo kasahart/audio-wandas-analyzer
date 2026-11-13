@@ -20,6 +20,12 @@ export interface SchemaNode {
     anyOf?: readonly [SchemaNode, SchemaNode];
     /** A definition the generated types take from the hand-written contracts; it carries no constraint. */
     'x-tsType'?: string;
+    /** A number thinned to be drawn: generated as `Drawn` (provenance.ts); it carries no constraint. */
+    'x-drawn'?: boolean;
+    /** Every value of the data, none thinned (protocol_schema.py); it carries no constraint. */
+    'x-whole'?: boolean;
+    /** A place along an axis or a limit, not a data value (protocol_schema.py); it carries no constraint. */
+    'x-place'?: boolean;
 }
 
 const DEFINITIONS: Readonly<Record<string, SchemaNode>> = BACKEND_PROTOCOL_SCHEMA.$defs;

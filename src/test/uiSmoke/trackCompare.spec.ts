@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
+import { stubStage } from './stubStage';
 import path from 'node:path';
-import { expect, test, type Page } from './canvasAudit';
+import { expect, settled, test, type Page } from './canvasAudit';
 import { getStrings } from '../../shared/i18n/strings';
 import { entry100Metadata, entry100Results, openEntry, pickCsv, type ScannedFile } from './entryHelpers';
 
@@ -17,14 +18,15 @@ const spectrum = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale:
 /** Answers the last steps-mode scan as a host does: each file's scan result carrying `view` (shifted for the first file). */
 async function answer(page: Page, view: Record<string, unknown> = spectrum): Promise<Posted> {
     const request = (await stageScans(page)).at(-1)!;
-    await page.evaluate(({ request, view, files }) => {
+    // Each recording's picture with the valueRange the backend sends with one (the first recording 6 dB up).
+    const stages = request.filePaths.map((_, index) => stubStage(view, value => value + (index === 0 ? 6 : 0)));
+    await page.evaluate(({ request, stages, files }) => {
         request.filePaths.forEach((filePath, index) => {
             const file = files.find(item => item.filePath === filePath)!;
-            const values = (view.values as number[] | undefined)?.map(value => value + (index === 0 ? 6 : 0));
-            window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...file.result, stage: { ...view, ...(values ? { values } : {}) } } }, '*');
+            window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...file.result, stage: stages[index] } }, '*');
         });
         window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
-    }, { request, view, files: scanned! });
+    }, { request, stages, files: scanned! });
     return request;
 }
 
@@ -98,7 +100,7 @@ test('Enter on the entry table compares the slotted files in the track view: ove
     await answer(page);
     // The row above the plots names no difference: its numbers are the pointer's readout (R7).
     await expect(page.locator('[data-stage-headline]')).toHaveText('');
-    await expect(page.locator('[data-stage-legend] .compare-legend-item')).toHaveText([/^Base group/, new RegExp(`^Compare 1 ▾${first.split('/').pop()} ch1 ${STR_EN.dsLeq.replace('{label}', 'dBFS').replace(/[[\]]/g, '\\$&')} −?\\d`), new RegExp(`^Compare 2 ▾${second.split('/').pop()} ch1 `)]);
+    await expect(page.locator('[data-stage-legend] .compare-legend-item')).toHaveText([/^Base group/, new RegExp(`^Compare 1 ▾${first.split('/').pop()} ch1 ${STR_EN.dsLeq.replace('{uncal}', STR_EN.axisUncalibrated).replace('{label}', 'dBFS').replace(/[[\]]/g, '\\$&')} −?\\d`), new RegExp(`^Compare 2 ▾${second.split('/').pop()} ch1 `)]);
     expect(await page.locator('[data-stage-legend] line').evaluateAll(lines => lines.map(line => line.getAttribute('stroke')))).toEqual(['#3b82f6', '#d4b20f', '#a371f7']);
     // The base group's ▾ says how its curve is made; "Show on the list" lists the compared files and their base on the table.
     const STR = getStrings('en');
@@ -224,6 +226,27 @@ test('D fixes the compared file\'s difference; 報告に hands the host one fold
     await expect(derived).toHaveCount(0);
 });
 
+test('a report whose slots change while its files are measured is not written: it says so, and nothing of other slots is saved (V7)', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    await openComparison(page);
+    await page.locator('#tb-export-menu > summary').click();
+    await page.locator('[data-action="stage-report"]').click();
+    await expect(page.locator('#task-status')).toContainText(STR.reportMeasuring.split('{count}')[1].trim());
+    // Back on the table, another recording goes into the compared slot before the measuring is in.
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#entry-screen')).toHaveClass(/is-max/);
+    const slotted = () => page.locator('[data-entry-rows] tr.entry-row').evaluateAll(rows => rows.filter(row => row.querySelector('.entry-rbtn-slot.slot-2')).map(row => row.getAttribute('data-file-path')));
+    const slotsBefore = await slotted();
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('2');
+    await expect.poll(slotted).not.toEqual(slotsBefore);
+    await answerReport(page);
+    await expect(page.locator('#task-status')).toContainText(STR.reportChanged.trim());
+    expect((await posted(page)).some(message => message.type === 'save-report-folder')).toBe(false);
+});
+
 test('narrowed to ch 2, the base is the group\'s ch-2 recordings within the filter, and the compared row shows its channel, value and memo', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('en');
@@ -255,7 +278,7 @@ test('narrowed to ch 2, the base is the group\'s ch-2 recordings within the filt
     await expect(legend.first()).toContainText(STR.dsBaseNarrowed.replace('{filters}', `${STR.dsCh} = 2`));
     // The compared row: its name with the channel, its value on show, ✎ with its memo.
     await expect(legend.nth(1)).toContainText(`Compare 1 ▾${filePath.split('/').pop()} ch2`);
-    await expect(legend.nth(1).locator('.compare-value')).toHaveText(new RegExp(`^${STR.dsLeq.replace('{label}', 'dBFS').replace(/[[\]]/g, '\\$&')} −\\d+\\.\\d$`));
+    await expect(legend.nth(1).locator('.compare-value')).toHaveText(new RegExp(`^${STR.dsLeq.replace('{uncal}', STR.axisUncalibrated).replace('{label}', 'dBFS').replace(/[[\]]/g, '\\$&')} −\\d+\\.\\d$`));
     await expect(legend.nth(1).locator('[data-memo]')).toHaveAttribute('data-hint', 'rattle at 3 kHz');
 });
 
@@ -344,7 +367,7 @@ test('the comparison\'s step bar grows the chain with ＋, offers only what take
     // As on the spectrum overlay under the tracks: the line nearest the pointer drawn thicker, the cursor at its
     // point, and its name, where and its value in its colour.
     await expect(page.locator('.track-stage-cursor')).toBeVisible();
-    await expect(page.locator('.track-stage-controls [data-plot-readout]')).toHaveText(/^.+ \/ [\d.]+ k?Hz \/ −?\d+\.\d dB$/);
+    await expect(page.locator('.track-stage-controls [data-plot-readout]')).toHaveText(/^.+ \/ [\d.]+ k?Hz \/ −?\d+\.\d dBFS$/);
     const readoutColor = await page.locator('.track-stage-controls [data-plot-readout]').evaluate(element => (element as HTMLElement).style.color);
     // In the row just above the plots, as the cursor spectrum's readout is in its header (R7).
     await expect(page.locator('.track-stage-controls [data-plot-readout]:not([hidden])')).toHaveCount(1);
@@ -571,7 +594,7 @@ test('the readout row above the comparison keeps the values whole at any width, 
         const before = (await plot.boundingBox())!;
         await page.mouse.move(before.x + 52 + (before.width - 56) / 2, before.y + before.height / 2);
         const readout = page.locator('.track-stage-controls [data-plot-readout]');
-        await expect(readout).toHaveText(/ \/ [\d.]+ k?Hz \/ −?\d+\.\d dB$/);
+        await expect(readout).toHaveText(/ \/ [\d.]+ k?Hz \/ −?\d+\.\d dBFS$/);
         // The values end inside the row and the window (the canvas audit checks this in every test too); the row is above the plot.
         const values = (await readout.locator('.plot-readout-values').boundingBox())!;
         const rowBox = (await row.boundingBox())!;
@@ -792,7 +815,7 @@ test('a trigger added from ＋ fires at half the tracks\' peak, draws each event
     const trigger = await chip.getAttribute('data-step-id');
     await expect(bar).toHaveAttribute('data-stage', trigger!);
     await expect.poll(async () => (await stageScans(page)).at(-1)?.recipe?.nodes.map(node => node.operation.split('.').pop())).toEqual(['get_channel', 'highpass_filter', 'time_slice', 'trigger']);
-    const event = (id: number, peak: number): Record<string, unknown> => ({ id, time: 0.3 + id * 0.5, values: [0, peak, -peak / 2, 0] });
+    const event = (id: number, peak: number): Record<string, unknown> => ({ id, time: 0.3 + id * 0.5, xs: [-0.01, 0, 0.05, 0.19], values: [0, peak, -peak / 2, 0] });
     await answer(page, { frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'FS', xs: [-0.01, 0, 0.05, 0.19], events: [event(0, 0.5), event(1, 0.4), event(2, 0.45)] });
     // Each recording's events are its lines: no difference between them, the headline counts them.
     await expect(page.locator('[data-stage-headline]')).toHaveText(STR.stageEventCounts.replace('{base}', '3').replace('{compare}', '3'));
@@ -831,7 +854,7 @@ test('a trigger added from ＋ fires at half the tracks\' peak, draws each event
     await expect(plot).toHaveCSS('cursor', 'pointer');
     // A double-click resets the zoom and leaves no event out.
     await page.mouse.dblclick(x, lineY);
-    await page.waitForTimeout(400);
+    await settled(page);
     await page.mouse.move(x, lineY + 1);
     await page.mouse.move(x, lineY);
     await expect(footer).toHaveText(STR.stageEventClickOut);

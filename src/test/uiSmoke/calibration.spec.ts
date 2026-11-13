@@ -1,4 +1,4 @@
-import { expect, test, type Page } from './canvasAudit';
+import { expect, settled, test, type Page } from './canvasAudit';
 import { buildUiSmokeCalibrationHtml } from './buildHtml';
 
 type PostedMessage = Record<string, unknown>;
@@ -65,21 +65,28 @@ test('three level references disable only the shared spectrum overlay', async ({
     await expect(page.locator('.spectrum-cursor')).toBeHidden();
     await expect(page.locator('#spectrum-freq-readout')).toBeHidden();
 
-    const exportedCanvasIds = await page.evaluate(async () => {
+    // Every canvas the export copies in, until the page has done exporting.
+    await page.evaluate(() => {
         const prototype = CanvasRenderingContext2D.prototype as unknown as {
             drawImage: (...args: unknown[]) => void;
         };
         const original = prototype.drawImage;
         const ids: string[] = [];
+        const w = window as unknown as { __exportedIds: string[]; __restoreDrawImage: () => void };
+        w.__exportedIds = ids;
+        w.__restoreDrawImage = () => { prototype.drawImage = original; };
         prototype.drawImage = function(...args: unknown[]): void {
             const source = args[0];
             if (source instanceof HTMLCanvasElement) { ids.push(source.id); }
             Reflect.apply(original, this, args);
         };
         document.querySelector<HTMLElement>('[data-action="export-png"]')?.click();
-        await new Promise((resolve) => { setTimeout(resolve, 50); });
-        prototype.drawImage = original;
-        return ids;
+    });
+    await settled(page);
+    const exportedCanvasIds = await page.evaluate(() => {
+        const w = window as unknown as { __exportedIds: string[]; __restoreDrawImage: () => void };
+        w.__restoreDrawImage();
+        return w.__exportedIds;
     });
     expect(exportedCanvasIds).not.toContain('spectrum-overlay-canvas');
 });

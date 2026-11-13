@@ -1,4 +1,7 @@
+import type { CurrentAnswers, ShownAnswers } from '../webview/runtime/answerStore';
+import { R } from './helpers/figure';
 import assert from 'node:assert/strict';
+import { assertNotDrawn, nthAfter } from './fullNotDrawn';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { getStrings } from '../shared/i18n/strings';
@@ -6,9 +9,10 @@ import type { ScanResult } from '../shared/protocol/backendProtocol';
 import type { RecipeStep } from '../shared/recipe/recipeSteps';
 import { TIME_SLICE } from '../shared/recipe/recipeSteps';
 import { createHeldPlot, DELTA_RELEASE_MS, narrowed, TAP_MS, type HeldPlotDeps } from '../webview/runtime/entryHeldPlot';
-import { buildCompareModel } from '../webview/runtime/comparePanes';
+import { compareOf } from './helpers/compareInput';
 import { buildEntryModel } from '../webview/runtime/entryTable';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
+import { stageHover, stageStep } from '../webview/runtime/stagePanes';
 import { stepChipLabel } from '../webview/runtime/stepBar';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -38,7 +42,7 @@ function fakeWindow() {
 
 /** A scanned one-channel recording. */
 const scanned = (): ScanResult => ({
-    ok: true, input: { id: 'x', fs: 48000, channels: [0], durationS: 1, unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: true },
+    ok: true, conditionId: 'x@v1', input: { id: 'x', fs: 48000, channels: [0], durationS: 1, unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: true },
     leqDbA: [60], peakHz: [100], spectrumDb: [[-40, -50, -60]], thirdOctDb: [[50, 40]], crest: [3], specVersion: 5,
 });
 
@@ -63,8 +67,10 @@ function setup(results = new Map<string, ScanResult>(), options: { recipe?: Reci
         post: message => calls.push(['post', message]),
         scheduleSide: () => calls.push(['side', null]),
         keepWindow: () => FULL_PLOT_WINDOW,
-        results,
-        comparison: (path, over) => { compared.push({ path, over }); return buildCompareModel(buildEntryModel([...over].map(([filePath, result]) => ({ filePath, result })), null), over, path, null, strings, false, undefined, { paths: [...results.keys()].filter(file => file !== path), title: 'base' }); },
+        // The table's scans as the answer store hands them: all of the current chain here (read live, as a test changes them).
+        shown: results as unknown as ShownAnswers, current: () => results as unknown as CurrentAnswers,
+        // The files measured now (their bins) stand for the table's answers (entryBase.binnedAnswers).
+        comparison: (path, binned) => { const over = binned ? new Map([...results, ...[...binned].filter(([, result]) => result.ok)]) : results; compared.push({ path, over }); return compareOf(buildEntryModel([...over].map(([filePath, result]) => ({ filePath, result })), null), over, path, null, strings, false, undefined, { paths: [...results.keys()].filter(file => file !== path), title: 'base' }); },
         basePaths: path => [...results.keys()].filter(file => file !== path),
         scanRecipe: () => undefined,
         focusedFile: () => state.focused, slotFiles: () => state.slots,
@@ -227,8 +233,33 @@ test('a held step of a chain that compares the recording\'s channels picks no ch
     for (const message of asked) assert.ok(!(message.recipe as unknown as { nodes: Array<{ id: string }> }).nodes.some(node => node.id === 'node-channel'));
 });
 
+test('a held step whose values the backend refused to keep asks for no combination and scans nothing again', () => {
+    const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as RecipeDocument;
+    const results = new Map<string, ScanResult>([['/d/a.wav', scanned()]]);
+    const { plot, state, calls } = setup(results, { recipe });
+    state.focused = '/d/a.wav';
+    plot.holdStep(step({ id: 'node-0', operation: 'wandas.frame.highpass_filter' }));
+    plot.paint();
+    const posted = () => calls.flatMap(([kind, message]) => (kind === 'post' ? [message as { type: string; requestId: string }] : []));
+    const picture = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000], values: [-40, -50] } as const;
+    // Each picture as it comes: the second one over the store's budget (stageDataTooLarge). Even were a key named
+    // with it, a combination of it would only be answered missing and scanned again: none is asked for.
+    for (const [index, extra] of [[0, { data: 'k1' }], [1, { data: 'k2' }]] as const) {
+        const asked = posted().filter(message => message.type === 'compare-scan')[index];
+        assert.ok(asked, `picture ${index + 1} is asked for`);
+        plot.handle({ type: 'compare-scan-result', requestId: asked.requestId, filePath: '/d/a.wav', result: { ...scanned(), ...(index === 1 ? { stageDataTooLarge: true } : {}), stage: { ...picture, ...extra } } } as { type: string });
+        plot.handle({ type: 'compare-scan-done', requestId: asked.requestId } as { type: string });
+        plot.paint();
+    }
+    const before = posted().length;
+    plot.paint();
+    plot.paint();
+    assert.deepEqual(posted().filter(message => message.type === 'compare-combine'), [], 'nothing combined of values not kept');
+    assert.equal(posted().length, before, 'and nothing asked again');
+});
+
 test('narrowed takes a window\'s vertical part of a level range', () => {
-    assert.deepEqual(narrowed({ min: -20, max: 20 }, { x: { start: 0, end: 1 }, y: { start: 0.25, end: 0.75 } }), { min: -10, max: 10 });
+    assert.deepEqual(narrowed(R({ min: -20, max: 20 }), { x: { start: 0, end: 1 }, y: { start: 0.25, end: 0.75 } }), { min: -10, max: 10 });
 });
 
 test('a held slot asks once for every bin of its file and its base, then draws its Δ from them (R1, R3)', () => {
@@ -258,13 +289,39 @@ test('a held slot asks once for every bin of its file and its base, then draws i
     plot.paint();
     assert.equal(held.classList.contains('is-pending'), false);
     assert.equal(title.textContent, '1 · a.wav');
-    const comparison = buildCompareModel(buildEntryModel([...compared.at(-1)!.over].map(([filePath, result]) => ({ filePath, result })), null), compared.at(-1)!.over, '/d/a.wav', null, strings, false, undefined, { paths: ['/d/b.wav', '/d/c.wav'], title: 'base' });
+    const comparison = compareOf(buildEntryModel([...compared.at(-1)!.over].map(([filePath, result]) => ({ filePath, result })), null), compared.at(-1)!.over, '/d/a.wav', null, strings, false, undefined, { paths: ['/d/b.wav', '/d/c.wav'], title: 'base' });
     assert.deepEqual(comparison.bins?.diff, [0, 12, 0, 0], 'every bin, so the one bin that differs is there');
     assert.equal(calls.filter(([kind]) => kind === 'post').length, 1, 'held again, nothing is asked anew');
 });
 
+test('a held slot whose files\' bins failed says so and draws no band Δ in their place, nor asks again during the pause (V7)', () => {
+    const binnedScan = (level: number): ScanResult => ({ ...scanned(), spectrumBinsDb: [[-40, level, -40, -40]], spectrumBinHz: 4000 });
+    const results = new Map<string, ScanResult>([['/d/a.wav', scanned()], ['/d/b.wav', scanned()], ['/d/c.wav', scanned()]]);
+    const { window, held, title, plot, calls, state, compared } = setup(results);
+    state.slots = [null, '/d/a.wav', null, null];
+    plot.press(1);
+    window.advance(TAP_MS);
+    plot.paint();
+    const asked = calls.filter(([kind]) => kind === 'post').map(([, message]) => message as { requestId: string });
+    // The backend restarted meanwhile: one file's every-bin scan fails for a reason that may pass.
+    plot.handle({ type: 'compare-scan-result', requestId: asked[0].requestId, filePath: '/d/a.wav', result: binnedScan(-28) } as { type: string });
+    plot.handle({ type: 'compare-scan-result', requestId: asked[0].requestId, filePath: '/d/b.wav', result: { ok: false, reason: 'backend restarted' } } as { type: string });
+    plot.handle({ type: 'compare-scan-result', requestId: asked[0].requestId, filePath: '/d/c.wav', result: binnedScan(-40) } as { type: string });
+    plot.handle({ type: 'compare-scan-done', requestId: asked[0].requestId } as { type: string });
+    compared.length = 0;
+    plot.paint();
+    assert.ok(held.classList.contains('is-failed'));
+    assert.match(title.textContent ?? '', /could not be measured: b\.wav \(backend restarted\)/);
+    assert.equal(plot.picture()?.drawn ?? null, null, 'no band Δ of the table\'s scans stands in');
+    assert.ok(compared.every(item => item.over === results), 'nothing compared from part of the files\' bins');
+    // Released and held again later, a plain hold shows no failure left over.
+    plot.paint();
+    assert.equal(calls.filter(([kind]) => kind === 'post').length, 1, 'not asked again during the pause');
+});
+
 test('a file scanned again since its bins were kept is asked for again, once, so a hold does not stay at 192 points', () => {
-    const withLevel = (level: number): ScanResult => ({ ...scanned(), spectrumDb: [[level, -50, -60]] });
+    // Another version of the file whose 192 drawn points happen to be alike: told apart by its condition alone.
+    const rescanned = (): ScanResult => ({ ...scanned(), conditionId: 'changed-on-disk' });
     const results = new Map<string, ScanResult>([['/d/a.wav', scanned()], ['/d/b.wav', scanned()]]);
     const { window, plot, calls, state } = setup(results);
     state.slots = [null, '/d/a.wav', null, null];
@@ -282,8 +339,8 @@ test('a file scanned again since its bins were kept is asked for again, once, so
     answer('/d/b.wav', scanned());
     plot.paint();
     const asked = posts().length;
-    // The recording changed and the table scanned it again: its kept bins are of the old spectrum.
-    results.set('/d/a.wav', withLevel(-30));
+    // The recording changed and the table scanned it again: its kept bins are of the old version.
+    results.set('/d/a.wav', rescanned());
     plot.paint();
     assert.equal(posts().length, asked + 1);
     assert.deepEqual(posts().at(-1)!.filePaths, ['/d/a.wav']);
@@ -292,4 +349,55 @@ test('a file scanned again since its bins were kept is asked for again, once, so
     plot.paint();
     plot.paint();
     assert.equal(posts().length, asked + 1);
+});
+
+test('← / → on a held slot\'s Δ step to the next of every bin, not the next point drawn of the Δ thinned to the plot\'s width (R7)', () => {
+    // 4000 bins, each a different Δ (the bin's number modulo 7), on a plot a few hundred pixels wide.
+    const BINS = 4000, HZ = 6;
+    const deltaAt = (bin: number): number => bin % 7;
+    const binned = (louder: boolean): ScanResult => ({ ...scanned(), spectrumBinsDb: [Array.from({ length: BINS }, (_, bin) => -40 + (louder ? deltaAt(bin) : 0))], spectrumBinHz: HZ });
+    const results = new Map<string, ScanResult>([['/d/a.wav', scanned()], ['/d/b.wav', scanned()]]);
+    const { document, window, plot, calls, state } = setup(results);
+    const canvas = document.querySelector<HTMLCanvasElement>('[data-entry-held-canvas]')!;
+    Object.defineProperties(canvas, { clientWidth: { value: 400 }, clientHeight: { value: 200 } });
+    // A context that draws nothing but answers what the plot component asks of it.
+    const anything: object = new Proxy(() => undefined, { get: (_target, prop) => (prop === 'then' ? undefined : () => anything), set: () => true });
+    canvas.getContext = (() => new Proxy({}, {
+        get: (_target, prop) => (prop === 'measureText' ? () => ({ width: 10 }) : prop === 'createImageData' || prop === 'getImageData' ? (...size: number[]) => ({ width: size.at(-2) ?? 1, height: size.at(-1) ?? 1, data: new Uint8ClampedArray(Math.max(1, (size.at(-2) ?? 1) * (size.at(-1) ?? 1) * 4)) }) : () => anything),
+        set: () => true,
+    })) as unknown as HTMLCanvasElement['getContext'];
+    state.slots = [null, '/d/a.wav', null, null];
+    plot.press(1);
+    window.advance(TAP_MS);
+    plot.paint();
+    const asked = calls.filter(([kind]) => kind === 'post').map(([, message]) => message as { requestId: string })[0];
+    plot.handle({ type: 'compare-scan-result', requestId: asked.requestId, filePath: '/d/a.wav', result: binned(true) } as { type: string });
+    plot.handle({ type: 'compare-scan-result', requestId: asked.requestId, filePath: '/d/b.wav', result: binned(false) } as { type: string });
+    plot.handle({ type: 'compare-scan-done', requestId: asked.requestId } as { type: string });
+    plot.paint();
+    const drawn = plot.picture()?.drawn;
+    assert.ok(drawn, 'the Δ is drawn');
+    const line = drawn.lines[0];
+    const points = line?.view.values?.length ?? 0;
+    assert.ok(points > 0 && points < BINS / 4, `the Δ is thinned to be drawn (${points} points of ${BINS} bins)`);
+    // The pointer near the plot's right end, where many bins share a pixel (the axis is logarithmic: on the left
+    // every bin is drawn): the bin read there, then → and ← one bin at a time.
+    const read = stageHover(drawn, drawn.frame.left + drawn.frame.width * 0.95, drawn.frame.top + drawn.frame.height / 2);
+    assert.ok(read?.full, 'read from every bin');
+    assert.ok(read.at !== undefined);
+    const bin = Math.round(read.at / HZ);
+    assert.equal(read.value, deltaAt(bin));
+    let at = read;
+    for (const [delta, expected] of [[1, bin + 1], [1, bin + 2], [1, bin + 3], [-1, bin + 2], [-1, bin + 1]] as const) {
+        const next = stageStep(drawn, at, delta);
+        assert.ok(next, `a step to bin ${expected}`);
+        assert.equal(Math.round((next.at ?? NaN) / HZ), expected, 'one bin on, not the next point drawn');
+        assert.equal(next.value, deltaAt(expected), 'the value of that bin');
+        at = next;
+    }
+    // Ten keys on are ten bins on: the tenth point drawn after it is further.
+    let tenth = read;
+    for (let key = 0; key < 10; key++) tenth = stageStep(drawn, tenth, 1) ?? tenth;
+    assert.equal(Math.round((tenth.at ?? NaN) / HZ), bin + 10);
+    assertNotDrawn(Math.round((tenth.at ?? NaN) / HZ), Math.round(nthAfter(line?.view.xs ?? [], read.at, 10) / HZ), 'not the tenth drawn point on');
 });

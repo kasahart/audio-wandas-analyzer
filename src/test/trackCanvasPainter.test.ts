@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { drawableLine } from '../shared/drawnPoints';
 import test from 'node:test';
 import type { SpectrogramData, WaveformEnvelope } from '../shared/analysis/analysisTypes';
 import { hexToRgba, laneSpectrogramView, laneWaveformOverlay, onColourBar, paintTrackSpectrogram } from '../webview/runtime/trackCanvasPainter';
 import { normalizedColor, viridis } from '../shared/gui-core/index';
+import { P, T } from './helpers/figure';
 
 test('hexToRgba converts a #rrggbb color', () => {
     assert.equal(hexToRgba('#ff8000', 0.25), 'rgba(255,128,0,0.25)');
@@ -27,8 +29,8 @@ test('a lane\'s waveform is one signal layer, its bucket times placed in seconds
     assert.equal(layer.color, '#00ff00');
     assert.equal(layer.span, undefined);
     const signal = layer.view.waveform!;
-    assert.deepEqual(signal.minT.map(t => +t!.toFixed(6)), [11.2, 12.2]);
-    assert.deepEqual(signal.maxT.map(t => +t!.toFixed(6)), [11.4, 12.4]);
+    assert.deepEqual(drawableLine(signal.minT).map(t => +t!.toFixed(6)), [11.2, 12.2]);
+    assert.deepEqual(drawableLine(signal.maxT).map(t => +t!.toFixed(6)), [11.4, 12.4]);
     assert.deepEqual([signal.min, signal.max, signal.unit, signal.absolutePeak], [[-0.5, -0.2], [0.5, 0.2], 'Pa', 0.8]);
     // Buckets without times sit across the part's stretch, as the lanes placed them.
     const untimed = laneWaveformOverlay({ waveform: { min: [0, 0], max: [1, 1], samples: [], absolutePeak: 1 }, dataStart: 0.5, dataEnd: 1, amplitudeScale: undefined }, place, '#00ff00', '');
@@ -49,7 +51,7 @@ const spec: SpectrogramData = {
     timeBins: 2, frequencyBins: 2, windowSize: 1024, hopSize: 256,
     maxFrequencyHz: 1000, minDb: -80, maxDb: -20, unit: 'dB',
 };
-const TITLES = { colour: 'Level [dBFS]', frequency: 'Frequency [Hz]', time: 'Time [s]' };
+const TITLES = { colour: T('Level [dBFS]'), frequency: P('Frequency [Hz]'), time: P('Time [s]') };
 // One 2 s file filling the lanes' axis.
 const wholePlace = { startSec: 0, spanSec: 2, offsetNorm: 0, trackDurRatio: 1 };
 const laneView = { window: { start: 0, end: 1 }, dbLo: -80, dbHi: -20, maxFrequencyHz: 1000, minFrequencyHz: 0, durationSec: 2 };
@@ -109,7 +111,7 @@ test('a spectrogram lane is drawn by the plot component over its whole width, wi
     assert.deepEqual([entry.ticks[0]?.text, entry.ticks.at(-1)?.text], ['0', '1000']);
     // A new name is a new look: the lane is painted again.
     const renamed = laneCanvas(400, 60);
-    assert.notEqual(paintTrackSpectrogram(renamed.canvas, null, spec, wholePlace, laneView, entry, { ...TITLES, colour: 'Level [dB SPL]' }, ''), entry);
+    assert.notEqual(paintTrackSpectrogram(renamed.canvas, null, spec, wholePlace, laneView, entry, { ...TITLES, colour: T('Level [dB SPL]') }, ''), entry);
 });
 
 test('each pixel of a spectrogram lane shows the loudest of the cells it covers, in the lanes\' viridis colours (R2)', () => {
@@ -148,6 +150,6 @@ test('a lane\'s waveform points are placed once per envelope and place, and plac
     assert.equal(laneWaveformOverlay(source, place, '#00ff00', 'Pa').overlay.layers[0].view.waveform, first);
     const moved = laneWaveformOverlay(source, { ...place, offsetNorm: 0.5 }, '#00ff00', 'Pa').overlay.layers[0].view.waveform!;
     assert.notEqual(moved, first);
-    assert.deepEqual(moved.minT.map(t => +t!.toFixed(6)), [12.2, 13.2]);
+    assert.deepEqual(drawableLine(moved.minT).map(t => +t!.toFixed(6)), [12.2, 13.2]);
     assert.deepEqual(laneWaveformOverlay(source, place, '#00ff00', 'V').overlay.layers[0].view.waveform!.unit, 'V');
 });

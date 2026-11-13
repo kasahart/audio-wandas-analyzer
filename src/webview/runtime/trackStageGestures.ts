@@ -4,29 +4,19 @@
  */
 import type { UiStrings } from '../../shared/i18n/strings';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
-import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotHit, type PlotWindow } from './plotInteraction';
-import { axisFractionOf, axisValueAt, rowFractionOf, rowValueAt, STAGE_MARGINS, stageHover, stagePlotPoint } from './stagePanes';
-import { createPlotHoverLayer } from './plotHoverLayer';
+import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotClick, type PlotHit, type PlotWindow } from './plotInteraction';
+import { axisFractionOf, axisValueAt, drawnMargins, rowFractionOf, rowValueAt, stagePlotPoint, type StagePlot } from './stagePanes';
+import { clickOnRead, createPlotHoverLayer } from './plotHoverLayer';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import { positionPopover } from './settingsPopover';
 import type { Drawn } from './trackStagePainter';
 import type { TrackStageState } from './trackStageModel';
-
-/** How near (px) a click must be to an event's line to leave it out. */
-const EVENT_PICK_PX = 6;
-/** How long a click on an event's line waits for a second one (a double-click resets the zoom instead). */
-const DOUBLE_CLICK_MS = 300;
 
 /** The pointer over the mode's plots, while it is over one. */
 export interface StageGestures {
     hovering(): boolean;
     /** Draws the hover marks again on what the plot under the still pointer now shows. */
     redraw(): void;
-    /**
-     * The horizontal axis of the plot under the pointer zoomed by `zoom` (a key's zoom), in that plot's own window
-     * (the lanes under a trigger have theirs); false when the pointer is over none.
-     */
-    zoomHovered(zoom: (range: PlotWindow['x']) => PlotWindow['x']): boolean;
 }
 
 export function attachStageGestures(surface: HTMLElement, root: HTMLElement, document: Document, deps: {
@@ -42,8 +32,11 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     /** The lanes sit under a trigger's events: over the recording's time, so they zoom on their own. */
     lanesApart: () => boolean;
     /** A click on a trigger's event line: left out, or put back. */
-    /** Takes what the click is on at once, and returns the edit to make once no double-click follows. */
-    toggleEvent?: (event: { id: number; source: string; out: boolean }) => (() => void) | undefined;
+    /**
+     * Takes what the click is on at once, and returns the edit, done at once (plotInteraction.ts, R13); the edit returns
+     * how to take it back, for a double click's second press.
+     */
+    toggleEvent?: (event: { id: number; source: string; out: boolean }) => (() => (() => void) | undefined) | undefined;
 }): StageGestures {
     const { strings, state, drawnOn } = deps;
     // Each plot's zoom: the Δ pane shares the overlay's frequency axis but not its level axis, and the lanes under a
@@ -63,7 +56,7 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     // The pointer's marks (plotHover.ts: the nearest line thicker, the cursor at its point), the box being dragged
     // and an axis's range, for any plot of the mode. The marks are drawn on a canvas laid over the plot, so a hover
     // does not draw the plot again; the readout is in the controls row above the plots, never over a plot (R7).
-    const marks = createPlotHoverLayer(document, 'track-stage-cursor');
+    const marks = createPlotHoverLayer(document, { noValue: strings.plotNoValue }, 'track-stage-cursor');
     const box = document.createElement('div');
     box.className = 'compare-zoom-box track-stage-box';
     box.hidden = true;
@@ -77,30 +70,34 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
         return row?.querySelector<HTMLElement>('[data-plot-readout]') ?? null;
     };
     const rangePopover = installRangePopover(document, { rootId: 'track-stage-range-popover', badgeId: 'track-stage-range-axis-badge', idPrefix: 'track-stage-range', strings: rangePopoverStrings(strings), position: positionPopover });
-    /** The plot's rectangle on screen (inside its canvas's axis margins). */
+    /** What `plot` last drew (its frame: a second level axis widens its right margin), so a gesture is placed on it as drawn. */
+    const drawnPlot = (plot: HTMLElement): StagePlot | null => drawnOn.get(plot)?.plot ?? null;
+    /** The plot's rectangle on screen (inside the margins it was drawn with). */
     const plotBox = (plot: HTMLElement): { left: number; top: number; width: number; height: number } => {
-        const rect = plot.getBoundingClientRect();
-        return { left: rect.left + STAGE_MARGINS.left, top: rect.top + STAGE_MARGINS.top, width: Math.max(1, rect.width - STAGE_MARGINS.left - STAGE_MARGINS.right), height: Math.max(1, rect.height - STAGE_MARGINS.top - STAGE_MARGINS.bottom) };
+        const rect = plot.getBoundingClientRect(), margins = drawnMargins(plot, drawnPlot(plot));
+        return { left: rect.left + margins.left, top: rect.top + margins.top, width: Math.max(1, rect.width - margins.left - margins.right), height: Math.max(1, rect.height - margins.top - margins.bottom) };
     };
     /**
-     * The trigger's event whose line is under the pointer (within a few pixels), if any. Read from the events' full
-     * data (R7): none while it is fetched (`ready` is called once it is in).
+     * On an event's line the pointer says it can be clicked: where the readout reads an event's line (R7, R13: a click
+     * acts on what the readout reads, PlotHoverLayer.clicked), said again once the line's full data is in.
      */
-    const eventAt = (plot: HTMLElement, clientX: number, clientY: number, ready?: () => void): { id: number; source: string; out: boolean } | null => {
-        const drawn = drawnOn.get(plot);
-        if (!drawn?.plot || !plot.isConnected) return null;
-        const rect = plot.getBoundingClientRect();
-        const hit = stageHover(drawn.plot, clientX - rect.left, clientY - rect.top, ready);
-        return hit && !hit.pending && hit.layer.event && Math.abs(hit.y - (clientY - rect.top)) <= EVENT_PICK_PX ? hit.layer.event : null;
-    };
-    /** On an event's line the pointer says it can be clicked; said again once the line's full data is in. */
-    const hintAt = (plot: HTMLElement, clientX: number, clientY: number, late = false): void => {
-        const again = (): void => { if (hovered && hovered.plot === plot && hovered.clientX === clientX && hovered.clientY === clientY) hintAt(plot, clientX, clientY, true); };
-        const line = deps.toggleEvent ? eventAt(plot, clientX, clientY, again) : null;
-        // Once the data is in, only a line found says so: a message written meanwhile (a key's) is not covered by the plot's hint.
-        if (late && !line) return;
-        plot.style.cursor = line ? 'pointer' : '';
-        deps.hint(line ? (line.out ? strings.stageEventClickIn : strings.stageEventClickOut) : strings.compareHintPlot);
+    const hintAt = (plot: HTMLElement, clientX: number, clientY: number): void => {
+        const still = (): boolean => !!hovered && hovered.plot === plot && hovered.clientX === clientX && hovered.clientY === clientY;
+        let late = false, told = false;
+        const say = (line: { out: boolean } | null): void => {
+            told = true;
+            plot.style.cursor = line ? 'pointer' : '';
+            deps.hint(line ? (line.out ? strings.stageEventClickIn : strings.stageEventClickOut) : strings.compareHintPlot);
+        };
+        if (!deps.toggleEvent) { say(null); return; }
+        marks.clicked(plot, still, got => {
+            const line = got?.read?.layer.event ?? null;
+            // Once the data is in, only a line found says so: a message written meanwhile (a key's) is not covered by the plot's hint.
+            if (late && !line) return;
+            say(line);
+        });
+        late = true;
+        if (!told) say(null);
     };
     /** Where the pointer is over a plot, so its marks follow a plot drawn anew under a still pointer. */
     let hovered: { plot: HTMLElement; clientX: number; clientY: number } | null = null;
@@ -110,16 +107,30 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
         if (!hovered || !drawn || !hovered.plot.isConnected || hovered.plot.closest('[hidden]')) { hideHover(); return; }
         marks.show(hovered.plot, drawn.plot ?? null, hovered.clientX, hovered.clientY, slotOf(hovered.plot));
     };
-    // The marks sit where the plot was on screen: a scroll under a still pointer takes them away.
-    document.addEventListener('scroll', () => { if (hovered) { hovered = null; hideHover(); } }, true);
+    // A scroll under a still pointer: the shared gestures hover again at the pointer (trackPointerEvents.ts), so the
+    // plot now under it is read there (R7).
+    // A click on an event's line (the plot gestures' tap: a press that stayed put, a drag zooms instead) leaves it out
+    // or puts it back, at once: plotInteraction.ts arbitrates the click (R13; a double click's second press takes it back,
+    // so a double click resets the zoom only). It acts on the line the readout read at the press (R7, R13: clickOnRead),
+    // never on a hit test of its own: where the readout reads an event's line, that line; elsewhere, none.
+    // It is decided on the plot as it was clicked; a click while the lines' full data is on its way is decided once it
+    // is in (R7), never dropped, unless a later press anywhere (a drag, another click) takes its place first.
+    const tap = (plot: HTMLElement, _event: MouseEvent, current: () => boolean): PlotClick | undefined => {
+        const toggle = deps.toggleEvent;
+        if (!state.on || !toggle) return undefined;
+        return clickOnRead(marks, plot, current, got => {
+            const line = state.on ? got.read?.layer.event : undefined;
+            return line ? toggle(line)?.() : undefined;
+        });
+    };
     const gestures = (selector: string, container: HTMLElement): void => attachPlotInteraction(container, document, selector, {
         locate(target, clientX, clientY): PlotHit | null {
             const plot = (target as HTMLElement | null)?.closest?.<HTMLElement>(selector);
             if (!state.on || !plot || !deps.painted() || plot.closest('[hidden]')) return null;
-            const { fx, fy, axis } = stagePlotPoint(plot, clientX, clientY);
+            const { fx, fy, axis } = stagePlotPoint(plot, clientX, clientY, drawnPlot(plot));
             return { plot, point: { fx, fy }, axis };
         },
-        pointOn(plot, clientX, clientY) { const { fx, fy } = stagePlotPoint(plot, clientX, clientY); return { fx, fy }; },
+        pointOn(plot, clientX, clientY) { const { fx, fy } = stagePlotPoint(plot, clientX, clientY, drawnPlot(plot)); return { fx, fy }; },
         window: windowOf,
         setWindow(plot, next) { setWindowOf(plot, next ?? FULL_PLOT_WINDOW); },
         hover(event, hit) {
@@ -128,13 +139,17 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
             const drawn = hit ? drawnOn.get(hit.plot) : undefined;
             if (!hit || hit.axis || !drawn) { hovered = null; hideHover(); if (hit) deps.hint(strings.compareHintAxis); return; }
             hovered = { plot: hit.plot, clientX: event.clientX, clientY: event.clientY };
-            hintAt(hit.plot, event.clientX, event.clientY);
             showHover();
+            hintAt(hit.plot, event.clientX, event.clientY);
         },
         clearHover() { hovered = null; hideHover(); },
+        tap,
+        // A picture on its way (or none yet) is no drawing: the readout keeps the keys for it (R7).
+        takesKeys: plot => state.on && plot.matches(selector) && !plot.closest('[hidden]'),
         stepFrom(plot, delta, arrived) {
-            const drawn = drawnOn.get(plot)?.plot;
-            return state.on && drawn && deps.painted() ? marks.stepFrom(plot, drawn, delta, arrived) : null;
+            if (!state.on) return null;
+            const drawn = drawnOn.get(plot)?.plot ?? null;
+            return marks.stepFrom(plot, deps.painted() ? drawn : null, delta, arrived);
         },
         showBox(plot, from, to) {
             const rect = plotBox(plot);
@@ -148,13 +163,21 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
             if (!drawn?.picture) return false;
             const picture = drawn.picture;
             const heat = picture.kind === 'heatmap';
+            // The right-hand level axis of a plot with two answers a double-click too (R13): its own levels.
+            const right = hit.axis === 'y' && !!stagePlotPoint(hit.plot, clientX, clientY, drawnPlot(hit.plot)).right && drawn.second;
             // An axis's values for a part of it (0–1), and the part for typed values: the picture's own axes.
             const mapping: AxisMapping = hit.axis === 'x'
                 ? { at: f => axisValueAt(picture, f), of: v => axisFractionOf(picture, v), label: drawn.axes.x }
+                : right ? linearAxis(right.range.min, right.range.max, right.title)
                 : heat ? { at: f => rowValueAt(picture, f), of: v => rowFractionOf(picture, v), label: drawn.axes.y }
                     : linearAxis(drawn.range.min, drawn.range.max, drawn.axes.y);
+            // The axis's ends as painted, written exactly (R9): across, its window; up, a heatmap's rows or a level axis.
+            const plot = drawn.plot;
+            const shown = hit.axis === 'x' ? plot?.xRange : heat ? plot?.rowRange : right ? plot?.secondary?.valueRange : plot?.valueRange;
+            if (!shown) return false;
             openAxisPart(rangePopover, {
                 mapping, horizontal: hit.axis === 'x', current: hit.axis === 'x' ? windowOf(hit.plot).x : windowOf(hit.plot).y, clientX, clientY, invalid: strings.specRangeErrorMinMax,
+                shown,
                 set(part) { const now = windowOf(hit.plot); setWindowOf(hit.plot, hit.axis === 'x' ? { ...now, x: part } : { ...now, y: part }); },
             });
             return true;
@@ -162,29 +185,8 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     });
     gestures('.track-canvas', surface);
     gestures('[data-stage-canvas]', root);
-    // A click on an event's line (a press that stayed put: a drag's click is not passed on) leaves it out or puts it back.
-    // It waits out a double-click (which resets the zoom): the second click takes the first one back.
-    let pending: number | undefined;
-    const view = document.defaultView;
-    const clicked = (selector: string) => (event: MouseEvent): void => {
-        const plot = (event.target as HTMLElement | null)?.closest?.<HTMLElement>(selector);
-        if (!state.on || !plot || !deps.toggleEvent || !view) return;
-        if (pending !== undefined) { view.clearTimeout(pending); pending = undefined; }
-        if (event.detail > 1) return;
-        const line = eventAt(plot, event.clientX, event.clientY);
-        const edit = line ? deps.toggleEvent(line) : undefined;
-        if (edit) pending = view.setTimeout(() => { pending = undefined; edit(); }, DOUBLE_CLICK_MS);
-    };
-    surface.addEventListener('click', clicked('.track-canvas'));
-    root.addEventListener('click', clicked('[data-stage-canvas]'));
     return {
         hovering: () => hovered !== null,
         redraw: showHover,
-        zoomHovered(zoom) {
-            if (!hovered || !hovered.plot.isConnected) return false;
-            const now = windowOf(hovered.plot);
-            setWindowOf(hovered.plot, { ...now, x: zoom(now.x) });
-            return true;
-        },
     };
 }

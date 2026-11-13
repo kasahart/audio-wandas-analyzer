@@ -1,16 +1,23 @@
+import { testLine } from './helpers/whole';
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { assertNotDrawn, nearestOf, nthAfter } from './fullNotDrawn';
 import { JSDOM } from 'jsdom';
 import { getStrings } from '../shared/i18n/strings';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { ROLE_COLORS } from '../shared/gui/roleColors';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
 import { plotsOf } from '../webview/runtime/trackStageModel';
+import { NO_FULL_DATA } from '../webview/runtime/fullRead';
+
+import { stageAxes, stageHover, stageStep } from '../webview/runtime/stagePanes';
 import type { Combined } from '../webview/runtime/combineSource';
-import { overlayLayers, overlayLegendItems, paintBaseGate, paintNoPicture, paintStageControls, paintStageLanes, paintStageOverlay, stageDom, stageModeHeadline, writeStageLegend, type Drawn, type StageFrame, type StageTrack } from '../webview/runtime/trackStagePainter';
+import { calibrationWords } from '../webview/runtime/figureModel';
+import { byReference, overlayLayers, overlayLegendItems, paintBaseGate, paintNoPicture, paintStageControls, paintStageLanes, paintStageOverlay, stageDom, stageModeHeadline, writeStageLegend, type Drawn, type StageFrame, type StageTrack } from '../webview/runtime/trackStagePainter';
+import { ranged } from './helpers/heldSource';
 
 const strings = getStrings('en');
-const line = (values: Array<number | null>): StageView => ({ kind: 'line', x: 'frequency', quantity: 'level', xScale: 'log', xs: values.map((_, index) => 100 * 2 ** index), values } as StageView);
+const line = (values: Array<number | null>): StageView => ranged({ kind: 'line', x: 'frequency', quantity: 'level', xScale: 'log', xs: values.map((_, index) => 100 * 2 ** index), values } as StageView);
 
 /** The mode's markup on a page, its canvases answering getContext with nothing (jsdom draws nothing). */
 function page() {
@@ -48,7 +55,7 @@ function frameFor(tracks: StageTrack[], views: Record<string, StageView | null |
     const coarse = (path: string) => views[path];
     return {
         strings, tracks, allTracks: tracks, referencePath: null, comparePath: 'one.wav', coarse, shown: coarse, picture: views['one.wav'] ?? null,
-        coarsePlots: plotsOf(coarse, tracks, 'one.wav', ['base.wav'], combined), window: FULL_PLOT_WINDOW, diffY: FULL_PLOT_WINDOW.y, waiting: false, role, named, drawnOn: new Map<Element, Drawn>(), ...extra,
+        coarsePlots: plotsOf(coarse, tracks, 'one.wav', ['base.wav'], combined), window: FULL_PLOT_WINDOW, diffY: FULL_PLOT_WINDOW.y, waiting: false, role, named, drawnOn: new Map<Element, Drawn>(), fullOf: () => NO_FULL_DATA, ...extra,
     };
 }
 
@@ -173,6 +180,7 @@ test('with no difference, the Δ headline says the same reason as its plot: othe
         [{ noDelta: 'rate' }, strings.stageNoDeltaRate],
         [{ noDelta: 'unit' }, strings.stageNoDeltaUnit],
         [{ tooLarge: true }, strings.stageTooLarge],
+        [{ failed: true }, strings.stageCombineFailed],
         [{}, strings.stageNoDelta],
     ];
     for (const [extra, reason] of cases) {
@@ -212,4 +220,233 @@ test('the legend is written only when it changed and no role chip is open, and k
     legend.innerHTML = '<details class="role-chip" open></details>';
     assert.equal(writeStageLegend(legend, play(false), 'x', document), 'x');
     assert.ok(legend.querySelector('details[open]'));
+});
+
+test('side by side, each lane is read at its own full data, never the line thinned to draw it: a bin thinned out under the pointer, and ← / → one bin at a time (R7)', () => {
+    const { document } = page();
+    // Lanes that draw: a context that draws nothing but answers what the plot component asks of it.
+    const anything: object = new Proxy(() => undefined, { get: (_target, prop) => (prop === 'then' ? undefined : () => anything), set: () => true });
+    const context = new Proxy({}, { get: (_target, prop) => (prop === 'measureText' ? (text: string) => ({ width: text.length * 6 }) : prop === 'font' ? '10px sans-serif' : () => anything), set: () => true });
+    const lane = (filePath: string): StageTrack => {
+        const canvas = document.createElement('canvas');
+        canvas.getContext = (() => context) as unknown as HTMLCanvasElement['getContext'];
+        Object.defineProperty(canvas, 'clientWidth', { value: 600 });
+        Object.defineProperty(canvas, 'clientHeight', { value: 160 });
+        return { filePath, color: '#888', canvas, axis: null };
+    };
+    // Each recording's spectrum, 8193 bins; each lane draws it thinned to each bucket's lowest and highest bin.
+    const bins = 8193, hz = 24000 / (bins - 1);
+    const xs = Array.from({ length: bins }, (_, bin) => bin * hz);
+    const spectra: Record<string, number[]> = {
+        'base.wav': xs.map((_, bin) => -50 + 15 * Math.sin(bin * 1.37) * Math.cos(bin * 0.11)),
+        'one.wav': xs.map((_, bin) => -40 + 12 * Math.sin(bin * 0.91) * Math.cos(bin * 0.07)),
+    };
+    const thinned = (values: number[]): StageView => {
+        const keep: number[] = [];
+        for (let start = 1; start < bins; start += 64) {
+            const part = values.slice(start, Math.min(bins, start + 64));
+            keep.push(start + part.indexOf(Math.min(...part)), start + part.indexOf(Math.max(...part)));
+        }
+        const at = [...new Set(keep)].sort((a, b) => a - b);
+        return { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: at.map(bin => xs[bin]), values: at.map(bin => values[bin]), xLimits: [0, 24000] };
+    };
+    const views = Object.fromEntries(Object.entries(spectra).map(([path, values]) => [path, thinned(values)]));
+    const tracks = [lane('base.wav'), lane('one.wav')];
+    const fullOf = (view: StageView | null | undefined) => {
+        const path = Object.keys(views).find(key => views[key] === view);
+        return path ? testLine(xs, spectra[path]) : NO_FULL_DATA;
+    };
+    const frame = frameFor(tracks, views, { fullOf });
+    assert.equal(paintStageLanes(frame), 2);
+    for (const track of tracks) {
+        const plot = frame.drawnOn.get(track.canvas as Element)?.plot;
+        assert.ok(plot, `${track.filePath} drew`);
+        const values = spectra[track.filePath];
+        const drawn = new Set(views[track.filePath].xs);
+        let bin = 4000;
+        while (drawn.has(xs[bin])) bin++;
+        let read = stageHover(plot, plot.xAt(xs[bin]), plot.yAt(values[bin]));
+        assert.equal(read?.full, true, `${track.filePath}: read from its full data`);
+        assert.equal(read?.at, xs[bin]);
+        assert.equal(read?.value, values[bin], `${track.filePath}: the bin thinned out of the line drawn`);
+        assertNotDrawn(read?.at, nearestOf(views[track.filePath].xs ?? [], xs[bin]), 'not the nearest point of the line drawn');
+        for (let step = 1; step <= 10; step++) {
+            read = read ? stageStep(plot, read, 1) ?? null : null;
+            assert.equal(read?.at, xs[bin + step], `${track.filePath}: step ${step} is the next bin`);
+            assert.equal(read?.value, values[bin + step]);
+        }
+        assertNotDrawn(read?.at, nthAfter(views[track.filePath].xs ?? [], xs[bin], 10), 'ten keys on are ten bins on, not ten drawn points');
+    }
+});
+
+test('overlaid, each line is on the axis of its own recording\'s reference: one shared, two split left and right as the cursor spectrum does, more not overlaid (A22, C1)', () => {
+    const { lane } = page();
+    const fs = { unit: '', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true } as const;
+    const spl = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: false } as const;
+    const volt = { unit: 'V', ref: 1, levelReferenceLabel: 'dB re 1 V', calibrationStatus: 'calibrated', fullScale: false } as const;
+    const views = { 'base.wav': line([-20, -30]), 'one.wav': line([74, 64]), 'two.wav': line([-6, -9]) };
+    const draw = (inputs: Record<string, StageTrack['input']>, paths = ['base.wav', 'one.wav']): string[] => {
+        const tracks = paths.map(path => ({ ...lane(path), input: inputs[path] }));
+        const frame = frameFor(tracks, views);
+        const plots = { ...plotsOf(frame.shown, tracks, 'one.wav', ['base.wav'], combined), others: tracks.filter(track => track.filePath === 'two.wav').map(track => ({ track, view: views['two.wav'] })) };
+        const split = byReference(frame, overlayLayers(frame, plots, undefined, 'base.wav'));
+        if (split.tooMany) return [];
+        const titles = [stageAxes(strings, frame.picture, split.mainInput).y, ...(split.secondary ? [split.secondary.title] : [])];
+        // Each line is on the axis named by its own recording's reference, and a second axis's lines are dashed.
+        for (const layer of split.mainLayers) assert.equal(stageAxes(strings, frame.picture, inputs[layer.recording ?? '']).y, titles[0]);
+        for (const layer of split.secondary?.layers ?? []) { assert.equal(stageAxes(strings, frame.picture, inputs[layer.recording ?? '']).y, titles[1]); assert.ok(layer.dash); }
+        return titles;
+    };
+    // One reference: one axis, named by it.
+    assert.deepEqual(draw({ 'base.wav': spl, 'one.wav': spl }).map(title => /\[(.*)\]$/u.exec(title)?.[1]), ['dB SPL re 20 µPa']);
+    // The compared recording calibrated, the base not: the base's axis on the left, the other's on the right.
+    assert.deepEqual(draw({ 'base.wav': fs, 'one.wav': spl }).map(title => /\[(.*)\]$/u.exec(title)?.[1]), ['dBFS', 'dB SPL re 20 µPa']);
+    // Three references: not overlaid on one plot, as the cursor spectrum does not.
+    assert.deepEqual(draw({ 'base.wav': fs, 'one.wav': spl, 'two.wav': volt }, ['base.wav', 'one.wav', 'two.wav']), []);
+});
+
+test('overlaid, lines share an axis by their level identity, not their axis name: a gain-corrected FS file and a raw one are one axis, and only the raw one says uncalibrated (R1, R4)', () => {
+    const { lane } = page();
+    const raw = { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true } as const;
+    const corrected = { ...raw, calibrationStatus: 'calibrated' } as const;
+    const spl = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: false } as const;
+    const views = { 'base.wav': line([-20, -30]), 'one.wav': line([-24, -28]), 'two.wav': line([74, 64]) };
+    const split = (inputs: Record<string, StageTrack['input']>, paths = ['base.wav', 'one.wav']) => {
+        const tracks = paths.map(path => ({ ...lane(path), input: inputs[path] }));
+        const frame = frameFor(tracks, views);
+        const plots = { ...plotsOf(frame.shown, tracks, 'one.wav', ['base.wav'], combined), others: tracks.filter(track => track.filePath === 'two.wav').map(track => ({ track, view: views['two.wav'] })) };
+        return { frame, tracks, result: byReference(frame, overlayLayers(frame, plots, undefined, 'base.wav')) };
+    };
+    // One identity, two calibration statuses: one axis, which says uncalibrated only when every line on it is.
+    const mixed = split({ 'base.wav': raw, 'one.wav': corrected });
+    assert.equal(mixed.result.tooMany, false);
+    assert.equal(mixed.result.secondary, undefined, 'one axis for one identity');
+    assert.equal(mixed.result.mainLayers.length, 2);
+    const title = stageAxes(strings, mixed.frame.picture, mixed.result.mainInput).y;
+    assert.ok(!title.includes(strings.axisUncalibrated), title);
+    assert.ok(title.endsWith('[dBFS]'), title);
+    const word = calibrationWords(strings, mixed.tracks, ['base.wav', 'one.wav']);
+    assert.equal(word('base.wav'), strings.axisUncalibrated, 'the raw line says so itself');
+    assert.equal(word('one.wav'), '');
+    const both = split({ 'base.wav': raw, 'one.wav': raw });
+    assert.ok(stageAxes(strings, both.frame.picture, both.result.mainInput).y.includes(strings.axisUncalibrated), 'all uncalibrated: the axis says so');
+    assert.equal(calibrationWords(strings, both.tracks, ['base.wav', 'one.wav'])('base.wav'), '', 'and no line repeats it');
+    // Three axis names but two identities: two axes, not too many.
+    const three = split({ 'base.wav': raw, 'one.wav': corrected, 'two.wav': spl }, ['base.wav', 'one.wav', 'two.wav']);
+    assert.equal(three.result.tooMany, false);
+    assert.equal(three.result.mainLayers.length, 2);
+    assert.ok(three.result.secondary?.title.endsWith('[dB SPL re 20 µPa]'), three.result.secondary?.title);
+    // Three identities: nothing overlaid, and the empty axis names no line's reference, never the first track's (V8).
+    const volts = { unit: 'V', ref: 1, levelReferenceLabel: 'dB re 1 V', calibrationStatus: 'calibrated', fullScale: false } as const;
+    const many = split({ 'base.wav': raw, 'one.wav': volts, 'two.wav': spl }, ['base.wav', 'one.wav', 'two.wav']);
+    assert.equal(many.result.tooMany, true);
+    assert.equal(many.result.mainInput, undefined);
+    assert.ok(!many.result.mainNames.y.includes('dBFS'), many.result.mainNames.y);
+    assert.ok(many.result.mainNames.y.includes(strings.axisUnitUnknown), many.result.mainNames.y);
+});
+
+test('overlaid, a trigger\'s events are split by level identity as any line, and a vertical zoom narrows the right-hand axis as the left (A43, A45, R13)', () => {
+    const { lane } = page();
+    const fs = { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true } as const;
+    const pa = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: false } as const;
+    const events = (scale: number): StageView => ({ frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 1], values: [0, scale],
+        events: [{ id: 0, time: 0.5, xs: [0, 1], values: [-scale, scale] }] } as unknown as StageView);
+    const views = { 'base.wav': events(0.5), 'one.wav': events(2) };
+    const tracks = ['base.wav', 'one.wav'].map(path => ({ ...lane(path), input: path === 'base.wav' ? fs : pa }));
+    const frame = frameFor(tracks, views);
+    const plots = plotsOf(frame.shown, tracks, 'one.wav', ['base.wav'], combined);
+    const whole = byReference(frame, overlayLayers(frame, plots, undefined, 'base.wav'));
+    assert.equal(whole.tooMany, false);
+    assert.ok(whole.secondary, 'the Pa recording\'s events on an axis of their own');
+    assert.equal(whole.mainLayers.length, 1);
+    const zoomed = byReference({ ...frame, window: { x: { start: 0, end: 1 }, y: { start: 0.25, end: 0.75 } } }, overlayLayers(frame, plots, undefined, 'base.wav'));
+    const [a, b] = [whole.secondary.range, zoomed.secondary?.range ?? { min: NaN, max: NaN }];
+    assert.equal(b.min, a.min + 0.25 * (a.max - a.min));
+    assert.equal(b.max, a.min + 0.75 * (a.max - a.min));
+});
+
+test('overlaid with two level axes, each axis is named by its own lines, whichever picture arrived first; an axis with no line of its own is never named by the other\'s (R4, A43)', () => {
+    const { lane } = page();
+    const fs = { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true } as const;
+    const pa = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: false } as const;
+    // A trigger's events and a waveform, each in its own recording's unit as the backend sends it (view.unit, waveform.unit).
+    const events = (unit: string, scale: number): StageView => ({ frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 1], values: [0, scale], unit,
+        events: [{ id: 0, time: 0.5, xs: [0, 1], values: [-scale, scale] }] } as unknown as StageView);
+    const wave = (unit: string, peak: number): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 1], values: [-peak, peak],
+        waveform: { min: [-peak, -peak], max: [peak, peak], minT: [0, 1], maxT: [0, 1], absolutePeak: peak, unit, ref: unit === 'FS' ? 1 : 2e-5 } } as unknown as StageView);
+    const tracks = ['base.wav', 'one.wav'].map(path => ({ ...lane(path), input: path === 'base.wav' ? fs : pa }));
+    // The names the overlay's axes get, with `first` the picture that arrived first (StageFrame.picture).
+    const names = (views: Record<string, StageView | undefined>, first: 'base.wav' | 'one.wav') => {
+        const frame = frameFor(tracks, views, { picture: views[first] ?? views[first === 'base.wav' ? 'one.wav' : 'base.wav'] ?? null });
+        const result = byReference(frame, overlayLayers(frame, plotsOf(frame.shown, tracks, 'one.wav', ['base.wav'], combined), undefined, 'base.wav'));
+        return { left: result.mainNames.y, right: result.secondary?.title };
+    };
+    for (const [kind, of] of [['events', events], ['waveform', wave]] as const) {
+        const views = { 'base.wav': of('FS', 0.5), 'one.wav': of('Pa', 2) };
+        const fsFirst = names(views, 'base.wav'), paFirst = names(views, 'one.wav');
+        assert.deepEqual(fsFirst, paFirst, `R4 broken: ${kind} on two level axes are named by the picture that arrived first, not by each axis's own lines. Name each axis in figureModel.stageLevelAxes from the lines assigned to it.`);
+        assert.ok(fsFirst.left.endsWith('[FS]'), `R4 broken: the left (base, FS) ${kind} axis is named ${fsFirst.left}; it must name its own lines' unit.`);
+        assert.ok(fsFirst.right?.endsWith('[Pa]'), `R4 broken: the right (Pa) ${kind} axis is named ${fsFirst.right}; it must name its own lines' unit, never the left axis's.`);
+        // One recording still pending: only the other's axis is drawn, named by its own lines, never by the pending one's
+        // picture or another axis's name.
+        for (const [ready, unit] of [['base.wav', '[FS]'], ['one.wav', '[Pa]']] as const) {
+            const only = names({ [ready]: views[ready] }, ready === 'base.wav' ? 'one.wav' : 'base.wav');
+            assert.equal(only.right, undefined, `${kind}: one recording pending, one axis`);
+            assert.ok(only.left.endsWith(unit), `R4 broken: with ${ready === 'base.wav' ? 'one.wav' : 'base.wav'} pending, the ${kind} axis of ${ready} is named ${only.left}; it must be named by its own line (${unit}).`);
+        }
+    }
+});
+
+test('side by side, a lane is named by its own picture alone: one still pending has the pending name, never the first picture\'s unit, then its own (R4)', () => {
+    const { lane } = page();
+    const fs = { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true } as const;
+    const pa = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: false } as const;
+    // Waveforms and a trigger's events, each in its own recording's unit as the backend sends it (waveform.unit, view.unit).
+    const wave = (unit: string, peak: number): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 1], values: [-peak, peak],
+        waveform: { min: [-peak, -peak], max: [peak, peak], minT: [0, 1], maxT: [0, 1], absolutePeak: peak, unit, ref: unit === 'FS' ? 1 : 2e-5 } } as unknown as StageView);
+    const events = (unit: string, scale: number): StageView => ({ frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 1], values: [0, scale], unit,
+        events: [{ id: 0, time: 0.5, xs: [0, 1], values: [-scale, scale] }] } as unknown as StageView);
+    const tracks = ['base.wav', 'one.wav'].map(path => ({ ...lane(path), input: path === 'base.wav' ? fs : pa }));
+    const units: Record<string, string> = { 'base.wav': '[FS]', 'one.wav': '[Pa]' };
+    const pendingName = `[${strings.axisUnitUnknown}]`;
+    // Each lane's level axis name as drawn, with `first` the picture that arrived first (StageFrame.picture).
+    const laneNames = (views: Record<string, StageView | undefined>, first: string): Record<string, string | undefined> => {
+        const frame = frameFor(tracks, views, { picture: views[first] ?? null });
+        paintStageLanes(frame);
+        return Object.fromEntries(tracks.map(track => [track.filePath, frame.drawnOn.get(track.canvas as Element)?.axes.y]));
+    };
+    for (const [kind, of] of [['waveform', wave], ['events', events]] as const) {
+        const views: Record<string, StageView> = { 'base.wav': of('FS', 0.5), 'one.wav': of('Pa', 2) };
+        // Both arrival orders: the first picture in is either lane's.
+        for (const [ready, waiting] of [['base.wav', 'one.wav'], ['one.wav', 'base.wav']] as const) {
+            const early = laneNames({ [ready]: views[ready] }, ready);
+            assert.ok(early[ready]?.endsWith(units[ready]), `R4 broken: the ${kind} lane of ${ready} is named ${early[ready]}; it must name its own picture's unit ${units[ready]}.`);
+            assert.ok(early[waiting]?.endsWith(pendingName) && !early[waiting]?.includes(units[ready]),
+                `R4 broken: the ${kind} lane of ${waiting}, its picture not in yet, is named ${early[waiting]}, from ${ready}'s picture. A lane is named by its own picture alone (figureModel.laneNames); until it is in, the pending name ${pendingName}.`);
+            const late = laneNames(views, ready);
+            for (const path of [ready, waiting]) {
+                assert.ok(late[path]?.endsWith(units[path]), `R4 broken: once its picture is in, the ${kind} lane of ${path} is named ${late[path]}; it must name its own unit ${units[path]}, whichever picture arrived first.`);
+            }
+        }
+    }
+});
+
+test('side by side, lanes share a range only with the lanes in their own reference: a dB SPL lane is never on a dBFS lane\'s scale (A32, C1)', () => {
+    const { lane } = page();
+    const fs = { unit: '', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true } as const;
+    const spl = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: false } as const;
+    const views = { 'base.wav': line([-20, -30]), 'one.wav': line([74, 64]), 'two.wav': line([-26, -34]) };
+    const ranges = (inputs: Record<string, StageTrack['input']>): Record<string, { min: number; max: number } | undefined> => {
+        const tracks = ['base.wav', 'one.wav', 'two.wav'].map(path => ({ ...lane(path), input: inputs[path] }));
+        const frame = frameFor(tracks, views);
+        paintStageLanes(frame);
+        return Object.fromEntries(tracks.map(track => [track.filePath, frame.drawnOn.get(track.canvas as Element)?.range]));
+    };
+    const mixed = ranges({ 'base.wav': fs, 'one.wav': spl, 'two.wav': fs });
+    assert.deepEqual(mixed['base.wav'], mixed['two.wav'], 'two dBFS lanes share one range');
+    assert.notDeepEqual(mixed['one.wav'], mixed['base.wav'], 'the dB SPL lane has its own');
+    assert.ok(mixed['one.wav']!.min > 0 && mixed['base.wav']!.max <= 0, JSON.stringify(mixed));
+    // One reference: one range for all.
+    const one = ranges({ 'base.wav': spl, 'one.wav': spl, 'two.wav': spl });
+    assert.deepEqual(one['base.wav'], one['one.wav']);
 });

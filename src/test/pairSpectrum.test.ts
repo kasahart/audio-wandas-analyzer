@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
+import { assertNotDrawn, averagedInto, peaksInto } from './fullNotDrawn';
 import test, { mock } from 'node:test';
 import { JSDOM } from 'jsdom';
 import { getStrings } from '../shared/i18n/strings';
 import { parsePanelMessage } from '../shared/protocol/panelMessages';
-import type { PairSpectrumResult } from '../shared/protocol/backendProtocol';
+import type { PairSpectrumResult, StageView } from '../shared/protocol/backendProtocol';
 import { ComparisonSessionController, type ComparisonSessionPorts, type SessionPublication } from '../shared/session/comparisonSessionController';
 import { isRequestPairSpectrumMessage, type PairSpectrumRequest } from '../shared/utils/audioTarget';
 import { DEFAULT_THEME } from '../webview/draw/canvasDrawers';
@@ -12,7 +13,7 @@ import {
     PAIR_LANES, pairLanes, pairHeader, type PairLaneKey, pairLegendHtml, referenceButtonHtml, syncReferenceButtons,
     type PairCurve, type PairSpectrumResponse, type PairSpectrumResultMessage,
 } from '../webview/runtime/pairSpectrum';
-import { STAGE_MARGINS } from '../webview/runtime/stagePanes';
+import { byLevel, stageRange, STAGE_MARGINS } from '../webview/runtime/stagePanes';
 import { pairMargins, PAIR_REQUEST_DELAY_MS, PairSpectrumPanel, type PairChannelSource, type PairPanelHost } from '../webview/runtime/pairSpectrumPanel';
 import type { TrackId } from '../webview/runtime/types';
 
@@ -76,7 +77,15 @@ test('a response calibrated to another unit is listed but not drawn on the share
     assert.equal(pairHeader(curves, en)?.fewAverages, false);
     const lanes = pairLanes({ frequencyBins: 3, maxFrequencyHz: 1000, curves }, { frequencyMin: 0, frequencyMax: 1000 }, en);
     assert.deepEqual(lanes.map(lane => lane.layers.map(layer => layer.label)), [['p.wav'], ['p.wav'], ['p.wav']]);
-    assert.equal(lanes[0].axes.y, 'Gain [dB re 1 Pa/(m/s²)]');
+    assert.equal(lanes[0].axes.y, 'Transfer level [dB re 1 Pa/(m/s²)]');
+});
+
+test('the gain plot names its axis in the UI\'s language, never the backend\'s English: a gain in dB, else the transfer level re the units\' ratio (R4)', () => {
+    const plain = pairLanes({ frequencyBins: 3, maxFrequencyHz: 1000, curves: [curve()] }, { frequencyMin: 0, frequencyMax: 1000 }, ja);
+    assert.equal(plain[0].axes.y, '利得 [dB]');
+    const ratio = pairLanes({ frequencyBins: 3, maxFrequencyHz: 1000, curves: [curve({ axisLabel: 'Transfer level [dB re 1 Pa/(m/s²)]', levelReferenceLabel: 'dB re 1 Pa/(m/s²)' })] }, { frequencyMin: 0, frequencyMax: 1000 }, ja);
+    assert.equal(ratio[0].axes.y, '伝達レベル [dB re 1 Pa/(m/s²)]');
+    assert.doesNotMatch(ratio[0].axes.y, /Transfer|Gain/u);
 });
 
 test('the pair view is three plots on one frequency axis, each named with its quantity and unit, drawing ok responses only', () => {
@@ -94,27 +103,27 @@ test('the pair view is three plots on one frequency axis, each named with its qu
     assert.deepEqual(lanes[0].layers[0].view.xs, [0, 500, 1000]);
     assert.deepEqual(lanes[1].layers[0].view.values, [0, 90, -90]);
     assert.deepEqual(lanes[1].layers[0].view.unit, '°');
-    // Phase ±180°, γ² 0 to 1; the gain fits the visible bins with at least 6 dB.
+    // Phase ±180°, γ² 0 to 1; the gain fits the visible bins by the dB line rule (a flat 0 dB: one 5 dB step under it).
     assert.deepEqual(lanes[1].range, { min: -180, max: 180 });
     assert.deepEqual(lanes[2].range, { min: 0, max: 1 });
     const gain = lanes[0].range;
-    assert.ok(gain.min < -12 && gain.max > 0);
+    assert.ok(gain.min <= -12 && gain.max >= 0);
     const near = pairLanes({ frequencyBins: 3, maxFrequencyHz: 1000, curves: [curve()] }, { frequencyMin: 0, frequencyMax: 100 }, en)[0].range;
-    assert.deepEqual(near, { min: -3, max: 3 });
+    assert.deepEqual(near, { min: -5, max: 0 });
 });
 
 test('pair requests and results pass their validators', () => {
     const request: PairSpectrumRequest = {
         type: 'request-pair-spectrum', requestId: 'r', analysisId: 'a', settingsSignature: 's',
-        reference: { filePath: '/a.wav', channelIndex: 0, offsetSeconds: 0 },
-        responses: [{ filePath: '/b.wav', channelIndex: 1, offsetSeconds: 0.25 }],
+        reference: { filePath: '/a.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0 },
+        responses: [{ filePath: '/b.wav', sourceVersion: undefined, channelIndex: 1, offsetSeconds: 0.25 }],
         startSeconds: 1, endSeconds: 3,
     };
     assert.equal(isRequestPairSpectrumMessage(request), true);
     assert.equal(parsePanelMessage(request)?.type, 'request-pair-spectrum');
     assert.equal(isRequestPairSpectrumMessage({ ...request, startSeconds: Number.NaN }), false);
     assert.equal(isRequestPairSpectrumMessage({ ...request, reference: { filePath: '', channelIndex: 0, offsetSeconds: 0 } }), false);
-    assert.equal(isRequestPairSpectrumMessage({ ...request, responses: [{ filePath: '/b.wav', channelIndex: -1, offsetSeconds: 0 }] }), false);
+    assert.equal(isRequestPairSpectrumMessage({ ...request, responses: [{ filePath: '/b.wav', sourceVersion: undefined, channelIndex: -1, offsetSeconds: 0 }] }), false);
 
     const result = { type: 'pair-spectrum-result', requestId: 'r', analysisId: 'a', settingsSignature: 's', filePath: '/a.wav', channelIndex: 0,
         frequencyBins: 3, maxFrequencyHz: 1000, nFft: 4, hopLength: 1, window: 'hann', computeMs: 1, responses: [response()] };
@@ -155,8 +164,8 @@ function controllerWith(
 
 const pairRequest: PairSpectrumRequest = {
     type: 'request-pair-spectrum', requestId: 'r1', analysisId: 'a', settingsSignature: 's',
-    reference: { filePath: '/a.wav', channelIndex: 0, offsetSeconds: 0 },
-    responses: [{ filePath: '/b.wav', channelIndex: 0, offsetSeconds: 0.5 }],
+    reference: { filePath: '/a.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0 },
+    responses: [{ filePath: '/b.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0.5 }],
 };
 
 test('the session controller publishes a pair result with the stft options and the request id', async () => {
@@ -186,7 +195,7 @@ test('the session controller drops a pair result once any source was reanalyzed'
 test('the session controller ignores a pair request for a source the host no longer displays', async () => {
     const { controller, published, calls } = controllerWith(async () => pairResult(), () => true,
         filePath => filePath === '/gone.wav' ? undefined : { analysisRevision: 2 });
-    await controller.handle({ ...pairRequest, responses: [{ filePath: '/gone.wav', channelIndex: 0, offsetSeconds: 0 }] });
+    await controller.handle({ ...pairRequest, responses: [{ filePath: '/gone.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0 }] });
     assert.equal(calls.length, 0);
     assert.equal(published.length, 0);
 });
@@ -231,8 +240,8 @@ function panelFixture() {
     const references: Array<unknown> = [];
     const hoverFrequencies: Array<number | null> = [];
     let channels: PairChannelSource[] = [
-        { trackId: 't1' as TrackId, filePath: '/a.wav', channelIndex: 0, offsetSeconds: 0, label: 'a.wav', color: '#0f0' },
-        { trackId: 't2' as TrackId, filePath: '/b.wav', channelIndex: 0, offsetSeconds: 0.5, label: 'b.wav', color: '#f00' },
+        { trackId: 't1' as TrackId, filePath: '/a.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0, label: 'a.wav', color: '#0f0' },
+        { trackId: 't2' as TrackId, filePath: '/b.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0.5, label: 'b.wav', color: '#f00' },
     ];
     let range: { startSeconds: number; endSeconds: number } | null = null;
     let visible: { frequencyMin: number; frequencyMax: number } | null = null;
@@ -288,6 +297,33 @@ function resultFor(requestId: string, overrides: Partial<PairSpectrumResultMessa
     return { type: 'pair-spectrum-result', requestId, ...rest, ...overrides };
 }
 
+test('a pair answer is of its sources\' calibration too: a track calibrated anew is asked again, its old answer not drawn', () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+        const fixture = panelFixture();
+        const calibrated = (signature: string) => fixture.setChannels([
+            { trackId: 't1' as TrackId, filePath: '/a.wav', sourceVersion: 'v1', calibrationSignature: signature, channelIndex: 0, offsetSeconds: 0, label: 'a.wav', color: '#0f0' },
+            { trackId: 't2' as TrackId, filePath: '/b.wav', sourceVersion: 'v1', channelIndex: 0, offsetSeconds: 0.5, label: 'b.wav', color: '#f00' },
+        ]);
+        calibrated('cal-1');
+        fixture.panel.toggleReference('t1' as TrackId, 0);
+        mock.timers.tick(0);
+        fixture.panel.handleMessage(resultFor('pair-1'));
+        assert.equal(fixture.panel.curves().length, 1);
+        // The same request to the host (file versions, offsets, range, settings), another calibration of a.wav.
+        calibrated('cal-2');
+        fixture.panel.render();
+        assert.equal(fixture.panel.curves().length, 0, 'the answer of the old calibration is not drawn');
+        fixture.panel.sync();
+        mock.timers.tick(PAIR_REQUEST_DELAY_MS);
+        assert.equal(fixture.posted.length, 2, 'asked again');
+        fixture.panel.handleMessage(resultFor('pair-2'));
+        assert.equal(fixture.panel.curves().length, 1);
+    } finally {
+        mock.timers.reset();
+    }
+});
+
 test('the pair panel requests once per change of sources or range, never for a repeat', () => {
     mock.timers.enable({ apis: ['setTimeout'] });
     try {
@@ -295,8 +331,8 @@ test('the pair panel requests once per change of sources or range, never for a r
         fixture.panel.toggleReference('t1' as TrackId, 0);
         mock.timers.tick(0);
         assert.equal(fixture.posted.length, 1);
-        assert.deepEqual(fixture.posted[0].reference, { filePath: '/a.wav', channelIndex: 0, offsetSeconds: 0 });
-        assert.deepEqual(fixture.posted[0].responses, [{ filePath: '/b.wav', channelIndex: 0, offsetSeconds: 0.5 }]);
+        assert.deepEqual(fixture.posted[0].reference, { filePath: '/a.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0 });
+        assert.deepEqual(fixture.posted[0].responses, [{ filePath: '/b.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0.5 }]);
         assert.equal('startSeconds' in fixture.posted[0], false);
         assert.ok(fixture.doc.getElementById('spectrum-section')?.classList.contains('has-pair'));
         assert.equal(fixture.doc.getElementById('pair-spectrum-message')?.textContent, en.pairWaiting);
@@ -307,14 +343,18 @@ test('the pair panel requests once per change of sources or range, never for a r
         assert.equal(fixture.posted.length, 1);
 
         fixture.panel.handleMessage(resultFor('pair-1'));
-        assert.equal(fixture.doc.getElementById('pair-spectrum-wrap')?.classList.contains('is-stale'), false);
+        assert.equal(fixture.panel.curves().length, 1);
 
         fixture.setRange({ startSeconds: 1, endSeconds: 3 });
+        // From the moment the range changes (before the request even goes out) the first range's answer is not drawn
+        // or read under it: the plots say they wait (R7).
+        fixture.panel.render();
+        assert.equal(fixture.panel.curves().length, 0);
+        assert.equal(fixture.doc.getElementById('pair-spectrum-message')?.textContent, en.pairWaiting);
         fixture.panel.sync();
         mock.timers.tick(PAIR_REQUEST_DELAY_MS);
         assert.equal(fixture.posted.length, 2);
-        // The first range's plot stays up, dimmed, until the new one arrives.
-        assert.equal(fixture.doc.getElementById('pair-spectrum-wrap')?.classList.contains('is-stale'), true);
+        assert.equal(fixture.panel.curves().length, 0);
         assert.equal(fixture.posted[1].startSeconds, 1);
         assert.equal(fixture.posted[1].endSeconds, 3);
 
@@ -323,7 +363,7 @@ test('the pair panel requests once per change of sources or range, never for a r
         assert.equal(fixture.panel.waiting, true);
         fixture.panel.handleMessage(resultFor('pair-2'));
         assert.equal(fixture.panel.lastResult?.requestId, 'pair-2');
-        assert.equal(fixture.doc.getElementById('pair-spectrum-wrap')?.classList.contains('is-stale'), false);
+        assert.equal(fixture.panel.curves().length, 1);
         assert.equal(fixture.doc.getElementById('pair-spectrum-summary')?.textContent, 'H1 · 32 avg · 1.00–3.00 s');
         assert.equal(fixture.doc.getElementById('pair-spectrum-message')?.textContent, '');
     }
@@ -341,8 +381,8 @@ test('the pair panel waits for a dragged offset to rest before it requests', () 
         assert.equal(fixture.posted.length, 1);
         for (let step = 1; step <= 10; step++) {
             fixture.setChannels([
-                { trackId: 't1' as TrackId, filePath: '/a.wav', channelIndex: 0, offsetSeconds: 0, label: 'a.wav', color: '#0f0' },
-                { trackId: 't2' as TrackId, filePath: '/b.wav', channelIndex: 0, offsetSeconds: 0.5 + step * 0.01, label: 'b.wav', color: '#f00' },
+                { trackId: 't1' as TrackId, filePath: '/a.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0, label: 'a.wav', color: '#0f0' },
+                { trackId: 't2' as TrackId, filePath: '/b.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0.5 + step * 0.01, label: 'b.wav', color: '#f00' },
             ]);
             fixture.panel.sync();
             mock.timers.tick(PAIR_REQUEST_DELAY_MS - 50);
@@ -351,6 +391,32 @@ test('the pair panel waits for a dragged offset to rest before it requests', () 
         mock.timers.tick(50);
         assert.equal(fixture.posted.length, 2);
         assert.equal(fixture.posted[1].responses[0].offsetSeconds, 0.6);
+    }
+    finally {
+        mock.timers.reset();
+    }
+});
+
+test('an answer computed for another time offset is never drawn under the shifted lane\'s name', () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+        const fixture = panelFixture();
+        fixture.panel.toggleReference('t1' as TrackId, 0);
+        mock.timers.tick(0);
+        fixture.panel.handleMessage(resultFor('pair-1'));
+        assert.equal(fixture.panel.curves().length, 1);
+        // The response track is shifted by 0.5 s: the same file and channel, another pairing in time.
+        fixture.setChannels([
+            { trackId: 't1' as TrackId, filePath: '/a.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0, label: 'a.wav', color: '#0f0' },
+            { trackId: 't2' as TrackId, filePath: '/b.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 1, label: 'b.wav', color: '#f00' },
+        ]);
+        fixture.panel.render();
+        assert.equal(fixture.panel.curves().length, 0, 'the 0.5 s answer is not the 1 s pairing');
+        assert.equal(fixture.doc.getElementById('pair-spectrum-message')?.textContent, en.pairWaiting);
+        fixture.panel.sync();
+        mock.timers.tick(PAIR_REQUEST_DELAY_MS);
+        fixture.panel.handleMessage(resultFor('pair-2'));
+        assert.equal(fixture.panel.curves().length, 1);
     }
     finally {
         mock.timers.reset();
@@ -366,7 +432,7 @@ test('the pair panel clears the reference with its lane and reports failures', (
         fixture.panel.handleMessage({ type: 'pair-spectrum-error', requestId: 'pair-1', analysisId: 'a', settingsSignature: 's', error: 'boom' });
         assert.equal(fixture.doc.getElementById('pair-spectrum-message')?.textContent, en.pairFailed.replace('{error}', 'boom'));
 
-        fixture.setChannels([{ trackId: 't1' as TrackId, filePath: '/a.wav', channelIndex: 0, offsetSeconds: 0, label: 'a.wav', color: '#0f0' }]);
+        fixture.setChannels([{ trackId: 't1' as TrackId, filePath: '/a.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0, label: 'a.wav', color: '#0f0' }]);
         fixture.panel.sync();
         mock.timers.tick(PAIR_REQUEST_DELAY_MS);
         assert.equal(fixture.posted.length, 1);
@@ -482,7 +548,7 @@ test('the pair plots lie on the power spectrum\'s frequency axis past the refere
         // A box on the pair view zooms the power spectrum in its own Hz.
         const lane = fixture.lane('gain'), mouse = fixture.doc.defaultView!.MouseEvent;
         lane.dispatchEvent(new mouse('mousedown', { bubbles: true, button: 0, clientX: xOfHz(1000, 4000), clientY: yOf(1) }));
-        fixture.doc.dispatchEvent(new mouse('mousemove', { bubbles: true, clientX: xOfHz(3000, 4000), clientY: yOf(0) }));
+        fixture.doc.dispatchEvent(new mouse('mousemove', { bubbles: true, buttons: 1, clientX: xOfHz(3000, 4000), clientY: yOf(0) }));
         fixture.doc.dispatchEvent(new mouse('mouseup', { bubbles: true, clientX: xOfHz(3000, 4000), clientY: yOf(0) }));
         const zoomed = fixture.windows.at(-1)!;
         assert.ok(Math.abs(zoomed.min - 1000) < 5 && Math.abs(zoomed.max - 3000) < 5, JSON.stringify(zoomed));
@@ -536,7 +602,7 @@ test('the pair plots zoom with every plot\'s gestures: the frequency shared with
         const lane = fixture.lane('gain');
         // A box from 250 to 750 Hz over the gain plot's upper half.
         lane.dispatchEvent(new mouse('mousedown', { bubbles: true, button: 0, clientX: xOfHz(250), clientY: yOf(1) }));
-        fixture.doc.dispatchEvent(new mouse('mousemove', { bubbles: true, clientX: xOfHz(750), clientY: yOf(0.5) }));
+        fixture.doc.dispatchEvent(new mouse('mousemove', { bubbles: true, buttons: 1, clientX: xOfHz(750), clientY: yOf(0.5) }));
         fixture.doc.dispatchEvent(new mouse('mouseup', { bubbles: true, clientX: xOfHz(750), clientY: yOf(0.5) }));
         const zoomed = fixture.windows.at(-1)!;
         assert.ok(Math.abs(zoomed.min - 250) < 1 && Math.abs(zoomed.max - 750) < 1, JSON.stringify(zoomed));
@@ -562,17 +628,18 @@ test('a boxed level zoom keeps the values boxed when the frequency zoom refits t
         const fixture = shownFixture();
         const mouse = fixture.doc.defaultView!.MouseEvent;
         const lane = fixture.lane('gain');
-        // The gain (0, −6, −12 dB) spans −12.6 to 0.6 dB; the box takes its upper half (−6 to 0.6 dB) up to 600 Hz,
-        // which leaves 0 and −6 dB on screen, so the whole range is refitted to −6.3 to 0.3 dB.
+        // The gain (0, −6, −12 dB) opens at the round ends −15 to 0 dB (R9, 5 dB steps); the box takes its upper half
+        // (−7.5 to 0 dB) up to 600 Hz, which leaves 0 and −6 dB on screen, so the whole range is refitted to −10 to 0 dB
+        // and the box is kept inside it.
         lane.dispatchEvent(new mouse('mousedown', { bubbles: true, button: 0, clientX: xOfHz(0), clientY: yOf(1) }));
-        fixture.doc.dispatchEvent(new mouse('mousemove', { bubbles: true, clientX: xOfHz(600), clientY: yOf(0.5) }));
+        fixture.doc.dispatchEvent(new mouse('mousemove', { bubbles: true, buttons: 1, clientX: xOfHz(600), clientY: yOf(0.5) }));
         fixture.doc.dispatchEvent(new mouse('mouseup', { bubbles: true, clientX: xOfHz(600), clientY: yOf(0.5) }));
         lane.dispatchEvent(new mouse('dblclick', { bubbles: true, clientX: 2, clientY: yOf(0.5) }));
         const request = fixture.levelRequests.at(-1)!;
         const span = request.max - request.min;
-        assert.ok(Math.abs(request.min - -6.3) < 0.01 && Math.abs(request.max - 0.3) < 0.01, JSON.stringify(request));
-        assert.ok(Math.abs(request.min + request.current.start * span - -6) < 0.05, JSON.stringify(request));
-        assert.ok(Math.abs(request.min + request.current.end * span - 0.6) < 0.05, JSON.stringify(request));
+        assert.ok(Math.abs(request.min - -10) < 0.01 && Math.abs(request.max - 0) < 0.01, JSON.stringify(request));
+        assert.ok(Math.abs(request.min + request.current.start * span - -7.5) < 0.05, JSON.stringify(request));
+        assert.ok(Math.abs(request.min + request.current.end * span - 0) < 0.05, JSON.stringify(request));
     }
     finally {
         mock.timers.reset();
@@ -612,7 +679,7 @@ test('a newer lazy request for the same track cancels the older one in flight, a
     } as unknown as ComparisonSessionPorts;
     const controller = new ComparisonSessionController(ports);
     const range = (requestId: string, trackIndex: number) => ({
-        type: 'request-waveform-range' as const, requestId, trackIndex, filePath: '/a.wav', startNorm: 0, endNorm: 1, points: 4,
+        type: 'request-waveform-range' as const, requestId, trackIndex, filePath: '/a.wav', sourceVersion: undefined, startNorm: 0, endNorm: 1, points: 4,
     });
 
     const old = controller.handle(range('old', 0));
@@ -625,4 +692,56 @@ test('a newer lazy request for the same track cancels the older one in flight, a
     assert.equal(signals.get('new')?.isCancellationRequested, false);
     assert.deepEqual(failed, [], 'a superseded request is not a failure');
     assert.deepEqual(published.map(message => 'requestId' in message ? message.requestId : ''), ['other-track', 'new']);
+});
+
+test('the pair view\'s gain axis opens at round ends holding every bin on screen, a one-bin notch too, and only those (R9)', () => {
+    // 4097 bins, a smooth gain with a one-bin notch and a one-bin peak; the bins past the zoom are louder still.
+    const bins = 4097;
+    const gainDb = Array.from({ length: bins }, (_, bin) => -3 + 2 * Math.sin(bin / 300));
+    gainDb[1500] = -37.3;
+    gainDb[2600] = 8.4;
+    gainDb[4000] = 40;
+    const visible = { frequencyMin: 0, frequencyMax: 20000 };
+    const gain = pairLanes({ frequencyBins: bins, maxFrequencyHz: 24000, curves: [curve({ gainDb, phaseRad: gainDb.map(() => 0), coherence: gainDb.map(() => 1) })] }, visible, en)[0].range;
+    const shown = gainDb.filter((_, bin) => bin / (bins - 1) * 24000 <= visible.frequencyMax);
+    assert.ok(gain.min <= Math.min(...shown) && gain.max >= Math.max(...shown), `${gain.min}..${gain.max} holds every bin on screen`);
+    assert.ok(gain.max < 40, 'a bin off screen does not stretch it');
+    // Round ends by the dB line rule (R9): 10 dB steps here.
+    assert.deepEqual(gain, { min: -40, max: 10 });
+    // A line thinned by averaging loses the one-bin notch: a range of it would open at −10.
+    assert.equal(gain.min, -40);
+    assertNotDrawn(gain.min, Math.floor(Math.min(...averagedInto(shown, 200)) / 10) * 10, 'the range holds the notch');
+});
+
+test('the pair view\'s gain axis keeps the dB line rule the comparison\'s transfer-function step keeps: the same range for the same gains, never wider than 100 dB (R9)', () => {
+    const bins = 1025;
+    for (const [low, high] of [[-3.2, 12.7], [-160, 4], [-0.4, 0.3], [-37.3, 8.4], [10, 10], [-61, -2]] as const) {
+        const gainDb = Array.from({ length: bins }, (_, bin) => low + (high - low) * bin / (bins - 1));
+        const range = pairLanes({ frequencyBins: bins, maxFrequencyHz: 24000, curves: [curve({ gainDb, phaseRad: gainDb.map(() => 0), coherence: gainDb.map(() => 1) })] }, { frequencyMin: 0, frequencyMax: 24000 }, en)[0].range;
+        const step: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'gain', xs: [0, 24000], values: [low, high], valueRange: { min: low, max: high } };
+        assert.deepEqual({ min: range.min, max: range.max }, stageRange([step]), `${low}..${high}`);
+        assert.ok(range.max - range.min <= 100, `${low}..${high}: at most 100 dB`);
+        assert.ok(range.max >= high, `${low}..${high}: the top holds the loudest bin`);
+    }
+});
+
+test('the pair view orders its gains by every bin on screen: the quieter response is drawn last, on top (R6)', () => {
+    // The quieter response by power has one narrow loud bin a drawn-point measure would weigh as much as the rest.
+    const bins = 2049;
+    const loud = Array.from({ length: bins }, () => -6);
+    const quiet = Array.from({ length: bins }, (_, bin) => (bin === 700 ? 20 : -30));
+    const lanes = pairLanes({
+        frequencyBins: bins, maxFrequencyHz: 24000,
+        curves: [curve({ gainDb: quiet, phaseRad: quiet.map(() => 0), coherence: quiet.map(() => 1) }, 'quiet'), curve({ gainDb: loud, phaseRad: loud.map(() => 0), coherence: loud.map(() => 1) }, 'loud')],
+    }, { frequencyMin: 0, frequencyMax: 24000 }, en);
+    const [quietLayer, loudLayer] = lanes[0].layers;
+    const bucketed = (layer: typeof quietLayer) => layer.view.levelBins?.count.reduce((sum, n) => sum + n, 0);
+    assert.equal(bucketed(quietLayer), bins, 'every bin is measured');
+    assert.equal(bucketed(loudLayer), bins);
+    const order = byLevel([quietLayer, loudLayer], lanes[0].layers[0].view).map(layer => layer.label);
+    assert.deepEqual(order, ['loud', 'quiet']);
+    // Judged on a line thinned to each bucket's peak, the one loud bin would make the quiet response the louder.
+    const drawnPower = (values: number[]): number => peaksInto(values, 32).reduce((sum, value) => sum + 10 ** (value / 10), 0) / 32;
+    const byDrawn = [{ label: 'quiet', values: quiet }, { label: 'loud', values: loud }].sort((a, b) => drawnPower(b.values) - drawnPower(a.values)).map(item => item.label);
+    assertNotDrawn(order, byDrawn, 'not the order of the points drawn');
 });

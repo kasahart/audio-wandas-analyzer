@@ -1,9 +1,14 @@
+import { csvField } from '../../shared/utils/csv';
 import { binFrequencyHz } from '../draw/canvasDrawers';
+import type { FigureTitle, PlainTitle } from './figureModel';
 import type { SpectrumSlice } from './types';
+import { everyBin } from './wholeAnswers';
 
 export interface CsvSpectrumTrack {
     name: string;
     slice: SpectrumSlice;
+    /** Its level column's name as its level axis names it: the quantity and its unit with the channel's reference (C5). */
+    levelTitle: FigureTitle;
 }
 
 export interface WavLoopTrack {
@@ -18,30 +23,27 @@ export interface WavLoopRegion {
     endNorm: number;
 }
 
-function csvCell(s: string): string {
-    return /[,"\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-}
-
-function levelAxisLabel(slice: SpectrumSlice): string {
-    return slice.axisLabel ? slice.axisLabel : 'Spectrum level [dB]';
-}
-
-export function buildSpectrumCsv(tracks: CsvSpectrumTrack[]): string {
+/**
+ * The spectra at the cursor as CSV: per track a frequency and a level column, each named as its axis is ("Quantity
+ * [unit]", the level with its reference: never a bare dB), `frequencyTitle` the frequency axis's name.
+ */
+export function buildSpectrumCsv(tracks: CsvSpectrumTrack[], frequencyTitle: PlainTitle): string {
     const headers: string[] = [];
     tracks.forEach(function (t) {
-        headers.push(csvCell(t.name + ' frequency (Hz)'));
-        headers.push(csvCell(t.name + ' ' + levelAxisLabel(t.slice)));
+        headers.push(csvField(t.name + ' ' + frequencyTitle));
+        headers.push(csvField(t.name + ' ' + t.levelTitle));
     });
     const rows = [headers.join(',')];
     const maxBins = tracks.reduce(function (max, t) {
-        return Math.max(max, t.slice.frequencyBins || 0, t.slice.values ? t.slice.values.length : 0);
+        return Math.max(max, t.slice.frequencyBins || 0);
     }, 0);
     for (let bin = 0; bin < maxBins; bin++) {
         const cols: string[] = [];
         tracks.forEach(function (t) {
             const fBins = t.slice.frequencyBins || 0;
             cols.push(bin < fBins ? binFrequencyHz(t.slice, bin).toFixed(4) : '');
-            const v = t.slice.values[bin];
+            // Only a slice that holds every bin is written (R7): one cut for display has no value to export.
+            const v = everyBin(t.slice)?.[bin];
             cols.push(v !== undefined && v !== null ? v.toFixed(6) : '');
         });
         rows.push(cols.join(','));

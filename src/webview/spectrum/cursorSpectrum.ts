@@ -1,8 +1,13 @@
+import type { Drawn } from '../../shared/provenance';
 import type { SpectrogramData } from '../../shared/analysis/analysisTypes';
+import type { SpectrumStandIn } from '../runtime/types';
 import { spectrogramTimeBinAt, spectrogramTimeBinEdges } from './spectrogramTimeBins';
 
 export interface SpectrumSlice {
-    values: number[];
+    /** As drawn: every bin when the slice has no `frequenciesHz`, else cut for display; never read (x-drawn). */
+    values: Drawn[];
+    /** Every bin (or band), sent only for a slice not cut for display (x-whole): what is read (wholeAnswers.ts everyBin). */
+    bins?: number[];
     frequencyBins: number;
     maxFrequencyHz: number;
     minDb: number;
@@ -11,7 +16,11 @@ export interface SpectrumSlice {
     axisLabel?: string;
     originalMaxFrequencyHz?: number;
     settingsSignature?: string;
+    /** Track-normalized cursor the backend transformed this slice at. */
+    cursorNorm?: number;
     bandCentersHz?: number[];
+    /** Drawn in place of the backend's slice, never read as one (types.ts SpectrumStandIn). */
+    standIn?: SpectrumStandIn;
 }
 
 export interface SpectrumSource {
@@ -31,6 +40,8 @@ export interface CursorSpectrumContext {
     channelIndex?: number;
     cached: SpectrumSlice | null;
     settingsSignature: string;
+    /** How far (track-normalized) a cached slice's cursor may lie from this one and still be this cursor's slice. */
+    cursorTolerance: number;
     /** Octave bands come only from the backend; the spectrogram column is an FFT and cannot stand in for them. */
     bands?: boolean;
     requestSlice(trackIndex: number, cursorNorm: number): void;
@@ -56,7 +67,14 @@ function makeSilentSpectrumSlice(
         maxDb: Math.max(topDb, floorDb + 1),
         unit: (spec && spec.unit) || (cached && cached.unit) || undefined,
         axisLabel: (spec && spec.axisLabel) || (cached && cached.axisLabel) || undefined,
+        standIn: 'silence',
     });
+}
+
+/** Whether a slice was transformed at this track-normalized cursor (within the tolerance a cursor move needs). */
+export function sliceIsAtCursor(slice: Pick<SpectrumSlice, 'cursorNorm'> | null | undefined, localNorm: number, tolerance: number): boolean {
+    return !!slice && slice.cursorNorm !== undefined && Number.isFinite(slice.cursorNorm)
+        && Math.abs(slice.cursorNorm - localNorm) < tolerance;
 }
 
 export function extractSpectrumAtCursor(
@@ -86,10 +104,13 @@ export function extractSpectrumAtCursor(
     const ch = Array.isArray(result.channels) ? result.channels[chIdx] : undefined;
     const spec = ch && ch.spectrogram;
     const cached = idx >= 0 ? context?.cached ?? null : null;
-    const cachedIsCurrent = !!cached && cached.settingsSignature === context?.settingsSignature;
+    const cachedHasSettings = !!cached && cached.settingsSignature === context?.settingsSignature;
+    // A slice is this cursor's only when it was transformed here: one from an earlier cursor (its successor still on
+    // its way, or failed) is never drawn or read as the current one (R7).
+    const cachedIsCurrent = cachedHasSettings && !!context && sliceIsAtCursor(cached, trackLocalSec / dur, context.cursorTolerance);
     if (trackLocalSec >= dur) {
         if (context?.bands) {
-            return cached && cachedIsCurrent ? applySpectrumDisplaySettings({ ...cached, values: cached.values.map(() => cached.minDb) }) : null;
+            return cached && cachedHasSettings ? applySpectrumDisplaySettings({ ...cached, values: cached.values.map(() => cached.minDb), standIn: 'silence' }) : null;
         }
         return makeSilentSpectrumSlice(result, spec ?? null, cached, applySpectrumDisplaySettings);
     }
@@ -100,6 +121,8 @@ export function extractSpectrumAtCursor(
         }
     }
     if (context?.bands) {
+        // Octave bands have no spectrogram column at this cursor to stand in, and an earlier cursor's bands are of
+        // another point: nothing is drawn, nor sets the axis, until this cursor's come.
         return null;
     }
     if (!spec || !spec.values || spec.timeBins <= 0 || spec.frequencyBins <= 0) {
@@ -108,8 +131,9 @@ export function extractSpectrumAtCursor(
     const edges = spectrogramTimeBinEdges(spec, dur);
     let timeIndex = edges ? spectrogramTimeBinAt(edges, trackLocalSec / dur) : Math.floor((trackLocalSec / dur) * spec.timeBins);
     timeIndex = Math.max(0, Math.min(spec.timeBins - 1, timeIndex));
+    // A row of frequencyBins values (backendProtocol.ts checks every row has them), so none is empty.
     const values = spec.values[timeIndex];
-    if (!values || values.length === 0) {
+    if (!values) {
         return null;
     }
     return applySpectrumDisplaySettings({
@@ -121,5 +145,7 @@ export function extractSpectrumAtCursor(
         maxDb: spec.maxDb,
         unit: spec.unit,
         axisLabel: spec.axisLabel,
+        // The display spectrogram's column, its cells power-averaged to draw: drawn until the slice comes, never read.
+        standIn: 'pending',
     });
 }

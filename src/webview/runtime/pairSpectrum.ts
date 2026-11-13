@@ -1,10 +1,15 @@
 import type { UiStrings } from '../../shared/i18n/strings';
+import type { WholeLine } from '../../shared/provenance';
+import { pairWhole } from './wholeAnswers';
 import type { PairSpectrumPublication } from '../../shared/session/comparisonSessionController';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { FrequencyScale } from '../draw/canvasDrawers';
 import { hintAttr } from './hintFooter';
 import { levelBinsOf, type StageLayer } from './stagePanes';
+import { dataRange, gainAxisLines, gainAxisName, gainUnit, plainNames, plainRange, plainTitle, type FigureNames, type FigureRange } from './figureModel';
+import { computedLine, localLine } from './fullRead';
+import { secondsSpanText } from '../plot/plotText';
 import type { TrackId } from './types';
 
 export type PairSpectrumResultMessage = Extract<PairSpectrumPublication, { type: 'pair-spectrum-result' }>;
@@ -26,7 +31,8 @@ export interface PairCurve {
 
 export type PairStrings = Pick<UiStrings,
     | 'pairReferenceHint' | 'pairReferenceClearHint' | 'pairReferenceBadge' | 'pairAverages' | 'pairFewAveragesHint'
-    | 'pairResampledHint' | 'pairNoOverlapHint' | 'pairTooShortHint' | 'pairOtherUnitHint' | 'pairPhaseLabel' | 'pairCoherenceLabel' | 'axisFrequency'>;
+    | 'pairResampledHint' | 'pairNoOverlapHint' | 'pairTooShortHint' | 'pairOtherUnitHint' | 'pairPhaseLabel' | 'pairCoherenceLabel' | 'axisFrequency'
+    | 'axisGain' | 'axisTransferLevel' | 'axisUncalibrated'>;
 
 /** Below this many averages the γ² estimate is biased high enough to mislead. */
 export const PAIR_FEW_AVERAGES = 8;
@@ -62,13 +68,7 @@ export function syncReferenceButtons(root: ParentNode, reference: PairReference 
  * A response calibrated to another unit stays in the legend but is not drawn on that axis.
  */
 export function drawnPairCurves(curves: readonly PairCurve[]): PairCurve[] {
-    const ok = curves.filter(curve => curve.response.status === 'ok');
-    const axisLabel = ok[0]?.response.axisLabel;
-    return ok.filter(curve => curve.response.axisLabel === axisLabel);
-}
-
-function formatSeconds(seconds: number): string {
-    return seconds.toFixed(2);
+    return gainAxisLines(curves.filter(curve => curve.response.status === 'ok'));
 }
 
 export interface PairHeader {
@@ -86,7 +86,7 @@ export function pairHeader(curves: readonly PairCurve[], strings: PairStrings): 
     const start = Math.min(...ok.map(response => response.startSeconds));
     const end = Math.max(...ok.map(response => response.endSeconds));
     return {
-        text: 'H1 · ' + strings.pairAverages.replace('{n}', String(averages)) + ' · ' + formatSeconds(start) + '–' + formatSeconds(end) + ' s',
+        text: 'H1 · ' + strings.pairAverages.replace('{n}', String(averages)) + ' · ' + secondsSpanText(start, end),
         fewAverages: averages < PAIR_FEW_AVERAGES,
     };
 }
@@ -109,7 +109,7 @@ export function pairLegendHtml(curves: readonly PairCurve[], strings: PairString
 
 const DEGREES = 180 / Math.PI;
 
-function gainRange(curves: readonly PairCurve[], bins: readonly number[]): { min: number; max: number } {
+function gainRange(curves: readonly PairCurve[], bins: readonly number[]): FigureRange {
     let min = Infinity, max = -Infinity;
     curves.forEach(curve => bins.forEach(bin => {
         const value = curve.response.gainDb[bin];
@@ -119,12 +119,16 @@ function gainRange(curves: readonly PairCurve[], bins: readonly number[]): { min
         }
     }));
     if (!isFinite(min)) {
-        return { min: -20, max: 20 };
+        return plainRange(-20, 20);
     }
-    // A flat response would otherwise collapse the axis; keep at least 6 dB around it.
-    const center = (min + max) / 2;
-    const half = Math.max(3, (max - min) / 2 * 1.1);
-    return { min: center - half, max: center + half };
+    // The dB line rule every level and gain axis keeps (R9: 5, 10, 20 or 25 dB steps, at most 100 dB under the top),
+    // the very function the comparison's step of the same transfer function is ranged by, from every bin on screen.
+    return dataRange([gainSpan(min, max)]);
+}
+
+/** A gain line's span as stageRange reads it: every bin's lowest and highest. */
+export function gainSpan(min: number, max: number): StageView {
+    return { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'gain', xs: [], values: [], valueRange: { min, max } };
 }
 
 export interface PairPaintInput {
@@ -140,8 +144,8 @@ export type PairLaneKey = typeof PAIR_LANES[number];
 /** One of the pair view's plots, as the plot component draws it (stagePanes.paintOverlay): its axes, range and lines. */
 export interface PairLane {
     key: PairLaneKey;
-    axes: { x: string; y: string };
-    range: { min: number; max: number };
+    axes: FigureNames;
+    range: FigureRange;
     layers: StageLayer[];
 }
 
@@ -158,7 +162,7 @@ export function pairLanes(input: PairPaintInput, visible: FrequencyScale, string
     const drawn = drawnPairCurves(input.curves);
     const xs = Array.from({ length: input.frequencyBins }, (_, bin) => binFrequency(input, bin));
     const shown = xs.flatMap((hz, bin) => (hz >= visible.frequencyMin && hz <= visible.frequencyMax ? [bin] : []));
-    const lines = (values: (response: PairSpectrumResponse) => readonly (number | null)[], quantity: StageView['quantity'], unit: string): StageLayer[] =>
+    const lines = (values: (response: PairSpectrumResponse) => WholeLine, quantity: StageView['quantity'], unit: string): StageLayer[] =>
         drawn.map(curve => ({
             view: {
                 frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity, unit, xs, values: [...values(curve.response)],
@@ -168,13 +172,13 @@ export function pairLanes(input: PairPaintInput, visible: FrequencyScale, string
             },
             color: curve.color,
             label: curve.label,
-            // Every bin is drawn: what the line draws is all it holds (R7).
-            full: 'drawn' as const,
+            // Read from every bin of the response, which the webview holds (R7).
+            full: localLine(xs, values(curve.response)),
             ...(curve.dashed ? { dash: [4, 2] } : {}),
         }));
     return [
-        { key: 'gain', axes: { x: strings.axisFrequency, y: drawn[0]?.response.axisLabel ?? 'Gain [dB]' }, range: gainRange(drawn, shown), layers: lines(response => response.gainDb, 'gain', 'dB') },
-        { key: 'phase', axes: { x: strings.axisFrequency, y: strings.pairPhaseLabel }, range: { min: -180, max: 180 }, layers: lines(response => response.phaseRad.map(value => (value === null ? null : value * DEGREES)), 'value', '°') },
-        { key: 'coherence', axes: { x: strings.axisFrequency, y: strings.pairCoherenceLabel }, range: { min: 0, max: 1 }, layers: lines(response => response.coherence, 'coherence', 'γ²') },
+        { key: 'gain', axes: plainNames(plainTitle(strings, 'axisFrequency'), gainAxisName(drawn[0]?.response, strings)), range: gainRange(drawn, shown), layers: lines(response => pairWhole(response, 'gainDb'), 'gain', gainUnit(drawn[0]?.response)) },
+        { key: 'phase', axes: plainNames(plainTitle(strings, 'axisFrequency'), plainTitle(strings, 'pairPhaseLabel')), range: plainRange(-180, 180), layers: lines(response => { const radians = pairWhole(response, 'phaseRad'); return computedLine(radians, value => (value === null ? null : value * DEGREES)); }, 'value', '°') },
+        { key: 'coherence', axes: plainNames(plainTitle(strings, 'axisFrequency'), plainTitle(strings, 'pairCoherenceLabel')), range: plainRange(0, 1), layers: lines(response => pairWhole(response, 'coherence'), 'coherence', 'γ²') },
     ];
 }

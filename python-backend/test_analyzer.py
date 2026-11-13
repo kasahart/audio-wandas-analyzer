@@ -18,13 +18,16 @@ from analyzer import (
     MeasurementMetadata,
     SpectrogramPayload,
     _build_spectrogram,
+    _cursor_buckets,
     level_scale_metadata,
     min_max_spectrum,
     resample_frequency_bins,
     spectrogram_frame_centers,
     spectrogram_window_frames,
 )
-from stage_view import log_buckets, min_max_indices, rows_bucket_count
+from conftest import assert_not_drawn
+from decimator import bucket_edges
+from stage_view import min_max_indices, rows_bucket_count
 
 _SCALE = level_scale_metadata(wd.from_numpy(np.zeros((1, 8)), sampling_rate=8).channels[0].level_reference, "STFT")
 
@@ -234,6 +237,37 @@ def test_spectrogram_time_reduction_averages_linear_power() -> None:
     )
 
 
+def test_spectrogram_colour_range_is_every_full_cells_not_the_cells_averaged_to_draw() -> None:
+    # A long STFT the lane draws averaged in time and frequency: one short loud cell and one narrow deep cell are
+    # averaged away in the drawn cells, but they are the full STFT's ends and the colour bar's.
+    rng = np.random.default_rng(7)
+    full = rng.uniform(-62.0, -58.0, size=(6000, 2049))
+    full[3001, 700] = -3.5
+    full[1200, 1500] = -97.25
+    spec = _build_spectrogram(full, sample_rate_hz=48_000, window_size=4096, hop_size=1024, scale=_SCALE)
+
+    drawn = np.asarray(spec["values"])
+    assert drawn.shape[0] < full.shape[0] and drawn.shape[1] < full.shape[1]
+    # The drawn cells lost both ends, so a range from them would not be the full data's.
+    assert drawn.max() < -20.0 and drawn.min() > -70.0
+    assert spec["maxDb"] == -3.5
+    assert spec["minDb"] == -97.25
+    assert_not_drawn(spec["maxDb"], float(drawn.max()))
+    assert_not_drawn(spec["minDb"], float(drawn.min()))
+
+
+def test_spectrogram_colour_range_counts_digital_silence_as_its_own_level() -> None:
+    full = np.full((3000, 1025), -50.0)
+    full[:500] = -240.0  # wandas' dB of an all-zero frame
+    full[600, 3] = -np.inf
+    spec = _build_spectrogram(full, sample_rate_hz=48_000, window_size=2048, hop_size=512, scale=_SCALE)
+
+    # The drawn cells floor their averages at -120 dB; the range is every finite cell's, silence included.
+    assert spec["minDb"] == pytest.approx(-240.0)
+    assert spec["maxDb"] == pytest.approx(-50.0)
+    assert min(min(row) for row in spec["values"]) >= spec["minDb"]
+
+
 def test_spectrogram_frequency_reduction_averages_linear_power() -> None:
     spec = _build_spectrogram(
         np.array([[-60.0, 0.0], [-20.0, -40.0]], dtype=np.float64),
@@ -278,14 +312,19 @@ def test_every_reduced_peak_stays_within_half_a_display_bin(source_bins: int) ->
 
 @pytest.mark.parametrize("bin_count", [2049, 4097, 8193, 32769])
 @pytest.mark.parametrize("channels", [1, 2, 8])
-def test_a_cut_spectrum_fits_the_budget_with_whole_low_bins(bin_count: int, channels: int) -> None:
+def test_a_cut_spectrum_fits_the_budget_in_buckets_equally_wide_on_its_linear_axis(
+    bin_count: int, channels: int
+) -> None:
     rows = np.random.default_rng(bin_count + channels).normal(-60.0, 10.0, size=(channels, bin_count))
     shown, frequencies = min_max_spectrum(rows, 24000.0)
     assert frequencies is not None and shown.shape == (channels, frequencies.size)
     assert frequencies.size <= SPECTRUM_DISPLAY_POINT_LIMIT and np.all(np.diff(frequencies) > 0)
     bins = np.rint(frequencies * (bin_count - 1) / 24000.0).astype(int)
-    # DC and the lowest bins are all drawn (their buckets are under a bin wide); the rest are thinned.
-    assert np.array_equal(bins[:40], np.arange(40))
+    # DC is drawn, and the bins drawn are as dense at the top as at the bottom: the buckets are equally wide on the
+    # cursor spectrum's linear axis (R2), never wider high up as log buckets are.
+    assert bins[0] == 0
+    width = bin_count / _cursor_buckets(bin_count, channels)
+    assert np.max(np.diff(bins)) < 2 * width + 1
 
 
 def test_rows_within_the_display_budget_are_sent_whole() -> None:
@@ -318,20 +357,38 @@ def test_a_cut_row_keeps_each_buckets_lowest_and_highest_bin_as_compare_does() -
     bins = np.rint(frequencies * (bin_count - 1) / 24000.0).astype(int)
     # Every value drawn is a real bin of that channel.
     np.testing.assert_array_equal(shown, rows[:, bins])
-    # Each channel's line holds, per bucket, the bins Compare's decimation (stage_view.min_max_indices) picks.
+    # Each channel's line holds, per bucket, the bins Compare's decimation (stage_view.min_max_indices) picks, in
+    # the scale of the axis the cursor spectrum is drawn on: linear, so the buckets are equally wide (R2).
     freqs = np.arange(bin_count) * (24000.0 / (bin_count - 1))
-    buckets = rows_bucket_count(
-        np.arange(bin_count, dtype=np.float64), 2, SPECTRUM_DISPLAY_POINT_LIMIT - 1, (1.0, bin_count - 1.0)
-    )
+    buckets = rows_bucket_count(np.arange(bin_count, dtype=np.float64), 2, SPECTRUM_DISPLAY_POINT_LIMIT - 1, False)
+    edges = bucket_edges(bin_count, buckets)
     for channel in range(2):
-        picked = min_max_indices(freqs, rows[channel], buckets, True, (freqs[1], freqs[-1]))
+        picked = min_max_indices(freqs, rows[channel], buckets, False)
         assert np.isin(picked, bins).all()
-        bucket = log_buckets(freqs[1:], buckets, (freqs[1], freqs[-1]))
-        for index in np.unique(bucket)[::37]:
-            inside = np.flatnonzero(bucket == index) + 1
-            drawn = np.isin(bins, inside)
-            assert shown[channel, drawn].min() == rows[channel, inside].min()
-            assert shown[channel, drawn].max() == rows[channel, inside].max()
+        for start, end in list(zip(edges[:-1], edges[1:], strict=True))[::37]:
+            drawn = (bins >= start) & (bins < end)
+            assert shown[channel, drawn].min() == rows[channel, start:end].min()
+            assert shown[channel, drawn].max() == rows[channel, start:end].max()
+
+
+def test_a_narrow_high_peak_of_a_cut_row_on_its_linear_axis_is_kept_at_its_own_frequency() -> None:
+    """The cursor spectrum's FFT axis is linear: cut for display, it is thinned in equally wide buckets (R2: buckets
+    in the axis's own scale). Two narrow peaks 100 bins apart near the top, a few pixels apart on that axis, are both
+    drawn at their own bins. In log buckets (one about 600 bins wide there) only the higher one was kept."""
+    bin_count = 32769
+    rows = np.full((1, bin_count), -100.0)
+    peaks = {30100: -10.0, 30200: -20.0}
+    for peak, level in peaks.items():
+        rows[0, peak] = level
+    shown, frequencies = min_max_spectrum(rows, 24000.0)
+    assert frequencies is not None
+    bins = np.rint(frequencies * (bin_count - 1) / 24000.0).astype(int).tolist()
+    for peak, level in peaks.items():
+        assert peak in bins and shown[0, bins.index(peak)] == level, (
+            f"R2 (docs/display-rules.md) broke: the narrow peak at bin {peak} is not drawn at its own frequency and "
+            "level. A line is thinned in buckets of its axis's own scale: the cursor spectrum's linear axis takes "
+            "equally wide buckets (analyzer.min_max_spectrum passes log=False to stage_view.min_max_rows)."
+        )
 
 
 def test_spectrogram_reduction_clamps_silent_power_to_finite_db() -> None:
@@ -484,14 +541,14 @@ def test_sparse_spectrogram_time_centers_use_the_display_hop() -> None:
 @pytest.mark.parametrize("n_fft", [255, 256])
 def test_sparse_stft_matches_dense_frames_for_odd_and_even_windows(n_fft: int) -> None:
     # The sparse frames are the dense STFT's every fourth frame: an odd window's last bin is not Nyquist
-    # and keeps the one-sided doubling, and float32 audio stays single precision.
+    # and keeps the one-sided doubling; float32 audio is transformed in double precision (its cells are read, R1).
     samples = (0.2 * np.sin(2 * np.pi * 997 * np.arange(8000) / 8000)).astype(np.float32)
     frame = wd.from_numpy(samples, sampling_rate=8000)
     dense = frame.stft(n_fft=n_fft, hop_length=n_fft, window="hann")
     sparse = compute_spectrogram(frame, n_fft, 4 * n_fft, "hann")
     count = min(sparse.n_frames, (dense.n_frames + 3) // 4)
     values = np.asarray(sparse.data)
-    assert values.dtype == np.complex64
+    assert values.dtype == np.complex128
     np.testing.assert_allclose(values[..., :count], np.asarray(dense.data)[..., ::4][..., :count], rtol=1e-5, atol=1e-7)
     np.testing.assert_allclose(sparse.frame_center_times, dense.frame_center_times[:, ::4][:, :count])
 
@@ -601,3 +658,28 @@ def test_with_automatic_settings_a_zoom_window_gets_its_own_hop_and_its_columns(
     assert centers[0] >= 12.0 - 0.05 and centers[-1] <= 13.5 + 0.05
     # The tone's level is the whole file's: the window's STFT is the same transform, not a rescaled one.
     assert zoomed["maxDb"] == pytest.approx(whole["maxDb"], abs=0.05)
+
+
+def test_channel_peak_is_every_samples_largest_magnitude_not_the_envelope_drawn(
+    tmp_path: Path, service: AnalysisService
+) -> None:
+    # Ten seconds of a quiet tone and one negative sample far below it: the envelope drawn thins the samples to a few
+    # thousand points; the header's peak and its level are every sample's.
+    rate = 48_000
+    times = np.arange(10 * rate) / rate
+    samples = 0.25 * np.sin(2 * np.pi * 97 * times)
+    samples[312_345] = -0.8125
+    audio = tmp_path / "spike.wav"
+    sf.write(audio, samples, rate, subtype="FLOAT")
+
+    channel = service.analyze(audio)["channels"][0]
+
+    read = sf.read(audio, dtype="float64")[0]
+    assert len(channel["waveform"]["max"]) < len(read) / 10
+    assert channel["peakAbsolute"] == pytest.approx(float(np.max(np.abs(read))))
+    assert channel["peakAbsolute"] == pytest.approx(0.8125)
+    assert channel["peakLevelDb"] == pytest.approx(20 * math.log10(0.8125), abs=1e-6)
+    # A waveform thinned by averaging to as many points as are drawn never holds the one sample.
+    width = len(read) // len(channel["waveform"]["max"])
+    averaged = np.abs(read[: len(read) // width * width].reshape(-1, width).mean(axis=1))
+    assert_not_drawn(channel["peakAbsolute"], float(averaged.max()))

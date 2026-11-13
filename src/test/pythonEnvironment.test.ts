@@ -3,7 +3,14 @@ import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import test from 'node:test';
+import test, { after } from 'node:test';
+
+// These tests decide which interpreter is offered, and an activated virtual environment (VIRTUAL_ENV) is one of the
+// candidates. The developer's own, or CI's, must not reach them: each test that needs one sets VIRTUAL_ENV itself and
+// puts back what it found, so here the file starts without one and the developer's is restored when it ends.
+const developerVirtualEnv = process.env['VIRTUAL_ENV'];
+delete process.env['VIRTUAL_ENV'];
+after(() => { if (developerVirtualEnv !== undefined) process.env['VIRTUAL_ENV'] = developerVirtualEnv; });
 
 type FakeProcess = EventEmitter & { stdout: EventEmitter; stderr: EventEmitter; killed: boolean; kill(): void };
 

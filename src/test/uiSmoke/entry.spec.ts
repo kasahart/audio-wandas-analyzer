@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { expect, test, type Locator, type Page } from './canvasAudit';
+import { expect, settled, test, type Locator, type Page } from './canvasAudit';
 import { getStrings } from '../../shared/i18n/strings';
 import { OVERVIEW_MARGINS } from '../../webview/runtime/entryPlots';
+import { FLAG_COLOR } from '../../shared/gui/roleColors';
 import { answerProbe, entry100Metadata, entry100Results, openEntry, openStepsView, pickCsv, type ScannedFile } from './entryHelpers';
 
 const SPECTRUM_VIEW = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000, 5000], values: [-40, -30, -50] };
@@ -66,7 +67,30 @@ test('a folder opens with only what is stored; nothing is computed until 計算,
     await expect(page.locator('[data-entry-rows] tr.entry-row .entry-col-value:not(:text("—"))')).toHaveCount(6);
     // The distribution draws the 6 computed channels only and counts the rest (I14).
     expect((await snapshot(page))?.dist).toMatchObject({ missing: 19, unit: 'ch' });
-    await expect(page.locator('[data-entry-dist-count]')).toHaveText('6 ch');
+    // Its heading says the recordings its set left out, with why (class sweep 3, aggregation V11).
+    const leftOut = [STR.dsBaseMissing, STR.dsBasePending].map(template => template.split('{n}')[0].replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')).join('|');
+    await expect(page.locator('[data-entry-dist-count]')).toHaveText(new RegExp(`^6 ch(?:${leftOut})\\d+`, 'u'));
+});
+
+test('a file written over on disk while the folder is open is greyed until 計算 measures it again; the others keep their values (V1)', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    await openEntry(page, scanned!);
+    const changed = scanned!.find(file => file.result.ok)!.filePath;
+    const ofFile = page.locator(`[data-entry-rows] tr.entry-row[data-file-path="${changed}"]`);
+    await expect(ofFile.first()).toBeVisible();
+    await expect(page.locator('[data-entry-rows] tr.entry-row.is-stale')).toHaveCount(0);
+    // The host saw the file change in its folder.
+    await page.evaluate(filePath => window.postMessage({ type: 'entry-source-changed', filePath }, '*'), changed);
+    await expect(ofFile.first()).toHaveClass(/is-stale/);
+    expect(await page.locator('[data-entry-rows] tr.entry-row.is-stale').evaluateAll(items => [...new Set(items.map(row => row.getAttribute('data-file-path')))])).toEqual([changed]);
+    const compute = page.locator('[data-action="entry-compute"]');
+    await expect(compute).toHaveText(new RegExp(`^${STR.dsComputeRest.replace('{time}', '.+')}$`));
+    await compute.click();
+    // Only it is measured again (and a recording that could not be read, whose failure may have passed).
+    const asked = (await entryScans(page)).at(-1)!.filePaths;
+    expect(asked).toContain(changed);
+    expect(asked.filter(filePath => filePath !== changed && scanned!.find(file => file.filePath === filePath)?.result.ok)).toEqual([]);
 });
 
 test('a picked CSV attaches its attributes by asd-insight\'s rules and lists what did not match with why (I5)', async ({ page }) => {
@@ -89,6 +113,9 @@ test('a picked CSV attaches its attributes by asd-insight\'s rules and lists wha
     await unmatched.click();
     await expect(page.locator('#entry-screen')).toHaveAttribute('data-mode', 'unmatched');
     await expect(page.locator('[data-entry-rows] .entry-why')).toHaveText([STR.dsReasonUnreadable, STR.dsReasonNoRow]);
+    // Each why in the failure's orange (R5).
+    const flag = `rgb(${[1, 3, 5].map(at => parseInt(FLAG_COLOR.slice(at, at + 2), 16)).join(', ')})`;
+    for (const why of await page.locator('[data-entry-rows] .entry-why').all()) await expect(why).toHaveCSS('color', flag);
     await expect(page.locator('[data-entry-rows] tr').nth(1)).toContainText('mono_48k.wav');
     await page.keyboard.press('Escape');
     await expect(page.locator('#entry-screen')).toHaveAttribute('data-mode', 'all');
@@ -284,13 +311,13 @@ test('the entry table speaks Japanese with few words: value and group, the CSV, 
     const STR = getStrings('ja');
     await openEntry(page, scanned!, { language: 'ja' });
     await expect(page.locator('.entry-pick:not([hidden])')).toHaveText([new RegExp(`^${STR.dsValue}`), new RegExp(`^${STR.dsGroup}`)]);
-    await expect(page.locator('[data-action="entry-value"] option:checked')).toHaveText(STR.dsLeq.replace('{label}', 'dBFS'));
+    await expect(page.locator('[data-action="entry-value"] option:checked')).toHaveText(STR.dsLeq.replace('{uncal}', STR.axisUncalibrated).replace('{label}', 'dBFS'));
     // ☑ (on a track), the file, ch, the value and the spare end, plus a group column when grouped.
     await expect(page.locator('[data-entry-head] th')).toHaveCount(5 + (await page.locator('th.entry-col-group, th[data-column^="folder"], th[data-column^="csv"]').count()) );
     await expect(page.locator('[data-entry-head] th').nth(1)).toContainText(STR.entryColFile);
 });
 
-test('a folder of 1000 recordings draws only the rows on screen', async ({ page }) => {
+test('a folder of 1000 recordings draws only the rows on screen, but its head and its filter lists count every row, not the rows drawn', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('ja');
     const many = Array.from({ length: 1000 }, (_, index) => ({ ...scanned![index % 90], filePath: `/many/f${String(index).padStart(4, '0')}.wav` }));
@@ -300,6 +327,10 @@ test('a folder of 1000 recordings draws only the rows on screen', async ({ page 
     if (process.env['AWA_PERF'] === '1') expect(ms).toBeLessThan(3000);
     expect(await page.locator('[data-entry-rows] tr.entry-row').count()).toBeLessThan(80);
     await expect(page.locator('.entry-th-count')).toHaveText(STR.dsRows.replace('{n}', '1,967'));
+    // The ch filter's list counts every row of each channel, the rows drawn or not.
+    await filterBy(page, 'ch');
+    const counts = (await page.locator('[data-entry-flist] .entry-ck-n').allTextContents()).map(text => Number(text.replace(/,/g, '')));
+    expect(counts.reduce((sum, n) => sum + n, 0)).toBe(1967);
 });
 
 test('the step bar (in 比較解析) shows every step of the scan Recipe; an invalid value keeps Apply off and a valid one rescans the table', async ({ page }) => {
@@ -375,16 +406,16 @@ test('the step bar (in 比較解析) shows every step of the scan Recipe; an inv
     await expect(page.locator('[data-entry-rows] tr.entry-row:not(.is-stale)')).toHaveCount(0);
     // 計算 says how many files and about how long; it computes with the new chain and can be stopped.
     const compute = page.locator('[data-action="entry-compute"]');
-    // The unreadable recording has no row: 99 files to compute.
-    await expect(compute).toHaveText(new RegExp(`^${STR.dsCompute.replace('{n}', '99').replace('{time}', '.+')}$`));
+    // The unreadable recording has no row, but its failure may pass (it is not a step that cannot run): 計算 asks it again, 100 files.
+    await expect(compute).toHaveText(new RegExp(`^${STR.dsCompute.replace('{n}', '100').replace('{time}', '.+')}$`));
     await compute.click();
     const scan = (await scans()).at(-1)!;
     expect(scan.recipe!.nodes.map(node => node.operation)).toEqual(['wandas.audio.highpass_filter', 'wandas.frame.time_slice', 'wandas.audio.welch']);
-    expect(scan.filePaths.length).toBe(99);
+    expect(scan.filePaths.length).toBe(100);
     await page.evaluate(({ requestId, files }) => {
         for (const file of files.slice(0, 3)) window.postMessage({ type: 'entry-scan-result', requestId, filePath: file.filePath, result: file.result }, '*');
     }, { requestId: scan.requestId, files: scanned!.filter(file => scan.filePaths.slice(0, 3).includes(file.filePath)) });
-    await expect(page.locator('[data-entry-progress]')).toHaveText(STR.dsComputing.replace('{done}', '3').replace('{n}', '99'));
+    await expect(page.locator('[data-entry-progress]')).toHaveText(STR.dsComputing.replace('{done}', '3').replace('{n}', '100'));
     await page.locator('[data-action="entry-compute-cancel"]').click();
     const cancels = await page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string }> }).__uiSmokePostedMessages.filter(message => message.type === 'entry-scan-cancel').length);
     expect(cancels).toBe(1);
@@ -489,7 +520,7 @@ test('a step added between two chips measures every file again; one that fails o
     const scan = await lastScan();
     const added = scan.recipe!.nodes.find(node => node.operation === 'wandas.audio.a_weighting')!;
     expect(scan.recipe!.nodes.map(node => node.operation)).toEqual(['wandas.audio.highpass_filter', 'wandas.frame.time_slice', 'wandas.audio.a_weighting', 'wandas.audio.welch']);
-    await expect(page.locator('[data-entry-progress]')).toHaveText(STR.dsComputing.replace('{done}', '0').replace('{n}', '99'));
+    await expect(page.locator('[data-entry-progress]')).toHaveText(STR.dsComputing.replace('{done}', '0').replace('{n}', '100'));
     // The step fails on a file: the chain cannot run from there. It and every step after it are marked ⚠; the scan stops and nothing is computed without the step.
     const scansBefore = await page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string }> }).__uiSmokePostedMessages.filter(message => message.type === 'entry-scan').length);
     await page.evaluate(({ requestId, filePath, step }) => {
@@ -499,7 +530,7 @@ test('a step added between two chips measures every file again; one that fails o
     await expect(page.locator('.entry-stale-tag')).toHaveText(STR.entryChainBroken);
     await expect(page.locator('[data-action="entry-compute"]')).toHaveCount(0);
     await expect(page.locator('[data-action="entry-compute-cancel"]')).toHaveCount(0);
-    await page.waitForTimeout(400);
+    await settled(page);
     expect(await page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string }> }).__uiSmokePostedMessages.filter(message => message.type === 'entry-scan').length)).toBe(scansBefore);
     await bar.locator('.step-chip.is-invalid [data-action="step-settings"]').first().click();
     await expect(bar.locator('.step-form-why')).toHaveText(STR.stepFailedOn.replace('{reason}', 'boom'));
@@ -510,7 +541,9 @@ test('a step added between two chips measures every file again; one that fails o
     await bar.locator('.step-chip', { hasText: STR.stepAverage }).locator('[data-action="step-settings"]').click();
     await bar.locator('[data-action="step-remove"]').click();
     await expect(values.filter({ hasText: STR.dsPeak })).toHaveCount(0);
-    await expect(values).toHaveText([STR.dsLeq.replace('{label}', 'dBFS'), STR.dsCrest]);
+    // Under the new chain no recording has a fresh answer yet: the value names no reference rather than a guessed
+    // dBFS (class sweep 3, reference V9); once one is read again it names the folder's.
+    await expect(values).toHaveText([new RegExp(`^${STR.dsLeq.replace('{uncal}', '').replace(' [{label}]', '')}(?:${STR.axisUncalibrated.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')} \\[dBFS\\])?$`, 'u'), STR.dsCrest]);
 });
 
 test('a step\'s ⚙ offers every value wandas describes: sound_level\'s weighting and dB, welch\'s average under "more", written into the Recipe', async ({ page }) => {
@@ -578,8 +611,9 @@ test('the overview strip answers the lanes\' gestures, and a press that stays pu
     await expect(strip).not.toHaveAttribute('data-window', /^0\.000-1\.000\|/);
     // Its plot sits inside the strip's margins.
     await page.mouse.click(stripBox.x + stripBox.width / 2, stripBox.y + OVERVIEW_MARGINS.top + (stripBox.height - OVERVIEW_MARGINS.top - OVERVIEW_MARGINS.bottom) * 0.9);
+    // Gone to at once (plotInteraction.ts arbitrates every plot's click, R13).
     await expect(page.locator('[data-entry-rows] tr.is-focused')).toHaveCount(1);
-    expect(await page.locator('[data-entry-rows] tr.is-focused').getAttribute('data-file-path')).not.toBe(focusedBefore);
+    await expect.poll(() => page.locator('[data-entry-rows] tr.is-focused').getAttribute('data-file-path')).not.toBe(focusedBefore);
 });
 
 test('the overview strip has a row per channel, as the table does: its readout names the channel of a recording of several', async ({ page }) => {
@@ -642,7 +676,7 @@ for (const language of ['ja', 'en'] as const) {
     test(`the value header keeps "A特性" whole and stays inside its column maximized; docked, the value column is not shown (${language})`, async ({ page }) => {
         test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
         await openEntry(page, scanned!, { language, docked: true });
-        await expect(page.locator('th[data-column="leq"] .entry-th-label')).toHaveText(getStrings(language).dsLeq.replace('{label}', 'dBFS'));
+        await expect(page.locator('th[data-column="leq"] .entry-th-label')).toHaveText(getStrings(language).dsLeq.replace('{uncal}', getStrings(language).axisUncalibrated).replace('{label}', 'dBFS'));
         // Beside the tracks the table is for finding a file: no value column, so the names have the room.
         await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
         await expect(page.locator('th[data-column="leq"]')).toBeHidden();
@@ -672,10 +706,11 @@ for (const [language, leq, band] of [['en', 'Leq A-weighted [dB SPL re 20 µPa]'
     });
 }
 
-for (const [mix, leq] of [['uncalibrated', 'Leq A-weighted [dBFS]'], ['some calibrated and some not', 'Leq A-weighted [dB]']] as const) {
-    test(`the dataset table names the levels of ${mix} recordings by their shared reference, plain dB without one`, async ({ page }) => {
+for (const [mix, leq] of [['uncalibrated', 'Leq A-weighted, uncalibrated [dBFS]'], ['mostly calibrated', 'Leq A-weighted [dB SPL re 20 µPa]']] as const) {
+    test(`the dataset table names the levels of ${mix} recordings by their most common reference, never plain dB, and says uncalibrated (R4)`, async ({ page }) => {
         test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
-        await openEntry(page, mix === 'uncalibrated' ? scanned! : scanned!.map((file, index) => (index % 2 ? calibratedToPa(file) : file)));
+        // Two in three calibrated to Pa: the table compares those (its most common shape), named dB SPL; the rest are ≠.
+        await openEntry(page, mix === 'uncalibrated' ? scanned! : scanned!.map((file, index) => (index % 3 ? calibratedToPa(file) : file)));
         await expect(leqHeader(page)).toHaveText(leq);
     });
 }
@@ -982,10 +1017,19 @@ test('widened, the name takes the free width and keeps its end in sight; in a na
     }
     await page.locator('[data-entry-table]').evaluate(table => { (table as HTMLElement).style.width = ''; });
     // At 800 px the value column is in sight, not behind the distribution, which sits under the table.
-    const value = (await first.locator('.entry-col-value').boundingBox())!;
-    const side = (await page.locator('.entry-side').boundingBox())!;
-    expect(value.x + value.width).toBeLessThanOrEqual(800);
-    expect(side.y).toBeGreaterThanOrEqual(value.y + value.height);
+    // The table writes its rows anew on each render, and a resize renders it again, so the cell is measured until the
+    // layout has settled rather than once: boundingBox() does not wait, and reads null for a row while it is replaced.
+    const valueCell = first.locator('.entry-col-value');
+    const side = page.locator('.entry-side');
+    await expect(valueCell).toBeVisible();
+    await expect(side).toBeVisible();
+    await expect.poll(async () => {
+        const value = await valueCell.boundingBox();
+        const sideBox = await side.boundingBox();
+        if (!value || !sideBox) return 'not laid out yet';
+        return { valueInSight: value.x + value.width <= 800, distributionBelow: sideBox.y >= value.y + value.height };
+    }, { message: 'at 800 px the value column ends inside the window and the distribution sits under the table' })
+        .toEqual({ valueInSight: true, distributionBelow: true });
 });
 
 test('Open Compare looks unavailable while slots 1–3 are empty and says why; a filled slot enables it', async ({ page }) => {

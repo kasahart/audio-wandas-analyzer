@@ -22,6 +22,8 @@ const PAN_SPAN_TOLERANCE = 0.01;
 export interface DetailPlanner {
     /** The zoom just moved: its detail waits until it settles. */
     moved(): void;
+    /** Whether the zoom has stopped moving (else `later` is called once it has): the Δ headline's window is asked then. */
+    settled(): boolean;
     /**
      * The detail spec for `coarse` zoomed to `x` (and, for an image, `y`) on a plot `width` px wide; null when
      * the whole picture is on screen or the zoom is still settling (then `later` is called once it has).
@@ -74,7 +76,7 @@ export function createDetailPlanner(clock: { now(): number }, timers: Pick<Windo
         return item.spec;
     };
     const detailSpec = (base: { key: string; message: StageSpec['message'] }, detail: StageDetail): StageSpec => ({
-        key: `detail|${base.key}|${[...detail.x, ...(detail.y ?? [])].map(value => value.toPrecision(6)).join(',')}|${detail.points}`,
+        key: detailSpecKey(base.key, detail),
         message: { ...base.message, detail },
     });
     function around(base: { key: string; message: StageSpec['message'] }, coarse: StageView, x: NormalizedRange, width: number): StageSpec | null {
@@ -93,16 +95,21 @@ export function createDetailPlanner(clock: { now(): number }, timers: Pick<Windo
     }
     return {
         moved() { movedAt = clock.now(); },
+        settled() { return !settling(); },
         spec(base, coarse, x, y, width) {
             const rows = coarse.kind === 'heatmap' ? y : null;
             if (whole(x) && (!rows || whole(rows))) return null;
             if (prefetchesAround(coarse)) return around(base, coarse, x, width);
             const done = asked.get(base.key) ?? [];
             const points = rangeRequestPointCount(width);
-            const reuse = done.find(item => covers(item.x, x) && (!rows || (!!item.y && covers(item.y, rows))) && rangeHasDetail(item.points, item.x.start, item.x.end, points, width, x.start, x.end));
+            const xs = computeReqBounds(x.start, x.end), ys = rows ? computeReqBounds(rows.start, rows.end) : null;
+            // A range asked for before is drawn again only as finely as this zoom's own would be (R3): a wider one,
+            // asked for on the way in by a zoom that paused past the settle time, holds fewer points per pixel here.
+            // (Per span of the view each was asked for: a range cut at the axis's end is no finer for it.)
+            const reuse = done.find(item => covers(item.x, x) && (!rows || (!!item.y && covers(item.y, rows))) && item.points / item.span >= points / spanOf(x) * (1 - 1e-9)
+                && rangeHasDetail(item.points, item.x.start, item.x.end, points, width, x.start, x.end));
             if (reuse) return reuse.spec;
             if (settling()) return null;
-            const xs = computeReqBounds(x.start, x.end), ys = rows ? computeReqBounds(rows.start, rows.end) : null;
             const detail: StageDetail = { x: [axisValueAt(coarse, xs.reqStart), axisValueAt(coarse, xs.reqEnd)], points, ...(ys ? { y: [rowValueAt(coarse, ys.reqStart), rowValueAt(coarse, ys.reqEnd)] } : {}) };
             return keep(base.key, { x: { start: xs.reqStart, end: xs.reqEnd }, y: ys ? { start: ys.reqStart, end: ys.reqEnd } : null, points, span: spanOf(x), spec: detailSpec(base, detail) });
         },
@@ -116,10 +123,24 @@ export function createDetailPlanner(clock: { now(): number }, timers: Pick<Windo
     };
 }
 
+/**
+ * A range asked for, as a key: the very numbers sent to the host (each written so it reads back to the same double,
+ * never rounded), so two ranges share a key only when they ask for the same samples or bins. Rounded, two windows of
+ * a long recording zoomed in deep could share one, and the earlier window's detail would be drawn for the later.
+ */
+function rangeKey(detail: StageDetail): string {
+    return [...detail.x, ...(detail.y ?? [])].map(value => String(value)).join(',');
+}
+
+/** A detail spec's key: its step's picture (`base`), the range asked for exactly as it is sent, and its points. */
+export function detailSpecKey(base: string, detail: StageDetail): string {
+    return `detail|${base}|${rangeKey(detail)}|${detail.points}`;
+}
+
 /** The range a detail spec covers, as a key: the same for every file, channel and step asked over one range. */
 export function detailRangeKey(spec: StageSpec): string {
     const detail = spec.message.detail;
-    return detail ? [...detail.x, ...(detail.y ?? [])].join(',') : '';
+    return detail ? rangeKey(detail) : '';
 }
 
 /**

@@ -85,17 +85,36 @@ export class RealBackend {
 type Posted = Record<string, unknown> & { type: string; requestId: string };
 
 /**
+ * Runs in the page: posts a request's last answer as the host does, and tells settled() the request is answered.
+ * window.postMessage delivers in a task of its own, after this one; until then settled() counts the message itself
+ * (canvasAudit.ts installSettleTracker), so the page is not quiet before it has read the answer and scheduled whatever
+ * it draws from it. Otherwise, under load, the frames settled() waits on could come first and a readout read then is
+ * the one before the answer (empty while its full data is pending, R7): the test would fail on the page's correct
+ * behaviour.
+ */
+export function postLastAnswer({ data, requestId }: { data: { type: string; requestId: string; [field: string]: unknown }; requestId: string }): void {
+    window.postMessage(data, '*');
+    (window as unknown as { __settle?: { answered(requestId: string): void } }).__settle?.answered(requestId);
+}
+
+/**
  * Answers the comparison's requests on `page` as the host does, from `backend`: each picture asked for ('compare-scan',
  * file by file, then done) and each median and difference ('compare-combine'). The ui-smoke page's own stand-in for
  * the combine is held off. Returns a stop function, which resolves to the backend's refusals.
  */
 export async function bridgeComparison(page: Page, backend: RealBackend, entryRecipe: Record<string, unknown>): Promise<() => Promise<string[]>> {
-    await page.evaluate(() => { (window as unknown as { __uiSmokeHoldCombine: boolean }).__uiSmokeHoldCombine = true; });
+    await page.evaluate(types => {
+        (window as unknown as { __uiSmokeHoldCombine: boolean }).__uiSmokeHoldCombine = true;
+        // The page has not answered what it asked until the backend has (canvasAudit.ts settled()).
+        (window as unknown as { __settle?: { awaitHost(types: readonly string[]): void } }).__settle?.awaitHost(types);
+    }, ['compare-scan', 'compare-combine']);
     let seen = 0;
     let stopped = false;
     const failures: string[] = [];
     const pending: Array<Promise<void>> = [];
     const post = (message: unknown): Promise<void> => page.evaluate(data => window.postMessage(data, '*'), message);
+    /** The request's last answer, after which settled() no longer waits for it: once the page has read it. */
+    const close = (requestId: string, message: { type: string; requestId: string; [field: string]: unknown }): Promise<void> => page.evaluate(postLastAnswer, { data: message, requestId });
     const answer = async (message: Posted): Promise<void> => {
         if (message.type === 'compare-scan') {
             const { requestId, filePaths, recipe, region, stage, detail, reference, spectrumBins } = message as Posted & { filePaths: string[] };
@@ -105,11 +124,11 @@ export async function bridgeComparison(page: Page, backend: RealBackend, entryRe
                 const result = await backend.request({ cmd: 'scan', filePath, ...fields });
                 if (!stopped) await post({ type: 'compare-scan-result', requestId, filePath, result });
             }
-            if (!stopped) await post({ type: 'compare-scan-done', requestId });
+            if (!stopped) await close(requestId, { type: 'compare-scan-done', requestId });
         } else if (message.type === 'compare-combine') {
             const { type: _type, requestId, ...fields } = message;
             const result = await backend.request({ cmd: 'stage-combine', ...fields });
-            if (!stopped) await post({ type: 'compare-combine-result', requestId, result });
+            if (!stopped) await close(requestId, { type: 'compare-combine-result', requestId, result });
         }
     };
     const poll = async (): Promise<void> => {

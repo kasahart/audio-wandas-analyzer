@@ -150,6 +150,11 @@ test('edits change the Recipe key; stored Recipes are checked before use', () =>
     const [hpf] = recipeSteps(entry, 16000);
     assert.notEqual(recipeKey(withParam(entry, hpf.id, hpf.editable[0], 25)), recipeKey(entry));
     assert.equal(recipeKey(JSON.parse(JSON.stringify(entry))), recipeKey(entry));
+    // The key is the Recipe itself (canonical JSON), not a hash: equal keys only for equal Recipes, whatever the key order.
+    assert.deepEqual(JSON.parse(recipeKey(entry)), JSON.parse(JSON.stringify(entry)));
+    const reordered = Object.fromEntries(Object.entries(entry).reverse()) as typeof entry;
+    assert.equal(recipeKey(reordered), recipeKey(entry));
+    assert.notEqual(recipeKey(withParam(entry, hpf.id, hpf.editable[0], 26)), recipeKey(withParam(entry, hpf.id, hpf.editable[0], 25)));
     assert.ok(isRecipeChain(entry));
     assert.equal(isRecipeChain({ schema: 'wandas.recipe', nodes: 'x', output: 'node-0' }), false);
     assert.equal(isRecipeChain({ version: 1 }), false);

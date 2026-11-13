@@ -1,7 +1,6 @@
 import type { SpectrogramDisplaySettings } from '../../shared/analysis/analysisTypes';
-import { channelsForResult } from '../../shared/utils/format';
 import type { SpectrumViewState } from './spectrumRuntime';
-import { overlaySpectrumAxisLabels, spectrogramAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
+import { visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
 import type { ComparisonTrackState, SpectrumSlice, TimelineSpan, TrackId, WaveformCoverage } from './types';
 import { trackTimelinePlacement } from './waveformCoverage';
 
@@ -25,6 +24,9 @@ export interface TrackSnapshotSource {
     /** The cursor spectrum a shown track draws now, from what it already has: reading it never asks the host for one. */
     peekSlice(track: SnapshotTrack): SpectrumSlice | null;
     waveformAxisLabels(track: SnapshotTrack): string[];
+    /** The texts the cursor spectrum and a track's spectrogram lane drew (StagePlot.drawnTexts): never made again here. */
+    spectrumTexts(): string[];
+    spectrogramTexts(track: SnapshotTrack): string[];
 }
 
 /** What the smoke tests read of the tracks: built from the runtime's state, without changing it or asking the host for anything. */
@@ -41,12 +43,7 @@ export function buildTrackSnapshot(source: TrackSnapshotSource) {
             visibleSlices.push(slice);
         }
         waveformPerTrack.push(source.waveformAxisLabels(track));
-        const ch = channelsForResult(result)[0];
-        spectrogramPerTrack.push(spectrogramAxisLabelTexts(
-            ch && ch.spectrogram,
-            source.spectrogramDisplay,
-            result.sampleRateHz ? result.sampleRateHz / 2 : 0,
-        ));
+        spectrogramPerTrack.push(source.spectrogramTexts(track));
         return {
             trackId: track.trackId,
             trackIndex: track.trackIndex,
@@ -64,7 +61,7 @@ export function buildTrackSnapshot(source: TrackSnapshotSource) {
         tracks,
         visibleSpectrumTrackCount: visibleSlices.length,
         axisLabels: {
-            spectrumOverlay: overlaySpectrumAxisLabels(visibleSlices, source.spectrumView),
+            spectrumOverlay: visibleSlices.length ? source.spectrumTexts() : [],
             spectrogramPerTrack,
             waveformPerTrack,
         },

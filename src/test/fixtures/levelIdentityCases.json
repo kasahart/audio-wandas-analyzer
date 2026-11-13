@@ -1,0 +1,8 @@
+[
+  { "why": "the same file's reference", "a": { "unit": "Pa", "ref": 2e-05, "label": "dB SPL re 20 µPa", "status": "calibrated" }, "b": { "unit": "Pa", "ref": 2e-05, "label": "dB SPL re 20 µPa", "status": "calibrated" }, "same": true },
+  { "why": "a gain-corrected FS file and a raw one: both dBFS", "a": { "unit": "", "ref": 1, "label": "dBFS", "status": "calibrated" }, "b": { "unit": "", "ref": 1, "label": "dBFS", "status": "uncalibrated" }, "same": true },
+  { "why": "full scale against a calibrated pressure", "a": { "unit": "", "ref": 1, "label": "dBFS", "status": "uncalibrated" }, "b": { "unit": "Pa", "ref": 2e-05, "label": "dB SPL re 20 µPa", "status": "calibrated" }, "same": false },
+  { "why": "full scale against an input unit with no full scale", "a": { "unit": "", "ref": 1, "label": "dBFS", "status": "uncalibrated" }, "b": { "unit": "", "ref": 1, "label": "dB re 1 input unit", "status": "uncalibrated" }, "same": false },
+  { "why": "another unit at the same reference value", "a": { "unit": "V", "ref": 1, "label": "dB re 1 V", "status": "calibrated" }, "b": { "unit": "Pa", "ref": 1, "label": "dB re 1 Pa", "status": "calibrated" }, "same": false },
+  { "why": "the same unit at another reference", "a": { "unit": "Pa", "ref": 2e-05, "label": "dB SPL re 20 µPa", "status": "calibrated" }, "b": { "unit": "Pa", "ref": 1, "label": "dB re 1 Pa", "status": "calibrated" }, "same": false }
+]

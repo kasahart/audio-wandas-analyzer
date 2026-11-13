@@ -1,3 +1,4 @@
+import type { Drawn } from '../../shared/provenance';
 import type { FullSource } from './fullRead';
 import type { UiStrings } from '../../shared/i18n/strings';
 import type {
@@ -118,7 +119,10 @@ export interface TrackRuntimeState {
 }
 
 export interface SpectrumSlice {
-    values: number[];
+    /** As drawn: every bin when the slice has no `frequenciesHz`, else cut for display; never read (x-drawn). */
+    values: Drawn[];
+    /** Every bin (or band), sent only for a slice not cut for display (x-whole): what is read (wholeAnswers.ts everyBin). */
+    bins?: number[];
     frequencyBins: number;
     maxFrequencyHz: number;
     minDb: number;
@@ -139,10 +143,20 @@ export interface SpectrumSlice {
     windowStartNorm?: number;
     windowEndNorm?: number;
     window?: string;
-    /** Set when a typed spectrogram dB range replaced minDb/maxDb: the slice's own rounded range. */
+    /** The slice's own range (the backend's extremes), kept when a typed spectrogram dB range replaced minDb/maxDb. */
     autoMinDb?: number;
     autoMaxDb?: number;
+    /** The ends of minDb/maxDb typed in the spectrogram settings: kept exactly; the other ends follow the dB line rule (spectrumLevelRange). */
+    typedDb?: { min?: number; max?: number };
+    /** Drawn in place of a slice the backend has not given (cursorSpectrum.ts): no number is read of it (R7). */
+    standIn?: SpectrumStandIn;
 }
+
+/**
+ * What a cursor spectrum draws when it has no slice of the backend's: 'pending', the lane's display spectrogram's
+ * column (cells power-averaged to draw) while the slice is on its way; 'silence', the floor past the track's end.
+ */
+export type SpectrumStandIn = 'pending' | 'silence';
 
 export interface WaveformRangeCache {
     startNorm: number;
@@ -150,10 +164,7 @@ export interface WaveformRangeCache {
     channels: RangeWaveform[];
 }
 
-export interface RangeWaveform extends WaveformEnvelope {
-    minT?: number[];
-    maxT?: number[];
-}
+export type RangeWaveform = WaveformEnvelope;
 
 export interface LazyRequestState {
     trackId: TrackId;
@@ -227,6 +238,8 @@ export interface SpectrumSeries {
     label: string;
     /** A slice cut for display: where its every bin is read (R7, laneReads.slice). */
     full?: FullSource;
+    /** Its recording's level identity, where known: lines share a level axis only by it and their slices' own reference (figureModel). */
+    level?: { unit?: string; ref?: number; levelReferenceLabel?: string };
 }
 
 export interface WaveformDrawOptions {

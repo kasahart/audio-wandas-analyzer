@@ -19,7 +19,9 @@ import { join } from 'node:path';
 // vscode モックを先に設定してから ComparisonPanel をロードするヘルパー
 import { getRenderScript, getRenderStyles } from './helpers/comparisonScriptLoader';
 import { createWebviewEnv, evalScript } from './helpers/webviewTestEnv';
+import { UI_SMOKE_READS } from './uiSmoke/fullReadStandIn';
 import { OWN_COLORS } from '../shared/gui/roleColors';
+import { csvRecords } from '../shared/utils/csv';
 
 // scripts/build-webview.js が tsc 後に生成。__dirname は dist/test なので 1 階層上が dist/。
 const LOOP_REGION_JS = readFileSync(
@@ -44,6 +46,7 @@ const DUMMY_APP_STATE = JSON.stringify({
                 label: 'L',
                 peakAbsolute: 0.5,
                 peakLevelDb: -6.0206,
+                sourceLevelReferenceLabel: 'dBFS',
                 waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
                 spectrogram: {
                     values: [[0]], timeBins: 1, frequencyBins: 1,
@@ -65,6 +68,7 @@ const DUMMY_APP_STATE = JSON.stringify({
                 label: 'L',
                 peakAbsolute: 0.7,
                 peakLevelDb: -3.098,
+                sourceLevelReferenceLabel: 'dBFS',
                 waveform: { min: [-0.7], max: [0.7], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.7 },
                 spectrogram: {
                     values: [[0]], timeBins: 1, frequencyBins: 1,
@@ -93,6 +97,7 @@ const MULTICHANNEL_APP_STATE = JSON.stringify({
                     label: 'Left',
                     peakAbsolute: 0.5,
                     peakLevelDb: -6.0206,
+                    sourceLevelReferenceLabel: 'dBFS',
                     waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
                     spectrogram: {
                         values: [[-12, -48, -72]], timeBins: 1, frequencyBins: 3,
@@ -104,6 +109,7 @@ const MULTICHANNEL_APP_STATE = JSON.stringify({
                     label: 'Right',
                     peakAbsolute: 0.95,
                     peakLevelDb: -0.4455,
+                    sourceLevelReferenceLabel: 'dBFS',
                     waveform: { min: [-0.95], max: [0.95], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.95 },
                     spectrogram: {
                         values: [[-72, -48, -3]], timeBins: 1, frequencyBins: 3,
@@ -316,7 +322,7 @@ test('renderScript: monaural tracks keep waveform and spectrogram in one body wi
     assert.equal(row.querySelector('.track-channel-lane-header'), null);
 
     const meta = row.querySelector('.track-meta');
-    assert.match(meta?.textContent || '', /^1 ch.*Peak -6\.0 dB/,
+    assert.match(meta?.textContent || '', /^1 ch.*Peak −6\.0 dB/,
         'mono track の概要値は下部凡例ではなく track meta に表示されること');
 
     const waveWrap = env.dom.window.document.getElementById('track-canvas-wrap-0');
@@ -698,8 +704,8 @@ test('renderScript: track-detail-result merges spectrogram and stale detail is i
     } }));
     await nextAnimationFrame(env.dom);
     let snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    assert.ok(snap.renderedUi.axisLabels.spectrogramPerTrack[0].includes('-120 dB'));
-    assert.equal(snap.renderedUi.axisLabels.spectrogramPerTrack[0].includes('-90 dB'), false);
+    // The stale detail is not drawn: the lane still says it loads, and draws no axis (its texts as drawn, A27).
+    assert.deepEqual(Array.from(snap.renderedUi.axisLabels.spectrogramPerTrack[0]), [], JSON.stringify(snap.renderedUi.axisLabels.spectrogramPerTrack));
 
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
         type: 'track-detail-result',
@@ -712,7 +718,8 @@ test('renderScript: track-detail-result merges spectrogram and stale detail is i
     } }));
     await nextAnimationFrame(env.dom);
     snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    assert.ok(snap.renderedUi.axisLabels.spectrogramPerTrack[0].includes('-90 dB'));
+    // Drawn now, with the detail's level range: its colour bar's low end as the lane drew it, with a true minus.
+    assert.ok(snap.renderedUi.axisLabels.spectrogramPerTrack[0].includes('−90'), JSON.stringify(snap.renderedUi.axisLabels.spectrogramPerTrack));
 });
 
 test('renderScript: removing a detailed track releases its spectrogram detail', () => {
@@ -913,7 +920,7 @@ test('lazy detail response cannot attach to a replacement at the same protocol i
         .filter((message: any) => message.type === 'comparison-panel-test-snapshot')
         .at(-1) as any;
     assert.equal(snapshot.renderedUi.tracks[0].trackId, 'track-3');
-    assert.equal(snapshot.renderedUi.axisLabels.spectrogramPerTrack[0].includes('-90 dB'), false);
+    assert.equal(snapshot.renderedUi.axisLabels.spectrogramPerTrack[0].includes('−90'), false, JSON.stringify(snapshot.renderedUi.axisLabels.spectrogramPerTrack));
     env.dom.window.close();
 });
 
@@ -945,8 +952,8 @@ test('renderScript: multichannel lazy spectrum uses one track-batched request', 
         trackIndex: 0,
         filePath: '/tmp/a.wav',
         channels: [
-            { channelIndex: 0, values: [-20], minDb: -90, maxDb: 0 },
-            { channelIndex: 1, values: [-10], minDb: -90, maxDb: 0 },
+            { channelIndex: 0, values: [-20], bins: [-20], minDb: -90, maxDb: 0 },
+            { channelIndex: 1, values: [-10], bins: [-10], minDb: -90, maxDb: 0 },
         ],
         frequencyBins: 1, maxFrequencyHz: 22050,
     } }));
@@ -986,7 +993,7 @@ test('renderScript: lazy spectrum applies global backpressure and converges to t
         settingsSignature: initial.settingsSignature,
         trackIndex: 0,
         filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-40], minDb: -90, maxDb: 0 }],
+        channels: [{ channelIndex: 0, values: [-40], bins: [-40], minDb: -90, maxDb: 0 }],
         frequencyBins: 1, maxFrequencyHz: 22050,
     } }));
     await nextAnimationFrame(env.dom);
@@ -1005,7 +1012,7 @@ test('renderScript: lazy spectrum applies global backpressure and converges to t
         settingsSignature: requests[1].settingsSignature,
         trackIndex: 0,
         filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-30, -10], minDb: -90, maxDb: 0 }],
+        channels: [{ channelIndex: 0, values: [-30, -10], bins: [-30, -10], minDb: -90, maxDb: 0 }],
         frequencyBins: 2, maxFrequencyHz: 22050,
     } }));
     await nextAnimationFrame(env.dom);
@@ -1033,7 +1040,7 @@ test('renderScript: a lane scrolled into view in the frame a spectrum hover repa
         settingsSignature: first.settingsSignature,
         trackIndex: 0,
         filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-40], minDb: -90, maxDb: 0 }],
+        channels: [{ channelIndex: 0, values: [-40], bins: [-40], minDb: -90, maxDb: 0 }],
         frequencyBins: 1, maxFrequencyHz: 22050,
     } }));
     await nextAnimationFrame(env.dom);
@@ -1066,7 +1073,7 @@ test('renderScript: a PNG export asks for the cursor spectrum of a lane out of v
         settingsSignature: first.settingsSignature,
         trackIndex: 0,
         filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-40], minDb: -90, maxDb: 0 }],
+        channels: [{ channelIndex: 0, values: [-40], bins: [-40], minDb: -90, maxDb: 0 }],
         frequencyBins: 1, maxFrequencyHz: 22050,
     } }));
     await nextAnimationFrame(env.dom);
@@ -1101,7 +1108,7 @@ test('renderScript: a cursor set again to where an in-flight slice was asked ask
         settingsSignature: initial.settingsSignature,
         trackIndex: 0,
         filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-40], minDb: -90, maxDb: 0 }],
+        channels: [{ channelIndex: 0, values: [-40], bins: [-40], minDb: -90, maxDb: 0 }],
         frequencyBins: 1, maxFrequencyHz: 22050,
     } }));
     await nextAnimationFrame(env.dom);
@@ -1116,6 +1123,8 @@ test('renderScript: a cursor set again to where an in-flight slice was asked ask
 test('renderScript: waveform seek invalidates an in-flight spectrum response', async () => {
     const state = JSON.parse(makeLazySpectrogramState());
     state.results = state.results.slice(0, 1);
+    // Samples spread over the second, so the readout at the click (3/4 of the lane) reads one there (R7, R13).
+    state.results[0].channels[0].waveform = { min: [-0.5, -0.4, -0.3], max: [0.5, 0.4, 0.45], minT: [0.1, 0.4, 0.7], maxT: [0.2, 0.5, 0.75], samples: [0], absolutePeak: 0.5 };
     const env = setupEnvWithState(JSON.stringify(state));
     await nextAnimationFrame(env.dom);
 
@@ -1123,17 +1132,24 @@ test('renderScript: waveform seek invalidates an in-flight spectrum response', a
     const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement;
     const spectrumSpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
     assert.ok(initial && canvas && spectrumSpy);
+    canvas.width = 800;
+    canvas.height = 80;
     canvas.getBoundingClientRect = () => ({
         left: 0, top: 0, right: 800, bottom: 80, width: 800, height: 80,
     } as DOMRect);
-    const strokesBeforeSeekResponse = spectrumSpy.strokeCalls;
-
+    // Painted again at its new size, so the readout (and a click) reads the lane as it is drawn there.
+    env.dom.window.dispatchEvent(new env.dom.window.Event('resize'));
+    await nextAnimationFrame(env.dom);
+    await nextAnimationFrame(env.dom);
     canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', {
         bubbles: true, button: 0, clientX: 600, clientY: 5,
     }));
     env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', {
         bubbles: true, button: 0, clientX: 600, clientY: 5,
     }));
+    // The click seeks to the sample the lane's readout reads there, once its samples are in (R7, R13).
+    await answerLaneReads(env);
+    const strokesBeforeSeekResponse = spectrumSpy.strokeCalls;
 
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
         type: 'spectrum-slice-result',
@@ -1142,7 +1158,7 @@ test('renderScript: waveform seek invalidates an in-flight spectrum response', a
         settingsSignature: initial.settingsSignature,
         trackIndex: 0,
         filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-40, -20], minDb: -90, maxDb: 0 }],
+        channels: [{ channelIndex: 0, values: [-40, -20], bins: [-40, -20], minDb: -90, maxDb: 0 }],
         frequencyBins: 2,
         maxFrequencyHz: 22050,
     } }));
@@ -1162,7 +1178,7 @@ test('renderScript: waveform seek invalidates an in-flight spectrum response', a
         settingsSignature: requests[1].settingsSignature,
         trackIndex: 0,
         filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-30, -10], minDb: -90, maxDb: 0 }],
+        channels: [{ channelIndex: 0, values: [-30, -10], bins: [-30, -10], minDb: -90, maxDb: 0 }],
         frequencyBins: 2,
         maxFrequencyHz: 22050,
     } }));
@@ -1187,7 +1203,7 @@ test('renderScript: lazy spectrum slices apply display range settings', async ()
         settingsSignature: req.settingsSignature,
         trackIndex: 0,
         filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-120, -20, 10], minDb: -120, maxDb: 10,
+        channels: [{ channelIndex: 0, values: [-120, -20, 10], bins: [-120, -20, 10], minDb: -120, maxDb: 10,
             unit: 'dB', axisLabel: 'Spectrum level [dB]' }],
         frequencyBins: 3,
         maxFrequencyHz: 22050,
@@ -1216,12 +1232,12 @@ test('renderScript: lazy spectrum slices apply display range settings', async ()
     }
     assert.ok(snap, 'a spectrum snapshot with overlay labels should be published');
     const overlay = snap.renderedUi.axisLabels.spectrumOverlay as string[];
-    assert.ok(overlay.includes('0 dB'), `overlay should use configured max dB with wandas slice unit: ${JSON.stringify(overlay)}`);
-    assert.ok(overlay.includes('-60 dB'), `overlay should use configured min dB with wandas slice unit: ${JSON.stringify(overlay)}`);
-    assert.ok(overlay.some((label) => label === '1.0 kHz'), `overlay should use configured max frequency: ${JSON.stringify(overlay)}`);
+    // The texts the overlay drew (A27): its level ticks run from the configured −60 to 0 dB, its frequency ticks to 1 kHz.
+    assert.ok(overlay.includes('0') && overlay.includes('−60') && !overlay.includes('−75'), `overlay should draw the configured dB range: ${JSON.stringify(overlay)}`);
+    assert.ok(overlay.includes('1000') && !overlay.includes('5000'), `overlay should draw to the configured max frequency: ${JSON.stringify(overlay)}`);
 });
 
-test('renderScript: lazy spectrum cache is scoped to the current cursor', async () => {
+test('renderScript: lazy spectrum cache is scoped to the current cursor: an earlier cursor\'s slice is never this one\'s', async () => {
     const state = JSON.parse(makeLazySpectrogramState());
     state.results = state.results.slice(0, 1);
     const env = setupEnvWithState(JSON.stringify(state));
@@ -1236,7 +1252,7 @@ test('renderScript: lazy spectrum cache is scoped to the current cursor', async 
         settingsSignature: initialReq.settingsSignature,
         trackIndex: 0,
         filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-120, -20, 10], minDb: -120, maxDb: 10 }],
+        channels: [{ channelIndex: 0, values: [-120, -20, 10], bins: [-120, -20, 10], minDb: -120, maxDb: 10 }],
         frequencyBins: 3,
         maxFrequencyHz: 22050,
     } }));
@@ -1255,7 +1271,9 @@ test('renderScript: lazy spectrum cache is scoped to the current cursor', async 
 
     const snapshots = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot') as any[];
     const lastSnap = snapshots[snapshots.length - 1];
-    assert.equal(lastSnap.renderedUi.visibleSpectrumTrackCount, 1, 'the last successful slice should remain visible while the new cursor is pending');
+    // The earlier cursor's slice is not this cursor's (R7): it is not drawn or read as the cursor's spectrum. The
+    // picture painted before is held a moment while the new one comes (the next test, SpectrumCommitHold).
+    assert.equal(lastSnap.renderedUi.visibleSpectrumTrackCount, 0, 'the earlier cursor\'s slice is not this cursor\'s spectrum while its own is pending');
     env.dom.window.close();
 });
 
@@ -1274,7 +1292,7 @@ test('renderScript: lazy spectrum keeps previous drawing while a new cursor slic
         settingsSignature: initialReq.settingsSignature,
         trackIndex: 0,
         filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-120, -20, 10], minDb: -120, maxDb: 10 }],
+        channels: [{ channelIndex: 0, values: [-120, -20, 10], bins: [-120, -20, 10], minDb: -120, maxDb: 10 }],
         frequencyBins: 3,
         maxFrequencyHz: 22050,
     } }));
@@ -1319,6 +1337,38 @@ test('renderScript: lazy spectrum keeps previous drawing while a new cursor slic
     env.dom.window.close();
 });
 
+test('renderScript: the last cursor spectrum is held only for a cursor action, never over a change of bands, STFT or offset (V6)', async () => {
+    const state = JSON.parse(makeLazySpectrogramState());
+    state.results = state.results.slice(0, 1);
+    const env = setupEnvWithState(JSON.stringify(state));
+    await nextAnimationFrame(env.dom);
+    const answer = (request: any) => env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'spectrum-slice-result', requestId: request.requestId, analysisId: request.analysisId, settingsSignature: request.settingsSignature,
+        trackIndex: 0, filePath: '/tmp/a.wav', channels: [{ channelIndex: 0, values: [-120, -20, 10], bins: [-120, -20, 10], minDb: -120, maxDb: 10 }], frequencyBins: 3, maxFrequencyHz: 22050,
+    } }));
+    const latest = () => (env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any[]).at(-1);
+    answer(latest());
+    await nextAnimationFrame(env.dom);
+    const overlay = env.domCanvasContexts.get('spectrum-overlay-canvas');
+    assert.ok(overlay, 'overlay canvas spy should exist');
+    // A cursor action: the picture before stays a moment while the new one comes (SpectrumCommitHold).
+    const beforeCursor = overlay.clearRectCalls;
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'comparison-panel-test-action', actionId: 'hold-cursor', actions: [{ action: 'set-cursor', payload: { cursorNorm: 0.5 } }],
+    } }));
+    await nextAnimationFrame(env.dom);
+    assert.equal(overlay.clearRectCalls, beforeCursor, 'held over a cursor move');
+    answer(latest());
+    await nextAnimationFrame(env.dom);
+    // Another band setting: the old picture is of other conditions, so it is not kept on screen.
+    const beforeBands = overlay.clearRectCalls;
+    env.dom.window.document.querySelector<HTMLElement>('[data-action="spectrum-octave-3"]')?.click();
+    await nextAnimationFrame(env.dom);
+    assert.ok(latest().bandsPerOctave === 3, 'the band setting asks again');
+    assert.ok(overlay.clearRectCalls > beforeBands, 'drawn anew (its pending state), not held');
+    env.dom.window.close();
+});
+
 test('renderScript: spectrum at exact track end renders silence instead of the last STFT bin', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
@@ -1333,7 +1383,10 @@ test('renderScript: spectrum at exact track end renders silence instead of the l
     const snapshots = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot') as any[];
     const snap = snapshots[snapshots.length - 1];
     assert.equal(snap.renderedUi.cursorNorm, 1);
-    assert.ok(snap.renderedUi.axisLabels.spectrumOverlay.includes('-90 dB'), 'end cursor should use the silent floor: ' + JSON.stringify(snap.renderedUi.axisLabels.spectrumOverlay));
+    // The silent stand-in spans the spectrogram's floor (−90 dB) to its top, rounded by the dB line rule to −100…0 dB;
+    // the last STFT column (−50…−5 dB) would end at −50 dB.
+    // As drawn (A27): its level axis reaches −100, with a true minus.
+    assert.ok(snap.renderedUi.axisLabels.spectrumOverlay.includes('−100'), 'end cursor should use the silent floor: ' + JSON.stringify(snap.renderedUi.axisLabels.spectrumOverlay));
     env.dom.window.close();
 });
 
@@ -1449,6 +1502,8 @@ const SPECTRUM_APP_STATE = JSON.stringify({
         channels: [{
             label: 'L',
             peakAbsolute: 0.5,
+            // The backend names every channel's level reference (an uncalibrated recording's dBFS).
+            sourceLevelReferenceLabel: 'dBFS',
             waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
             spectrogram: {
                 values: [
@@ -1598,6 +1653,29 @@ const MISMATCHED_DELTA_F_SPECTRUM_STATE = JSON.stringify({
     ],
 });
 
+/**
+ * Answers every lane read the page has asked for and not been answered (a lane's samples or cells around the pointer),
+ * from its own analysis result, as the ui-smoke pages' stand-in does: a lane's click acts on the point its readout
+ * reads (R7, R13), and that read waits for its full data.
+ */
+const answeredReads = new WeakMap<object, Set<string>>();
+async function answerLaneReads(env: ReturnType<typeof createWebviewEnv>): Promise<void> {
+    const win = env.dom.window as unknown as { uiSmokeReadAnswer?: (message: unknown) => unknown };
+    if (!win.uiSmokeReadAnswer) evalScript(env.dom, UI_SMOKE_READS);
+    const answered = answeredReads.get(env) ?? new Set<string>();
+    answeredReads.set(env, answered);
+    for (let round = 0; round < 4; round++) {
+        const open = (env.postedMessages as Array<{ requestId?: string; read?: unknown }>).filter(message => message.read && message.requestId && !answered.has(message.requestId));
+        if (!open.length) return;
+        for (const message of open) {
+            answered.add(message.requestId as string);
+            const reply = win.uiSmokeReadAnswer?.(message);
+            if (reply) env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: reply }));
+        }
+        await nextAnimationFrame(env.dom);
+    }
+}
+
 function setupSpectrumEnv() {
     const script = getRenderScript();
     const env = createWebviewEnv(SPECTRUM_APP_STATE);
@@ -1668,6 +1746,8 @@ test('renderScript: mouseup click commits cursor and re-draws spectrum', async (
     // mousedown + mouseup (no movement) -> a click: the cursor moves (endLaneDrag)
     canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 10, clientY: 5 }));
     env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 10, clientY: 5 }));
+    // The cursor goes to the sample the lane's readout reads there, once its samples are in (R7, R13).
+    await answerLaneReads(env);
 
     assert.ok(overlaySpy.strokeCalls > before,
         'クリック確定後に overlay canvas が再描画されること');
@@ -1843,6 +1923,28 @@ function colourBarClientPoint(canvas: HTMLCanvasElement, left: number): { client
     return { clientX: left + x + width / 2, clientY: y + height / 2 };
 }
 
+test('the pointer over a spectrogram lane reads no number until the full data under it is in: never the drawn picture\'s cell (R7, C6)', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]')?.click();
+    await nextAnimationFrame(env.dom);
+    const canvas = env.dom.window.document.getElementById('track-spec-canvas-0') as HTMLCanvasElement | null;
+    assert.ok(canvas);
+    canvas.width = 800;
+    canvas.height = 100;
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 800, bottom: 100, width: 800, height: 100 } as DOMRect);
+    env.dom.window.dispatchEvent(new env.dom.window.Event('resize'));
+    await nextAnimationFrame(env.dom);
+    await nextAnimationFrame(env.dom);
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 300, clientY: 60 }));
+    await nextAnimationFrame(env.dom);
+    // No backend answers the lane's full reads here: its cell is never read, so no number is shown.
+    const slot = env.dom.window.document.getElementById('plot-readout');
+    const shown = slot && !slot.hidden ? slot.textContent ?? '' : '';
+    assert.doesNotMatch(shown, /\d/u, `the readout shows a number of the drawn picture: "${shown}"`);
+    env.dom.window.close();
+});
+
 test('spectrogram hit testing maps pointer positions to the whole lane width and ignores the colour bar', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
@@ -1863,16 +1965,25 @@ test('spectrogram hit testing maps pointer positions to the whole lane width and
     await nextAnimationFrame(env.dom);
     await nextAnimationFrame(env.dom);
 
-    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 400, clientY: 80 }));
-    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 400, clientY: 80 }));
+    // The readout at x=300 (3/8 of the lane: the second of its four frames' middle) reads the cell there (its full data answered); a click moves the cursor to that cell's frame (R7, R13).
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 300, clientY: 80 }));
     await nextAnimationFrame(env.dom);
+    await answerLaneReads(env);
+    const read = (canvas as unknown as { __plotRead?: { at?: number } | null }).__plotRead;
+    assert.ok(read?.at !== undefined, 'the lane reads a cell at x=300');
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 300, clientY: 80 }));
+    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 300, clientY: 80 }));
+    await answerLaneReads(env);
+    await nextAnimationFrame(env.dom);
+    assert.equal(Number(env.dom.window.document.getElementById('tracks-wrapper')?.dataset.cursorAt), read.at, 'the click moves the cursor to the frame of the cell the readout reads (R7, R13)');
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
         data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-hit-plot' },
     }));
     await nextAnimationFrame(env.dom);
 
     let snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    assert.equal(snap.renderedUi.cursorNorm, 0.5, 'x=400 on an 800px lane maps to 50% time');
+    const placed = snap.renderedUi.cursorNorm as number;
+    assert.ok(Math.abs(placed - 0.375) < 1e-9, `x=300 on an 800px lane reads the frame at 37.5% of the time: the lane's whole width is its time (${placed})`);
 
     const bar = colourBarClientPoint(canvas, 0);
     canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, ...bar }));
@@ -1884,11 +1995,11 @@ test('spectrogram hit testing maps pointer positions to the whole lane width and
     await nextAnimationFrame(env.dom);
 
     snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    assert.equal(snap.renderedUi.cursorNorm, 0.5, 'clicks on the spectrogram colour bar do not update audio time');
+    assert.equal(snap.renderedUi.cursorNorm, placed, 'clicks on the spectrogram colour bar do not update audio time');
     env.dom.window.close();
 });
 
-test('spectrogram Ctrl+wheel zoom uses the whole lane width and ignores the colour bar', async () => {
+test('spectrogram Ctrl+wheel zoom uses the whole lane width; on the colour bar, an axis, it zooms about the middle (R13)', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
     const spectrogramBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]');
@@ -1950,8 +2061,10 @@ test('spectrogram Ctrl+wheel zoom uses the whole lane width and ignores the colo
 
     snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
     assert.equal(colorbarWheel.defaultPrevented, true);
-    assert.equal(snap.renderedUi.zoomStart, beforeColorbar.zoomStart, 'Ctrl+wheel on the colour bar does not change audio zoom');
-    assert.equal(snap.renderedUi.zoomEnd, beforeColorbar.zoomEnd, 'Ctrl+wheel on the colour bar does not change audio zoom');
+    // An axis has no time under the pointer to zoom around: the middle of what is shown, as over every plot's axis.
+    const middle = (beforeColorbar.zoomStart + beforeColorbar.zoomEnd) / 2, span = beforeColorbar.zoomEnd - beforeColorbar.zoomStart;
+    assert.ok(Math.abs((snap.renderedUi.zoomStart + snap.renderedUi.zoomEnd) / 2 - middle) < 1e-9, 'Ctrl+wheel on the colour bar zooms about the middle');
+    assert.ok(Math.abs(snap.renderedUi.zoomEnd - snap.renderedUi.zoomStart - span * 0.85) < 1e-9, 'Ctrl+wheel on the colour bar zooms in by one notch');
     env.dom.window.close();
 });
 
@@ -2005,18 +2118,49 @@ async function sizeOverlay(env: ReturnType<typeof setupEnv>, width: number): Pro
     return canvas;
 }
 
+/**
+ * Answers every cursor-spectrum slice the webview asked for as the backend does, with each channel's every-bin row:
+ * here the state's spectrogram column at the cursor, so the cursor spectrum reads a slice of its own, not the column
+ * it draws while the slice is on its way (which it never reads, R7).
+ */
+async function answerSpectrumSlices(env: ReturnType<typeof setupEnv>, stateJson: string): Promise<void> {
+    const state = JSON.parse(stateJson);
+    const answered = new Set<string>();
+    for (let round = 0; round < 4; round++) {
+        const open = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && !msg.fullResolution && !answered.has(msg.requestId)) as any[];
+        if (!open.length) break;
+        for (const request of open) {
+            answered.add(request.requestId);
+            const result = state.results[request.trackIndex];
+            const channels = (result?.channels ?? []).map((channel: any, channelIndex: number) => {
+                const spec = channel.spectrogram;
+                const at = Math.max(0, Math.min(spec.timeBins - 1, Math.floor(request.cursorNorm * spec.timeBins)));
+                // The backend's slice always names its level (an uncalibrated recording's in dBFS).
+                return { channelIndex, values: spec.values[at], bins: spec.values[at], minDb: spec.minDb, maxDb: spec.maxDb, unit: spec.unit ?? 'dBFS' };
+            });
+            const first = result.channels[0].spectrogram;
+            env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+                type: 'spectrum-slice-result', requestId: request.requestId, analysisId: request.analysisId, settingsSignature: request.settingsSignature,
+                trackIndex: request.trackIndex, filePath: request.filePath, channels, frequencyBins: first.frequencyBins, maxFrequencyHz: first.maxFrequencyHz,
+            } }));
+        }
+        await nextAnimationFrame(env.dom);
+    }
+}
+
 test('spectrum cursor: overlay readout formats focused frequency as every plot does (R7)', async () => {
     const env = setupHighFrequencyReadoutEnv();
     await nextAnimationFrame(env.dom);
 
     const canvas = await sizeOverlay(env, 200);
+    await answerSpectrumSlices(env, HIGH_FREQUENCY_READOUT_STATE);
 
     canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
     await nextAnimationFrame(env.dom);
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout.textContent || '', /^high\.wav \/ Channel 1 \(L\) \/ 1\.2 kHz \/ −60\.0 dB$/,
+    assert.match(readout.textContent || '', /^high\.wav \/ Channel 1 \(L\) \/ 1\.2 kHz \/ −60\.0 dBFS$/,
         'overlay のカーソル読み値も file/channel 付きで、ほかのグラフと同じ書き方 (1 kHz 以上は kHz) で表示すること');
     env.dom.window.close();
 });
@@ -2027,13 +2171,14 @@ test('spectrum cursor: overlay readout identifies the hovered file and channel',
     await nextAnimationFrame(env.dom);
 
     const canvas = await sizeOverlay(env, 200);
+    await answerSpectrumSlices(env, MULTICHANNEL_APP_STATE);
 
     canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 192, clientY: 12 }));
     await nextAnimationFrame(env.dom);
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.equal(readout.textContent, 'stereo.wav / Channel 2 / 2 (Right) / 22.05 kHz / −3.0 dB',
+    assert.equal(readout.textContent, 'stereo.wav / Channel 2 / 2 (Right) / 22.05 kHz / −3.0 dBFS',
         'overlay hover readout は最寄り系列の fileName と channelLabel を含むこと');
     env.dom.window.close();
 });
@@ -2042,6 +2187,7 @@ test('spectrum cursor: overlay readout identifies the hovered file and channel',
 test('spectrum cursor: overlay keyboard focus updates the header readout', async () => {
     const env = setupHighFrequencyReadoutEnv();
     await nextAnimationFrame(env.dom);
+    await answerSpectrumSlices(env, HIGH_FREQUENCY_READOUT_STATE);
 
     const canvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
     assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
@@ -2050,7 +2196,7 @@ test('spectrum cursor: overlay keyboard focus updates the header readout', async
     await nextAnimationFrame(env.dom);
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
-    assert.match(readout!.textContent || '', /^high\.wav \/ Channel 1 \(L\) \/ 1\.2 kHz \/ −60\.0 dB$/,
+    assert.match(readout!.textContent || '', /^high\.wav \/ Channel 1 \(L\) \/ 1\.2 kHz \/ −60\.0 dBFS$/,
         'overlay もマウス hover なしの focus と矢印キーでヘッダー readout が更新されること');
     env.dom.window.close();
 });
@@ -2061,6 +2207,7 @@ test('spectrum cursor: narrow canvas hover clears stale spectrum target', async 
     await nextAnimationFrame(env.dom);
 
     const overlayCanvas = await sizeOverlay(env, 200);
+    await answerSpectrumSlices(env, MISMATCHED_DELTA_F_SPECTRUM_STATE);
 
     overlayCanvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
     await nextAnimationFrame(env.dom);
@@ -2083,13 +2230,14 @@ test('spectrum cursor: overlay snaps to the nearest visible series bin when delt
     await nextAnimationFrame(env.dom);
 
     const canvas = await sizeOverlay(env, 200);
+    await answerSpectrumSlices(env, MISMATCHED_DELTA_F_SPECTRUM_STATE);
 
     canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 73, clientY: 52 }));
     await nextAnimationFrame(env.dom);
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ −35\.0 dB$/,
+    assert.match(readout.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ −35\.0 dBFS$/,
         'fine track ΔF=180 Hz の最寄りbinへ吸着すること');
     env.dom.window.close();
 });
@@ -2100,6 +2248,7 @@ test('spectrum cursor: overlay remains snapped after frequency zoom changes the 
     await nextAnimationFrame(env.dom);
 
     const canvas = await sizeOverlay(env, 200);
+    await answerSpectrumSlices(env, MISMATCHED_DELTA_F_SPECTRUM_STATE);
 
     canvas.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 100, clientY: 135 }));
     const minI = env.dom.window.document.getElementById('spec-range-min') as HTMLInputElement;
@@ -2114,7 +2263,7 @@ test('spectrum cursor: overlay remains snapped after frequency zoom changes the 
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ −35\.0 dB$/,
+    assert.match(readout.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ −35\.0 dBFS$/,
         '周波数ズーム後もfine trackの実binへ吸着すること');
     env.dom.window.close();
 });
@@ -2207,7 +2356,7 @@ test('renderScript: playback spectrum redraw waits for the latest backend respon
         settingsSignature: request.settingsSignature,
         trackIndex: request.trackIndex,
         filePath: request.filePath,
-        channels: [{ channelIndex: 0, values: [-30, -10], minDb: -90, maxDb: 0 }],
+        channels: [{ channelIndex: 0, values: [-30, -10], bins: [-30, -10], minDb: -90, maxDb: 0 }],
         frequencyBins: 2,
         maxFrequencyHz: 22050,
     } }));
@@ -2237,7 +2386,7 @@ test('renderScript: playback spectrum scheduler keeps the next rAF cursor desire
         settingsSignature: first.settingsSignature,
         trackIndex: first.trackIndex,
         filePath: first.filePath,
-        channels: [{ channelIndex: 0, values: [-30, -10], minDb: -90, maxDb: 0 }],
+        channels: [{ channelIndex: 0, values: [-30, -10], bins: [-30, -10], minDb: -90, maxDb: 0 }],
         frequencyBins: 2,
         maxFrequencyHz: 22050,
     } }));
@@ -2415,8 +2564,8 @@ test('renderScript: multichannel track UI renders all channel sublanes without a
 
     const laneTexts = Array.from(env.dom.window.document.querySelectorAll('#track-row-0 .track-channel-lane-header'))
         .map((el) => el.textContent || '');
-    assert.ok(laneTexts.some((text) => /Channel 1 \/ 2 \(Left\).*Peak -6\.0 dB/.test(text)), laneTexts.join('\n'));
-    assert.ok(laneTexts.some((text) => /Channel 2 \/ 2 \(Right\).*Peak -0\.4 dB/.test(text)), laneTexts.join('\n'));
+    assert.ok(laneTexts.some((text) => /Channel 1 \/ 2 \(Left\).*Peak −6\.0 dB/.test(text)), laneTexts.join('\n'));
+    assert.ok(laneTexts.some((text) => /Channel 2 \/ 2 \(Right\).*Peak −0\.4 dB/.test(text)), laneTexts.join('\n'));
 
     assert.equal(env.dom.window.document.getElementById('metrics-bar'), null);
     assert.equal(env.dom.window.document.querySelector('#metrics-item-0'), null);
@@ -2438,7 +2587,7 @@ test('renderScript: channel peak metrics use backend-provided levels without rec
         new env.dom.window.MouseEvent('click', { bubbles: true }),
     );
     const msg = env.postedMessages.find((posted: any) => posted.type === 'export-report-options') as any;
-    assert.match(msg.markdownContent, /\| 45\.6 dB \|/);
+    assert.match(msg.markdownContent, /\| 45\.6 dBFS \|/);
     env.dom.window.close();
 });
 
@@ -2462,7 +2611,7 @@ async function answerCsvSpectrumRequests(env: any, stateJson: string, done: () =
             const result = state.results[request.trackIndex];
             const channels = result.channels.map((channel: any, channelIndex: number) => {
                 const values = channel.spectrogram.values[0];
-                return { channelIndex, values, minDb: Math.min(...values), maxDb: Math.max(...values) };
+                return { channelIndex, values, bins: values, minDb: Math.min(...values), maxDb: Math.max(...values) };
             });
             env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
                 type: 'spectrum-slice-result',
@@ -2503,7 +2652,7 @@ test('renderScript: multichannel CSV includes all spectrum channels', async () =
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'CSV download anchor が作られること');
         const csv = decodeDataUriPayload(anchor.href);
-        assert.equal(csv.split('\n')[0], 'stereo.wav Channel 1 / 2 (Left) frequency (Hz),stereo.wav Channel 1 / 2 (Left) Spectrum level [dB],stereo.wav Channel 2 / 2 (Right) frequency (Hz),stereo.wav Channel 2 / 2 (Right) Spectrum level [dB]');
+        assert.equal(csv.split('\n')[0], 'stereo.wav Channel 1 / 2 (Left) Frequency [Hz],"stereo.wav Channel 1 / 2 (Left) Level, uncalibrated [dB re 1 input unit]",stereo.wav Channel 2 / 2 (Right) Frequency [Hz],"stereo.wav Channel 2 / 2 (Right) Level, uncalibrated [dB re 1 input unit]"');
     } finally {
         env.dom.window.document.createElement = origCreate;
         env.dom.window.close();
@@ -2522,6 +2671,7 @@ test('renderScript: export-csv replaces a cursor spectrum cut for display with e
     };
     try {
         // The cursor spectra on screen: rows cut for display, each point at its own frequency.
+        const drawn = { values: [-90, 3, -70], frequenciesHz: [0, 123.25, 20000] };
         for (let round = 0; round < 10; round++) {
             const open = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && !msg.answered);
             open.forEach((request: any) => {
@@ -2529,8 +2679,8 @@ test('renderScript: export-csv replaces a cursor spectrum cut for display with e
                 env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
                     type: 'spectrum-slice-result', requestId: request.requestId, analysisId: request.analysisId,
                     settingsSignature: request.settingsSignature, trackIndex: request.trackIndex, filePath: request.filePath,
-                    channels: [{ channelIndex: 0, values: [-90, 3, -70], minDb: -90, maxDb: 3 }],
-                    frequencyBins: 3, maxFrequencyHz: 22050, frequenciesHz: [0, 123.25, 20000],
+                    channels: [{ channelIndex: 0, values: drawn.values, minDb: -90, maxDb: 3 }],
+                    frequencyBins: drawn.values.length, maxFrequencyHz: 22050, frequenciesHz: drawn.frequenciesHz,
                 } }));
             });
             await nextAnimationFrame(env.dom);
@@ -2544,10 +2694,12 @@ test('renderScript: export-csv replaces a cursor spectrum cut for display with e
         assert.ok(asked.length > 0 && asked.every((request: any) => request.fullResolution === true));
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'CSV download anchor が作られること');
-        const rows = decodeDataUriPayload(anchor.href).split('\n');
+        const rows = csvRecords(decodeDataUriPayload(anchor.href));
         // Four evenly spaced bins per track from the every-bin answer; the cut row's 123.25 Hz point is not written.
         assert.equal(rows.length, 1 + 4);
-        assert.equal(rows[2].split(',')[0], '7350.0000');
+        // Not the frequencies of the row cut for display: the CSV of the drawn points would list those.
+        assert.notDeepEqual(rows.slice(1).map(row => row[0]), drawn.frequenciesHz.map(hz => hz.toFixed(4)), 'not the three points of the row cut for display');
+        assert.equal(rows[2][0], '7350.0000');
         assert.ok(!rows.some(row => row.includes('123.2500')));
     } finally {
         env.dom.window.document.createElement = origCreate;
@@ -2580,7 +2732,7 @@ test('renderScript: export-csv leaves out a track whose every-bin spectrum faile
                 const data = request.trackIndex === 1
                     ? { ...identity, type: 'spectrum-slice-error', error: 'backend failed' }
                     : { ...identity, type: 'spectrum-slice-result', frequencyBins: 4, maxFrequencyHz: 22050,
-                        channels: [{ channelIndex: 0, values: state.results[0].channels[0].spectrogram.values[0], minDb: -90, maxDb: 0 }] };
+                        channels: [{ channelIndex: 0, values: state.results[0].channels[0].spectrogram.values[0], bins: state.results[0].channels[0].spectrogram.values[0], minDb: -90, maxDb: 0 }] };
                 env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data }));
             });
             await new Promise(resolve => env.dom.window.setTimeout(resolve, 30));
@@ -2621,7 +2773,7 @@ test('renderScript: export-csv preserves each track frequency axis', async () =>
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'CSV download anchor が作られること');
         const rows = decodeDataUriPayload(anchor.href).split('\n');
-        assert.equal(rows[0], 'coarse.wav Channel 1 (L) frequency (Hz),coarse.wav Channel 1 (L) Spectrum level [dB],fine.wav Channel 1 (L) frequency (Hz),fine.wav Channel 1 (L) Spectrum level [dB]');
+        assert.equal(rows[0], 'coarse.wav Channel 1 (L) Frequency [Hz],"coarse.wav Channel 1 (L) Level, uncalibrated [dB re 1 input unit]",fine.wav Channel 1 (L) Frequency [Hz],"fine.wav Channel 1 (L) Level, uncalibrated [dB re 1 input unit]"');
         assert.equal(rows[1], '0.0000,-80.000000,0.0000,-20.000000');
         assert.equal(rows[4], '600.0000,-20.000000,540.0000,-65.000000');
         assert.equal(rows[5], ',,720.0000,-80.000000');
@@ -2681,8 +2833,8 @@ test('renderScript: multichannel report lists peak metrics for every channel', a
     const msg = env.postedMessages.find((posted: any) => posted.type === 'export-report-options') as any;
     assert.ok(msg, 'report export message が送信されること');
     assert.match(msg.markdownContent, /\| File \| Channel \| Sample Rate \| Duration \| Channels \| Peak \|/);
-    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 1 \/ 2 \(Left\) \| 44100 Hz \| 1\.000s \| 2 \| -6\.0 dB \|/);
-    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 2 \/ 2 \(Right\) \| 44100 Hz \| 1\.000s \| 2 \| -0\.4 dB \|/);
+    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 1 \/ 2 \(Left\) \| 44100 Hz \| 1\.000s \| 2 \| −6\.0 dBFS \|/);
+    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 2 \/ 2 \(Right\) \| 44100 Hz \| 1\.000s \| 2 \| −0\.4 dBFS \|/);
     assert.doesNotMatch(msg.markdownContent, /Spectral Peaks/);
     const notebook = JSON.parse(msg.notebookContent) as { cells: Array<{ id: string; source: string[] }> };
     const loadCell = notebook.cells.find((cell) => cell.id === 'load-files');
@@ -3177,7 +3329,7 @@ test('renderScript: on a lane Shift+drag shifts the track\'s time, Alt+drag on t
     canvas.height = 100;
     canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 400, bottom: 100, width: 400, height: 100, x: 0, y: 0, toJSON: () => ({}) });
     const mouse = (target: EventTarget, type: string, clientX: number, init: MouseEventInit = {}): void => {
-        target.dispatchEvent(new env.dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX, clientY: 50, ...init }));
+        target.dispatchEvent(new env.dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, ...(type === 'mousemove' ? { buttons: 1 } : {}), clientX, clientY: 50, ...init }));
     };
     const snapshot = async (actionId: string): Promise<any> => {
         env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: { type: 'comparison-panel-test-action', actions: [], actionId } }));
@@ -3342,11 +3494,22 @@ test('renderScript: 波形の振幅軸 dblclick → popover で振幅レンジ�
 // NOTE: jsdom テスト env (createWebviewEnv) は __APP_STRINGS__ を注入しないため
 // STR={} となり badge/error の textContent は空になる。そのため文字列ではなく
 // popover の表示状態・入力プリフィル・Apply による state 反映（snapshot の
-// axisLabels.spectrumOverlay = [maxDb,midDb,minDb,fMin,fMid,fMax]）で検証する。
+// axisLabels.spectrumOverlay: overlay が描いた文字そのもの、drawnSpectrumAxes）で検証する。
 function latestSpectrumOverlayLabels(env: ReturnType<typeof setupEnv>): string[] | null {
     const snaps = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot');
     const ui = (snaps[snaps.length - 1] as any)?.renderedUi;
     return ui?.axisLabels?.spectrumOverlay ?? null;
+}
+/**
+ * The cursor spectrum's axes as it drew them (A27): its frequency ticks (before the frequency axis's name), its level
+ * axis's name, and its level ticks (after it), each number read with its true minus.
+ */
+function drawnSpectrumAxes(labels: readonly string[] | null): { frequency: number[]; levelTitle: string; level: number[] } {
+    const texts = Array.from(labels ?? []);
+    const named = texts.findIndex(text => text.startsWith('Frequency'));
+    const number = (text: string): number => Number(text.replace('−', '-'));
+    const numbers = (part: string[]): number[] => part.map(number).filter(Number.isFinite);
+    return { frequency: numbers(texts.slice(0, Math.max(0, named))), levelTitle: texts[named + 1] ?? '', level: numbers(texts.slice(named + 2)) };
 }
 function requestSpectrumSnapshot(env: ReturnType<typeof setupEnv>, actionId: string): void {
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
@@ -3366,7 +3529,7 @@ test('spectrum overlay preserves a compatible calibrated level unit', async () =
     await nextAnimationFrame(env.dom);
 
     const labels = latestSpectrumOverlayLabels(env);
-    assert.ok(labels?.slice(0, 3).every((label) => label.endsWith('dB SPL')), JSON.stringify(labels));
+    assert.match(drawnSpectrumAxes(labels).levelTitle, /\[dB SPL/u, JSON.stringify(labels));
     env.dom.window.close();
 });
 
@@ -3387,10 +3550,10 @@ test('spectrum overlay: Y軸(dB) dblclick → popover が開き dB レンジを�
     assert.strictEqual(pop.style.display, 'none', 'Apply 後に popover が閉じること');
     requestSpectrumSnapshot(env, 'after-db-apply');
     await nextAnimationFrame(env.dom);
-    const labels = latestSpectrumOverlayLabels(env);
-    assert.ok(labels && labels.length >= 3, 'overlay 軸ラベルが存在すること');
-    assert.strictEqual(labels[0], '-20 dB', 'dB Max ラベルが適用値になること');
-    assert.strictEqual(labels[2], '-80 dB', 'dB Min ラベルが適用値になること');
+    const { level } = drawnSpectrumAxes(latestSpectrumOverlayLabels(env));
+    assert.ok(level.length >= 2, 'overlay の dB 軸の目盛りが描かれていること');
+    assert.strictEqual(Math.max(...level), -20, 'dB Max が適用値になること');
+    assert.strictEqual(Math.min(...level), -80, 'dB Min が適用値になること');
     env.dom.window.close();
 });
 
@@ -3413,10 +3576,10 @@ test('spectrum overlay: X軸(周波数) dblclick → popover が開き Hz レン
     (env.dom.window.document.getElementById('spec-range-apply') as HTMLElement).click();
     requestSpectrumSnapshot(env, 'after-freq-apply');
     await nextAnimationFrame(env.dom);
-    const labels = latestSpectrumOverlayLabels(env);
-    assert.ok(labels && labels.length >= 6, 'overlay 軸ラベルが存在すること');
-    assert.strictEqual(labels[3], '100 Hz', 'freq Min ラベルが適用値になること');
-    assert.strictEqual(labels[5], '900 Hz', 'freq Max ラベルが適用値になること');
+    const { frequency } = drawnSpectrumAxes(latestSpectrumOverlayLabels(env));
+    assert.ok(frequency.length >= 2, 'overlay の周波数軸の目盛りが描かれていること');
+    // The ticks drawn lie in the applied 100–900 Hz and span it.
+    assert.ok(frequency.every(hz => hz >= 100 && hz <= 900) && Math.min(...frequency) <= 300 && Math.max(...frequency) >= 700, JSON.stringify(frequency));
     env.dom.window.close();
 });
 
@@ -3435,16 +3598,16 @@ test('spectrum overlay: プロット内部 dblclick で specZoomReset される'
     (env.dom.window.document.getElementById('spec-range-apply') as HTMLElement).click();
     requestSpectrumSnapshot(env, 'pre-spec-reset');
     await nextAnimationFrame(env.dom);
-    const before = latestSpectrumOverlayLabels(env);
-    assert.strictEqual(before![0], '-20 dB', 'reset 前は適用した dB レンジであること');
+    const before = drawnSpectrumAxes(latestSpectrumOverlayLabels(env));
+    assert.strictEqual(Math.max(...before.level), -20, 'reset 前は適用した dB レンジであること');
     // 内部 dblclick で reset → dB/freq が auto に戻る
     overlay.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: Math.floor(W / 2), clientY: Math.floor(H / 2) }));
     requestSpectrumSnapshot(env, 'post-spec-reset');
     await nextAnimationFrame(env.dom);
-    const after = latestSpectrumOverlayLabels(env);
-    assert.ok(after && after.length >= 6, 'reset 後スナップショットの軸ラベルが存在すること');
-    assert.notStrictEqual(after[0], '-20 dB', 'reset 後 dB Max が auto（適用値でない）に戻ること');
-    assert.strictEqual(after[3], '0 Hz', 'reset 後 freq Min が 0 Hz（全域）に戻ること');
+    const after = drawnSpectrumAxes(latestSpectrumOverlayLabels(env));
+    assert.ok(after.level.length >= 2 && after.frequency.length >= 2, 'reset 後の軸の目盛りが描かれていること');
+    assert.notStrictEqual(Math.max(...after.level), -20, 'reset 後 dB Max が auto（適用値でない）に戻ること');
+    assert.strictEqual(Math.min(...after.frequency), 0, 'reset 後 freq Min が 0 Hz（全域）に戻ること');
     env.dom.window.close();
 });
 

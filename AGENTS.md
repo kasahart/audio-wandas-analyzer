@@ -43,10 +43,10 @@ The repository ships with a working devcontainer. Use it whenever possible.
 ```bash
 npm install
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"      # installs ruff + pyright + pytest + runtime deps via pyproject.toml
+pip install -c python-backend/constraints.txt -e ".[dev]"   # ruff, pyright, pytest and the runtime deps, at the versions CI uses
 ```
 
-Node 22 (`.nvmrc`, `engines.node`) and Python 3.11 are the supported versions (matches `.devcontainer/Dockerfile` and CI). CI installs Python packages with the pins in `python-backend/constraints.txt` (`pip install -c python-backend/constraints.txt -e ".[dev]"`).
+Node 22 (`.nvmrc`, `engines.node`) and Python 3.11 are the supported versions (matches `.devcontainer/Dockerfile` and CI). The `-c python-backend/constraints.txt` pins every Python package to the version CI installs; without it `pyproject.toml` only gives lower bounds, and a newer ruff or pyright can pass or fail differently from CI. `scripts/check-single-sources.mjs` (part of verify) fails if a documented setup command drops it.
 
 ---
 
@@ -55,6 +55,8 @@ Node 22 (`.nvmrc`, `engines.node`) and Python 3.11 are the supported versions (m
 **An agent's work is "done" only when `npm run verify` exits 0.** This is the single source of truth for correctness. `scripts/verify.mjs` (plain Node, runs on Windows/macOS/Linux) lists every step: compile, ESLint, Webview pattern lint, generated protocol types, single-source check, skills-copy check, GUI triggerability audit, node:test, ruff, pyright, pytest.
 
 pytest opt-ins: `AWA_SLOW=1` runs the slow operation-catalog probe (CI sets it on Linux); `AWA_PERF=1` holds wall-clock budgets in pytest, node:test and the Playwright smoke, which are otherwise only reported.
+
+Speed: verify runs three lanes at once (TypeScript, ESLint, Python; `AWA_VERIFY_SERIAL=1` runs them one by one with live output; the first failed step stops every lane with its whole process tree and verify exits non-zero at once, `scripts/verify-runner.mjs`) and pytest across the CPU cores (pytest-xdist `-n auto`). The Playwright smoke uses one worker per core (`AWA_UI_WORKERS` overrides it) and runs `plotContract.spec.ts` in parallel inside the file. `AWA_PERF=1` turns both back to serial pytest and Playwright's default workers, so its budgets see the load they were set under.
 
 ```bash
 npm run verify        # see scripts/verify.mjs
@@ -134,6 +136,8 @@ trackDurRatio  = durationSeconds / globalSpanSec
 
 ## 5. Conventions
 
+Line endings: every text file is LF in the repository and in every checkout, on every OS (`.gitattributes`, which overrides `core.autocrlf`), so tests compare files byte for byte and never normalise `\r\n`; a file that must be CRLF is named in `.gitattributes` with its reason.
+
 ### TypeScript
 
 - `tsconfig` strict mode. No `any` unless interfacing with untyped third-party code.
@@ -148,10 +152,14 @@ trackDurRatio  = durationSeconds / globalSpanSec
 - Types: **pyright** basic mode over the non-test modules (`[tool.pyright]` in `pyproject.toml`). Silence a finding only where wandas' own annotations are wrong, with a narrow `# pyright: ignore[rule]` and the reason.
 - Prefer wandas APIs over reimplementing DSP. See `python-backend/analyzer.py` for the canonical entry point.
 - Tests use `pytest` and live alongside the module they test (`python-backend/test_*.py`).
+- The backend never leaves its request pipe as the process's standard input: `backend_server._request_stream` reads requests through a private fd and points fd 0 and the Win32 standard input handle at the null device, because on Windows a thread loading a DLL (a lazy scipy import) queries the standard input and would wait for the main thread's pending read on the pipe, that is for the host's next request.
 
 ### Charts
 
-- Every chart follows the numbered rules in [docs/display-rules.md](docs/display-rules.md). A change that decides a new rule adds it there with the test that checks it; `src/test/displayRules.test.ts` fails when a listed test is missing or the rules marked 未 differ from its `PENDING` list, which only shrinks.
+- Every chart follows the numbered rules in [docs/display-rules.md](docs/display-rules.md). A change that decides a new rule adds it there with the test that checks it; `src/test/displayRules.test.ts` fails when a listed test is missing or any rule is marked 未.
+- Every chart and every value a user reads off it (readout, ← / →, Δ, median, headline, order, auto range, ticks, axis names, exports, counts, data identity, pending state) is a row of `src/test/plotContracts/charts/<chart>.ts` (one file per chart), rendered to [docs/plot-contracts.md](docs/plot-contracts.md). `src/test/plotContracts.test.ts` fails when a plot-component call, a `plotRegistry.ts` plot, a function that writes a number (`toFixed`… or a `VALUE_HELPERS` call), or a numeric protocol field (`schema.ts`) is missing from it; when a row's source disagrees with what its functions read; when a named test or function does not exist; or when the gaps differ from each chart's `knownGaps` or from `GAP_CEILING`, which only goes down. Regenerate the doc with `npm run compile && node dist/test/plotContracts/render.js`.
+- A number a user reads comes from the full data, never from points thinned to draw. The compiler enforces it in the webview: thinned arrays are typed `Drawn` and cannot be computed with; readouts and exports take only `Whole` (`src/shared/provenance.ts`, checked further by `src/test/provenanceBoundary.test.ts`). The backend is checked by data flow (`scripts/check_decimation_flow.py`). Which layer decides what on a chart: [docs/plot-layers.md](docs/plot-layers.md).
+- Adding a chart, a number a user reads, or a canvas/SVG: read [docs/plot-contracts-guide.md](docs/plot-contracts-guide.md) first. It says what the contract tests will ask of you (rows, `NOT_CHART_VALUES`, `surfaces.ts`, proof tests with `assertNotDrawn` / `assert_not_drawn`, `scripts/check_test_proofs.py`).
 
 ---
 
@@ -166,6 +174,8 @@ trackDurRatio  = durationSeconds / globalSpanSec
 | VS Code E2E | `@vscode/test-electron` (xvfb on Linux) | `src/e2e/suite/index.ts` |
 
 `npm run verify` runs the static lint plus the unit layers above except Playwright browser smoke and VS Code E2E. `npm run test:ui` is the real-browser smoke layer for Webview regressions. VS Code E2E remains separate (`npm run verify:e2e`) because it needs a full extension host and is slower; CI runs both as separate jobs.
+
+Every browser layer runs in a pinned locale, never the machine's: headless Chromium takes `navigator.language` (the static page's UI language) and its `Intl` from `LANG`, so a Japanese desktop once passed a check that failed in CI's English. `playwright.config.ts` sets `locale: 'en-US'`; `scripts/test-browser-parity.js` opens every page in `en-US` (`AWA_BROWSER_LOCALE=ja npm run test:browser` runs the same checks on the Japanese page). Tests read a CSV the Analyzer wrote with `csvRecords` (`src/shared/utils/csv.ts`), never by splitting a line on `,`: an English header has commas in it ("Level, uncalibrated [dBFS]"). Every CSV writer quotes its fields with `csvField` from that module.
 
 ### GUI triggerability audit boundary
 

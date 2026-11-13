@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { SPECTRUM_COMMIT_HOLD_MS, SpectrumCommitHold } from '../webview/runtime/spectrumCommitHold';
+import { ShownSpectrumCursor, SPECTRUM_COMMIT_HOLD_MS, SpectrumCommitHold } from '../webview/runtime/spectrumCommitHold';
 
 function harness() {
     let now = 0;
@@ -60,4 +60,27 @@ test('a new action while an older one is still arriving starts its own full hold
     h.advance(600);
     assert.equal(h.expired, 1);
     assert.equal(h.hold.holds(true, 2), false);
+});
+
+test('while the last cursor spectrum is kept its header names that picture\'s time; once drawn again, the new cursor\'s', () => {
+    const shown = new ShownSpectrumCursor();
+    assert.equal(shown.at(0.5), 0.5, 'nothing drawn yet: the cursor');
+    shown.keep();
+    assert.equal(shown.at(0.5), 0.5, 'nothing to keep');
+    shown.drawn(0.2);
+    shown.keep();
+    assert.equal(shown.at(0.7), 0.2, 'kept: the picture\'s time, never the new cursor beside the old lines');
+    assert.ok(shown.kept());
+    shown.drawn(0.7);
+    assert.equal(shown.at(0.7), 0.7);
+    assert.ok(!shown.kept());
+});
+
+test('the cursor spectrum\'s header takes its time from the picture it heads', async () => {
+    const { readFileSync } = await import('node:fs');
+    const path = await import('node:path');
+    const source = readFileSync(path.resolve(__dirname, '..', '..', 'src', 'webview', 'runtime', 'comparisonRuntime.ts'), 'utf8');
+    // Every early return that keeps the picture says so, and the header's time goes through the shown cursor.
+    assert.match(source, /shownSpectrumCursor\.keep\(\);\s*return;/);
+    assert.doesNotMatch(source, /'@ ' \+ formatClockTime\(gs\.startSec \+ spectrumCursorNorm/);
 });

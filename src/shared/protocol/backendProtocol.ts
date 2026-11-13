@@ -1,6 +1,7 @@
 import type { UiStrings } from '../i18n/strings';
 import { isCalibrationProfile } from '../analysis/calibrationModel';
 import { BACKEND_PROTOCOL_SCHEMA } from './generated/backendProtocolSchema';
+import type { Drawn } from '../provenance';
 import type {
     AnalyzePayload,
     BackendErrorPayload,
@@ -18,6 +19,8 @@ import type {
     ReleaseTrackDetailPayload,
     ScanPayload,
     ScanResult,
+    ScanSpecPayload,
+    ScanSpecResult,
     SpectrumSlicePayload,
     SpectrumSliceResult,
     StageCombinePayload,
@@ -55,6 +58,8 @@ export type {
     ReleaseTrackDetailPayload,
     ScanPayload,
     ScanResult,
+    ScanSpecPayload,
+    ScanSpecResult,
     SpectrumSlicePayload,
     SpectrumSliceResult,
     StageCombinePayload,
@@ -84,6 +89,7 @@ export interface BackendCommandMap {
     'export-wav-loop': { payload: ExportWavLoopPayload; result: ExportWavLoopResult };
     'build-recipe': { payload: BuildRecipePayload; result: BuildRecipeResult };
     scan: { payload: ScanPayload; result: ScanResult };
+    'scan-spec': { payload: ScanSpecPayload; result: ScanSpecResult };
     'stage-combine': { payload: StageCombinePayload; result: StageCombineResult };
 }
 
@@ -97,6 +103,7 @@ export const BACKEND_COMMANDS = [
     'export-wav-loop',
     'build-recipe',
     'scan',
+    'scan-spec',
     'stage-combine',
 ] as const satisfies ReadonlyArray<keyof BackendCommandMap>;
 
@@ -184,20 +191,27 @@ export function isJsonObject(value: unknown): value is { [key: string]: unknown 
 }
 
 
+/**
+ * A message as it came over the wire, before its numbers are typed (its drawn points `Drawn`, provenance.ts): what the
+ * cross-field checks below read. They compare how long a message's arrays are; none of their values is used, so
+ * they read the message, never a picture.
+ */
+type Wire<T> = T extends Drawn ? unknown : T extends ReadonlyArray<infer Item> ? ReadonlyArray<Wire<Item>> : T extends object ? { readonly [K in keyof T]: Wire<T[K]> } : T;
+
 /** Cross-field invariant the schema cannot express: every per-point array has the same length. */
-function hasAlignedEnvelopeArrays(envelope: WaveformEnvelope): boolean {
+function hasAlignedEnvelopeArrays(envelope: Wire<WaveformEnvelope>): boolean {
     const pointCount = envelope.min.length;
     return [envelope.max, envelope.samples, envelope.minT, envelope.maxT]
         .every(points => points === undefined || points.length === pointCount);
 }
 
 /** Cross-field invariant the schema cannot express: timeBins rows of frequencyBins values. */
-function hasSpectrogramShape(spectrogram: SpectrogramData): boolean {
+function hasSpectrogramShape(spectrogram: Wire<SpectrogramData>): boolean {
     return spectrogram.values.length === spectrogram.timeBins
         && spectrogram.values.every(row => row.length === spectrogram.frequencyBins);
 }
 
-function hasChannelInvariants(channel: ChannelSummary): boolean {
+function hasChannelInvariants(channel: Wire<ChannelSummary>): boolean {
     return hasAlignedEnvelopeArrays(channel.waveform)
         && (channel.spectrogram === null || hasSpectrogramShape(channel.spectrogram));
 }
@@ -205,25 +219,26 @@ function hasChannelInvariants(channel: ChannelSummary): boolean {
 /** Schema plus the channel count and the calibration profile's own checks (calibrationModel.ts). */
 function isAnalysisResult(value: unknown): value is AnalysisResult {
     if (schemaViolation('AnalysisResult', value) !== null) return false;
+    const wire = value as Wire<AnalysisResult>;
     const result = value as AnalysisResult;
-    return result.channels.length === result.channelCount
-        && result.channels.every(hasChannelInvariants)
+    return wire.channels.length === wire.channelCount
+        && wire.channels.every(hasChannelInvariants)
         && (result.calibrationProfile === undefined || isCalibrationProfile(result.calibrationProfile));
 }
 
 function isRangeResult(value: unknown): value is RangeResult {
     return schemaViolation('RangeResult', value) === null
-        && (value as RangeResult).channels.every(hasAlignedEnvelopeArrays);
+        && (value as Wire<RangeResult>).channels.every(hasAlignedEnvelopeArrays);
 }
 
 function isTrackDetailResult(value: unknown): value is TrackDetailResult {
     return schemaViolation('TrackDetailResult', value) === null
-        && (value as TrackDetailResult).channels.every(hasChannelInvariants);
+        && (value as Wire<TrackDetailResult>).channels.every(hasChannelInvariants);
 }
 
 function isSpectrumSliceResult(value: unknown): value is SpectrumSliceResult {
     if (schemaViolation('SpectrumSliceResult', value) !== null) return false;
-    const result = value as SpectrumSliceResult;
+    const result = value as Wire<SpectrumSliceResult>;
     return result.channels.length > 0 && result.channels.every(channel => channel.values.length === result.frequencyBins)
         && (result.bandCentersHz === undefined || result.bandCentersHz.length === result.frequencyBins)
         && (result.frequenciesHz === undefined || (result.bandCentersHz === undefined && result.frequenciesHz.length === result.frequencyBins));
@@ -272,6 +287,13 @@ function isScanResult(value: unknown): value is ScanResult {
         && (result.spectrumBinsDb === undefined || (result.spectrumBinsDb.length === channels && typeof result.spectrumBinHz === 'number'));
 }
 
+/** A scan's spec as the stored index keeps it: the analysis spec and wandas versions it names (a scan result, or the backend's scan-spec). */
+export const scanSpecOf = (spec: { specVersion?: number; wandasVersion?: string }): string => `${spec.specVersion ?? ''}|${spec.wandasVersion ?? ''}`;
+
+function isScanSpecResult(value: unknown): value is ScanSpecResult {
+    return schemaViolation('ScanSpecResult', value) === null;
+}
+
 function isStageCombineResult(value: unknown): value is StageCombineResult {
     if (schemaViolation('StageCombineResult', value) !== null) return false;
     const result = value as StageCombineResult;
@@ -291,6 +313,7 @@ const RESULT_VALIDATORS: { [K in BackendCommand]: ResultValidator<K> } = {
     'export-wav-loop': isExportWavLoopResult,
     'build-recipe': isBuildRecipeResult,
     scan: isScanResult,
+    'scan-spec': isScanSpecResult,
     'stage-combine': isStageCombineResult,
 };
 

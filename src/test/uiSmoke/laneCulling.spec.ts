@@ -1,6 +1,7 @@
-import { expect, test, type Page } from './canvasAudit';
+import { expect, settled, test, type Page } from './canvasAudit';
 import { buildUiSmokeHtml, buildUiSmokeManyTracksHtml } from './buildHtml';
 import { getStrings } from '../../shared/i18n/strings';
+import { csvRecords } from '../../shared/utils/csv';
 
 /** The track indexes whose spectrogram the webview has asked the host for. */
 function detailRequests(page: Page): Promise<number[]> {
@@ -161,7 +162,7 @@ function answerSlices(page: Page): Promise<AnsweredSlice[]> {
                 windowStartNorm: cursorNorm - 0.02,
                 windowEndNorm: cursorNorm + 0.02,
                 window: 'hann',
-                channels: channels.map((channelIndex) => ({ channelIndex, values, minDb: -100, maxDb: 0 })),
+                channels: channels.map((channelIndex) => ({ channelIndex, values, bins: values, minDb: -100, maxDb: 0 })),
             }, '*');
         });
         return slices.slice();
@@ -226,7 +227,7 @@ test('the PNG export keeps waiting for the zoom detail on its way across redraws
     const canvas = (await page.locator('#track-canvas-0').boundingBox())!;
     await page.mouse.click(canvas.x + canvas.width * 0.5, canvas.y + canvas.height / 2);
     await nextFrames(page);
-    await page.waitForTimeout(200);
+    await settled(page);
     expect((await rangeRequests()).length).toBe(asked);
     // Everything else the export waits for is answered.
     await answerRounds(page, 12);
@@ -274,12 +275,12 @@ test('a cursor moved while the CSV waits: the file holds every shown track at th
         await answerSlices(page);
         return (await csv()) !== null;
     }, { intervals: [50], timeout: 20000 }).toBe(true);
-    const rows = (await csv())!.split('\n');
-    expect(rows[0]).toContain('take00.wav');
-    expect(rows[0]).toContain('take39.wav');
+    const rows = csvRecords((await csv())!);
+    expect(rows[0].join('\n')).toContain('take00.wav');
+    expect(rows[0].join('\n')).toContain('take39.wav');
     // Every bin of the host's 8192-point FFT, not the row drawn: 4097 rows at 4000 / 4096 Hz spacing.
     expect(rows.length).toBe(1 + 4097);
-    expect(rows[2].split(',')[0]).toBe((4000 / 4096).toFixed(4));
+    expect(rows[2][0]).toBe((4000 / 4096).toFixed(4));
 });
 
 test('a failed spectrogram lane shows the host\'s summary on one line and the backend\'s text below it', async ({ page }) => {
@@ -307,6 +308,42 @@ test('a failed spectrogram lane shows the host\'s summary on one line and the ba
     expect(detailY).toBeGreaterThan(summaryY);
 });
 
+test('a lane whose file changed after it was analysed stops asking, says so, and offers to analyse again', async ({ page }) => {
+    const strings = getStrings('en');
+    const recordText = '<script>window.__drawnText = []; const fill = CanvasRenderingContext2D.prototype.fillText;'
+        + ' CanvasRenderingContext2D.prototype.fillText = function (text, x, y) { window.__drawnText.push({ id: this.canvas.id, text: String(text), y }); return fill.apply(this, arguments); };</script><script';
+    await page.setViewportSize({ width: 1000, height: 600 });
+    await page.setContent(buildUiSmokeManyTracksHtml(2).replace('<script', recordText), { waitUntil: 'domcontentloaded' });
+    await expect.poll(async () => (await detailRequests(page)).length).toBeGreaterThan(0);
+    const button = page.locator('#track-row-0 [data-action="reanalyze-changed"]');
+    await expect(button).toBeHidden();
+    const asked = () => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<Record<string, unknown>> }).__uiSmokePostedMessages
+        .filter((message) => message.type === 'request-track-detail' && message.trackIndex === 0).length);
+    await page.evaluate(() => {
+        const posted = (window as unknown as { __uiSmokePostedMessages: Array<Record<string, unknown>> }).__uiSmokePostedMessages;
+        posted.filter((message) => message.type === 'request-track-detail' && message.trackIndex === 0).forEach((message) => {
+            window.postMessage({ type: 'track-detail-error', requestId: message.requestId, analysisId: message.analysisId, settingsSignature: message.settingsSignature,
+                trackIndex: message.trackIndex, filePath: message.filePath, error: 'a.wav changed on disk since it was analysed', staleSource: true }, '*');
+        });
+    });
+    await expect(button).toBeVisible();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __drawnText: Array<{ id: string; text: string }> }).__drawnText
+        .filter((entry) => entry.id.startsWith('track-spec-canvas-0')).map((entry) => entry.text))).toContain(strings.sourceChangedLane);
+    // Its waveform stays drawn of the old version, and nothing is read of it: the plot gives no readout (R7).
+    await expect(page.locator('#track-canvas-0')).toHaveAttribute('data-plot-full', 'none');
+    await expect(page.locator('#track-canvas-1')).toHaveAttribute('data-plot-full', 'declared');
+    await expect(page.locator('#track-row-1 [data-action="reanalyze-changed"]')).toBeHidden();
+    const before = await asked();
+    // Past the store's pause a passing failure would be asked again; this one is not.
+    await page.waitForTimeout(5600);
+    await page.mouse.click(500, 300);
+    await settled(page);
+    expect(await asked()).toBe(before);
+    await button.click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<Record<string, unknown>> }).__uiSmokePostedMessages
+        .some((message) => message.type === 'request-reanalyze'))).toBe(true);
+});
+
 test('a zoom-detail range the host never answers is asked again by a later redraw', async ({ page }) => {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
     await page.mouse.click(20, 20);
@@ -316,13 +353,13 @@ test('a zoom-detail range the host never answers is asked again by a later redra
     const rangeRequests = () => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<Record<string, unknown>> }).__uiSmokePostedMessages
         .filter((message) => message.type === 'request-waveform-range' && !message.read).length);
     await expect.poll(rangeRequests).toBeGreaterThan(0);
-    await page.waitForTimeout(300);
+    await settled(page);
     const asked = await rangeRequests();
     const canvas = (await page.locator('#track-canvas-0').boundingBox())!;
     const redraw = (x: number) => page.mouse.click(canvas.x + canvas.width * x, canvas.y + canvas.height / 2);
     // A failed range gets no answer; while it may still be on its way, a redraw does not ask again...
     await redraw(0.4);
-    await page.waitForTimeout(300);
+    await settled(page);
     expect(await rangeRequests()).toBe(asked);
     // ...but after a while it no longer counts, so the next redraw asks again.
     await page.waitForTimeout(2000);

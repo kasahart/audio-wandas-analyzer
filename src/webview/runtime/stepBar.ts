@@ -13,7 +13,7 @@
  */
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
-import { addableOperations, CROSS_CHANNEL, PAIRED_ON_ADD, SLOT_REFERABLE, SELECT_PAIR, movedStep, recipeNodes, recipeSteps, withStep, withoutSteps, withBypass, withSlotReference, TIME_SLICE, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
+import { addableOperations, CROSS_CHANNEL, PAIRED_ON_ADD, SLOT_REFERABLE, SELECT_PAIR, movedStep, recipeNodes, recipeSteps, withStep, withoutSteps, withBypass, withSlotReference, TIME_SLICE, TRIGGER, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
 import { catalogOperation, INPUT_FRAME } from '../../shared/recipe/recipeCatalog';
 import { keyRouterFor } from './keyRouter';
 import { frameAfter, INPUT_STAGE, orderedSteps, removable, startValues, stepFlow, stepLimits, type RegionRange, type StepBarState } from './stepBarModel';
@@ -41,8 +41,11 @@ export interface StepBar {
     close(): boolean;
     /** The region chip set from outside (the tracks' selection), as an edit × and ↶ take back; false when one is there already. */
     importRegion(range: RegionRange): boolean;
-    /** An edit made on the comparison (an event left out), as ↶ takes back; `said` in the footer. */
-    edit(recipe: RecipeDocument, said: string): void;
+    /**
+     * An edit made on the comparison (an event left out), as ↶ takes back; `said` in the footer. Returns how to take it
+     * back as if never made (no ↷ for it), while it is still the last edit: a double click's second press (R13).
+     */
+    edit(recipe: RecipeDocument, said: string): () => void;
 }
 
 export function createStepBar(deps: {
@@ -111,7 +114,10 @@ export function createStepBar(deps: {
         if (regionChanged) deps.onRegionSet?.(next.region);
         render();
     }
+    /** How many edits, undos and redos were made: an edit is taken back only while it is the last of them (edit's take-back). */
+    let emitted = 0;
     function emit(recipe: RecipeDocument, region: RegionRange | null = state.regionRange ?? null): void {
+        emitted += 1;
         const here = now();
         if (here) edits.record(here);
         // Events found another way are other events: the ones left out come back (↶ puts the edit and them back).
@@ -124,6 +130,7 @@ export function createStepBar(deps: {
     }
     function travel(target: Snapshot | undefined, said: string): void {
         if (!target) return;
+        emitted += 1;
         open = null;
         const before = state.stage;
         const was = recipeNodes(state.recipe).find(node => node.id === before)?.operation;
@@ -281,7 +288,9 @@ export function createStepBar(deps: {
         // An operation that cannot go there says why instead of being added.
         if (!entry || entry.off) { footer(element.querySelector(`[data-op="${CSS.escape(operationId)}"]`)?.getAttribute('data-hint') ?? ''); return; }
         const length = state.lengthS ?? (state.shortestSamples && state.sampleRate ? state.shortestSamples / state.sampleRate : undefined);
-        let { recipe, id } = withStep(state.recipe, after, operation, startValues(operationId, state, length));
+        // The tracks' peak is read only for a trigger (StepBarState.peak): asked when the menu opened, in hand by now.
+        const peak = operationId === TRIGGER ? state.peak?.() : undefined;
+        let { recipe, id } = withStep(state.recipe, after, operation, startValues(operationId, { peak }, length));
         // A cross-channel step compares one pair, named in the chain: ch2 over the reference ch1 to start with; where
         // there is one channel, the recording over the base slot's.
         const select = PAIRED_ON_ADD.has(operationId) ? catalogOperation(SELECT_PAIR) : undefined;
@@ -290,7 +299,12 @@ export function createStepBar(deps: {
         menu = null;
         emit(recipe);
         deps.onStepShown?.(id);
-        footer(strings.stepAdded.replace('{op}', entry.name));
+        // A trigger added before the tracks' peak is read (or after its read failed) starts at its own initial level,
+        // not at half the peak: the footer says so instead of the usual line, so the number is not taken for the data's.
+        const unread = peak?.state === 'pending' || peak?.state === 'failed';
+        // And one whose peak is not read at all, because more recordings than the limit would have to be read for it.
+        const said = peak?.state === 'tooMany' ? strings.stepPeakTooMany.replace('{limit}', String(peak.limit)) : unread ? strings.stepPeakUnread : strings.stepAdded;
+        footer(said.replace('{op}', entry.name));
     }
     function openMenu(after: string | null): void {
         if (!state.recipe) return;
@@ -298,6 +312,9 @@ export function createStepBar(deps: {
         open = null;
         render();
         element.querySelector<HTMLElement>('[data-step-menu-filter]')?.focus();
+        // The menu offers a trigger: its starting level is half the tracks' peak, so the peak is asked for now
+        // (StepBarState.peak) and is in hand by the time the trigger is picked. Not asked for otherwise.
+        if (menu && element.querySelector(`.step-menu-item[data-op="${CSS.escape(TRIGGER)}"]:not(.is-off)`)) state.peak?.();
     }
     /** What the recipe button reads: the preset the chain is, the one it was edited from, or Custom. */
     function presetLabel(): string {
@@ -465,8 +482,16 @@ export function createStepBar(deps: {
         close,
         importRegion,
         edit(recipe, said) {
+            const here = now();
             emit(recipe);
             footer(said);
+            const mine = emitted;
+            return () => {
+                if (emitted !== mine || !here) return;
+                emitted += 1;
+                edits.retract();
+                applySnapshot(here);
+            };
         },
     };
 }

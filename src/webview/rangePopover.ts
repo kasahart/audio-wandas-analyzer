@@ -1,5 +1,6 @@
 // Axis range popover shared by the comparison runtime and the recipe ChartSpec renderer.
 
+import { exactFieldText } from './plot/plotText';
 import { keyRouterFor } from './runtime/keyRouter';
 
 export interface RangePopoverStrings {
@@ -49,22 +50,29 @@ export interface AxisMapping {
 
 export const linearAxis = (low: number, high: number, label: string): AxisMapping => ({ at: f => low + f * (high - low), of: v => (v - low) / (high - low || 1), label });
 
-const shownNumber = (value: number): string => String(Math.round(value * 1000) / 1000);
 
-/** Opens `popover` on the part `current` of an axis: typed values become the part `set` receives (blank: that end). */
+/**
+ * Opens `popover` on the part `current` of an axis: typed values become the part `set` receives (blank: that end).
+ * `shown`: the axis's ends as the plot painted them (StagePlot.valueRange, xRange or rowRange), written exactly
+ * (exactFieldText), so the numbers in the fields are the ends the axis is drawn with (R9). An end applied as shown
+ * keeps its place (`value === shown`): a range applied unchanged is the range it was.
+ */
 export function openAxisPart(popover: RangePopover, axis: {
     mapping: AxisMapping; horizontal: boolean; current: { start: number; end: number }; clientX: number; clientY: number;
+    shown: { min: number; max: number };
     /** Shown when the typed minimum is not below the maximum. */
     invalid: string;
     set: (part: { start: number; end: number }) => void;
 }): void {
-    const { mapping, current, set } = axis;
+    const { mapping, current, set, shown } = axis;
     popover.open({
         axisLabel: mapping.label, horizontal: axis.horizontal,
-        min: shownNumber(mapping.at(current.start)), max: shownNumber(mapping.at(current.end)),
+        min: exactFieldText(shown.min),
+        max: exactFieldText(shown.max),
         clientX: axis.clientX, clientY: axis.clientY,
         apply(min, max) {
-            const start = min === null ? 0 : mapping.of(min), end = max === null ? 1 : mapping.of(max);
+            const start = min === null ? 0 : min === shown.min ? current.start : mapping.of(min);
+            const end = max === null ? 1 : max === shown.max ? current.end : mapping.of(max);
             if (!(end > start)) return axis.invalid;
             set({ start: Math.max(0, Math.min(1, start)), end: Math.max(0, Math.min(1, end)) });
         },

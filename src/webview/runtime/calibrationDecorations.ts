@@ -1,9 +1,11 @@
 import type { ChannelSummary } from '../../shared/analysis/analysisTypes';
 import type { UiStrings } from '../../shared/i18n/strings';
-import { channelsForResult, formatMeasuredLevel } from '../../shared/utils/format';
+import { channelsForResult, formatMeasuredLevel, uncalibratedUnits } from '../../shared/utils/format';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
+import { levelText as dbText } from '../plot/plotText';
 import { hintAttr } from './hintFooter';
 import type { ComparisonTrackState } from './types';
+import { levelKeyOf } from './figureModel';
 
 interface CalibrationSummary {
     text: string;
@@ -27,7 +29,10 @@ export function peakText(channel: Channel, peakLabel: string): string | null {
 
 function levelText(channel: ChannelSummary, levelDb: number | undefined): string {
     if (!Number.isFinite(levelDb)) { return '—'; }
-    return Number(levelDb).toFixed(1) + ' ' + (channel.measurement?.levelUnit ?? 'dB');
+    // Named by its reference, as the level axes are (R7): never bare dB for an absolute level.
+    // Without a reference sent, an uncalibrated channel's is known by its source (full scale or raw units), never guessed.
+    const reference = channel.measurement?.levelReferenceLabel ?? channel.sourceLevelReferenceLabel ?? (typeof channel.fullScale === 'boolean' ? uncalibratedUnits(channel.fullScale).level : undefined);
+    return reference ? dbText(Number(levelDb), reference) : '—';
 }
 
 export function channelMetricSummaryHtml(channel: Channel, peakLabel: string): string {
@@ -112,12 +117,8 @@ export function hasIncompatibleLevelReferences(results: ComparisonTrackState[], 
     results.forEach(result => channelsForResult(result).forEach(function (channel: Channel) {
         const measurement = measurementFor(channel);
         if (!measurement) { return; }
-        references.add([
-            measurement.levelUnit,
-            measurement.referenceValue,
-            measurement.referenceUnit,
-            measurement.levelReferenceLabel,
-        ].join('|'));
+        // By level identity (figureModel.levelKeyOf, R1): unit, reference value and level reference name.
+        references.add(levelKeyOf({ unit: measurement.referenceUnit, ref: measurement.referenceValue, levelReferenceLabel: measurement.levelReferenceLabel }));
     }));
     return references.size > levelAxes;
 }

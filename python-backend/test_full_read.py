@@ -14,9 +14,10 @@ import wandas as wd
 
 from analysis_engine import AnalysisEngine
 from analysis_service import AnalysisService
+from conftest import assert_not_drawn
 from full_read import READ_POINT_LIMIT, read_cells, read_line, sorted_axis, uniform_axis
 from protocol_schema import DEFINITIONS, first_violation
-from stage_combine import read_points, stage_data
+from stage_combine import StageData, combine, read_points, stage_data
 from stage_view import stage_view
 
 RATE = 16000
@@ -61,6 +62,106 @@ def test_a_dense_window_gives_each_pixel_columns_real_extremes_and_the_point_nea
         assert int(block[np.argmax(values[block])]) in inside
         assert int(block[np.argmin(values[block])]) in inside
         assert int(block[np.argmin(np.abs(values[block] - 0.123))]) in inside
+    # A line thinned evenly to as many points holds other samples: what is sent is chosen from every sample.
+    evenly = values[np.linspace(1000, 101_000, len(xs)).astype(int)]
+    assert_not_drawn(points["values"], evenly)
+
+
+@pytest.mark.parametrize("log", [False, True])
+def test_a_dense_window_sends_the_point_nearest_the_pointer_on_screen_as_brute_force_finds_it(log: bool) -> None:
+    # A noisy line far denser than the screen: per pixel column its extremes and its point nearest the pointer's
+    # level, and the one point nearest the pointer by its true distance on screen, wherever that is.
+    rng = np.random.default_rng(11)
+    count = 300_000
+    values = rng.normal(0.0, 1.0, count)
+    values[rng.integers(0, count, 500)] = -300.0
+    xs_all = np.arange(count, dtype=np.float64) + 1.0
+    axis = sorted_axis(xs_all)
+    for trial in range(40):
+        x0, x1 = (2000.0, 250_000.0) if not log else (20.0, 280_000.0)
+        at = float(rng.uniform(x0, x1)) if not log else float(np.exp(rng.uniform(np.log(x0), np.log(x1))))
+        near = float(rng.normal(0.0, 1.5))
+        pixels = (
+            [float(rng.uniform(1e-4, 3e-3)), float(rng.uniform(5.0, 60.0))]
+            if not log
+            else [float(rng.uniform(20.0, 80.0)), float(rng.uniform(5.0, 60.0))]
+        )
+        read = {
+            "x": [x0, x1],
+            "beyond": 1,
+            "near": near,
+            "columns": 41,
+            "at": at,
+            "pixels": pixels,
+            **({"log": True} if log else {}),
+        }
+        assert first_violation(DEFINITIONS["StageRead"], read) is None
+        points = read_line(axis, lambda a, b: values[a:b], read)
+        inside = (xs_all >= x0) & (xs_all <= x1) & (values > -250.0)
+        along = (np.log(xs_all) - np.log(at)) * pixels[0] if log else (xs_all - at) * pixels[0]
+        away = np.hypot(along, (values - near) * pixels[1])
+        best = int(np.argmin(np.where(inside, away, np.inf)))
+        sent = np.asarray(points["xs"], dtype=np.float64)
+        sent_values = np.asarray(points["values"], dtype=np.float64)
+        sent_along = (np.log(sent) - np.log(at)) * pixels[0] if log else (sent - at) * pixels[0]
+        sent_away = np.hypot(sent_along, (sent_values - near) * pixels[1])
+        readable = (sent >= x0) & (sent <= x1) & (sent_values > -250.0)
+        # The nearest of the points sent is brute force's nearest of every point: at its own place, its own value.
+        nearest = int(np.argmin(np.where(readable, sent_away, np.inf)))
+        assert sent[nearest] == pytest.approx(xs_all[best]), f"trial {trial}"
+        assert sent_values[nearest] == pytest.approx(values[best])
+        assert len(sent) <= 3 * 41 + 4 < READ_POINT_LIMIT
+
+
+def test_an_arrow_keys_seek_crosses_a_silence_of_any_length_to_the_next_value_as_brute_force_finds_it() -> None:
+    # Three million samples, silent (−300 dB or NaN) but for a few values far apart: each seek is one read.
+    count = 3_000_000
+    values = np.full(count, -300.0)
+    values[1_000_000:1_000_005] = np.nan
+    readable = [7, 5, 1_500_000, 2_999_998]
+    values[readable] = [-20.0, -21.0, -22.0, -23.0]
+    calls: list[tuple[int, int]] = []
+
+    def values_in(a: int, b: int) -> np.ndarray:
+        calls.append((a, b))
+        return values[a:b]
+
+    axis = uniform_axis(count, 0.0, 0.5)
+    rng = np.random.default_rng(5)
+    good = np.sort(np.asarray(readable))
+    for x in [*rng.uniform(0.0, count * 0.5, 30).tolist(), 2.5, 3.5, 750_000.0, 1_499_999.0]:
+        for direction in (1, -1):
+            read = {"x": [x], "beyond": 4, "seek": direction}
+            assert first_violation(DEFINITIONS["StageRead"], read) is None
+            points = read_line(axis, values_in, read)
+            places = good * 0.5
+            ahead = places[places > x] if direction > 0 else places[places < x]
+            expected = (ahead.min() if direction > 0 else ahead.max()) if ahead.size else None
+            sent = np.asarray(points["xs"], dtype=np.float64)
+            sent_values = np.asarray(
+                [np.nan if value is None else value for value in points.get("values", [])], dtype=np.float64
+            )
+            past = (sent > x) if direction > 0 else (sent < x)
+            hits = sent[past & np.isfinite(sent_values) & (sent_values > -250.0)]
+            found = (hits.min() if direction > 0 else hits.max()) if hits.size else None
+            assert found == expected, (x, direction)
+            assert points["complete"] is True
+            if expected is not None:
+                # The point found at its own place and value, with ``beyond`` past it: the next keys need no read.
+                at = int(round(expected / 0.5))
+                assert sent_values[np.flatnonzero(sent == expected)[0]] == pytest.approx(values[at])
+                assert len(sent) <= 4 + 2
+    # Read a chunk at a time, never the whole recording at once.
+    assert max(b - a for a, b in calls) <= 1 << 16
+    # A line drawn of this recording has a point per few thousand samples: its next point after 100 is not the
+    # next value, which the seek finds among every sample.
+    points = read_line(axis, values_in, {"x": [100.0], "beyond": 4, "seek": 1})
+    sought = np.asarray(points["xs"], dtype=np.float64)
+    heard = np.asarray([np.nan if value is None else value for value in points["values"]], dtype=np.float64)
+    found_at = float(sought[(sought > 100.0) & np.isfinite(heard) & (heard > -250.0)].min())
+    assert found_at == pytest.approx(750_000.0)
+    drawn_xs = np.arange(0, count, 4096) * 0.5
+    assert_not_drawn(found_at, float(drawn_xs[drawn_xs > 100.0].min()))
 
 
 def test_an_images_cells_are_its_own_around_the_place_read() -> None:
@@ -92,7 +193,12 @@ def test_a_recordings_spectrum_is_read_at_its_own_bins_not_its_picture(signal: w
     points = read_points([data], None, {"x": [float(data.xs[at])], "beyond": 4})
     assert points is not None and points["complete"]
     assert points["xs"] == pytest.approx(data.xs[at - 4 : at + 5].tolist())
-    assert points["values"] == pytest.approx(data.values[at - 4 : at + 5].tolist())
+    assert points["values"] == pytest.approx(data.values[at - 4 : at + 5].tolist(), abs=1e-12)
+    # The same spectrum's picture is thinned: its drawn line at these places is not these bins' values.
+    view = stage_view(frame)
+    line = np.array([np.nan if value is None else value for value in view["values"]], dtype=np.float64)
+    assert len(view["xs"]) < data.xs.size
+    assert_not_drawn(points["values"], np.interp(points["xs"], view["xs"], line))
 
 
 def test_a_difference_is_read_bin_by_bin(signal: wd.ChannelFrame) -> None:
@@ -105,6 +211,11 @@ def test_a_difference_is_read_bin_by_bin(signal: wd.ChannelFrame) -> None:
     points = read_points([base], replace(base, values=raised), {"x": [float(base.xs[at])], "beyond": 1, "of": "diff"})
     assert points is not None
     assert points["values"] == pytest.approx([0.0, 30.0, 0.0], abs=1e-6)
+    # The difference as drawn is thinned: its line at these three bins is not their own values.
+    drawn = combine([base], replace(base, values=raised))["diff"]
+    line = np.array([np.nan if value is None else value for value in drawn["values"]], dtype=np.float64)
+    assert len(drawn["xs"]) < base.xs.size
+    assert_not_drawn(points["values"], np.interp(points["xs"], drawn["xs"], line))
 
 
 def test_a_signals_samples_are_read_one_by_one(signal: wd.ChannelFrame) -> None:
@@ -114,6 +225,31 @@ def test_a_signals_samples_are_read_one_by_one(signal: wd.ChannelFrame) -> None:
     assert points is not None
     assert points["xs"] == pytest.approx([(8000 + offset) / RATE for offset in range(-2, 3)])
     assert points["values"] == pytest.approx(np.asarray(signal.data)[7998:8003].tolist(), abs=1e-6)
+
+
+def test_a_level_read_takes_every_value_inside_its_window_and_none_outside(signal: wd.ChannelFrame) -> None:
+    # The order of overlaid lines (R6) over a zoom: a loud bin just past the window's end is not counted, however
+    # near; every bin inside is, none thinned. Worked out here from the bins themselves.
+    frame = signal.fft()
+    data = stage_data(frame, dict(stage_view(frame)))
+    assert data is not None
+    low, high = int(np.argmin(np.abs(data.xs - 2000))), int(np.argmin(np.abs(data.xs - 4000)))
+    peaked = data.values.copy()
+    peaked[high + 1] = 40.0
+    x = [float(data.xs[low]), float(data.xs[high])]
+    points = read_points([replace(data, values=peaked)], None, {"x": x, "level": "db"})
+    assert points is not None and first_violation(DEFINITIONS["StagePoints"], points) is None
+    inside = np.asarray(data.values[low : high + 1], dtype=np.float64)
+    assert points["level"]["count"] == inside.size
+    assert points["level"]["power"] == pytest.approx(float(np.mean(10.0 ** (inside / 10.0))), rel=1e-9)
+    # A signal's level is its samples' mean square, over every sample of the window.
+    sampled = stage_data(signal, dict(stage_view(signal)))
+    assert sampled is not None
+    points = read_points([sampled], None, {"x": [0.25, 0.75], "level": "square"})
+    assert points is not None
+    samples = np.asarray(signal.data, dtype=np.float64)[4000:12001]
+    assert points["level"]["count"] == samples.size
+    assert points["level"]["power"] == pytest.approx(float(np.mean(samples**2)), rel=1e-5)
 
 
 def _write_sine_wav(path: Path, seconds: float = 0.5) -> np.ndarray:
@@ -137,10 +273,13 @@ def test_a_lane_reads_its_files_own_samples_and_stft_cells(tmp_path: Path) -> No
     count = samples.size
     at = 1234
     ranged = service.waveform_range(
-        audio, start_norm=0.0, end_norm=1.0, point_count=1, read={"x": [at / (count - 1)], "beyond": 2}
+        audio, start_norm=0.0, end_norm=1.0, point_count=1, read={"x": [at / count], "beyond": 2}
     )
     points = ranged["points"]
-    assert points["xs"] == pytest.approx([(at + offset) / (count - 1) for offset in range(-2, 3)])
+    # Placed on the file's duration (the webview's 0..1 times n / fs), each sample is at wandas' own time for it.
+    frame = wd.read_wav(str(audio))
+    duration = frame.n_samples / frame.sampling_rate
+    assert [x * duration for x in points["xs"]] == pytest.approx(frame.time[at - 2 : at + 3].tolist(), abs=1e-12)
     assert points["values"] == pytest.approx(samples[at - 2 : at + 3].tolist(), abs=1e-6)
     detail = service.track_detail(
         audio,
@@ -172,3 +311,187 @@ def test_a_medians_read_stops_where_its_picture_was_aligned_with_the_compared_on
     points = read_points([data, data], shorter, {"x": [0.75 * data.values.size / RATE], "beyond": 2, "of": "base"})
     assert points is not None
     assert max(points["xs"]) < half / RATE
+
+
+def test_a_seek_on_plain_values_reads_every_value_below_minus_250_and_left_and_right_agree() -> None:
+    # A signal in raw counts: −300 for four samples is a value, not the silent floor of a level (StageRead ``plain``).
+    values = np.array([1.0, 2.0, -300.0, -300.0, -300.0, -300.0, 10.0, 11.0])
+    axis = uniform_axis(values.size, 0.0, 1.0)
+
+    def values_in(a: int, b: int) -> np.ndarray:
+        return values[a:b]
+
+    def seek(x: float, direction: int, plain: bool) -> float:
+        read = {"x": [x], "beyond": 0, "seek": direction, **({"plain": True} if plain else {})}
+        assert first_violation(DEFINITIONS["StageRead"], read) is None
+        points = read_line(axis, values_in, read)
+        sent = [(at, value) for at, value in zip(points["xs"], points["values"], strict=True) if value is not None]
+        ahead = [at for at, value in sent if (at > x if direction > 0 else at < x) and (plain or value > -250.0)]
+        return min(ahead) if direction > 0 else max(ahead)
+
+    # Plain: one sample at a time, either way.
+    assert [seek(x, 1, True) for x in range(1, 6)] == [2.0, 3.0, 4.0, 5.0, 6.0]
+    assert [seek(x, -1, True) for x in range(6, 1, -1)] == [5.0, 4.0, 3.0, 2.0, 1.0]
+    # A level's floor is crossed in one seek, either way.
+    assert seek(1, 1, False) == 6.0
+    assert seek(6, -1, False) == 1.0
+
+
+def test_the_point_nearest_the_pointer_on_screen_is_a_value_below_minus_250_on_plain_values_only() -> None:
+    from full_read import _nearest_on_screen
+
+    window = np.array([0.0, -400.0, 0.0])
+    axis = uniform_axis(3, 0.0, 1.0)
+    read = {"x": [0.0, 2.0], "at": 1.0, "pixels": [1.0, 1.0]}
+    assert _nearest_on_screen(read, window, axis[1], 0, 3, -400.0, False, True) == 1
+    assert _nearest_on_screen(read, window, axis[1], 0, 3, -400.0, False, False) != 1
+
+
+def test_a_read_sends_the_values_unrounded_so_the_webview_picks_tells_silence_and_steps_on_them() -> None:
+    """A read carries the values themselves, never rounded to what is written (R1, R7): −10.004 and −9.996 dB, which
+    both write −10.0, arrive apart, so the pointer picks the one it is nearest; −249.999 dB, above the silent floor,
+    arrives as −249.999 (rounded to −250.00 it would be silence), so an arrow key's seek stops on it and the webview
+    reads it. Through the stage read the comparison serves (read_points) as through read_line itself."""
+    xs = np.arange(1.0, 9.0) * 100.0
+    levels = np.array([-300.0, -10.004, -9.996, -300.0, -249.999, -300.0, -300.0, -20.0])
+    whole = read_line(sorted_axis(xs), lambda a, b: levels[a:b], {"x": [150.0, 350.0], "beyond": 1})
+    assert whole["xs"] == [100.0, 200.0, 300.0, 400.0] and whole["values"] == [-300.0, -10.004, -9.996, -300.0]
+    view = {"frame": "SpectralFrame", "kind": "line", "x": "frequency", "xScale": "log", "quantity": "level"}
+    data = stage_data_of(xs, levels, view)
+    sent = read_points([data], None, {"x": [200.0, 300.0], "beyond": 0})
+    assert sent is not None and sent["values"] == [-10.004, -9.996]
+    # The seek from the silence after −9.996 dB: the first readable point is −249.999 dB, sent as it is.
+    seek = read_points([data], None, {"x": [400.0], "seek": 1, "beyond": 2})
+    assert seek is not None and seek["complete"]
+    found = seek["xs"].index(500.0)
+    assert seek["values"][found] == -249.999
+
+
+def stage_data_of(xs: np.ndarray, values: np.ndarray, view: dict) -> StageData:
+    return StageData(mode="spectrum", view=view, xs=xs, values=values, nyquist=float(xs[-1]))  # type: ignore[arg-type]
+
+
+def test_a_dense_window_sends_the_point_under_the_pointer_and_names_it() -> None:
+    """A window too dense to send whole sends, besides each column's picks, the point with a value nearest the
+    pointer along the axis (``under``): the one read when no point is within the pick radius (R7)."""
+    values = _values(20_000)
+    at = 5003.4
+    read = {"x": [0.0, 19_999.0], "near": 5.0, "columns": 41, "at": at, "pixels": [0.02, 40.0]}
+    points = read_line(uniform_axis(20_000, 0.0, 1.0), lambda a, b: values[a:b], read)  # type: ignore[arg-type]
+    assert not points["complete"]
+    assert points["xs"][points["under"]] == 5003.0
+    assert points["values"][points["under"]] == pytest.approx(values[5003])
+    assert first_violation(DEFINITIONS["StagePoints"], points) is None
+    # On a log axis, nearest by ratio; a silent point is passed over for the nearest with a value.
+    levels = np.full(20_000, -20.0)
+    levels[5002] = -300.0  # at x = 5003
+    log = {**read, "x": [1.0, 20_000.0], "near": -20.0, "log": True}
+    points = read_line(uniform_axis(20_000, 1.0, 1.0), lambda a, b: levels[a:b], log)  # type: ignore[arg-type]
+    assert points["xs"][points["under"]] == 5004.0
+
+
+@pytest.mark.parametrize(
+    ("kind", "log", "plain"),
+    [("waveform", False, True), ("spectrum", True, False), ("level trend", False, False), ("difference", False, True)],
+)
+def test_a_dense_window_names_the_point_under_the_pointer_whatever_its_value_and_the_nearest_among_those_on_screen(
+    kind: str, log: bool, plain: bool
+) -> None:
+    """Display rules R7, one rule for every kind of line. With the value axis zoomed (``shown``):
+
+    - the point under the pointer (``under``) is the line's point at the pointer's place, on screen or past the axis;
+    - the point nearest the pointer (picked within the pick radius) is one of the points on screen.
+    """
+    rng = np.random.default_rng(3)
+    floor = -60.0  # a level's values are dB; a signal's and a difference's are read the same way here
+    values = floor + rng.uniform(-0.1, 0.1, 20_000)
+    values[5002] = floor + 0.95  # at x = 5003 under the pointer, just past the axis's top (floor + 0.9): off screen
+    values[5009] = floor + 0.8  # at x = 5010, on screen: the nearest the pointer of the points shown
+    read = {"x": [1.0, 20_000.0], "near": floor + 0.93, "columns": 41, "at": 5003.0, "pixels": [0.02, 40.0]}
+    read.update({"shown": [floor - 1.0, floor + 0.9], "log": log, "plain": plain})
+    if log:
+        # A log axis's scale is pixels per natural-log unit: the same 0.02 px per Hz at the pointer.
+        read["pixels"] = [0.02 * 5003.0, 40.0]
+    assert first_violation(DEFINITIONS["StageRead"], read) is None, kind
+    points = read_line(uniform_axis(20_000, 1.0, 1.0), lambda a, b: values[a:b], read)  # type: ignore[arg-type]
+    assert not points["complete"], kind
+    xs, sent = np.asarray(points["xs"]), np.asarray(points["values"], dtype=np.float64)
+    # Under the pointer: the point at x = 5003 itself, though its value is past the axis.
+    assert points["xs"][points["under"]] == 5003.0, kind
+    assert points["values"][points["under"]] == pytest.approx(floor + 0.95), kind
+    # Nearest on screen, as the plot picks it among the points sent: the brute force's, x = 5010.
+    shown = (sent >= floor - 1.0) & (sent <= floor + 0.9)
+    along = np.log(xs / 5003.0) * 0.02 * 5003.0 if log else (xs - 5003.0) * 0.02
+    away = np.hypot(along, (sent - (floor + 0.93)) * 40.0)
+    assert xs[np.argmin(np.where(shown, away, np.inf))] == 5010.0, kind
+
+
+def test_every_line_answer_sends_each_points_step_in_the_source_data_not_the_gap_between_the_points_sent() -> None:
+    """A readout's digits come of the source's own step (StagePoints ``steps``): in a dense window the points sent are
+    a few per pixel column, hundreds of samples apart, and their gaps say nothing of the data's step."""
+    values = _values(20_000)
+    step = 1 / 48_000
+    axis = uniform_axis(20_000, 0.0, step)
+    dense = read_line(axis, lambda a, b: values[a:b], {"x": [0.0, 19_999 * step], "near": 5.0, "columns": 41})  # type: ignore[arg-type]
+    assert not dense["complete"]
+    assert min(np.diff(dense["xs"])) >= step and max(np.diff(dense["xs"])) > 50 * step
+    assert dense["steps"] == pytest.approx([step] * len(dense["xs"]))
+    assert first_violation(DEFINITIONS["StagePoints"], dense) is None
+    # A whole window and an arrow key's seek alike; a point at the data's end has its one neighbour's gap.
+    whole = read_line(axis, lambda a, b: values[a:b], {"x": [0.0, 3 * step], "beyond": 0})  # type: ignore[arg-type]
+    assert whole["steps"] == pytest.approx([step] * len(whole["xs"]))
+    seek = read_line(axis, lambda a, b: values[a:b], {"x": [5 * step], "seek": 1, "beyond": 2})  # type: ignore[arg-type]
+    assert seek["steps"] == pytest.approx([step] * len(seek["xs"]))
+    # Unevenly spaced points (bands): each one's nearer neighbour in the data, though only some are sent.
+    bands = np.array([100.0, 125.0, 160.0, 200.0, 250.0])
+    levels = np.full(5, -20.0)
+    some = read_line(sorted_axis(bands), lambda a, b: levels[a:b], {"x": [150.0, 170.0], "beyond": 0})  # type: ignore[arg-type]
+    assert some["xs"] == [160.0] and some["steps"] == [35.0]
+    alone = read_line(sorted_axis(bands[:1]), lambda a, b: levels[a:b], {"x": [0.0, 500.0]})  # type: ignore[arg-type]
+    assert alone["steps"] == [None]
+
+
+def test_a_regions_peak_is_taken_from_every_sample_of_the_lane_not_from_its_envelope(tmp_path: Path) -> None:
+    # Where a new trigger's level starts (half the region's peak, display rules R1). 4 s at 8 kHz: a quiet tone with
+    # one sample of 0.7 at 1.5 s. The region 1.4995–1.5005 s holds it; the region just before it does not.
+    rate, count = 8000, 32_000
+    samples = 0.05 * np.sin(np.arange(count) * 0.37)
+    samples[12_000] = 0.7
+    audio = tmp_path / "spike.wav"
+    sf.write(audio, samples, rate, subtype="DOUBLE")
+    service = AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000))
+    analysis = service.analyze(audio, stft_options={"nFft": 256, "overlapPercent": 50, "window": "hann"})
+
+    def peak(start_s: float, end_s: float) -> float:
+        read = {"x": [start_s * rate / count, end_s * rate / count], "level": "square"}
+        ranged = service.waveform_range(audio, start_norm=0.0, end_norm=1.0, point_count=1, read=read)
+        assert first_violation(DEFINITIONS["StagePoints"], ranged["points"]) is None
+        return ranged["points"]["level"]["peak"]
+
+    def true_peak(start_s: float, end_s: float) -> float:
+        times = np.arange(count) / rate
+        return float(np.max(np.abs(samples[(times >= start_s) & (times <= end_s)])))
+
+    assert peak(1.4995, 1.5005) == pytest.approx(0.7, abs=1e-12)
+    assert peak(0.0, 4.0) == pytest.approx(0.7, abs=1e-12)
+    # A narrow region between the envelope's points: its own largest sample, which the envelope does not hold.
+    inside = peak(1.2001, 1.2006)
+    assert inside == pytest.approx(true_peak(1.2001, 1.2006), abs=1e-12)
+    envelope = analysis["channels"][0]["waveform"]
+    # The old calculation: the envelope's extremes whose time is inside the region.
+    thinned = [
+        abs(value)
+        for values, at in ((envelope["min"], envelope["minT"]), (envelope["max"], envelope["maxT"]))
+        for value, t in zip(values, at, strict=True)
+        if 1.2001 / 4.0 <= t <= 1.2006 / 4.0
+    ]
+    assert max(thinned, default=0.0) != pytest.approx(inside, abs=1e-9), (
+        "the fixture must be a region the envelope gets wrong"
+    )
+    # A level's read ("db") has no peak: a peak is a signal's.
+    assert (
+        "peak"
+        not in read_line(sorted_axis(np.arange(4.0)), lambda a, b: np.zeros(b - a), {"x": [0, 3], "level": "db"})[
+            "level"
+        ]
+    )

@@ -35,7 +35,8 @@ function isDisplaySettings(value: unknown): value is SpectrogramSettings['displa
         && isNullableFinite(value['dbMin'])
         && isNullableFinite(value['dbMax'])
         && isNullableFinite(value['maxFrequencyHz'])
-        && (value['minFrequencyHz'] === undefined || isNullableFinite(value['minFrequencyHz']));
+        && (value['minFrequencyHz'] === undefined || isNullableFinite(value['minFrequencyHz']))
+        && (value['dbLevelKey'] === undefined || value['dbLevelKey'] === null || typeof value['dbLevelKey'] === 'string');
 }
 
 export function isSpectrogramSettings(value: unknown): value is SpectrogramSettings {

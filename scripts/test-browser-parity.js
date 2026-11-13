@@ -13,6 +13,20 @@ async function removeAllTracks(page, act = 'click') {
     }
 }
 const root = path.resolve(__dirname, '..');
+// The page speaks the browser's language (staticHost: navigator.language), and headless Chromium takes that from the
+// machine's LANG unless told: a Japanese desktop ran the Japanese page where CI (LANG=C.UTF-8) ran the English one, so
+// a check could pass on one and fail on the other. Every page opened here is in this one locale; CI's is en-US.
+// AWA_BROWSER_LOCALE=ja runs the same checks on the Japanese page. A page that asks for its own locale keeps it.
+const BROWSER_LOCALE = process.env.AWA_BROWSER_LOCALE || 'en-US';
+function pinLocale(browser) {
+    for (const name of ['newPage', 'newContext']) {
+        const open = browser[name].bind(browser);
+        browser[name] = (options = {}) => open({ locale: BROWSER_LOCALE, ...options });
+    }
+    return browser;
+}
+// The exports read back by the reader of what the Analyzer writes (RFC 4180): an English header has commas in it.
+const { csvRecords } = require(path.join(root, 'dist/shared/utils/csv.js'));
 const fixtureNames = ['short-stereo.wav', 'changing-stereo.wav'];
 const fixtures = fixtureNames.map(name => ({ name, bytes: fs.readFileSync(path.join(root, 'src/test/fixtures', name)) }));
 const toneRate = 16000, toneBytes = Buffer.alloc(44 + toneRate * 4);
@@ -105,18 +119,50 @@ const nativePairs = fixtures.map(nativeResultsFor);
 const byteResults = nativePairs.map(pair => pair[0]);
 const nativeResults = nativePairs.map(pair => pair[1]);
 let numbers = 0;
-function compare(a, b, at = '') {
-    // A scan names its file by the host's own identity (a path natively, a content hash on the Web), and so its kept data.
-    if (['computeMs', 'elapsedMs', 'filePath', 'fileName', 'input.id', 'stage.data'].some(key => at.endsWith('.' + key))) return;
+// A file's host identity: a path natively, a content hash on the Web, and so what is named or kept under it.
+// sourceVersion is the version of that identity (a hash of input.id: the path with its size, times and inode
+// natively, so a path is never read twice to name it; the content hash when the bytes are loaded), so a path and
+// the same bytes loaded give different values by design. Its value is compared only between two byte loads;
+// `checkSourceVersions` keeps it checked on every route.
+const HOST_IDENTITY = ['filePath', 'fileName', 'input.id', 'stage.data'];
+const SOURCE_VERSION = 'sourceVersion';
+function compare(a, b, at = '', hostKeys = HOST_IDENTITY) {
+    if (['computeMs', 'elapsedMs', ...hostKeys].some(key => at.endsWith('.' + key))) return;
     if (typeof a === 'number') {
         assert.equal(typeof b, 'number', at);
         assert.ok(Math.abs(a - b) <= 0.0002 + Math.abs(a) * 0.00002, `${at}: ${a} vs ${b}`); numbers++; return;
     }
-    if (Array.isArray(a)) { assert.equal(a.length, b.length, at); a.forEach((x,i) => compare(x,b[i],`${at}[${i}]`)); return; }
-    if (a && typeof a === 'object') { assert.deepEqual(Object.keys(a).sort(),Object.keys(b).sort(),at); for (const key of Object.keys(a)) compare(a[key],b[key],`${at}.${key}`); return; }
+    if (Array.isArray(a)) { assert.equal(a.length, b.length, at); a.forEach((x,i) => compare(x,b[i],`${at}[${i}]`,hostKeys)); return; }
+    if (a && typeof a === 'object') { assert.deepEqual(Object.keys(a).sort(),Object.keys(b).sort(),at); for (const key of Object.keys(a)) compare(a[key],b[key],`${at}.${key}`,hostKeys); return; }
     assert.equal(a,b,at);
 }
-compare(byteResults,nativeResults,'native/bytes');
+/** Every sourceVersion one route gave, at any depth of its answers. */
+function sourceVersionsIn(value, found = []) {
+    if (Array.isArray(value)) value.forEach(item => sourceVersionsIn(item, found));
+    else if (value && typeof value === 'object') {
+        for (const [key, item] of Object.entries(value)) {
+            if (key === SOURCE_VERSION) found.push(item); else sourceVersionsIn(item, found);
+        }
+    }
+    return found;
+}
+/** Each route names each fixture by one non-empty sourceVersion on every answer, and different fixtures differently. */
+function checkSourceVersions(runtime, route) {
+    const perFixture = runtime.map((answers, index) => {
+        const versions = sourceVersionsIn(answers);
+        const at = `${route}[${index}] ${fixtures[index].name}`;
+        assert.ok(versions.length >= 2, `${at}: answers carry ${SOURCE_VERSION}`);
+        for (const version of versions) assert.ok(typeof version === 'string' && version.length > 0, `${at}: ${SOURCE_VERSION} ${JSON.stringify(version)}`);
+        // The same route asked again and again of one load gives the same id.
+        assert.deepEqual([...new Set(versions)], [versions[0]], `${at}: one ${SOURCE_VERSION} per load`);
+        return versions[0];
+    });
+    assert.equal(new Set(perFixture).size, perFixture.length, `${route}: each fixture its own ${SOURCE_VERSION}`);
+}
+// Path against bytes: the version's value is a host identity here (see HOST_IDENTITY).
+compare(byteResults,nativeResults,'native/bytes',[...HOST_IDENTITY, SOURCE_VERSION]);
+checkSourceVersions(byteResults,'native/bytes');
+checkSourceVersions(nativeResults,'native/path');
 const base = path.join(root,'browser-dist');
 const server = http.createServer((req,res) => {
     let pathname = new URL(req.url,'http://local').pathname;
@@ -135,13 +181,15 @@ const server = http.createServer((req,res) => {
     await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
     let browser;
     try {
-        browser=await chromium.launch({headless:true,executablePath:process.env.AWA_CHROMIUM_EXECUTABLE||undefined,args:['--mute-audio']});
+        browser=pinLocale(await chromium.launch({headless:true,executablePath:process.env.AWA_CHROMIUM_EXECUTABLE||undefined,args:['--mute-audio']}));
         const page=await browser.newPage();
         const errors=[]; page.on('pageerror',error=>errors.push(error.message));
         const origin=`http://127.0.0.1:${server.address().port}`;
         await page.goto(origin+'/analyzer/index.html');
         // The page speaks the browser's language: what it says is read from its own strings, not assumed English.
         const S=await page.evaluate(()=>window.__APP_STRINGS__);
+        assert.equal(await page.evaluate(()=>navigator.language),BROWSER_LOCALE,'the page runs in the pinned locale, not the machine\'s');
+        console.log(`Browser locale ${BROWSER_LOCALE}.`);
         const READY=S.browserReady.slice(0,S.browserReady.indexOf('{count}')).trim();
         const OPEN_FILE='input[data-action="browser-open-wav"]';
         const results=await page.evaluate(async ({fixtures,commands})=>{
@@ -165,7 +213,9 @@ const server = http.createServer((req,res) => {
                 return all;
             } finally {worker.terminate();}
         },{fixtures:fixtures.map(fixture=>({bytes:Array.from(fixture.bytes),commands:fixture.commands})),commands});
+        // Both load the same bytes, so here the version's value too must agree.
         compare(byteResults,results,'native/Pyodide');
+        checkSourceVersions(results,'Pyodide');
         for (const runtime of [byteResults, nativeResults, results]) {
             const tones = runtime[2];
             const [shown, full] = tones.slice(-2);
@@ -226,8 +276,11 @@ const server = http.createServer((req,res) => {
         const csv = fs.readFileSync(await csvDownload.path(),'utf8');
         const artifact = await page.evaluate(()=>window.__csvArtifact);
         assert.equal(csv,artifact.content);assert.equal(artifact.mimeType,'text/csv;charset=utf-8');
-        const csvRows = csv.trim().split('\n').map(line=>line.split(','));
+        const csvRows = csvRecords(csv);
         assert.equal(csvRows[0].length,4,'stereo exports frequency/level for both channels');
+        // Each column named as its axis is: the frequency, and the level with its quantity, unit and reference (C5).
+        const levelHeader = S.axisLevelUncal.replace('{label}','dBFS');
+        csvRows[0].forEach((header,column)=>assert.ok(header.endsWith(' '+(column%2 ? levelHeader : S.axisFrequency)),`CSV column ${column}: ${header}`));
         // Every bin of the cursor's FFT: n_fft/2+1 rows at fs/n_fft spacing up to Nyquist.
         const csvBins = csvRows.length - 1;
         assert.ok(Number.isInteger(Math.log2(csvBins - 1)), `${csvBins} CSV rows are not n_fft/2+1`);
@@ -420,11 +473,15 @@ const server = http.createServer((req,res) => {
         const toneCanvas = await page.locator((await firstCanvas()).replace('track-canvas-', 'track-spec-canvas-')).boundingBox();
         await page.evaluate(() => {window.__testInbound = [];});
         await page.mouse.click(toneCanvas.x + toneCanvas.width * .5, toneCanvas.y + toneCanvas.height * .5);
-        await page.waitForFunction(() => window.__testInbound.some(m => m.type === 'spectrum-slice-result' && Math.abs(m.cursorNorm - .5) < .01));
+        // A click acts on the point the readout reads (R7): the spectrogram frame nearest the pointer, so the cursor
+        // lands within half a hop of the middle (2048 points at 75 % overlap: 512 samples of the 1 s, 16 kHz tones).
+        const halfHopNorm = 512 / toneRate / 2;
+        await page.waitForFunction(tolerance => window.__testInbound.some(m => m.type === 'spectrum-slice-result'
+            && Math.abs(m.cursorNorm - .5) <= tolerance), halfHopNorm + .002);
         const toneCsvMenu = page.locator('details').filter({has:page.locator('[data-action="export-csv"]')});
         if (!await toneCsvMenu.evaluate(node=>node.open)) await toneCsvMenu.locator('summary').click();
         const [toneCsvDownload] = await Promise.all([page.waitForEvent('download'),page.locator('[data-action="export-csv"]').click()]);
-        const toneCsvRows = fs.readFileSync(await toneCsvDownload.path(),'utf8').trim().split('\n').slice(1).map(row=>row.split(',').map(Number));
+        const toneCsvRows = csvRecords(fs.readFileSync(await toneCsvDownload.path(),'utf8')).slice(1).map(row=>row.map(Number));
         assert.equal(toneCsvRows.length,2048/2+1);
         // The menu closes after an export; close it only if it is still open, or a click would open it over the spectra.
         if (await toneCsvMenu.evaluate(node=>node.open)) await toneCsvMenu.locator('summary').click();

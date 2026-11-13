@@ -2,6 +2,8 @@
 // Do not edit; change the Python schema and run `node scripts/generate-protocol-types.mjs --write`.
 import type { CalibrationProfile } from '../../analysis/analysisTypes';
 
+import type { Drawn } from '../../provenance';
+
 export const BACKEND_PROTOCOL_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
@@ -58,31 +60,36 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "min": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-drawn": true
                     }
                 },
                 "max": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-drawn": true
                     }
                 },
                 "minT": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-drawn": true
                     }
                 },
                 "maxT": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-drawn": true
                     }
                 },
                 "samples": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-drawn": true
                     }
                 },
                 "absolutePeak": {
@@ -204,7 +211,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "number"
+                            "type": "number",
+                            "x-drawn": true
                         }
                     }
                 },
@@ -247,7 +255,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "timeCentersSec": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "bandLowHz": {
@@ -395,6 +404,12 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "analysisRevision": {
                     "$ref": "#/$defs/ResultAnalysisRevision"
                 },
+                "sourceVersion": {
+                    "type": "string"
+                },
+                "stftSignature": {
+                    "type": "string"
+                },
                 "units": {
                     "$ref": "#/$defs/AnalysisUnits"
                 },
@@ -436,6 +451,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "analysisRevision": {
                     "$ref": "#/$defs/AnalysisRevision"
+                },
+                "sourceVersion": {
+                    "type": "string"
                 },
                 "startNorm": {
                     "type": "number"
@@ -489,6 +507,12 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "analysisRevision": {
                     "$ref": "#/$defs/ResultAnalysisRevision"
                 },
+                "sourceVersion": {
+                    "type": "string"
+                },
+                "stftSignature": {
+                    "type": "string"
+                },
                 "points": {
                     "$ref": "#/$defs/StagePoints"
                 }
@@ -523,6 +547,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "analysisRevision": {
                     "$ref": "#/$defs/AnalysisRevision"
+                },
+                "sourceVersion": {
+                    "type": "string"
                 },
                 "read": {
                     "$ref": "#/$defs/StageRead"
@@ -573,6 +600,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "analysisRevision": {
                     "$ref": "#/$defs/AnalysisRevision"
+                },
+                "sourceVersion": {
+                    "type": "string"
                 }
             },
             "additionalProperties": false
@@ -603,6 +633,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "analysisRevision": {
                     "$ref": "#/$defs/ResultAnalysisRevision"
                 },
+                "sourceVersion": {
+                    "type": "string"
+                },
                 "points": {
                     "$ref": "#/$defs/StagePoints"
                 }
@@ -624,7 +657,15 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "values": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-drawn": true
+                    }
+                },
+                "bins": {
+                    "type": "array",
+                    "items": {
+                        "type": "number",
+                        "x-whole": true
                     }
                 },
                 "minDb": {
@@ -701,7 +742,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "bandCentersHz": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "minFrequencyHz": {
@@ -710,7 +752,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "frequenciesHz": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "windowStartNorm": {
@@ -736,6 +779,12 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "analysisRevision": {
                     "$ref": "#/$defs/ResultAnalysisRevision"
+                },
+                "sourceVersion": {
+                    "type": "string"
+                },
+                "stftSignature": {
+                    "type": "string"
                 }
             },
             "additionalProperties": false
@@ -763,6 +812,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "analysisRevision": {
                     "$ref": "#/$defs/AnalysisRevision"
+                },
+                "sourceVersion": {
+                    "type": "string"
                 }
             },
             "additionalProperties": false
@@ -852,7 +904,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "items": {
                         "anyOf": [
                             {
-                                "type": "number"
+                                "type": "number",
+                                "x-whole": true
                             },
                             {
                                 "type": "null"
@@ -865,7 +918,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "items": {
                         "anyOf": [
                             {
-                                "type": "number"
+                                "type": "number",
+                                "x-whole": true
                             },
                             {
                                 "type": "null"
@@ -878,7 +932,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "items": {
                         "anyOf": [
                             {
-                                "type": "number"
+                                "type": "number",
+                                "x-whole": true
                             },
                             {
                                 "type": "null"
@@ -901,11 +956,21 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "levelReferenceLabel": {
                     "type": "string"
                 },
+                "calibrationStatus": {
+                    "type": "string",
+                    "enum": [
+                        "uncalibrated",
+                        "calibrated"
+                    ]
+                },
                 "calibrationSignature": {
                     "type": "string"
                 },
                 "analysisRevision": {
                     "$ref": "#/$defs/ResultAnalysisRevision"
+                },
+                "sourceVersion": {
+                    "type": "string"
                 }
             },
             "additionalProperties": false
@@ -968,6 +1033,12 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "analysisRevision": {
                     "$ref": "#/$defs/ResultAnalysisRevision"
                 },
+                "sourceVersion": {
+                    "type": "string"
+                },
+                "stftSignature": {
+                    "type": "string"
+                },
                 "responses": {
                     "type": "array",
                     "items": {
@@ -1028,6 +1099,27 @@ export const BACKEND_PROTOCOL_SCHEMA = {
         "ReleaseTrackDetailResult": {
             "type": "object",
             "properties": {},
+            "additionalProperties": false
+        },
+        "ScanSpecPayload": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        },
+        "ScanSpecResult": {
+            "type": "object",
+            "required": [
+                "specVersion",
+                "wandasVersion"
+            ],
+            "properties": {
+                "specVersion": {
+                    "type": "integer"
+                },
+                "wandasVersion": {
+                    "type": "string"
+                }
+            },
             "additionalProperties": false
         },
         "RecipeChannel": {
@@ -1222,19 +1314,35 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "x": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "y": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "points": {
                     "type": "integer",
                     "minimum": 2,
                     "maximum": 32768
+                },
+                "peakX": {
+                    "type": "array",
+                    "items": {
+                        "type": "number",
+                        "x-place": true
+                    }
+                },
+                "peakY": {
+                    "type": "array",
+                    "items": {
+                        "type": "number",
+                        "x-place": true
+                    }
                 }
             },
             "additionalProperties": false
@@ -1248,13 +1356,15 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "x": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "y": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "beyond": {
@@ -1278,6 +1388,33 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "log": {
                     "type": "boolean"
                 },
+                "at": {
+                    "type": "number"
+                },
+                "pixels": {
+                    "type": "array",
+                    "items": {
+                        "type": "number",
+                        "x-place": true
+                    }
+                },
+                "shown": {
+                    "type": "array",
+                    "items": {
+                        "type": "number",
+                        "x-place": true
+                    }
+                },
+                "seek": {
+                    "type": "integer",
+                    "enum": [
+                        -1,
+                        1
+                    ]
+                },
+                "plain": {
+                    "type": "boolean"
+                },
                 "event": {
                     "type": "integer",
                     "minimum": 0
@@ -1292,6 +1429,13 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "channel": {
                     "type": "integer",
                     "minimum": 0
+                },
+                "level": {
+                    "type": "string",
+                    "enum": [
+                        "db",
+                        "square"
+                    ]
                 }
             },
             "additionalProperties": false
@@ -1308,7 +1452,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "xs": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-whole": true
                     }
                 },
                 "values": {
@@ -1316,7 +1461,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "items": {
                         "anyOf": [
                             {
-                                "type": "number"
+                                "type": "number",
+                                "x-whole": true
                             },
                             {
                                 "type": "null"
@@ -1327,7 +1473,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "ys": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-whole": true
                     }
                 },
                 "matrix": {
@@ -1337,7 +1484,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "items": {
                             "anyOf": [
                                 {
-                                    "type": "number"
+                                    "type": "number",
+                                    "x-whole": true
                                 },
                                 {
                                     "type": "null"
@@ -1368,6 +1516,44 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "complete": {
                     "type": "boolean"
+                },
+                "under": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "type": "number",
+                                "x-place": true
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    }
+                },
+                "level": {
+                    "type": "object",
+                    "required": [
+                        "power",
+                        "count"
+                    ],
+                    "properties": {
+                        "power": {
+                            "type": "number"
+                        },
+                        "count": {
+                            "type": "integer",
+                            "minimum": 0
+                        },
+                        "peak": {
+                            "type": "number"
+                        }
+                    },
+                    "additionalProperties": false
                 }
             },
             "additionalProperties": false
@@ -1426,19 +1612,29 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "xs": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "xLimits": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "ys": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-place": true
+                    }
+                },
+                "yLimits": {
+                    "type": "array",
+                    "items": {
+                        "type": "number",
+                        "x-place": true
                     }
                 },
                 "yAxis": {
@@ -1454,7 +1650,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "items": {
                         "anyOf": [
                             {
-                                "type": "number"
+                                "type": "number",
+                                "x-drawn": true
                             },
                             {
                                 "type": "null"
@@ -1469,7 +1666,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "items": {
                             "anyOf": [
                                 {
-                                    "type": "number"
+                                    "type": "number",
+                                    "x-drawn": true
                                 },
                                 {
                                     "type": "null"
@@ -1511,10 +1709,15 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "measure": {
                     "type": "string",
                     "enum": [
+                        "amplitude",
                         "rms",
                         "timeWeightedRms",
-                        "power"
+                        "power",
+                        "unknown"
                     ]
+                },
+                "measureExponent": {
+                    "type": "number"
                 },
                 "waveform": {
                     "type": "object",
@@ -1533,7 +1736,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                             "items": {
                                 "anyOf": [
                                     {
-                                        "type": "number"
+                                        "type": "number",
+                                        "x-drawn": true
                                     },
                                     {
                                         "type": "null"
@@ -1546,7 +1750,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                             "items": {
                                 "anyOf": [
                                     {
-                                        "type": "number"
+                                        "type": "number",
+                                        "x-drawn": true
                                     },
                                     {
                                         "type": "null"
@@ -1559,7 +1764,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                             "items": {
                                 "anyOf": [
                                     {
-                                        "type": "number"
+                                        "type": "number",
+                                        "x-drawn": true
                                     },
                                     {
                                         "type": "null"
@@ -1572,7 +1778,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                             "items": {
                                 "anyOf": [
                                     {
-                                        "type": "number"
+                                        "type": "number",
+                                        "x-drawn": true
                                     },
                                     {
                                         "type": "null"
@@ -1598,21 +1805,31 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "levelBins": {
                     "type": "object",
                     "required": [
+                        "of",
                         "edges",
                         "power",
                         "count"
                     ],
                     "properties": {
+                        "of": {
+                            "type": "string",
+                            "enum": [
+                                "square",
+                                "dbPower"
+                            ]
+                        },
                         "edges": {
                             "type": "array",
                             "items": {
-                                "type": "number"
+                                "type": "number",
+                                "x-place": true
                             }
                         },
                         "power": {
                             "type": "array",
                             "items": {
-                                "type": "number"
+                                "type": "number",
+                                "x-whole": true
                             }
                         },
                         "count": {
@@ -1625,6 +1842,104 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     },
                     "additionalProperties": false
                 },
+                "valueRange": {
+                    "type": "object",
+                    "required": [
+                        "min",
+                        "max"
+                    ],
+                    "properties": {
+                        "min": {
+                            "type": "number"
+                        },
+                        "max": {
+                            "type": "number"
+                        },
+                        "robust": {
+                            "type": "number"
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "xSource": {
+                    "type": "object",
+                    "required": [
+                        "count",
+                        "first",
+                        "last"
+                    ],
+                    "properties": {
+                        "count": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "first": {
+                            "type": "number",
+                            "x-place": true
+                        },
+                        "last": {
+                            "type": "number",
+                            "x-place": true
+                        },
+                        "step": {
+                            "type": "number",
+                            "x-place": true
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "ySource": {
+                    "type": "object",
+                    "required": [
+                        "count",
+                        "first",
+                        "last"
+                    ],
+                    "properties": {
+                        "count": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "first": {
+                            "type": "number",
+                            "x-place": true
+                        },
+                        "last": {
+                            "type": "number",
+                            "x-place": true
+                        },
+                        "step": {
+                            "type": "number",
+                            "x-place": true
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "peak": {
+                    "type": "object",
+                    "required": [
+                        "x",
+                        "value"
+                    ],
+                    "properties": {
+                        "x": {
+                            "type": "number"
+                        },
+                        "y": {
+                            "type": "number"
+                        },
+                        "value": {
+                            "type": "number"
+                        },
+                        "xStep": {
+                            "type": "number"
+                        },
+                        "yStep": {
+                            "type": "number"
+                        }
+                    },
+                    "additionalProperties": false
+                },
                 "events": {
                     "type": "array",
                     "items": {
@@ -1632,6 +1947,7 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "required": [
                             "id",
                             "time",
+                            "xs",
                             "values"
                         ],
                         "properties": {
@@ -1642,12 +1958,20 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                             "time": {
                                 "type": "number"
                             },
+                            "xs": {
+                                "type": "array",
+                                "items": {
+                                    "type": "number",
+                                    "x-place": true
+                                }
+                            },
                             "values": {
                                 "type": "array",
                                 "items": {
                                     "anyOf": [
                                         {
-                                            "type": "number"
+                                            "type": "number",
+                                            "x-drawn": true
                                         },
                                         {
                                             "type": "null"
@@ -1783,6 +2107,23 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "fullScale": {
                     "type": "boolean"
+                },
+                "channelCalibration": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "uncalibrated",
+                            "calibrated"
+                        ]
+                    }
+                },
+                "baseCalibrationStatus": {
+                    "type": "string",
+                    "enum": [
+                        "uncalibrated",
+                        "calibrated"
+                    ]
                 }
             },
             "additionalProperties": false
@@ -1808,13 +2149,15 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "leqDbA": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-whole": true
                     }
                 },
                 "peakHz": {
                     "type": "array",
                     "items": {
-                        "type": "integer"
+                        "type": "number",
+                        "x-whole": true
                     }
                 },
                 "spectrumDb": {
@@ -1822,7 +2165,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "number"
+                            "type": "number",
+                            "x-drawn": true
                         }
                     }
                 },
@@ -1831,7 +2175,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "number"
+                            "type": "number",
+                            "x-whole": true
                         }
                     }
                 },
@@ -1845,7 +2190,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "items": {
                             "anyOf": [
                                 {
-                                    "type": "number"
+                                    "type": "number",
+                                    "x-whole": true
                                 },
                                 {
                                     "type": "null"
@@ -1857,7 +2203,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "crest": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-whole": true
                     }
                 },
                 "specVersion": {
@@ -1875,6 +2222,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "stage": {
                     "$ref": "#/$defs/StageView"
+                },
+                "stageDataTooLarge": {
+                    "type": "boolean"
                 },
                 "failedStep": {
                     "type": "string"
@@ -1895,6 +2245,7 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "enum": [
                         "input-error",
                         "stale-calibration",
+                        "stale-source",
                         "internal-error"
                     ]
                 },
@@ -2066,6 +2417,10 @@ export const BACKEND_PROTOCOL_SCHEMA = {
             "payload": "ScanPayload",
             "result": "ScanResult"
         },
+        "scan-spec": {
+            "payload": "ScanSpecPayload",
+            "result": "ScanSpecResult"
+        },
         "stage-combine": {
             "payload": "StageCombinePayload",
             "result": "StageCombineResult"
@@ -2080,7 +2435,7 @@ export const BACKEND_PROTOCOL_SCHEMA = {
     ]
 } as const;
 
-export type SchemaCommand = 'analyze' | 'track-detail' | 'range' | 'spectrum-slice' | 'pair-spectrum' | 'export-wav-loop' | 'release-track-detail' | 'build-recipe' | 'scan' | 'stage-combine';
+export type SchemaCommand = 'analyze' | 'track-detail' | 'range' | 'spectrum-slice' | 'pair-spectrum' | 'export-wav-loop' | 'release-track-detail' | 'build-recipe' | 'scan' | 'scan-spec' | 'stage-combine';
 
 export interface StftOptions {
     nFft: number;
@@ -2089,11 +2444,11 @@ export interface StftOptions {
 }
 
 export interface WaveformEnvelope {
-    min: number[];
-    max: number[];
-    minT?: number[];
-    maxT?: number[];
-    samples: number[];
+    min: Drawn[];
+    max: Drawn[];
+    minT?: Drawn[];
+    maxT?: Drawn[];
+    samples: Drawn[];
     absolutePeak: number;
 }
 
@@ -2123,7 +2478,7 @@ export interface ChannelMeasurementContext {
 }
 
 export interface SpectrogramData {
-    values: number[][];
+    values: Drawn[][];
     timeBins: number;
     frequencyBins: number;
     windowSize: number;
@@ -2174,6 +2529,8 @@ export interface AnalysisResult {
     calibrationSignature?: string;
     calibrationProfile?: CalibrationProfile;
     analysisRevision?: number;
+    sourceVersion?: string;
+    stftSignature?: string;
     units?: AnalysisUnits;
     channels: ChannelSummary[];
 }
@@ -2186,6 +2543,7 @@ export interface TrackDetailPayload {
     stftOptions?: StftOptions;
     calibrationProfile?: CalibrationProfile;
     analysisRevision?: number;
+    sourceVersion?: string;
     startNorm?: number;
     endNorm?: number;
     lowHz?: number;
@@ -2201,6 +2559,8 @@ export interface TrackDetailResult {
     channels: ChannelSummary[];
     calibrationSignature?: string;
     analysisRevision?: number;
+    sourceVersion?: string;
+    stftSignature?: string;
     points?: StagePoints;
 }
 
@@ -2211,6 +2571,7 @@ export interface RangePayload {
     points: number;
     calibrationProfile?: CalibrationProfile;
     analysisRevision?: number;
+    sourceVersion?: string;
     read?: StageRead;
 }
 
@@ -2225,6 +2586,7 @@ export interface SpectrumSlicePayload {
     stftOptions?: StftOptions;
     calibrationProfile?: CalibrationProfile;
     analysisRevision?: number;
+    sourceVersion?: string;
 }
 
 export interface RangeResult {
@@ -2233,12 +2595,14 @@ export interface RangeResult {
     channels: WaveformEnvelope[];
     calibrationSignature?: string;
     analysisRevision?: number;
+    sourceVersion?: string;
     points?: StagePoints;
 }
 
 export interface SpectrumSliceChannel {
     channelIndex: number;
-    values: number[];
+    values: Drawn[];
+    bins?: number[];
     minDb: number;
     maxDb: number;
     unit?: string;
@@ -2266,6 +2630,8 @@ export interface SpectrumSliceResult {
     computeMs: number;
     calibrationSignature?: string;
     analysisRevision?: number;
+    sourceVersion?: string;
+    stftSignature?: string;
 }
 
 export interface PairSource {
@@ -2274,6 +2640,7 @@ export interface PairSource {
     offsetSeconds: number;
     calibrationProfile?: CalibrationProfile;
     analysisRevision?: number;
+    sourceVersion?: string;
 }
 
 export interface PairSpectrumPayload {
@@ -2302,8 +2669,10 @@ export interface PairSpectrumResponse {
     referenceValue?: number;
     referenceUnit?: string;
     levelReferenceLabel?: string;
+    calibrationStatus?: "uncalibrated" | "calibrated";
     calibrationSignature?: string;
     analysisRevision?: number;
+    sourceVersion?: string;
 }
 
 export interface PairSpectrumResult {
@@ -2319,6 +2688,8 @@ export interface PairSpectrumResult {
     computeMs: number;
     calibrationSignature?: string;
     analysisRevision?: number;
+    sourceVersion?: string;
+    stftSignature?: string;
     responses: PairSpectrumResponse[];
 }
 
@@ -2339,6 +2710,15 @@ export interface ReleaseTrackDetailPayload {
 
 export interface ReleaseTrackDetailResult {
 
+}
+
+export interface ScanSpecPayload {
+
+}
+
+export interface ScanSpecResult {
+    specVersion: number;
+    wandasVersion: string;
 }
 
 export interface RecipeChannel {
@@ -2387,6 +2767,8 @@ export interface StageDetail {
     x: number[];
     y?: number[];
     points: number;
+    peakX?: number[];
+    peakY?: number[];
 }
 
 export interface StageRead {
@@ -2397,9 +2779,15 @@ export interface StageRead {
     near?: number;
     columns?: number;
     log?: boolean;
+    at?: number;
+    pixels?: number[];
+    shown?: number[];
+    seek?: -1 | 1;
+    plain?: boolean;
     event?: number;
     of?: "base" | "diff";
     channel?: number;
+    level?: "db" | "square";
 }
 
 export interface StagePoints {
@@ -2410,6 +2798,13 @@ export interface StagePoints {
     start: number | null;
     end: number | null;
     complete: boolean;
+    under?: number;
+    steps?: (number | null)[];
+    level?: {
+    power: number;
+    count: number;
+    peak?: number;
+};
 }
 
 export interface StageView {
@@ -2422,9 +2817,10 @@ export interface StageView {
     xs?: number[];
     xLimits?: number[];
     ys?: number[];
+    yLimits?: number[];
     yAxis?: "frequency" | "bark" | "quefrency";
-    values?: (number | null)[];
-    matrix?: ((number | null)[])[];
+    values?: (Drawn | null)[];
+    matrix?: ((Drawn | null)[])[];
     whole?: boolean[];
     pair?: {
     output: number;
@@ -2432,26 +2828,53 @@ export interface StageView {
     base?: boolean;
 };
     detail?: boolean;
-    measure?: "rms" | "timeWeightedRms" | "power";
+    measure?: "amplitude" | "rms" | "timeWeightedRms" | "power" | "unknown";
+    measureExponent?: number;
     waveform?: {
-    min: (number | null)[];
-    max: (number | null)[];
-    minT: (number | null)[];
-    maxT: (number | null)[];
+    min: (Drawn | null)[];
+    max: (Drawn | null)[];
+    minT: (Drawn | null)[];
+    maxT: (Drawn | null)[];
     absolutePeak: number;
     unit: string;
     ref: number;
 };
     data?: string;
     levelBins?: {
+    of: "square" | "dbPower";
     edges: number[];
     power: number[];
     count: number[];
 };
+    valueRange?: {
+    min: number;
+    max: number;
+    robust?: number;
+};
+    xSource?: {
+    count: number;
+    first: number;
+    last: number;
+    step?: number;
+};
+    ySource?: {
+    count: number;
+    first: number;
+    last: number;
+    step?: number;
+};
+    peak?: {
+    x: number;
+    y?: number;
+    value: number;
+    xStep?: number;
+    yStep?: number;
+};
     events?: {
     id: number;
     time: number;
-    values: (number | null)[];
+    xs: number[];
+    values: (Drawn | null)[];
 }[];
 }
 
@@ -2481,6 +2904,8 @@ export interface ScanInput {
     levelReferenceLabel: string;
     calibrationStatus: "uncalibrated" | "calibrated";
     fullScale: boolean;
+    channelCalibration?: ("uncalibrated" | "calibrated")[];
+    baseCalibrationStatus?: "uncalibrated" | "calibrated";
 }
 
 export interface ScanResult {
@@ -2490,7 +2915,7 @@ export interface ScanResult {
     input?: ScanInput;
     leqDbA?: number[];
     peakHz?: number[];
-    spectrumDb?: number[][];
+    spectrumDb?: Drawn[][];
     spectrumBinsDb?: number[][];
     spectrumBinHz?: number;
     thirdOctDb?: ((number | null)[])[];
@@ -2500,11 +2925,12 @@ export interface ScanResult {
     elapsedMs?: number;
     endFrame?: string;
     stage?: StageView;
+    stageDataTooLarge?: boolean;
     failedStep?: string;
 }
 
 export interface BackendErrorPayload {
-    code: "input-error" | "stale-calibration" | "internal-error";
+    code: "input-error" | "stale-calibration" | "stale-source" | "internal-error";
     kind: "analysis-settings" | "unreadable-file" | "out-of-memory" | "invalid-input" | "analysis-failed";
     message: string;
 }
@@ -2536,4 +2962,12 @@ export interface BrowserLimits {
     maxSources: number;
     maxTotalInputBytes: number;
     maxExportBytes: number;
+}
+
+/** The array fields that hold every value of the data (protocol_schema.py `x-whole`), by the type they are of. */
+export interface WholeFields {
+    SpectrumSliceChannel: Pick<SpectrumSliceChannel, 'bins'>;
+    PairSpectrumResponse: Pick<PairSpectrumResponse, 'gainDb' | 'phaseRad' | 'coherence'>;
+    StagePoints: Pick<StagePoints, 'xs' | 'values' | 'ys' | 'matrix'>;
+    ScanResult: Pick<ScanResult, 'leqDbA' | 'peakHz' | 'spectrumBinsDb' | 'thirdOctDb' | 'crest'>;
 }

@@ -19,9 +19,9 @@ _ALLOWED_STATUSES = frozenset({"uncalibrated", "calibrated"})
 _ALLOWED_SOURCES = frozenset({"default", "manual", "derived", "embedded"})
 _MIN_SAFE_CALIBRATION_VALUE = 1e-150
 _MAX_SAFE_CALIBRATION_VALUE = 1e150
-# The largest supported STFT has 16384 samples and is cached as complex64.
+# The largest supported STFT has 16384 samples; a source of a float32 format is cached in float32 (source_dtype).
 _MAX_SAFE_CALIBRATED_SAMPLE = 1e34
-# Below float32's smallest normal number the complex64 STFT flushes the calibrated peak to zero, which then
+# Below float32's smallest normal number a float32 source's calibrated samples flush the peak to zero, which then
 # reads as the -240 dB floor instead of being rejected.
 _MIN_SAFE_CALIBRATED_PEAK = float(np.finfo(np.float32).tiny)
 

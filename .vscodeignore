@@ -45,6 +45,7 @@ python-backend/conftest.py
 python-backend/constraints.txt
 python-backend/.pytest_cache/**
 python-backend/test_*.py
+python-backend/tests/**
 .worktrees/**
 .ruff_cache/**
 .antigravitycli/**

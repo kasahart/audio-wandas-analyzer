@@ -15,6 +15,8 @@ dev = [
     "ruff>=0.6",
     "pyright>=1.1.414",
     "pytest>=8.0",
+    # verify runs pytest across the CPU cores (-n auto); a serial run (AWA_PERF=1) does not need it.
+    "pytest-xdist>=3.6",
     "jsonschema>=4.18",
     # A recipe bundle's run_recipe.py saves its outputs as WDF (wandas[io]); its end-to-end test needs it.
     "h5netcdf[h5py]>=1.6.4",
@@ -41,6 +43,9 @@ quote-style = "double"
 testpaths = ["python-backend"]
 python_files = "test_*.py"
 addopts = "-q"
+# A test still running after 5 minutes prints every thread's stack to stderr (it is not failed or stopped): a test
+# that hangs on one OS names itself and where it waits in the CI log, instead of only running out the job's time.
+faulthandler_timeout = 300
 markers = [
     "slow: runs every wandas operation (minutes); skipped unless AWA_SLOW=1, which CI sets",
     "perf: wall-clock budget on the developer's PC; skipped unless AWA_PERF=1, the timing is reported either way",

@@ -18,9 +18,16 @@ window.__AWA_TEST_HOOKS__ = true;
 // resolution, named by a key as the backend names the values it keeps, and combined point by point.
 window.__uiSmokeStageData = {};
 // The backend's levelBins (stage_combine.level_bins) for a picture a test answers with, its values taken as every
-// value: a level's power mean of 10^(dB/10), a waveform's mean square, in stretches of its axis (R6's order).
+// value: a level's power mean of 10^(dB/10), a waveform's mean square, in stretches of its axis (R6's order), each
+// saying which it is (of), as the backend's do.
 function uiSmokeLevelBins(view) {
     const xs = view.xs || [];
+    // A trigger's events: the mean square of every event's samples (stage_combine._event_level_bins, A44).
+    if (view.events && view.events.length) {
+        let sum = 0, n = 0, low = Infinity, high = -Infinity;
+        view.events.forEach(function(event) { (event.values || []).forEach(function(value, i) { if (value === null || !isFinite(value)) return; sum += value * value; n += 1; low = Math.min(low, event.xs[i]); high = Math.max(high, event.xs[i]); }); });
+        return n ? { of: 'square', edges: [low, high > low ? high : low + 1], power: [sum / n], count: [n] } : null;
+    }
     const db = view.quantity === 'level' || view.quantity === 'gain';
     if ((view.kind !== 'line' && view.kind !== 'bar') || (!db && !view.waveform) || !xs.length) return null;
     const powers = view.waveform
@@ -33,7 +40,12 @@ function uiSmokeLevelBins(view) {
     const edges = [low, high > low ? high : low + 1];
     let power = 0, count = 0;
     powers.forEach(function(value) { if (value !== null && isFinite(value)) { power += value; count += 1; } });
-    return { edges: edges, power: [count ? power / count : 0], count: [count] };
+    return { of: view.waveform ? 'square' : 'dbPower', edges: edges, power: [count ? power / count : 0], count: [count] };
+}
+function uiSmokeSourceAxis(places) {
+    const axis = { count: places.length, first: places[0], last: places[places.length - 1] };
+    if (places.length > 1) axis.step = places[1] - places[0];
+    return axis;
 }
 window.addEventListener('message', function(event) {
     const data = event.data;
@@ -43,6 +55,10 @@ window.addEventListener('message', function(event) {
     stage.data = key;
     const bins = stage.levelBins || uiSmokeLevelBins(stage);
     if (bins) stage.levelBins = bins;
+    // The source axes the backend sends with every picture (stage_view.source_axis): the stand-in thins nothing, so a
+    // whole picture's points are its source, unless the test gave its own. A zoomed part's are not: it says none.
+    if (!stage.detail && !stage.xSource && stage.xs && stage.xs.length) stage.xSource = uiSmokeSourceAxis(stage.xs);
+    if (!stage.detail && stage.kind === 'heatmap' && !stage.ySource && stage.ys && stage.ys.length) stage.ySource = uiSmokeSourceAxis(stage.ys);
     window.__uiSmokeStageData[key] = stage;
 }, true);
 ${UI_SMOKE_READS}
@@ -80,10 +96,17 @@ function uiSmokeCombined(message) {
     if (baseBins) base.levelBins = baseBins;
     if (views.length > 1) result.base = base;
     if (!compare || /Segments$/.test(first.frame)) return result;
-    const minus = function(a, b) { return a === null || b === null ? null : Math.round((a - b) * 100) / 100; };
+    // A Δ is sent unrounded, as the backend sends it (R1, stage_combine._sent): only its text is rounded.
+    const minus = function(a, b) { return a === null || b === null ? null : a - b; };
     const diff = compare.matrix
         ? Object.assign(strip(compare), { matrix: compare.matrix.map(function(row, r) { return row.map(function(value, c) { return minus(value, base.matrix[r][c]); }); }) })
         : Object.assign(strip(compare), { values: (compare.values || []).map(function(value, i) { return minus(value, base.values[i]); }) });
+    // Its largest difference, found among the values the test answered with (taken as every value), as the backend's
+    // stage_combine.difference_peak finds it: what the Δ pane's headline names.
+    let peak = null;
+    if (diff.matrix) diff.matrix.forEach(function(row, r) { row.forEach(function(value, c) { if (value !== null && (diff.whole ? diff.whole[c] !== false : true) && (!peak || Math.abs(value) > Math.abs(peak.value))) peak = { x: diff.xs[c], y: diff.ys[r], value: value }; }); });
+    else (diff.values || []).forEach(function(value, i) { if (value !== null && (!peak || Math.abs(value) > Math.abs(peak.value))) peak = { x: diff.xs[i], value: value }; });
+    if (peak) diff.peak = peak;
     result.diff = diff;
     return result;
 }
@@ -93,6 +116,9 @@ window.acquireVsCodeApi = function() {
             window.__uiSmokePostedMessages.push(message);
             const read = uiSmokeReadAnswer(message);
             if (read) { window.setTimeout(function() { window.postMessage(read, '*'); }, 0); return; }
+            // The cursor spectrum's slice, as the backend answers it: until it is in, the spectrogram column drawn is not read (R7).
+            const slice = uiSmokeSliceAnswer(message);
+            if (slice) { window.setTimeout(function() { window.postMessage(slice, '*'); }, 0); return; }
             if (message && message.type === 'compare-combine' && !window.__uiSmokeHoldCombine) {
                 const answer = uiSmokeCombine(message);
                 window.setTimeout(function() { window.postMessage({ type: 'compare-combine-result', requestId: message.requestId, result: answer }, '*'); }, 0);
@@ -125,6 +151,13 @@ HTMLMediaElement.prototype.play = function() {
 </script>`;
 }
 
+/**
+ * The Extension Host path stub's grids (buildExtensionHostApiStub): a cursor spectrum's every bin (4097, an 8192-point
+ * FFT) and a pair view's 129 bins, each from 0 Hz up to `maxHz`. Exported so a test that expects a bin of them
+ * (plotContract.spec.ts) takes it from the data the stub answers with, not from the plot.
+ */
+export const UI_SMOKE_HOST_GRID = { spectrumBins: 4097, pairBins: 129, maxHz: 4000 } as const;
+
 function buildExtensionHostApiStub(nonce: string, responseDelayMs: number): string {
     return `<script nonce="${nonce}">
 window.__uiSmokePostedMessages = [];
@@ -140,7 +173,7 @@ window.__uiSmokeHostMetrics = {
 };
 // A cursor spectrum is a row cut for display (192 points); the CSV export asks for every bin of an 8192-point FFT.
 const uiSmokeSpectrumBins = function(message) {
-    return message.fullResolution ? 4097 : 192;
+    return message.fullResolution ? ${UI_SMOKE_HOST_GRID.spectrumBins} : 192;
 };
 // A test may set window.__uiSmokeSpikeHz: one bin there stands at −2 dB in an answer at full resolution only, a
 // line a spectrum cut for display (192 points) does not have.
@@ -177,6 +210,8 @@ const uiSmokeBandResponse = function(message) {
             return {
                 channelIndex: channelIndex,
                 values: centers.map(function(_, index) { return -60 + index - channelIndex * 6; }),
+                // Bands are never cut for display: every band is sent as bins too (x-whole), as the backend does.
+                bins: centers.map(function(_, index) { return -60 + index - channelIndex * 6; }),
                 minDb: -66,
                 maxDb: -60 + centers.length,
             };
@@ -197,25 +232,30 @@ const uiSmokeSpectrumResponse = function(message) {
         trackIndex: message.trackIndex,
         filePath: message.filePath,
         frequencyBins: bins,
-        maxFrequencyHz: 4000,
+        maxFrequencyHz: ${UI_SMOKE_HOST_GRID.maxHz},
         ...(message.fullResolution ? {} : { frequenciesHz: Array.from({ length: bins }, function(_, index) { return index / (bins - 1) * 4000; }) }),
         windowStartNorm: message.cursorNorm - 0.02,
         windowEndNorm: message.cursorNorm + 0.02,
         window: 'hann',
     };
     if (Number.isInteger(message.channelIndex)) {
+        if (message.fullResolution) uiSmokeServe('spectrum', message.filePath, message.channelIndex, uiSmokeSpectrumValues(message.cursorNorm, message.channelIndex, bins));
         return Object.assign(identity, {
             channelIndex: message.channelIndex,
             values: uiSmokeSpectrumValues(message.cursorNorm, message.channelIndex, bins),
+            ...(message.fullResolution ? { bins: uiSmokeSpectrumValues(message.cursorNorm, message.channelIndex, bins) } : {}),
             minDb: -100,
             maxDb: 0,
         });
     }
+    if (message.fullResolution) [0, 1].forEach(function(channelIndex) { uiSmokeServe('spectrum', message.filePath, channelIndex, uiSmokeSpectrumValues(message.cursorNorm, channelIndex, bins)); });
     return Object.assign(identity, {
         channels: [0, 1].map(function(channelIndex) {
             return {
                 channelIndex: channelIndex,
                 values: uiSmokeSpectrumValues(message.cursorNorm, channelIndex, bins),
+                // Every bin (x-whole) only for a row not cut for display (no frequenciesHz), as the backend does.
+                ...(message.fullResolution ? { bins: uiSmokeSpectrumValues(message.cursorNorm, channelIndex, bins) } : {}),
                 minDb: -100,
                 maxDb: 0,
             };
@@ -224,8 +264,8 @@ const uiSmokeSpectrumResponse = function(message) {
     });
 };
 const uiSmokePairResponse = function(message) {
-    const bins = 129;
-    return {
+    const bins = ${UI_SMOKE_HOST_GRID.pairBins};
+    const answer = {
         type: 'pair-spectrum-result',
         requestId: message.requestId,
         analysisId: message.analysisId,
@@ -233,7 +273,7 @@ const uiSmokePairResponse = function(message) {
         filePath: message.reference.filePath,
         channelIndex: message.reference.channelIndex,
         frequencyBins: bins,
-        maxFrequencyHz: 4000,
+        maxFrequencyHz: ${UI_SMOKE_HOST_GRID.maxHz},
         nFft: 256,
         hopLength: 64,
         window: 'hann',
@@ -255,6 +295,12 @@ const uiSmokePairResponse = function(message) {
             };
         }),
     };
+    answer.responses.forEach(function(response) {
+        uiSmokeServe('pair-gain', response.filePath, response.channelIndex, response.gainDb);
+        uiSmokeServe('pair-phase', response.filePath, response.channelIndex, response.phaseRad);
+        uiSmokeServe('pair-coherence', response.filePath, response.channelIndex, response.coherence);
+    });
+    return answer;
 };
 window.acquireVsCodeApi = function() {
     return {
@@ -316,16 +362,24 @@ function finalizeUiSmokeHtml(html: string, apiStub = buildVsCodeApiStub): string
     return html.replace('<div id="app"></div>', `<div id="app"></div>\n    ${apiStub(nonce)}`);
 }
 
-interface PreviewResult {
+export interface PreviewResult {
     filePath: string;
     fileName: string;
     channels: Array<Record<string, unknown>>;
     [key: string]: unknown;
 }
 
-interface PreviewState {
+export interface PreviewState {
     results: PreviewResult[];
     [key: string]: unknown;
+}
+
+/** The app state a page was built with (its results: each track's waveform envelope, spectrogram, duration). */
+export function appStateOf(html: string): PreviewState {
+    let state: PreviewState | null = null;
+    replaceAppState(html, built => { state = JSON.parse(JSON.stringify(built)) as PreviewState; });
+    if (!state) throw new Error('no __APP_STATE__ in the page');
+    return state;
 }
 
 function replaceAppState(html: string, mutate: (state: PreviewState) => void): string {

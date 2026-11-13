@@ -9,6 +9,56 @@ export function withMinus(text: string): string {
     return text.replace(/^-/, '−').replace('e-', 'e−').replace('e+', 'e');
 }
 
+/**
+ * The one rule for how many decimals a number needs (R7): enough that points `step` apart (neighbouring samples,
+ * bins, frames, lags, ticks) never read the same, and never fewer than `least`; `most` at most. A time, a frequency,
+ * a quefrency, a lag, a tick and a range field all take their decimals from it.
+ */
+export function spacingDecimals(step: number | undefined, least = 0, most = 9): number {
+    if (step === undefined || !(step > 0) || !Number.isFinite(step)) return least;
+    return Math.max(least, Math.min(most, Math.ceil(-Math.log10(step) - 1e-9)));
+}
+
+/**
+ * A tick's number, written exactly as the value it is at and to the digits that tell it from ticks `step` apart
+ * (spacingDecimals, and the step's own digits: 2.5 apart, "997.5"), trailing zeros dropped; with a true minus.
+ */
+export function stepText(value: number, step: number | undefined): string {
+    let decimals = spacingDecimals(step);
+    while (step !== undefined && decimals < 9 && Math.abs(step * 10 ** decimals - Math.round(step * 10 ** decimals)) > 1e-6) decimals++;
+    const text = value.toFixed(decimals);
+    return withMinus(text.includes('.') ? text.replace(/\.?0+$/, '') : text);
+}
+
+/**
+ * The decimals a range field's end is made at for a window `span` wide (figureModel.fieldWindow): a thousandth of it,
+ * at least 0.001, so a window applied unchanged is the window it was (1.23456–1.23461 s stays so, never 1.235–1.235).
+ */
+export const fieldDecimals = (span: number): number => spacingDecimals(Math.abs(span) / 1000, 3, 15);
+
+/**
+ * The decimals a colour bar writes its ends to for a scale `span` wide (R9): none from 8 up, else enough to tell an
+ * eighth of it (spacingDecimals), at least one. An automatic colour scale is widened to ends at these decimals
+ * (figureModel.colourScale), so its ends are written as the very numbers its colours are painted from.
+ */
+export const colourDecimals = (span: number): number => (span >= 8 ? 0 : spacingDecimals(span / 8, 1, 12));
+
+/**
+ * The fewest decimals that write `value` exactly, as JavaScript's shortest round-trip text does (−23.5: 1,
+ * 1000000.5: 1, 1e-7: 7): a number written with at least these decimals parses back to itself.
+ */
+export function exactDecimals(value: number): number {
+    if (!Number.isFinite(value)) return 0;
+    const [mantissa, exponent = '0'] = String(Math.abs(value)).split('e');
+    return Math.max(0, (mantissa.split('.')[1]?.length ?? 0) - Number(exponent));
+}
+
+/**
+ * A number for a range field that is exactly the end it shows: the shortest text that parses back to it ("-23.5",
+ * "1000000.5"), with a hyphen minus as a field is typed and parsed. The range popover writes a painted end with it.
+ */
+export const exactFieldText = (value: number): string => String(value + 0);
+
 /** Trailing zeros of a decimal fraction dropped ("3.150" → "3.15", "2.000" → "2"). */
 const trimmed = (text: string): string => (text.includes('.') ? text.replace(/\.?0+$/, '') : text);
 
@@ -19,13 +69,22 @@ const trimmed = (text: string): string => (text.includes('.') ? text.replace(/\.
  */
 export function frequencyText(hz: number, stepHz?: number): string {
     // Decimals in Hz that tell points `stepHz` apart: a resolution no coarser than the step.
-    const needed = stepHz !== undefined && stepHz > 0 && Number.isFinite(stepHz) ? Math.max(0, Math.ceil(-Math.log10(stepHz) - 1e-9)) : 0;
+    const needed = spacingDecimals(stepHz);
     if (Math.abs(hz) < 1000) {
         if (needed > 1) return `${withMinus(trimmed(hz.toFixed(needed)))} Hz`;
         const whole = Math.round(hz);
         return `${withMinus(Math.abs(hz - whole) < 0.05 ? String(whole) : hz.toFixed(1))} Hz`;
     }
     return `${withMinus(trimmed((hz / 1000).toFixed(3 + needed)))} kHz`;
+}
+
+/**
+ * A stretch of time, "1.00–3.00 s": to 10 ms, and finer where it is so short its ends would read alike (to a
+ * tenth of its length, spacingDecimals); with a true minus.
+ */
+export function secondsSpanText(start: number, end: number): string {
+    const digits = spacingDecimals(Math.abs(end - start) / 10, 2, 9);
+    return `${withMinus(start.toFixed(digits))}–${withMinus(end.toFixed(digits))} s`;
 }
 
 /** A time in seconds to `digits` decimals (2 by default: 10 ms). */
@@ -51,18 +110,25 @@ export function amountText(value: number, unit?: string | null): string {
     return unit ? `${number}${unit === '°' ? '°' : ` ${unit}`}` : number;
 }
 
-/** A quefrency in milliseconds: to 10 µs under 10 ms, to 0.1 ms from there ("2.50 ms", "12.5 ms"). */
-export function quefrencyText(seconds: number): string {
-    return `${withMinus((seconds * 1000).toFixed(Math.abs(seconds) < 0.01 ? 2 : 1))} ms`;
+/**
+ * A quefrency in seconds, the unit its axis is named in (R4, R7): to 10 µs under 10 ms, to 0.1 ms from there
+ * ("0.00250 s", "0.0125 s"), and to the digits that tell points `stepSeconds` apart where they are closer (a sample
+ * at 96 kHz: "0.012510 s", "0.012521 s").
+ */
+export function quefrencyText(seconds: number, stepSeconds?: number): string {
+    const digits = Math.max(Math.abs(seconds) < 0.01 ? 5 : 4, spacingDecimals(stepSeconds));
+    return `${withMinus(seconds.toFixed(digits))} s`;
 }
 
 /**
- * A signed lag in milliseconds: the output later than the input when positive. To 10 µs at any lag (a sample at
- * 96 kHz, since a delay is read sample by sample), and no sign on none ("+1.25 ms", "−0.50 ms", "0.00 ms").
+ * A signed lag in seconds, the unit its axis is named in (R4, R7): the output later than the input when positive.
+ * To 10 µs at any lag (a sample at 96 kHz, since a delay is read sample by sample), and no sign on none
+ * ("+0.00125 s", "−0.00050 s", "0.00000 s").
  */
-export function lagText(seconds: number): string {
-    const ms = (Math.abs(seconds) * 1000).toFixed(2);
-    return `${Number(ms) === 0 ? '' : seconds > 0 ? '+' : '−'}${ms} ms`;
+export function lagText(seconds: number, stepSeconds?: number): string {
+    // Finer than 10 µs apart (a sample past 100 kHz), to the digits that tell neighbouring lags apart.
+    const text = Math.abs(seconds).toFixed(spacingDecimals(stepSeconds, 5));
+    return `${Number(text) === 0 ? '' : seconds > 0 ? '+' : '−'}${text} s`;
 }
 
 /** A Bark value to a tenth ("12.5 Bark"). */
@@ -71,16 +137,27 @@ export function barkText(bark: number): string {
 }
 
 /** A level to a tenth of a decibel, in its unit ("−42.3 dB", "61.0 dB SPL"). */
-export function levelText(db: number, unit = 'dB'): string {
-    return `${withMinus(db.toFixed(1))} ${unit}`;
+/** A level and the reference it is in: the caller names it (R4); there is no bare "dB" default. */
+export function levelText(db: number, unit: string): string {
+    return `${noNegativeZero(withMinus(db.toFixed(1)))}${unit ? ` ${unit}` : ''}`;
 }
 
-/** A signed number with a sign always written: to a tenth by default ("+23.7", "−1.4"). */
+/** A number written as zero has no sign ("−0.0" is "0.0", A36): a level just below zero is not negative as written. */
+/** A number text without its sign when it rounds to zero ("−0.0" → "0.0"). */
+export const noNegativeZero = (text: string): string => (/^[−-]0(\.0*)?$/u.test(text) ? text.slice(1) : text);
+
+/** A signed number with a sign always written: to a tenth by default ("+23.7", "−1.4"); zero as written is "+0.0", never "−0.0". */
 export function signedNumberText(value: number, digits = 1): string {
-    return `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(digits)}`;
+    const magnitude = Math.abs(value).toFixed(digits);
+    return `${value >= 0 || Number(magnitude) === 0 ? '+' : '−'}${magnitude}`;
 }
 
-/** A signed difference: dB to a tenth with its unit, other values to three significant figures ("+3.2 dB", "−0.125"). */
-export function signedText(value: number, db = true): string {
-    return db ? `${signedNumberText(value)} dB` : `${value >= 0 ? '+' : '−'}${significant(Math.abs(value))}`;
+/**
+ * A signed difference: dB to a tenth with its unit, other values to three significant figures in their own unit
+ * when they have one ("+3.2 dB", "−0.125", "+0.0312 asper/Bark", "+3.5°"): a Δ never drops the unit its values are in.
+ */
+export function signedText(value: number, db = true, unit?: string | null): string {
+    if (db) return `${signedNumberText(value)} dB`;
+    const number = `${value >= 0 ? '+' : '−'}${significant(Math.abs(value))}`;
+    return unit ? `${number}${unit === '°' ? '°' : ` ${unit}`}` : number;
 }

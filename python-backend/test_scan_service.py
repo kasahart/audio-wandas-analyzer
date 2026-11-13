@@ -12,7 +12,7 @@ import soundfile as sf
 import wandas as wd
 
 import analysis_spec as spec
-from analysis_engine import AnalysisEngine
+from analysis_engine import AnalysisEngine, file_version
 from analysis_service import AnalysisService
 from browser_service import create_service
 from command_dispatch import dispatch, validate_request
@@ -54,9 +54,7 @@ def test_scan_measures_the_analysis_spec_metrics(tmp_path: Path) -> None:
 
     assert result["ok"] is True
     assert result["input"] == {
-        "id": json.dumps(
-            [str(Path(path).resolve()), Path(path).stat().st_size, Path(path).stat().st_mtime_ns // 10**6]
-        ),
+        "id": json.dumps([str(Path(path).resolve()), *file_version(Path(path).stat())]),
         "fs": RATE,
         "channels": [0, 1],
         "durationS": 2.0,
@@ -65,6 +63,8 @@ def test_scan_measures_the_analysis_spec_metrics(tmp_path: Path) -> None:
         "levelReferenceLabel": "dBFS",
         "calibrationStatus": "uncalibrated",
         "fullScale": True,
+        # Each channel's own status, in channels' order (a channel taken alone names its own, R4).
+        "channelCalibration": ["uncalibrated", "uncalibrated"],
     }
     rms_db = [20 * np.log10(0.5 / np.sqrt(2)), 20 * np.log10(0.1 / np.sqrt(2))]
     # A-weighting is 0 dB at 1 kHz and +1.2 dB at 3.15 kHz.
@@ -89,7 +89,13 @@ def test_scan_measures_the_analysis_spec_metrics(tmp_path: Path) -> None:
     assert _band(result, 0, 6300.0) is not None
     assert result["crest"] == pytest.approx([np.sqrt(2)] * 2, abs=0.01)
     assert result["specVersion"] == spec.ANALYSIS_SPEC_VERSION
-    assert all(value == round(value, 2) for value in result["leqDbA"])
+    # Sent as wandas measures them, never rounded: the webview takes channel means, medians and every Δ from these.
+    leq = np.asarray(result["leqDbA"])
+    assert any(value != round(value, 4) for value in leq)
+    assert any(value != round(value, 4) for row in result["thirdOctDb"] for value in row if value is not None)
+    assert any(value != round(value, 3) for value in result["crest"])
+    # Only the 192 drawn points are rounded, as a picture (no number is taken of them), to keep a stored result small.
+    assert all(value == round(value, spec.SPECTRUM_DRAWN_DECIMALS) for row in result["spectrumDb"] for value in row)
 
 
 def _pascal(channel: int) -> dict:
@@ -612,7 +618,7 @@ def test_a_trigger_step_draws_each_event_and_the_steps_after_it_take_them(tmp_pa
     assert [event["id"] for event in events["events"]] == [0, 1, 2]
     assert [round(event["time"], 2) for event in events["events"]] == [0.3, 0.8, 1.3]
     assert events["xs"][0] == pytest.approx(-0.01, abs=1e-3) and events["xs"][-1] < 0.19
-    assert all(len(event["values"]) == len(events["xs"]) for event in events["events"])
+    assert all(len(event["values"]) == len(event["xs"]) for event in events["events"])
     # The block of largest magnitude keeps each hit's peak (channels averaged: 1 and 0.5).
     assert max(max(abs(value) for value in event["values"] if value is not None) for event in events["events"]) > 0.7
     # Zoomed, the events come at the samples' own resolution over the part on screen.
@@ -811,8 +817,11 @@ def test_a_cross_channel_step_pairs_the_scanned_recording_with_the_reference_rec
     coherence["nodes"][2]["params"] = {"$type": "map", "entries": []}
     reference = {"filePath": base, "step": "node-2", "recipe": coherence}
 
-    near = _scan(service, alike, recipe=coherence, stage="node-2", reference=reference)["stage"]
+    paired = _scan(service, alike, recipe=coherence, stage="node-2", reference=reference)
+    near = paired["stage"]
     far = _scan(service, other, recipe=coherence, stage="node-2", reference=reference)["stage"]
+    # The base side's own calibration goes with the scan: a pair is calibrated only when both sides are (R4).
+    assert paired["input"]["baseCalibrationStatus"] == "uncalibrated"
 
     # The pair is the recording over the base one, said so (not two channels of one recording).
     assert near["pair"] == far["pair"] == {"output": 2, "input": 1, "base": True}
@@ -937,3 +946,63 @@ def test_importing_and_creating_the_browser_service_leaves_the_dask_scheduler_al
         [sys.executable, "-c", code], cwd=Path(__file__).parent, capture_output=True, text=True, check=True
     ).stdout
     assert output.strip() == "None"
+
+
+def test_a_file_replaced_within_the_same_millisecond_is_another_input(tmp_path: Path) -> None:
+    """The scan's input id and condition id name the version read: a rewrite within the same millisecond, or a
+    copy that keeps the old modification time and size, is read again and named anew (never by a truncated mtime)."""
+    service = AnalysisService(AnalysisEngine())
+    path = _write(tmp_path / "tone.wav", [_sine(1000, 0.5)])
+    first = _scan(service, path)
+    mtime = Path(path).stat().st_mtime_ns
+    # Same size, a modification time 1 µs later (the same millisecond), other content.
+    _write(tmp_path / "tone.wav", [_sine(1000, 0.1)])
+    import os
+
+    os.utime(path, ns=(mtime + 1_000, mtime + 1_000))
+    second = _scan(service, path)
+    assert second["input"]["id"] != first["input"]["id"]
+    assert second["conditionId"] != first["conditionId"]
+    assert second["leqDbA"][0] < first["leqDbA"][0] - 10
+    # Replaced by a copy carrying the old modification time (cp -p): the same mtime and size, another file.
+    replacement = _write(tmp_path / "copy.wav", [_sine(1000, 0.5)])
+    os.utime(replacement, ns=(mtime, mtime))
+    os.replace(replacement, path)
+    third = _scan(service, path)
+    assert third["input"]["id"] not in {first["input"]["id"], second["input"]["id"]}
+    assert third["leqDbA"][0] == pytest.approx(first["leqDbA"][0], abs=0.01)
+
+
+def test_a_step_over_the_store_budget_is_not_named_by_a_key_it_was_refused(tmp_path: Path) -> None:
+    """Every ``data`` key a scan gives is held by the store (stage-combine finds it), so a combination never answers
+    ``missing`` for a key the store refused, and the comparison never scans the step again for it: over the budget
+    the result says ``stageDataTooLarge`` instead, on every scan of that step (zoomed too)."""
+    from stage_combine import STAGE_DATA_BUDGET_BYTES as STAGE_BUDGET
+    from stage_combine import STORE, combine_keys
+
+    service = AnalysisService(AnalysisEngine())
+    path = _write(tmp_path / "tone.wav", [_sine(1000, 0.5)])
+    STORE.clear()
+    try:
+        STORE.resize(1)
+        for detail in (None, {"x": [0.1, 0.2], "points": 2000}):
+            result = _scan(service, path, stage="node-0", **({"detail": detail} if detail else {}))
+            assert result["ok"] is True and "data" not in result["stage"]
+            assert result["stageDataTooLarge"] is True
+        STORE.resize(STAGE_BUDGET)
+        kept = _scan(service, path, stage="node-0")
+        assert "stageDataTooLarge" not in kept
+        key = kept["stage"]["data"]
+        assert STORE.has(key)
+        assert combine_keys([key], None)["ok"] is True
+    finally:
+        STORE.resize(STAGE_BUDGET)
+        STORE.clear()
+
+
+def test_scan_spec_names_what_decides_a_scans_numbers_beside_file_and_recipe(tmp_path: Path) -> None:
+    """The host keeps stored scans under it (entryScan.ts): a scan of another analysis spec or wandas is not reused."""
+    service = AnalysisService(AnalysisEngine())
+    answer = dispatch(validate_request({"cmd": "scan-spec", "requestId": "r"}), service)
+    assert answer == {"specVersion": spec.ANALYSIS_SPEC_VERSION, "wandasVersion": wd.__version__}
+    assert first_violation(DEFINITIONS["ScanSpecResult"], dict(answer)) is None

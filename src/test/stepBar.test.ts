@@ -4,10 +4,12 @@ import path from 'node:path';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { getStrings } from '../shared/i18n/strings';
-import { withStep } from '../shared/recipe/recipeSteps';
+import { recipeNodes, STEP_PARAMS, withStep } from '../shared/recipe/recipeSteps';
 import { catalogOperation } from '../shared/recipe/recipeCatalog';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 import { createStepBar } from '../webview/runtime/stepBar';
+import { wholeValue } from './helpers/whole';
+import type { RegionPeak } from '../webview/runtime/regionPeak';
 
 const entry = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as RecipeDocument;
 const strings = getStrings('en');
@@ -85,4 +87,42 @@ test('Delete on a chip removes its step, M bypasses it; a button naming no step 
     bar.element.append(stray);
     stray.click();
     assert.equal(changes.length, 2);
+});
+
+test('a trigger added once the tracks\' peak is read starts at half of it; added while the peak is pending or its read failed it keeps its own level and the footer says so (R1)', () => {
+    const TRIGGER_ID = 'wandas.audio.trigger';
+    const added = (peak: RegionPeak) => {
+        const { bar, changes, footer } = mountBar();
+        // Reading the peak asks the backend for samples: the bar may do it only when a trigger can be added.
+        let asked = 0;
+        const state = { recipe: { ...entry, nodes: [] }, sampleRate: 16000, peak: () => { asked++; return peak; } };
+        // A chain of the time signal only, so a trigger can go at ＋. Given its state, and given it again as every
+        // repaint does, the bar has not asked for the peak.
+        bar.set(state);
+        bar.set({ ...state });
+        assert.equal(asked, 0, 'the peak must not be read when the bar is drawn (StepBarState.peak is called on a repaint)');
+        bar.element.querySelector<HTMLElement>('[data-action="step-add"]')?.click();
+        assert.equal(asked, 1, 'the peak is asked for when ＋ opens a menu that offers a trigger, so it is in hand when one is picked');
+        const item = bar.element.querySelector<HTMLElement>(`.step-menu-item[data-op="${TRIGGER_ID}"]`);
+        assert.ok(item && !item.classList.contains('is-off'), 'the trigger is offered at ＋');
+        item.click();
+        const node = recipeNodes(changes.at(-1)).find(step => step.operation === TRIGGER_ID);
+        assert.ok(node, 'the trigger was added');
+        return { threshold: node.params.entries.find(([name]) => name === 'threshold')?.[1], footer: footer() };
+    };
+    const param = STEP_PARAMS[TRIGGER_ID].find(item => item.name === 'threshold');
+    const initial = param && 'initial' in param ? param.initial : undefined;
+    assert.equal(typeof initial, 'number', 'the trigger step has an initial level of its own');
+    const read = added({ state: 'ready', value: wholeValue(0.734) });
+    assert.equal(read.threshold, 0.37, 'half the peak read from every sample, to two figures');
+    assert.doesNotMatch(read.footer, /not read yet/u);
+    // Not read because too many recordings would have to be: the step's own level, and the footer says why, with the limit.
+    const many = added({ state: 'tooMany', limit: 30 });
+    assert.equal(many.threshold, initial, 'too many recordings: the step keeps its own initial level');
+    assert.match(many.footer, /more than 30 recordings/u, 'the footer says the peak was not read and why (stepPeakTooMany)');
+    for (const state of ['pending', 'failed'] as const) {
+        const unread = added({ state });
+        assert.equal(unread.threshold, initial, `${state}: no number is made up; the step keeps its own initial level`);
+        assert.equal(unread.footer, strings.stepPeakUnread.replace('{op}', unread.footer.match(/^Added (.+?)\. /u)?.[1] ?? ''), `${state}: the footer says the peak is not read (stepPeakUnread)`);
+    }
 });

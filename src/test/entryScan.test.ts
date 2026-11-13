@@ -13,11 +13,12 @@ function ok(filePath: string): ScanResult {
     };
 }
 
-function ports(store: Record<string, unknown> = {}, identities: Record<string, string> = {}) {
+function ports(store: Record<string, unknown> = {}, identities: Record<string, string> = {}, spec: string | null = '1|0.9.0') {
     const scanned: string[] = [];
     let after = 0;
     const port: EntryScanPorts = {
         identity: async filePath => identities[filePath],
+        spec: async () => spec ?? undefined,
         calibration: () => 'null',
         scan: async filePath => { scanned.push(filePath); return filePath.includes('bad') ? { ok: false, reason: 'Unable to read audio' } : ok(filePath); },
         read: key => store[key],
@@ -61,6 +62,30 @@ test('an unchanged file reuses its stored result; a changed one or a failure is 
     const fourth = ports(third.store, { '/a.wav': 'a1' });
     await runEntryScan(fourth.port, { type: 'entry-scan', requestId: 'r', filePaths: ['/a.wav'], recipe: { schema: 'wandas.recipe', version: 3, inputs: [], nodes: [{ id: 'n', operation: 'x', inputs: [] }], output: 'n' } as never }, () => {}, () => true);
     assert.equal((fourth.store[INDEX] as Record<string, unknown[]>)['/a.wav'].length, 2);
+});
+
+test('a stored result is reused only under the analysis spec and wandas it was computed with (V2)', async () => {
+    const first = ports({}, { '/a.wav': 'a1' });
+    await run(first.port, ['/a.wav']);
+    assert.equal(((first.store[INDEX] as Record<string, Array<{ spec: string }>>)['/a.wav'])[0].spec, '1|0.9.0', 'kept under the spec the result names');
+    const same = ports(first.store, { '/a.wav': 'a1' });
+    await run(same.port, ['/a.wav']);
+    assert.deepEqual(same.scanned, [], 'the same spec: reused');
+    const upgraded = ports(first.store, { '/a.wav': 'a1' }, '2|0.9.0');
+    const opened = await (async () => { const published: EntryPublication[] = []; await runEntryScan(upgraded.port, { type: 'entry-scan', requestId: 'r', filePaths: ['/a.wav'], cachedOnly: true }, message => { published.push(message); }, () => true); return published; })();
+    assert.deepEqual(opened.filter(item => item.type === 'entry-scan-result'), [], 'opened under another analysis spec: nothing stored is of it');
+    await run(upgraded.port, ['/a.wav']);
+    assert.deepEqual(upgraded.scanned, ['/a.wav'], 'computed again');
+    const otherWandas = ports(first.store, { '/a.wav': 'a1' }, '1|0.10.0');
+    await run(otherWandas.port, ['/a.wav']);
+    assert.deepEqual(otherWandas.scanned, ['/a.wav'], 'another wandas: computed again');
+    const unknown = ports(first.store, { '/a.wav': 'a1' }, null);
+    await run(unknown.port, ['/a.wav']);
+    assert.deepEqual(unknown.scanned, ['/a.wav'], 'a backend that cannot say its spec reuses nothing');
+    // An index stored before entries named their spec reuses nothing.
+    const legacy = ports({ [INDEX]: { '/a.wav': [{ identity: 'a1', calibration: 'null', recipe: (first.store[INDEX] as Record<string, Array<{ recipe: string }>>)['/a.wav'][0].recipe, result: ok('/a.wav') }] } }, { '/a.wav': 'a1' });
+    await run(legacy.port, ['/a.wav']);
+    assert.deepEqual(legacy.scanned, ['/a.wav']);
 });
 
 test('a folder\'s session and CSV are kept by the host under that folder, and come back at open with the stored results', async () => {

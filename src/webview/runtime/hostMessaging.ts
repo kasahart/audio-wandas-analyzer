@@ -1,3 +1,4 @@
+import type { Drawn } from '../../shared/provenance';
 import type { PanelMessage } from '../../shared/protocol/panelMessages';
 import type {
     AnalysisUpdateMessage,
@@ -17,6 +18,12 @@ export interface LazyResponseIdentity {
     settingsSignature: string;
     trackIndex: number;
     filePath: string;
+    /** The version of the file the answer is of (the backend's sourceVersion): drawn only over a track of the same. */
+    sourceVersion?: string;
+    /** A failure because the file changed on disk since the track was analysed: asking again cannot mend it. */
+    staleSource?: true;
+    /** The STFT the answer was taken with (the backend's, not the settingsSignature it echoes): drawn only over an analysis of it. */
+    stftSignature?: string;
 }
 
 export type HostInboundMessage =
@@ -27,6 +34,8 @@ export type HostInboundMessage =
         startNorm: number;
         endNorm: number;
         channels: RangeWaveform[];
+        sourceVersion?: string;
+        staleSource?: true;
         /** A readout's read: the samples it reads (R7). */
         points?: StagePoints;
     }
@@ -36,7 +45,10 @@ export type HostInboundMessage =
         type: 'spectrum-slice-result';
         channels: Array<{
             channelIndex: number;
-            values: number[];
+            /** As drawn: every bin unless the slice was cut for display; never read (x-drawn). */
+            values: Drawn[];
+            /** Every bin (or band), only for a slice not cut for display (x-whole): what is read (wholeAnswers.ts everyBin). */
+            bins?: number[];
             minDb: number;
             maxDb: number;
             unit?: string;
@@ -110,6 +122,9 @@ export function isHostInboundMessage(value: unknown): value is HostInboundMessag
     if (!isRecord(value) || typeof value.type !== 'string') {
         return false;
     }
+    if (value.sourceVersion !== undefined && typeof value.sourceVersion !== 'string') return false;
+    if (value.staleSource !== undefined && value.staleSource !== true) return false;
+    if (value.stftSignature !== undefined && typeof value.stftSignature !== 'string') return false;
     switch (value.type) {
         case 'waveform-range-result':
             return hasString(value, 'requestId') && hasNumber(value, 'trackIndex')
@@ -184,6 +199,9 @@ export function isHostInboundMessage(value: unknown): value is HostInboundMessag
                 && (value.channels === undefined || (typeof value.channels === 'number' && Number.isInteger(value.channels) && value.channels > 0))
                 && (value.durationS === undefined || (typeof value.durationS === 'number' && Number.isFinite(value.durationS) && value.durationS >= 0))
                 && (value.error === undefined || typeof value.error === 'string');
+        case 'entry-calibration-changed':
+        case 'entry-source-changed':
+            return hasString(value, 'filePath');
         case 'entry-probe-done':
         case 'entry-scan-done':
         case 'compare-scan-done':

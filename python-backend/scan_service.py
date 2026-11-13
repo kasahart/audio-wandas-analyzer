@@ -46,8 +46,9 @@ import analysis_spec as spec
 from analyzer import has_full_scale
 from backend_errors import InputError
 from calibration_profile import CalibrationStatus, resolve_calibration_profile
+from level_identity import level_identity
 from stage_combine import STORE, stage_data
-from stage_view import StageDetail, StageView, band_levels, rounded_db, stage_view
+from stage_view import StageDetail, StageView, band_levels, floored_db, signal_unit, stage_view
 
 if TYPE_CHECKING:
     from analysis_engine import AnalysisEngine, CachedAnalysis
@@ -77,6 +78,10 @@ class ScanInput(TypedDict):
     levelReferenceLabel: str
     calibrationStatus: CalibrationStatus
     fullScale: bool
+    #: Each channel's own status (in ``channels``' order): a channel taken alone names its own calibration.
+    channelCalibration: NotRequired[list[CalibrationStatus]]
+    #: Scanned against the base slot's recording: the status of the base channel the pair is made with.
+    baseCalibrationStatus: NotRequired[CalibrationStatus]
 
 
 class ScanResult(TypedDict):
@@ -85,7 +90,7 @@ class ScanResult(TypedDict):
     conditionId: NotRequired[str]
     input: NotRequired[ScanInput]
     leqDbA: NotRequired[list[float]]
-    peakHz: NotRequired[list[int]]
+    peakHz: NotRequired[list[float]]
     spectrumDb: NotRequired[list[list[float]]]
     #: The Welch spectrum at full resolution, bin k at k × spectrumBinHz (the median and Δ are taken of these).
     spectrumBinsDb: NotRequired[list[list[float]]]
@@ -97,6 +102,9 @@ class ScanResult(TypedDict):
     elapsedMs: NotRequired[float]
     endFrame: NotRequired[str]
     stage: NotRequired[StageView]
+    #: With ``stage``: the step's full-resolution values are over the store's budget, so they are not kept (no
+    #: ``data`` key) and nothing is combined of them; the comparison says the base is too large.
+    stageDataTooLarge: NotRequired[bool]
     failedStep: NotRequired[str]
 
 
@@ -130,6 +138,11 @@ def region_label(region: Mapping[str, float] | None) -> str:
     if region is None:
         return "all"
     return f"{region['start']:.3f}-{region['end']:.3f}"
+
+
+def scan_spec() -> dict[str, object]:
+    """What decides a scan's numbers besides its file, calibration and Recipe (part of every condition ID)."""
+    return {"specVersion": spec.ANALYSIS_SPEC_VERSION, "wandasVersion": wd.__version__}
 
 
 def condition_id(
@@ -459,7 +472,9 @@ def _node_params(recipe: Mapping[str, object], node_id: str) -> dict[str, object
 def _levels(values: np.ndarray) -> np.ndarray:
     if np.isnan(values).any():
         raise InputError("Analysis produced undefined levels")
-    return rounded_db(values)
+    # Sent unrounded, as wandas measures them: the webview takes channel means, medians and every Δ from these, so
+    # they are never rounded first; only the text and the CSV written round them (R1, R7).
+    return floored_db(values)
 
 
 def log_spectrum(levels_db: np.ndarray, freqs: np.ndarray, points: int, nyquist: float) -> np.ndarray:
@@ -536,11 +551,12 @@ def measure(
     )
     return {
         "leqDbA": _levels(leq).tolist(),
-        "peakHz": [int(round(peak)) for peak in peaks],
-        "spectrumDb": _levels(spectrum).tolist(),
+        "peakHz": [float(peak) for peak in peaks],
+        # Drawn points only (no number is taken of them, R1): rounded as a picture is, to keep a stored result small.
+        "spectrumDb": np.round(_levels(spectrum), spec.SPECTRUM_DRAWN_DECIMALS).tolist(),
         **full,
         "thirdOctDb": [[None if math.isnan(value) else value for value in row] for row in third.tolist()],
-        "crest": np.round(crest, spec.CREST_DECIMALS).tolist(),
+        "crest": crest.tolist(),
     }
 
 
@@ -583,7 +599,7 @@ def scan_cached(
     calibrated = resolved.apply(source)
     picked = calibrated if selected == list(range(source.n_channels)) else calibrated.get_channel(selected)
     references = {
-        (channel.unit, float(channel.ref), channel.level_reference.label, has_full_scale(source, index))
+        (*level_identity(channel.unit, channel.ref, channel.level_reference.label), has_full_scale(source, index))
         for index, channel in zip(selected, picked.channels, strict=True)
     }
     if len(references) != 1:
@@ -614,7 +630,10 @@ def scan_cached(
         "levelReferenceLabel": level_label,
         "calibrationStatus": status,
         "fullScale": full_scale,
+        "channelCalibration": [resolved.channels[index].status for index in selected],
     }
+    if reference is not None:
+        described["baseCalibrationStatus"] = _reference_status(reference)
     known = {*plans["upstream"], plans["region"].output, *(step for step, _ in plans["steps"])}
     # The step's full-resolution values are kept under this key for the comparison's medians and differences.
     data_key = _data_key(cached, recipe, region, selected, calibration_profile, stage, reference)
@@ -709,7 +728,7 @@ def scan_cached(
                 view = stage_view(current, _length_s(timed), detail)
                 # A trigger that found no event has no segment to name its unit: the signal it watched does.
                 if view.get("events") == [] and not view.get("unit"):
-                    view["unit"] = timed.channels[0].unit or ""
+                    view["unit"] = signal_unit(timed)
                 return _stage_result(described, _against_base(view, vs_base), current, _length_s(timed), data_key)
         except Exception as error:  # noqa: BLE001 - as above.
             if step == paired_at and short_base is not None:
@@ -746,6 +765,18 @@ def scan_cached(
         "wandasVersion": wd.__version__,
         "endFrame": type(current).__name__,
     }
+
+
+def _reference_status(reference: tuple[CachedAnalysis, ScanReference]) -> CalibrationStatus:
+    """The calibration status of the base slot's channel a pair is made with (its Recipe's get_channel, else ch1)."""
+    cached, described = reference
+    resolved = resolve_calibration_profile(described.get("calibration"), cached.frame, source_peaks=cached.source_peaks)
+    try:
+        index = int(_node_params(described["recipe"], CHANNEL_NODE).get("channel_idx", 0))  # type: ignore[call-overload]
+    except Exception:  # noqa: BLE001 - a Recipe that names no channel pairs the base's first.
+        index = 0
+    channels = resolved.channels
+    return channels[index].status if 0 <= index < len(channels) else "uncalibrated"
 
 
 def _reference_region(
@@ -832,23 +863,31 @@ def _stage_result(
 ) -> ScanResult:
     """A step's picture alone: the comparison asks for it per step, so the metrics are not computed again.
 
-    The step's own values are kept (stage_combine) and the picture names them (``data``), unless they are kept
-    already (a zoomed picture of a step asked for before).
+    The step's own values are kept (stage_combine) and the picture names them (``data``) only once the store holds
+    them: a key the store refused (over its budget) would be asked for, answered missing and scanned again, over
+    and over. Refused, the result says so (``stageDataTooLarge``) and the comparison draws no median or Δ of it.
     """
-    if not STORE.has(data_key):
+    too_large = False
+    if STORE.has(data_key):
+        view["data"] = data_key
+    else:
         data = stage_data(frame, view, signal_s)
         if data is not None:
             STORE.put(data_key, data)
-            view["data"] = data_key
-    else:
-        view["data"] = data_key
-    return {
+            if STORE.has(data_key):
+                view["data"] = data_key
+            else:
+                too_large = True
+    result: ScanResult = {
         "ok": True,
         "input": described,
         "stage": view,
         "specVersion": spec.ANALYSIS_SPEC_VERSION,
         "wandasVersion": wd.__version__,
     }
+    if too_large:
+        result["stageDataTooLarge"] = True
+    return result
 
 
 def _first_line(error: BaseException) -> str:

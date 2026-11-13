@@ -104,3 +104,137 @@ def test_track_detail_of_a_file_shorter_than_half_a_window_is_an_input_error(tmp
 
     with pytest.raises(InputError, match="too short for this STFT window"):
         dispatch(validate_request(command), service)
+
+
+def test_every_lazy_answer_names_the_file_version_and_one_asked_of_another_is_refused(tmp_path: Path) -> None:
+    """A lane's lazy answers (range, detail, slice, pair, reads) are of the version its track was analysed from: a
+    file rewritten since is refused with stale-source, never answered from the new samples under the old picture."""
+    from analysis_service import AnalysisService
+    from backend_errors import STALE_SOURCE, StaleSourceError, error_payload
+    from command_dispatch import dispatch, validate_request
+
+    wav = _write_tone(tmp_path / "a.wav")
+    service = AnalysisService(AnalysisEngine(cache_limit_bytes=50_000_000))
+    track = {"filePath": str(wav), "trackIndex": 0, "analysisId": "a1", "settingsSignature": "s1"}
+    pair_source = {"filePath": str(wav), "channelIndex": 0, "offsetSeconds": 0.0}
+    commands = [
+        {"cmd": "range", "filePath": str(wav), "startNorm": 0.0, "endNorm": 1.0, "points": 8},
+        {
+            "cmd": "range",
+            "filePath": str(wav),
+            "startNorm": 0.0,
+            "endNorm": 1.0,
+            "points": 1,
+            "read": {"x": [0.1, 0.2], "y": [0.0, 1.0], "channel": 0},
+        },
+        {"cmd": "track-detail", **track},
+        {"cmd": "spectrum-slice", **track, "cursorNorm": 0.5},
+    ]
+    analysed = dispatch(validate_request({"cmd": "analyze", "requestId": "r", "filePath": str(wav)}), service)
+    version = analysed["sourceVersion"]
+    assert isinstance(version, str) and version
+    for command in commands:
+        reply = dispatch(validate_request({**command, "requestId": "r", "sourceVersion": version}), service)
+        assert reply["sourceVersion"] == version, command["cmd"]
+    pair = {"cmd": "pair-spectrum", "requestId": "r", "analysisId": "a1", "settingsSignature": "s1"}
+    sourced = {**pair_source, "sourceVersion": version}
+    paired = dispatch(validate_request({**pair, "reference": sourced, "responses": [sourced]}), service)
+    assert paired["sourceVersion"] == version and paired["responses"][0]["sourceVersion"] == version
+
+    _write_tone(wav, seconds=0.5)  # recorded again: another version of the same path
+    for command in commands:
+        with pytest.raises(StaleSourceError) as raised:
+            dispatch(validate_request({**command, "requestId": "r", "sourceVersion": version}), service)
+        assert error_payload(raised.value)["code"] == STALE_SOURCE
+    with pytest.raises(StaleSourceError):
+        dispatch(validate_request({**pair, "reference": pair_source, "responses": [sourced]}), service)
+    again = dispatch(validate_request({"cmd": "analyze", "requestId": "r", "filePath": str(wav)}), service)
+    assert again["sourceVersion"] != version
+    reply = dispatch(
+        validate_request({**commands[0], "requestId": "r", "sourceVersion": again["sourceVersion"]}), service
+    )
+    assert reply["sourceVersion"] == again["sourceVersion"]
+
+
+def test_every_spectral_answer_names_the_stft_it_is_taken_with_not_the_one_asked_for(tmp_path: Path) -> None:
+    """The analysis, a lane's spectrogram, a cursor slice and a pair name the STFT they were computed with
+    (stftSignature), derived here from the settings used: a lazy answer under other settings than the analysis
+    drawn names another STFT, whatever settingsSignature the request carried (that one is only echoed)."""
+    from analysis_service import AnalysisService
+    from command_dispatch import dispatch, validate_request
+
+    wav = _write_tone(tmp_path / "a.wav", seconds=1.0)
+    service = AnalysisService(AnalysisEngine(cache_limit_bytes=50_000_000))
+    track = {"filePath": str(wav), "trackIndex": 0, "analysisId": "a1", "settingsSignature": "same"}
+    small = {"nFft": 256, "overlapPercent": 50, "window": "hann"}
+    large = {"nFft": 1024, "overlapPercent": 50, "window": "hann"}
+    source = {"filePath": str(wav), "channelIndex": 0, "offsetSeconds": 0.0}
+
+    def answers(stft: dict[str, object] | None) -> list[object]:
+        options = {"stftOptions": stft} if stft else {}
+        replies = [
+            dispatch(validate_request({"cmd": "analyze", "requestId": "r", "filePath": str(wav), **options}), service),
+            dispatch(validate_request({"cmd": "track-detail", "requestId": "r", **track, **options}), service),
+            dispatch(
+                validate_request({"cmd": "spectrum-slice", "requestId": "r", **track, "cursorNorm": 0.5, **options}),
+                service,
+            ),
+            dispatch(
+                validate_request(
+                    {
+                        "cmd": "pair-spectrum",
+                        "requestId": "r",
+                        "analysisId": "a1",
+                        "settingsSignature": "same",
+                        "reference": source,
+                        "responses": [source],
+                        **options,
+                    }
+                ),
+                service,
+            ),
+        ]
+        return [reply["stftSignature"] for reply in replies]
+
+    for stft in (None, small, large):
+        signatures = answers(stft)
+        assert len(set(signatures)) == 1, (stft, signatures)
+    assert answers(small)[0] == "256/128/hann"
+    assert len({answers(None)[0], answers(small)[0], answers(large)[0]}) == 3
+
+
+def test_a_track_detail_reads_its_stft_from_the_version_it_checked_a_file_written_in_between_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The detail's STFT is of the version its first read checked: written between that read and the STFT's, the
+    file is refused (stale-source), never answered from the new samples under the old version's name (V8)."""
+    from analysis_service import AnalysisService
+    from backend_errors import StaleSourceError
+    from command_dispatch import dispatch, validate_request
+
+    wav = _write_tone(tmp_path / "a.wav")
+    service = AnalysisService(AnalysisEngine(cache_limit_bytes=50_000_000))
+    analysed = dispatch(validate_request({"cmd": "analyze", "requestId": "r", "filePath": str(wav)}), service)
+    version = analysed["sourceVersion"]
+    original = service.engine.get_analysis
+    calls = {"n": 0}
+
+    def racing(*args: object, **kwargs: object) -> object:
+        answer = original(*args, **kwargs)  # type: ignore[arg-type]
+        calls["n"] += 1
+        if calls["n"] == 1:
+            _write_tone(wav, seconds=0.5)  # recorded again just after the detail checked its version
+        return answer
+
+    monkeypatch.setattr(service.engine, "get_analysis", racing)
+    command = {
+        "cmd": "track-detail",
+        "requestId": "r",
+        "filePath": str(wav),
+        "trackIndex": 0,
+        "analysisId": "a1",
+        "settingsSignature": "s1",
+        "sourceVersion": version,
+    }
+    with pytest.raises(StaleSourceError):
+        dispatch(validate_request(command), service)

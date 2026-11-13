@@ -4,6 +4,7 @@ import re
 import struct
 from pathlib import Path
 
+import dask.array as da
 import numpy as np
 import pytest
 import wandas as wd
@@ -11,7 +12,7 @@ from wandas.pipeline import default_recipe_registry
 
 from operation_catalog import TS_TARGET, catalog, frames, typescript, with_refusals
 from operation_probe import _direct, _flat, metric_series, needs, probe, refusals, verdicts
-from stage_view import stage_view
+from stage_view import HEATMAP_TIMES, stage_view
 
 # The probe runs every operation on every Frame (1-2 min): CI runs these with AWA_SLOW=1.
 slow = pytest.mark.slow
@@ -37,6 +38,9 @@ def test_the_generated_typescript_is_current(runs: list, needed: dict) -> None:
     # every operation again, so what a new wandas can or cannot do shows here.
     assert TS_TARGET.read_text(encoding="utf-8") == typescript(
         with_refusals(catalog(), refusals(runs), needed), frames()
+    ), (
+        f"{TS_TARGET.name} is not what the catalogue gives now (a wandas upgrade, or a Frame kind added to "
+        "stage_view.STAGE_FRAME_TYPES). Fix: run `python python-backend/operation_catalog.py --write` and commit it."
     )
 
 
@@ -201,9 +205,24 @@ def test_the_step_bars_metric_rates_are_the_ones_wandas_gives() -> None:
 def test_a_steady_tone_is_not_flat_and_a_silent_difference_is() -> None:
     t = np.arange(48000) / 48000
     tone = wd.from_numpy(0.5 * np.sin(2 * np.pi * 1000 * t)[None], sampling_rate=48000)
-    # A steady tone's level line is one value, but its envelope is a ±0.5 band: it says something.
-    assert not _flat(stage_view(tone))
-    assert _flat(stage_view(tone.channel_difference()))
+    # A steady tone's level line is one value, but its samples are a ±0.5 tone: it says something.
+    assert not _flat(tone, stage_view(tone))
+    difference = tone.channel_difference()
+    assert _flat(difference, stage_view(difference))
+
+
+def test_an_image_that_draws_flat_from_block_averages_is_not_flat_when_its_cells_are_not() -> None:
+    # Columns alternating between two levels in every bin: each time block (two columns, HEATMAP_TIMES blocks) has
+    # the same power mean, so the drawn picture is one value, but the STFT's own cells are not (display rules R8).
+    rate, n_fft, columns = 48000, 256, 2 * HEATMAP_TIMES
+    magnitudes = np.where(np.arange(columns) % 2 == 0, 1.0, 4.0)
+    cells = np.broadcast_to(magnitudes, (1, n_fft // 2 + 1, columns)).astype(np.complex128)
+    frame = wd.SpectrogramFrame(da.from_array(cells), sampling_rate=rate, n_fft=n_fft, hop_length=n_fft // 2)
+    view = stage_view(frame)
+    drawn = np.array([[value for value in row if value is not None] for row in view["matrix"]], dtype=np.float64)
+    # The hard case itself: judged from the drawn points (the old rule), this picture is flat.
+    assert drawn.size and drawn.max() == drawn.min()
+    assert not _flat(frame, view)
 
 
 def test_a_parameters_field_kind_is_read_from_its_wandas_annotation() -> None:

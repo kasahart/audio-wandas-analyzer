@@ -1,4 +1,4 @@
-import { expect, test, type Page } from './canvasAudit';
+import { expect, settled, test, type Page } from './canvasAudit';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -20,6 +20,17 @@ async function leaveEntryTable(page: Page) {
     await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
 }
 
+/**
+ * A folder just opened, once its table has stopped moving. The table is shown at once and then moves: the controls
+ * above it wrap again as the scan recipe (a fetch) and the files' headers (file reads) arrive, and each arrival
+ * shifts every row by a line or two. Use this before the test acts on a row's place.
+ */
+async function folderListed(page: Page) {
+    await leaveEntryTable(page);
+    expect(await settled(page), 'the page kept working after the folder was listed, so its rows may still move. Find what it is waiting for or keeps asking for: '
+        + 'a wait from outside the page belongs in installSettleTracker (canvasAudit.ts), and an answer of the stand-in Worker the page does not take is asked again for ever').toBe(true);
+}
+
 /** A file's row in the side panel's entry table. */
 /** A mono 16-bit WAV of 28 silent samples: its header says one channel, as the entry table reads it at open. */
 function tinyWav(): Buffer {
@@ -32,8 +43,14 @@ function tinyWav(): Buffer {
 const WAV_BYTES = Array.from(tinyWav());
 const entryRow = (page: Page, filePath: string) => page.locator(`#entry-dock tr[data-file-path="${filePath}"]`);
 
-/** A row's ▶ (shown on the row under the pointer): the file becomes a track. */
+/**
+ * A row's ▶: the file becomes a track. The ▶ exists only on the row under the pointer, and the pointer stays where
+ * hover() put it, so the rows must not move between the hover and the click: the page is given time to finish what
+ * it is doing first. If the click still times out with another row "intercepting pointer events", the rows moved
+ * after the hover: find what arrived late and make settled() wait for it (canvasAudit.ts).
+ */
 async function showRow(page: Page, filePath: string) {
+    await settled(page);
     await entryRow(page, filePath).hover();
     await entryRow(page, filePath).locator('[data-action="entry-row-play"]').click();
 }
@@ -42,13 +59,15 @@ async function loadUi(page: Page) {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
 }
 
-function staticWorkerInit(): string {
+/** `detail: 'none'`: a track's detail is answered, validly, with no channel (so no spectrogram), as the page must also take. */
+function staticWorkerInit(detail: 'spectrogram' | 'none' = 'spectrogram'): string {
     const fixtures = JSON.parse(readFileSync(join(process.cwd(), 'src/test/fixtures/backendProtocol.json'), 'utf8')).validResponses;
     return `window.prompt = () => '1';
         const fixtures = ${JSON.stringify(fixtures.map(workerFixture))};
         window.Worker = class {
             terminate() {}
             postMessage(command) {
+                if (command.cmd === 'track-detail') window.__detailAsks = (window.__detailAsks ?? 0) + 1;
                 const result = command.cmd === 'load' ? { filePath: '/sources/' + command.sourceId }
                     : command.cmd === 'limits' ? { maxInputBytes: 16777216, maxSources: 8, maxTotalInputBytes: 67108864, maxExportBytes: 33554432 }
                     : ['unload', 'clear', 'export-plan'].includes(command.cmd) ? {}
@@ -56,15 +75,18 @@ function staticWorkerInit(): string {
                         leqDbA: [-20], peakHz: [1000], spectrumDb: [[-20]], thirdOctDb: [[-23]], crest: [1.4], specVersion: 1, wandasVersion: '0.9.0', elapsedMs: 1 }
                     : { ...fixtures.find(entry => entry.command === command.cmd)?.response, filePath: command.filePath,
                         ...(command.cmd === 'analyze' ? { channelCount: 1, channels: [{ label: 'Channel 1', peakAbsolute: 1, fullScale: true, sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS',
-                            waveform: { min: [-1], max: [1], samples: [0], absolutePeak: 1 }, spectrogram: null }] } : {}) };
+                            waveform: { min: [-1], max: [1], samples: [0], absolutePeak: 1 }, spectrogram: null }] } : {}),
+                        // A track's detail is its channels' spectrograms, as the real worker sends them; with detail 'none' it is a
+                        // valid answer with no channels, which the page keeps as the answer under its key and asks no more.
+                        ...(command.cmd === 'track-detail' && ${detail === 'spectrogram'} ? { channels: fixtures.find(entry => entry.command === 'analyze' && entry.response.channels.some(channel => channel.spectrogram)).response.channels } : {}) };
                 queueMicrotask(() => this.onmessage({ data: { requestId: command.requestId, result } }));
             }
         };`;
 }
 
 /** Serves the Pages build (static host + modular runtime) with a fixture Worker in place of Pyodide. */
-async function openStaticPage(page: Page, extraInit = ''): Promise<void> {
-    const init = staticWorkerInit() + extraInit;
+async function openStaticPage(page: Page, extraInit = '', detail: 'spectrogram' | 'none' = 'spectrogram'): Promise<void> {
+    const init = staticWorkerInit(detail) + extraInit;
     const html = renderComparisonDocument({ mode: 'results', results: [], spectrogramSettings: DEFAULT_SPECTROGRAM_SETTINGS }, {
         waveformScriptUri: './comparisonWaveform.js', runtimeScriptUri: './comparisonRuntime.js', hostScriptUri: './staticHost.js', cspSource: "'self'", language: 'en', appVersion: '0.0.0',
     });
@@ -106,6 +128,29 @@ test('static page CSP allows the page and calibration clicks report unsupported 
     expect(cspErrors).toEqual([]);
 });
 
+
+test('static page: with a track shown the page comes to rest, so settled() can be used on it', async ({ page }) => {
+    await openStaticPage(page);
+    await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: tinyWav() });
+    await expect(page.locator('.track-row')).toHaveCount(1);
+    expect(await settled(page), 'the page kept working with one track shown and nothing playing. It is asking the stand-in Worker (staticWorkerInit) again for an answer it did not take: '
+        + 'make the stand-in answer every command as the real worker would (a lane waits on its track\'s detail until it is answered, with or without a spectrogram), or settled() waits its whole 10 s wherever a track is shown').toBe(true);
+});
+
+test('static page: a detail answered with no spectrogram is asked once, and the lane says there is none', async ({ page }) => {
+    // What the lanes write, by canvas.
+    await openStaticPage(page, `window.__drawnText = []; { const fill = CanvasRenderingContext2D.prototype.fillText;
+        CanvasRenderingContext2D.prototype.fillText = function (text, x, y) { window.__drawnText.push({ id: this.canvas.id, text: String(text) }); return fill.apply(this, arguments); }; }`, 'none');
+    await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: tinyWav() });
+    await expect(page.locator('.track-row')).toHaveCount(1);
+    const fix = 'A valid answer without a spectrogram is the answer under its key (docs/display-rules.md R3): record it as the answer store\'s empty state (detail.empty(trackDetailKey(...)) in comparisonRuntime.ts) and ask only when detail.ask(key) says so';
+    expect(await settled(page), `the page kept working with one track shown: its lane asks for its detail again on every frame. ${fix}`).toBe(true);
+    await settled(page);
+    expect(await page.evaluate(() => (window as typeof window & { __detailAsks?: number }).__detailAsks), `the track's detail was asked more than once. ${fix}`).toBe(1);
+    // Its last word is that there is none, not "Loading".
+    const written = await page.evaluate(() => (window as typeof window & { __drawnText: Array<{ id: string; text: string }> }).__drawnText.filter(entry => entry.id.startsWith('track-spec-canvas-0')).map(entry => entry.text));
+    expect(written.at(-1), `the spectrogram lane of a track whose detail came without a spectrogram must say so. ${fix}`).toBe(getStrings('en').spectrogramNone);
+});
 
 test('static page: the empty view offers the samples, which load as three tracks, and then is no longer offered', async ({ page }) => {
     await openStaticPage(page);
@@ -197,7 +242,7 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     const chooser = page.waitForEvent('filechooser');
     await page.locator('#selection-toolbar [data-action="open-folder"]').click();
     await (await chooser).setFiles(join(folder, 'rec'));
-    await leaveEntryTable(page);
+    await folderListed(page);
     await expect(page.locator('#selection-sidebar')).toBeVisible();
     await expect(page.locator('#entry-dock tr[data-file-path]')).toHaveCount(2);
     await expect(page.locator('#selection-python-environment')).toHaveCount(0);
@@ -306,7 +351,7 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     const nextChooser = page.waitForEvent('filechooser');
     await page.locator('#selection-toolbar [data-action="open-folder"]').click();
     await (await nextChooser).setFiles(join(sameName, 'rec'));
-    await leaveEntryTable(page);
+    await folderListed(page);
     // A second folder joins the table.
     await expect(page.locator('#entry-dock tr[data-file-path]')).toHaveCount(3);
     await showRow(page, '/sources/rec (2)/third.wav');
@@ -319,6 +364,28 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     await expect(entryRow(page, '/sources/single.wav')).toHaveClass(/is-shown/);
     await expect(entryRow(page, '/sources/rec (2)/third.wav')).toHaveClass(/is-shown/);
     await expect(page.locator('.track-row')).toHaveCount(2);
+});
+
+test('settled() waits for a fetch the page is still waiting on, so a row is hovered only once the table has stopped moving', async ({ page }) => {
+    const folder = mkdtempSync(join(tmpdir(), 'awa-folder-'));
+    mkdirSync(join(folder, 'rec'));
+    writeFileSync(join(folder, 'rec', 'first.wav'), tinyWav());
+    writeFileSync(join(folder, 'rec', 'second.wav'), tinyWav());
+    await openStaticPage(page, 'window.showDirectoryPicker = undefined;');
+    // The scan recipe is answered when the test says so: a loaded machine answers it late in the same way.
+    let answerRecipe = (): void => {};
+    const recipeAnswered = new Promise<void>(resolve => { answerRecipe = resolve; });
+    await page.route('http://awa.test/recipes/**', async route => { await recipeAnswered; await route.fallback(); });
+    const chooser = page.waitForEvent('filechooser');
+    await page.locator('#selection-toolbar [data-action="open-folder"]').click();
+    await (await chooser).setFiles(join(folder, 'rec'));
+    await expect(entryRow(page, '/sources/rec/first.wav')).toBeVisible();
+    expect(await settled(page, 500), 'settled() said the page had finished while it was still waiting for a fetch. The page draws again when the fetch arrives, '
+        + 'so a test that acts now acts on a page about to move. Count what the page waits on from outside itself in installSettleTracker (canvasAudit.ts).').toBe(false);
+    answerRecipe();
+    await folderListed(page);
+    await showRow(page, '/sources/rec/first.wav');
+    await expect(page.locator('.track-row')).toHaveCount(1);
 });
 
 test('the head\'s ☐ asks before it shows more than 30 files as tracks', async ({ page }) => {
@@ -534,15 +601,29 @@ test('a lane shows the waveform over its spectrogram on one time axis, split by 
     expect(before.wave.x).toBeCloseTo(before.spec.x, 0);
     expect(before.spec.y).toBeGreaterThan(before.wave.y + before.wave.height - 1);
     expect(before.spec.width).toBeCloseTo(before.wave.width, 0);
-    // Hovering either plot moves the same cursor time.
-    await page.mouse.move(before.spec.x + before.wave.width / 2, before.spec.y + before.spec.height / 2);
+    // Hovering either plot moves the same cursor time. Each shows the time of the point it reads (R7): the
+    // spectrogram its STFT frame's, the waveform its sample's; so the waveform is hovered where that frame is, found
+    // from the time the waveform reads at the pointer's place (the lanes start at 0 s).
+    type Noted = HTMLElement & { __plotRead?: { at?: number } | null };
+    const readAt = (plot: typeof wave): Promise<number | undefined> => plot.evaluate(canvas => (canvas as Noted).__plotRead?.at);
+    const across = before.wave.width / 2;
+    await page.mouse.move(before.wave.x + across, before.wave.y + before.wave.height / 2);
+    await settled(page);
+    const sampleAt = await readAt(wave);
+    await page.mouse.move(before.spec.x + across, before.spec.y + before.spec.height / 2);
+    await settled(page);
     const fromSpec = await page.locator('#cursor-display').textContent();
-    await page.mouse.move(before.wave.x + before.wave.width / 2, before.wave.y + before.wave.height / 2);
+    const frameAt = await readAt(spec);
+    expect(sampleAt).toBeGreaterThan(0);
+    expect(frameAt).toBeDefined();
+    await page.mouse.move(before.wave.x + across * frameAt! / sampleAt!, before.wave.y + before.wave.height / 2);
+    await settled(page);
     expect(await page.locator('#cursor-display').textContent()).toBe(fromSpec);
     // A click on the spectrogram gives the lane the keys: → moves the cursor.
     await spec.click({ position: { x: before.wave.width / 4, y: before.spec.height / 2 } });
     await expect(spec).toBeFocused();
     await page.mouse.move(0, 0);
+    await settled(page);
     const clicked = await page.locator('#cursor-display').textContent();
     await page.keyboard.press('Shift+ArrowRight');
     await expect(page.locator('#cursor-display')).not.toHaveText(clicked ?? '');
@@ -587,7 +668,7 @@ test('static page opens a folder through the File System Access picker without t
     };`);
     page.on('filechooser', () => { throw new Error('the folder input must not open when the picker exists'); });
     await page.locator('#selection-toolbar [data-action="open-folder"]').click();
-    await leaveEntryTable(page);
+    await folderListed(page);
     await expect(page.locator('#entry-dock tr[data-file-path]')).toHaveCount(2);
     await showRow(page, '/sources/rec/day2/a.WAV');
     await expect(page.locator('.track-row')).toHaveCount(1);
@@ -601,20 +682,22 @@ test('the cursor readout is labelled and follows a loop drag to where it was rel
     const y = wave.y + wave.height / 2;
     const readout = page.locator('#cursor-display');
     await page.mouse.move(wave.x + wave.width * 0.2, y);
+    await settled(page);
     const atPress = await readout.textContent();
     await page.mouse.down();
     await page.mouse.move(wave.x + wave.width * 0.6, y, { steps: 6 });
     // While dragging the readout is the pointer's time, not the time pressed.
     await expect(readout).not.toHaveText(atPress ?? '');
-    const dragged = await readout.textContent();
     await page.mouse.up();
-    await expect(readout).toHaveText(dragged ?? '');
-    // The same time hovered afresh reads the same time: on the spectrogram, where the time is the pointer's (on the
-    // waveform it is the point the lane reads, R7).
-    const spec = (await page.locator('#track-spec-canvas-0').boundingBox())!;
+    // Let go, it reads where it was released: the time a fresh hover there reads, the point the lane reads (R7).
+    await settled(page);
+    const released = await readout.textContent();
     await page.mouse.move(0, 0);
-    await page.mouse.move(wave.x + wave.width * 0.6, spec.y + spec.height / 2);
-    await expect(readout).toHaveText(dragged ?? '');
+    await settled(page);
+    await expect(readout).not.toHaveText(released ?? '');
+    await page.mouse.move(wave.x + wave.width * 0.6, y);
+    await settled(page);
+    await expect(readout).toHaveText(released ?? '');
 });
 
 test('after a box zoom the cursor readout is the time under the pointer in the zoomed view', async ({ page }) => {
@@ -625,12 +708,15 @@ test('after a box zoom the cursor readout is the time under the pointer in the z
     await page.mouse.move(wave.x + wave.width * 0.2, y - 20);
     await page.mouse.down();
     await page.mouse.move(wave.x + wave.width * 0.6, y + 20, { steps: 6 });
+    await settled(page);
     const dragged = await readout.textContent();
     await page.mouse.up();
     await expect(readout).not.toHaveText(dragged ?? '');
+    await settled(page);
     const released = await readout.textContent();
     await page.mouse.move(0, 0);
     await page.mouse.move(wave.x + wave.width * 0.6, y + 20);
+    await settled(page);
     await expect(readout).toHaveText(released ?? '');
 });
 

@@ -94,7 +94,7 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
                 queueMicrotask(() => this.reply(command, {}, 'Source is not loaded'));
                 return;
             }
-            if (['load','unload','export-plan'].includes(String(command.cmd)) || (command.cmd === 'analyze' && firstAnalysis.has(String(command.filePath)))) {
+            if (['load','unload','export-plan','scan-spec'].includes(String(command.cmd)) || (command.cmd === 'analyze' && firstAnalysis.has(String(command.filePath)))) {
                 if (command.cmd === 'analyze') firstAnalysis.delete(String(command.filePath));
                 queueMicrotask(() => this.reply(command, command.cmd === 'load' ? { filePath: `/sources/${String(command.sourceId)}` } : {}));
             }
@@ -156,6 +156,22 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         get sourcePath() { return `/sources/${String(workers.at(-1)!.commands.filter(command => command.cmd === 'load').at(-1)!.sourceId)}`; } };
 }
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
+// node:test's own limit for a test that turns the event loop until what it asserts on has happened.
+const SETTLE_LIMIT_MS = 60_000;
+type Workers = Array<{ commands: Record<string, unknown>[]; reply(command: Record<string, unknown>): void }>;
+/**
+ * Turns the event loop until `done()` (hashing runs on the platform's crypto threads, so no number of turns is
+ * enough), answering each Worker scan once when `answered` is given. No wall clock: a slow runner waits longer, and
+ * the test's own timeout (SETTLE_LIMIT_MS) is the only limit.
+ */
+async function settle(done: () => boolean, workers?: Workers, answered = new Set<Record<string, unknown>>()): Promise<void> {
+    while (!done()) {
+        await new Promise(resolve => setTimeout(resolve, 2));
+        for (const worker of workers ?? []) for (const command of worker.commands) {
+            if (command.cmd === 'scan' && !answered.has(command)) { answered.add(command); worker.reply(command); }
+        }
+    }
+}
 const identity = { filePath: '/sources/selected.wav', requestId: 'ui', analysisId: 'a', settingsSignature: 's', trackIndex: 0 };
 
 test('browser preferences restore safely across reloads and use shared Japanese strings', () => {
@@ -737,7 +753,7 @@ test('picked files are listed in the tree under their own names and load checked
     assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1)!.filePaths, ['/sources/a.wav']);
 });
 
-test('an entry scan loads each listed file only for its scan, reuses unchanged files and then restarts the Worker', async () => {
+test('an entry scan loads each listed file only for its scan, reuses unchanged files and then restarts the Worker', { timeout: SETTLE_LIMIT_MS }, async () => {
     const app = harness();
     app.served['./recipes/entry-scan.recipe.json'] = { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'signal', kind: 'frame' }], nodes: [], output: 'input-0' };
     (app.browser as unknown as { crypto: Crypto }).crypto = globalThis.crypto;
@@ -751,24 +767,17 @@ test('an entry scan loads each listed file only for its scan, reuses unchanged f
     async function scanFolder(requestId: string): Promise<Record<string, unknown>[]> {
         const results = (): Record<string, unknown>[] => app.received.filter(message => message.type === 'entry-scan-result' && message.requestId === requestId);
         app.host.postMessage({ type: 'entry-scan', requestId, filePaths });
-        // Hashing runs on the platform's crypto threads, so this waits on time rather than on a number of turns.
-        for (const until = Date.now() + 5000; Date.now() < until && !app.received.some(message => message.type === 'entry-scan-done' && message.requestId === requestId);) {
-            await new Promise(resolve => setTimeout(resolve, 2));
-            for (const worker of app.workers) {
-                for (const command of worker.commands) {
-                    if (command.cmd === 'scan' && !answered.has(command)) { answered.add(command); worker.reply(command); }
-                }
-            }
-        }
+        await settle(() => app.received.some(message => message.type === 'entry-scan-done' && message.requestId === requestId), app.workers, answered);
         return results();
     }
 
     const first = await scanFolder('e1');
     assert.deepEqual(first.map(message => [message.filePath, (message.result as { ok: boolean }).ok]), filePaths.map(path => [path, true]));
     const scanWorker = app.workers[0];
-    assert.deepEqual(scanWorker.commands.map(command => command.cmd).filter(cmd => cmd !== 'limits'), ['load', 'scan', 'unload', 'load', 'scan', 'unload']);
+    // The backend's analysis spec first: a stored result of another is not reused.
+    assert.deepEqual(scanWorker.commands.map(command => command.cmd).filter(cmd => cmd !== 'limits'), ['scan-spec', 'load', 'scan', 'unload', 'load', 'scan', 'unload']);
     assert.deepEqual(scanWorker.commands.filter(command => command.cmd === 'scan').map(command => command.filePath), filePaths);
-    for (const until = Date.now() + 5000; Date.now() < until && app.workers.length < 2;) await new Promise(resolve => setTimeout(resolve, 2));
+    await settle(() => app.workers.length >= 2);
     assert.equal(scanWorker.terminated, true, 'the scan Worker is replaced so Pyodide gives its heap back');
     assert.equal(app.workers.length, 2);
     // Without IndexedDB (here) the folder's index falls back to localStorage, under the folder's own key: its
@@ -784,14 +793,14 @@ test('an entry scan loads each listed file only for its scan, reuses unchanged f
 
     app.host.postMessage({ type: 'entry-save-session', rootPath: '/sources/rec', session: { version: 1, value: 'leq' }, csv: { name: 'm.csv', text: 'a' } });
     // The CSV is written last: wait for it.
-    for (const until = Date.now() + 5000; Date.now() < until && ![...app.storage.keys()].some(key => key.startsWith('awa.sessionCsv.v1:/sources/rec#2:'));) await new Promise(resolve => setTimeout(resolve, 2));
+    await settle(() => [...app.storage.keys()].some(key => key.startsWith('awa.sessionCsv.v1:/sources/rec#2:')));
     assert.deepEqual(JSON.parse(stored('awa.session.v1:/sources/rec#2:')), { version: 1, value: 'leq' });
     assert.deepEqual(JSON.parse(stored('awa.sessionCsv.v1:/sources/rec#2:')), { name: 'm.csv', text: 'a' });
     app.host.setState({ entrySlots: [null, '/sources/rec/a.wav', null, null] });
     assert.deepEqual(harness(app.storage).host.getState()?.entrySlots, [null, '/sources/rec/a.wav', null, null]);
 });
 
-test('after a folder scan the next Worker boots behind the current one, which keeps answering until the swap', async () => {
+test('after a folder scan the next Worker boots behind the current one, which keeps answering until the swap', { timeout: SETTLE_LIMIT_MS }, async () => {
     const app = harness();
     app.served['./recipes/entry-scan.recipe.json'] = { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'signal', kind: 'frame' }], nodes: [], output: 'input-0' };
     (app.browser as unknown as { crypto: Crypto }).crypto = globalThis.crypto;
@@ -800,20 +809,12 @@ test('after a folder scan the next Worker boots behind the current one, which ke
     folderPicker.files = [file('rec/a.wav', 1), file('rec/b.wav', 2)];
     folderPicker.onchange!();
     const filePaths = ['/sources/rec/a.wav', '/sources/rec/b.wav'];
-    const answer = async (until: () => boolean): Promise<void> => {
-        const answered = new Set<Record<string, unknown>>();
-        for (const stop = Date.now() + 5000; Date.now() < stop && !until();) {
-            await new Promise(resolve => setTimeout(resolve, 2));
-            for (const worker of app.workers) for (const command of worker.commands) {
-                if (command.cmd === 'scan' && !answered.has(command)) { answered.add(command); worker.reply(command); }
-            }
-        }
-    };
+    const answer = (until: () => boolean): Promise<void> => settle(until, app.workers);
     // The spare Worker has not booted: it does not answer yet.
     app.holdSpareBoot();
     app.host.postMessage({ type: 'entry-scan', requestId: 'e1', filePaths });
     await answer(() => app.received.some(message => message.type === 'entry-scan-done'));
-    for (const stop = Date.now() + 5000; Date.now() < stop && app.workers.length < 2;) await new Promise(resolve => setTimeout(resolve, 2));
+    await settle(() => app.workers.length >= 2);
     const [current, spare] = app.workers;
     assert.ok(spare, 'a spare Worker boots after the folder scan');
     assert.equal(current.terminated, false, 'the current Worker is kept while the spare boots');
@@ -833,7 +834,7 @@ test('after a folder scan the next Worker boots behind the current one, which ke
     assert.equal(results('row-1'), 1);
 });
 
-test('a CSV in an opened folder is neither read as conditions nor scanned (the user picks one on the table)', async () => {
+test('a CSV in an opened folder is neither read as conditions nor scanned (the user picks one on the table)', { timeout: SETTLE_LIMIT_MS }, async () => {
     const app = harness();
     app.served['./recipes/entry-scan.recipe.json'] = { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'signal', kind: 'frame' }], nodes: [], output: 'input-0' };
     const folderPicker = app.elements.find(element => element.tag === 'input' && 'webkitdirectory' in element.attributes)!;
@@ -841,13 +842,7 @@ test('a CSV in an opened folder is neither read as conditions nor scanned (the u
     folderPicker.files = [file('rec/a.wav'), file('rec/b.wav'), file('rec/motor.csv', '﻿sample_id,audio_file,line\nS1,a.wav,L1\nS2,b.wav,L2\n')];
     folderPicker.onchange!();
     app.host.postMessage({ type: 'entry-scan', requestId: 'm1', rootPath: '/sources/rec', filePaths: ['/sources/rec/a.wav', '/sources/rec/b.wav', '/sources/rec/motor.csv'] });
-    const answered = new Set<Record<string, unknown>>();
-    for (const until = Date.now() + 5000; Date.now() < until && !app.received.some(message => message.type === 'entry-scan-done');) {
-        await new Promise(resolve => setTimeout(resolve, 2));
-        for (const worker of app.workers) for (const command of worker.commands) {
-            if (command.cmd === 'scan' && !answered.has(command)) { answered.add(command); worker.reply(command); }
-        }
-    }
+    await settle(() => app.received.some(message => message.type === 'entry-scan-done'), app.workers);
     const conditions = app.received.find(message => message.type === 'entry-conditions')!;
     assert.equal(conditions.metadataPath, undefined);
     assert.equal(conditions.table, null);

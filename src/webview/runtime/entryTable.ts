@@ -11,6 +11,10 @@ import type { EntryConditionTable } from '../../shared/analysis/entryScan';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { median } from '../../shared/dataset/distribution';
 import { powerMeanOrNull } from '../../shared/utils/levels';
+import { csvField } from '../../shared/utils/csv';
+import { spacingDecimals } from '../plot/plotText';
+import { folderReference, type ExclusionReason, scanLevelKey, type FigureColumns, type FolderReference } from './figureModel';
+import { scanAnswer } from './answerStore';
 
 
 /** A group of fewer files says nothing about which band separates them. */
@@ -40,6 +44,18 @@ export interface EntryConditionColumn {
  * or the median of a group's recordings over the table's filters (the value's own range not applied), of one
  * channel when the compared row is a channel; recordings without that channel are left out and counted.
  */
+/** A left-out reason as the CSVs, 報告.csv and 定義.json write it (each apart: another axis is not another unit). */
+export const LEFT_WORDS: Record<ExclusionReason, string> = { failed: 'failed', empty: 'empty', missing: 'not scanned', pending: 'pending', stale: 'stale', 'other-reference': '≠ reference', 'other-channels': '≠ channels', 'other-axis': '≠ axis', 'no-identity': 'waiting for compared', 'no-channel': 'no such channel' };
+
+/** What a base left out, each reason apart; members without its channel by its own count where its set did not list them. */
+export const leftOf = (definition: BaseDefinition): BaseDefinition['left'] => (definition.fewerChannels && !definition.left?.['no-channel'] ? { ...definition.left, 'no-channel': definition.fewerChannels } : definition.left);
+
+/** "-1 (failed) · -2 (≠ axis) · -1 (< ch2)": a base's left-out recordings, each reason apart; `channel`: the one compared. */
+export function leftText(left: BaseDefinition['left'], channel?: number | null): string {
+    const word = (reason: ExclusionReason): string => (reason === 'no-channel' && channel ? `< ch${channel}` : LEFT_WORDS[reason]);
+    return Object.entries(left ?? {}).flatMap(([reason, n]) => (n ? [`-${n} (${word(reason as ExclusionReason)})`] : [])).join(' · ');
+}
+
 export interface BaseDefinition {
     kind: 'file' | 'group';
     /** The slot-0 recording ("name ch2"), for a file base. */
@@ -53,6 +69,8 @@ export interface BaseDefinition {
     filters: string[];
     /** Recordings of the group left out for having fewer channels than `channel`. */
     fewerChannels: number;
+    /** The group's recordings left out of its set, by reason (figureModel's: failed, pending, stale, another reference or axis, …). */
+    left?: Partial<Record<ExclusionReason, number>>;
 }
 
 /**
@@ -68,11 +86,21 @@ export interface DerivedRow {
     region: string;
     result: ScanResult;
     /** What it was measured against: the slot-0 file or the group's other files (`paths`), named by `label`. */
-    base: { leq: number; bands: (number | null)[]; label?: string; paths?: string[]; definition?: BaseDefinition };
+    base: { leq: number; bands: (number | null)[]; label?: string; paths?: string[]; definition?: BaseDefinition; level?: { levelReference?: string; uncalibrated?: 'full-scale' | 'raw-units' } };
     /** The Recipe it was measured under (recipeKey). */
     recipeKey?: string;
     /** Fixed under another Recipe and not measured again yet: shown as ≠. */
     stale?: boolean;
+    /** Each file's condition (the scan's conditionId: its version and calibration) when it was fixed: another one makes it ≠. */
+    conditions?: Record<string, string>;
+}
+
+/**
+ * A region as a key: its ends exactly as they are sent (JSON reads each back to the same double), so two regions share
+ * a key only when they ask for the same samples. regionLabel rounds it for reading, and is never a key's part.
+ */
+export function regionKey(region: { start: number; end: number } | null): string {
+    return region ? JSON.stringify([region.start, region.end]) : 'all';
 }
 
 export function regionLabel(region: { start: number; end: number } | null): string {
@@ -82,6 +110,8 @@ export function regionLabel(region: { start: number; end: number } | null): stri
 export interface EntryFile {
     filePath: string;
     result?: ScanResult;
+    /** Its result is of an earlier recipe, version or calibration (the answer store's stale): shown greyed, never counted or written. */
+    stale?: boolean;
 }
 
 export interface EntryRow {
@@ -98,16 +128,24 @@ export interface EntryRow {
     /** Rows with the same key share a condition; undefined when the row has none. */
     group?: string;
     values: Record<EntryColumn, number | null>;
+    /**
+     * A derived row's Δ against the base it was fixed with. A file row's is null: what it is measured against now is the
+     * entry screen's base (entryBase), which the CSV asks for (`entryCsv`'s `measure`), never a group made here.
+     */
     delta: Record<EntryColumn, number | null>;
-    groupSize: number;
     /** The file's length, which the measured region is cut from. */
     durationS?: number;
     /** Set without calibration: the level is relative to full scale, or to 1 raw input unit for a source without one (CSV). */
     uncalibrated?: 'full-scale' | 'raw-units';
+    /** What the row's levels are relative to: wandas' level reference for its file ("dBFS", "dB SPL re 20 µPa"). */
+    levelReference?: string;
     /** The file's 1/3-octave levels, for Δ against another base (slot 0). */
     levels?: (number | null)[];
     /** Set on a derived row: its parent's path and region. */
-    derived?: { parent: string; region: string };
+    /** Set on a derived row: its parent's path and region, and its base's n and left-out recordings as it was fixed. */
+    derived?: { parent: string; region: string; count?: number; left?: string };
+    /** Its values are of an earlier recipe, version or calibration: shown greyed, never in a group, a choice or the CSV. */
+    stale?: boolean;
 }
 
 export interface EntryModel {
@@ -116,6 +154,8 @@ export interface EntryModel {
     /** Checked columns first, then the rest of the metadata table's columns. */
     columns: EntryConditionColumn[];
     groups: Map<string, EntryRow[]>;
+    /** The folder's one level reference (figureModel.folderReference), of its fresh results: the one choice everything takes. */
+    reference: FolderReference;
 }
 
 /**
@@ -144,9 +184,10 @@ function fileValues(result: ScanResult, band: number): Record<EntryColumn, numbe
 type MeasuredResult = ScanResult & { input: NonNullable<ScanResult['input']> };
 const isMeasured = (result: ScanResult | undefined): result is MeasuredResult => !!result?.ok && result.input !== undefined;
 
+/** What rows must share to be compared: channels, sample rate, level identity (figureModel.scanLevelKey) and spec. */
 function profile(result: MeasuredResult): string {
     const input = result.input;
-    return JSON.stringify([input.channels.length, input.fs, input.unit, input.ref, result.specVersion]);
+    return JSON.stringify([input.channels.length, input.fs, scanLevelKey(result), result.specVersion]);
 }
 
 function mismatchLabel(result: MeasuredResult, reference: MeasuredResult): string {
@@ -155,7 +196,9 @@ function mismatchLabel(result: MeasuredResult, reference: MeasuredResult): strin
     const parts: string[] = [];
     if (input.channels.length !== base.channels.length) parts.push(`${input.channels.length} ch`);
     if (input.fs !== base.fs) parts.push(`${input.fs % 1000 === 0 ? input.fs / 1000 : (input.fs / 1000).toFixed(1)} kHz`);
-    if (input.unit !== base.unit || input.ref !== base.ref) parts.push(input.unit);
+    // What differs of the level identity: the unit, else the reference value or its name (its level reference).
+    // A unit is named only when it has one (a raw input of no unit says its level reference: "dB re 1 input unit").
+    if (scanLevelKey(result) !== scanLevelKey(reference)) parts.push(input.unit && input.unit !== base.unit ? input.unit : input.levelReferenceLabel);
     if (result.specVersion !== reference.specVersion) parts.push(`v${result.specVersion}`);
     return `≠ ${parts.join(' · ')}`;
 }
@@ -208,6 +251,25 @@ function mostTellingBand(rows: EntryRow[], files: Map<string, MeasuredResult>): 
     return best;
 }
 
+/** A row's level reference and, while its file is uncalibrated, what that is relative to. */
+function levelOfRow(result: ScanResult): Pick<EntryRow, 'uncalibrated' | 'levelReference'> {
+    const input = result.ok ? result.input : undefined;
+    if (!input) return {};
+    return {
+        levelReference: input.levelReferenceLabel,
+        ...(input.calibrationStatus === 'uncalibrated' ? { uncalibrated: input.fullScale ? 'full-scale' as const : 'raw-units' as const } : {}),
+    };
+}
+
+/**
+ * The CSV cell that says what a row's levels are in (R1, R4): its level reference, with the calibration word while
+ * uncalibrated ("dBFS 未校正"). Each row says its own: never one word for the whole table.
+ */
+export function levelReferenceCell(row: Pick<EntryRow, 'uncalibrated' | 'levelReference'> | undefined, cols: FigureColumns): string {
+    if (!row?.levelReference) return '';
+    return row.uncalibrated ? `${row.levelReference} ${cols.uncalibrated}` : row.levelReference;
+}
+
 /** Builds the model: a row per file with its values, condition and Δ, in the table's order (else by name). */
 export function buildEntryModel(
     files: readonly EntryFile[],
@@ -217,11 +279,18 @@ export function buildEntryModel(
     const columns = conditionColumns(table);
     const results = new Map<string, MeasuredResult>();
     files.forEach(file => { if (isMeasured(file.result)) results.set(file.filePath, file.result); });
-    // Rows are compared only with files of the most common shape (channels, rate, unit, spec version).
+    const fresh = new Set(files.filter(file => !file.stale && isMeasured(file.result)).map(file => file.filePath));
+    // The folder's one level reference (figureModel.folderReference: the value columns' heading, the overview, the
+    // distribution and a group base with nothing compared take the same), of the fresh results in the table's order.
+    const folder = folderReference(files.map(file => (fresh.has(file.filePath) ? scanAnswer(file.filePath, file.result) : { state: 'stale' as const, identity: scanAnswer(file.filePath, undefined).identity })));
+    // Rows are compared only with files of that reference and the most common shape among them (channels, rate, spec),
+    // a tie going to the shape first in the table; a stale result is never counted.
     const counts = new Map<string, { count: number; result: MeasuredResult }>();
-    results.forEach(result => {
+    files.forEach(file => {
+        const result = results.get(file.filePath);
+        if (!result || !fresh.has(file.filePath) || scanLevelKey(result) !== folder.level) return;
         const key = profile(result);
-        counts.set(key, { count: (counts.get(key)?.count ?? 0) + 1, result });
+        counts.set(key, { count: (counts.get(key)?.count ?? 0) + 1, result: counts.get(key)?.result ?? result });
     });
     const reference = [...counts.values()].sort((a, b) => b.count - a.count)[0]?.result;
     const rows: EntryRow[] = files.map(file => {
@@ -230,12 +299,13 @@ export function buildEntryModel(
         const { cells, conditions } = rowConditions(file.filePath, table, columns);
         const row: EntryRow = {
             filePath: file.filePath, name, status: 'pending', conditions, cells,
-            values: { ...empty }, delta: { ...empty }, groupSize: 0,
+            values: { ...empty }, delta: { ...empty },
         };
         const result = file.result;
         if (!result) return row;
         if (!result.ok) { row.status = 'failed'; row.reason = result.reason; return row; }
         if (!isMeasured(result)) return row;
+        if (file.stale) row.stale = true;
         if (reference && profile(result) !== profile(reference)) {
             row.status = 'mismatch';
             row.mismatch = mismatchLabel(result, reference);
@@ -243,54 +313,30 @@ export function buildEntryModel(
         }
         row.status = 'ok';
         row.durationS = result.input.durationS;
-        if (result.input.calibrationStatus === 'uncalibrated') row.uncalibrated = result.input.fullScale ? 'full-scale' : 'raw-units';
+        Object.assign(row, levelOfRow(result));
         if (conditions.length) row.group = JSON.stringify(conditions);
         return row;
     });
-    const band = options.band ?? mostTellingBand(rows.filter(row => row.status === 'ok'), results);
+    const band = options.band ?? mostTellingBand(rows.filter(row => row.status === 'ok' && !row.stale), results);
     const groups = new Map<string, EntryRow[]>();
-    const levels = new Map<string, (number | null)[]>();
     for (const row of rows) {
         const result = results.get(row.filePath);
         if (row.status !== 'ok' || !result) continue;
+        // A stale row keeps its values to be shown greyed; it is in no group.
         row.values = fileValues(result, band);
         row.levels = bandLevels(result);
-        levels.set(row.filePath, row.levels);
-        if (row.group) groups.set(row.group, [...(groups.get(row.group) ?? []), row]);
+        if (row.group && !row.stale) groups.set(row.group, [...(groups.get(row.group) ?? []), row]);
     }
-    for (const members of groups.values()) {
-        for (const row of members) {
-            // The other files of the condition: a row is not part of its own base.
-            const others = members.filter(member => member !== row);
-            // The files a row is measured against: the same count as the comparison's base group and the slot chip.
-            row.groupSize = others.length;
-            if (!others.length) continue;
-            for (const column of ['leq', 'band'] as const) {
-                const value = row.values[column];
-                const values = others.map(member => member.values[column]).filter((item): item is number => item !== null);
-                const center = median(values);
-                if (value === null || center === null) continue;
-                row.delta[column] = roundedDelta(value, center);
-            }
-            const own = levels.get(row.filePath);
-            if (!own) continue;
-            const max = maxBandDelta(own, others.map(member => levels.get(member.filePath) ?? []));
-            const level = max ? own[max.band] : null;
-            if (max && level !== null) {
-                row.values.peak = BAND_CENTERS_HZ[max.band];
-                row.delta.peak = roundedDelta(level, level - max.delta);
-            }
-        }
-    }
-    return { rows: withDerived(fileOrder(rows, table), options.derived ?? [], band), band, columns, groups };
+    return { rows: withDerived(fileOrder(rows, table), options.derived ?? [], band), band, columns, groups, reference: folder };
 }
 
 /**
- * A Δ as every screen and file shows it: both levels to one decimal, then subtracted, so the shown
- * levels add up to the shown Δ and the table, comparison and CSVs agree to the last digit.
+ * A Δ as every screen and file takes it: the full-precision levels subtracted, never levels rounded first (−9.996
+ * against −10.004 is +0.008, which reads 0.0, not the 0.1 of two rounded levels' difference). Only the text a user
+ * reads rounds it, at display (R7).
  */
-export function roundedDelta(value: number, reference: number): number {
-    return Math.round((Math.round(value * 10) - Math.round(reference * 10))) / 10;
+export function levelDelta(value: number, reference: number): number {
+    return value - reference;
 }
 
 /** A file's 1/3-octave levels, channels power-averaged. */
@@ -334,14 +380,16 @@ function withDerived(rows: EntryRow[], derived: readonly DerivedRow[], band: num
                 // The name says what the Δ is against, so two fixed against different bases read apart.
                 filePath: derivedKey(item), name: [item.region === 'all' ? '└ Δ' : `└ Δ ${item.region} s`, ...(item.base.label ? [item.base.label] : [])].join(' · '),
                 // Fixed under an earlier Recipe: kept (only a click removes it), but no longer a number to read.
-                status: item.stale ? 'mismatch' : item.result.ok ? 'ok' : 'failed', ...(item.stale ? { mismatch: '≠' } : {}),
-                conditions: row.conditions, cells: row.cells, values, groupSize: 0, durationS: row.durationS,
+                // Its stale flag goes with it: a stale derived row is ≠, has no values, writes no base n nor left-out
+                // files (entryCsv), and its status column says ≠, not the file-stale word.
+                status: item.stale ? 'mismatch' : item.result.ok ? 'ok' : 'failed', ...(item.stale ? { mismatch: '≠', stale: true } : {}),
+                conditions: row.conditions, cells: row.cells, values, durationS: row.durationS, ...levelOfRow(item.result),
                 delta: {
-                    leq: values.leq === null ? null : roundedDelta(values.leq, item.base.leq),
-                    peak: max ? Math.round(max.delta * 10) / 10 : null,
-                    band: values.band === null || reference === null ? null : roundedDelta(values.band, reference),
+                    leq: values.leq === null ? null : levelDelta(values.leq, item.base.leq),
+                    peak: max ? max.delta : null,
+                    band: values.band === null || reference === null ? null : levelDelta(values.band, reference),
                 },
-                derived: { parent: row.filePath, region: item.region },
+                derived: { parent: row.filePath, region: item.region, ...(item.base.definition ? { count: item.base.definition.count, left: leftText(leftOf(item.base.definition), item.base.definition.channel) } : {}) },
             });
         });
     }
@@ -367,10 +415,18 @@ export function bandLabel(band: number): string {
 export function csvCell(value: string | number | null): string {
     if (value === null) return '';
     const text = typeof value === 'number' ? csvNumber(value, 2) : value;
-    return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    return csvField(text);
 }
 
-/** A number for the CSVs: dB to 1 decimal, seconds to 2, Hz whole; never "-0.0". */
+/**
+ * A 1/3-octave band's centre as the CSVs write it: the nominal centre exactly as its column header names it ("31.5",
+ * "3150"), never rounded to a whole Hz ("32" is no band).
+ */
+export function bandCentreCell(hz: number | null | undefined): string {
+    return hz === null || hz === undefined || !Number.isFinite(hz) ? '' : String(hz);
+}
+
+/** A number for the CSVs: dB to 1 decimal, seconds to 2; never "-0.0". A band's centre is `bandCentreCell`. */
 export function csvNumber(value: number | null | undefined, decimals: number): string {
     if (value === null || value === undefined || !Number.isFinite(value)) return '';
     const text = value.toFixed(decimals);
@@ -403,32 +459,58 @@ export function measuredRegion(region: string | { start: number; end: number } |
     return { start: Math.round(start * 1e6) / 1e6, end: Math.round(end * 1e6) / 1e6 };
 }
 
-/** The region as two cells, start and end in seconds; both empty for the whole file. */
+/**
+ * The region as two cells, start and end in seconds; both empty for the whole file. To 10 ms, finer where the region
+ * is so short its ends would read alike (to a tenth of its length, as secondsSpanText writes it: plotText.ts spacingDecimals).
+ */
 export function regionCells(region: string | { start: number; end: number } | null | undefined): [string, string] {
     if (!region || region === 'all') return ['', ''];
-    if (typeof region !== 'string') return [csvNumber(region.start, 2), csvNumber(region.end, 2)];
-    const [start, end] = region.split('–').map(Number);
-    return [csvNumber(start, 2), csvNumber(end, 2)];
+    const { start, end } = typeof region !== 'string' ? region : (([a, b]) => ({ start: a, end: b }))(region.split('–').map(Number));
+    const digits = spacingDecimals(Math.abs(end - start) / 10, 2, 6);
+    return [csvNumber(start, digits), csvNumber(end, digits)];
+}
+
+/**
+ * What a file row of the entry CSV is measured against, as the comparison measures it now (entryBase.fileComparison):
+ * its Δ Leq, the chosen band's Δ, the band of the largest |Δ| and the count of recordings in the base.
+ */
+export interface EntryMeasure {
+    leq: number | null;
+    band: number | null;
+    peak: { hz: number; db: number } | null;
+    count: number;
+    /** What the base left out of its set, with why ("1 still computing"): written beside its n. */
+    left: string;
 }
 
 /**
  * The entry table as CSV, UTF-8 with a BOM so spreadsheet apps read Japanese names (U-01). Rows keep
- * the table's order; the same input always gives the same bytes.
+ * the table's order; the same input always gives the same bytes. A file row's Δ columns are `measure`'s: the base the
+ * screen, the comparison and the report measure from, so the CSV never has a Δ of its own.
  */
-export function entryCsv(model: EntryModel, labels: { file: string; condition: (n: number) => string; regionStart: string; regionEnd: string; leq: string; peak: string; band: string; deltaLeq: string; deltaBand: string; groupSize: string; status: string }): string {
+export function entryCsv(model: EntryModel, labels: { file: string; condition: (n: number) => string; regionStart: string; regionEnd: string; level: FigureColumns; peak: string; bandLevel: FigureColumns; deltaLeq: string; deltaBand: string; groupSize: string; groupLeft: string; status: string; stale: string },
+    measure: (filePath: string) => EntryMeasure | null): string {
     // Every metadata column goes out, checked ones first, so the CSV keeps what the table was read from.
-    const header = [labels.file, ...model.columns.map((column, index) => column.name || labels.condition(index + 1)), labels.regionStart, labels.regionEnd, labels.leq, `${labels.peak} Hz`, `${labels.peak} dB`, labels.band, labels.deltaLeq, labels.deltaBand, labels.groupSize, labels.status];
+    const header = [labels.file, ...model.columns.map((column, index) => column.name || labels.condition(index + 1)), labels.regionStart, labels.regionEnd, labels.level.level, labels.level.reference, `${labels.peak} Hz`, `${labels.peak} dB`, labels.bandLevel.level, labels.bandLevel.reference, labels.deltaLeq, labels.deltaBand, labels.groupSize, labels.groupLeft, labels.status];
     const dB = (value: number | null): string => csvNumber(value, 1);
     const lines = [header.map(csvCell).join(',')];
     for (const row of model.rows) {
-        const ok = row.status === 'ok';
+        // A row of an earlier recipe, version or calibration writes none of its numbers, and says so.
+        const ok = row.status === 'ok' && !row.stale;
+        // A derived row keeps the Δ it was fixed with; a file row is measured against the base it has now.
+        const now = ok && !row.derived ? measure(row.filePath) : null;
+        // A ≠ (stale) fixed row writes no number at all: neither its Δ nor its base's n and left-out files (R4).
+        const delta = row.derived && row.stale ? { leq: null, band: null, hz: null, peak: null, count: null, left: '' }
+            : row.derived ? { leq: row.delta.leq, band: row.delta.band, hz: row.values.peak, peak: row.delta.peak, count: row.derived.count ?? null, left: row.derived.left ?? '' }
+            : { leq: now?.leq ?? null, band: now?.band ?? null, hz: now?.peak?.hz ?? null, peak: now?.peak?.db ?? null, count: now?.count ?? null, left: now?.left ?? '' };
         lines.push([
             row.derived ? baseName(row.derived.parent) : row.name,
             // The region the numbers were measured over, never blank: the scan skips the file's guarded ends.
             ...row.cells, ...regionCells(ok ? measuredRegion(row.derived?.region, row.durationS) : row.derived?.region),
-            ok ? dB(row.values.leq) : null, ok ? csvNumber(row.values.peak, 0) : null, ok ? dB(row.delta.peak) : null, ok ? dB(row.values.band) : null,
-            dB(row.delta.leq), dB(row.delta.band), row.groupSize ? String(row.groupSize) : null,
-            row.status === 'failed' ? '✕' : row.status === 'mismatch' ? row.mismatch ?? '' : '',
+            ok ? dB(row.values.leq) : null, ok ? levelReferenceCell(row, labels.level) : null, ok ? bandCentreCell(delta.hz) : null, ok ? dB(delta.peak) : null, ok ? dB(row.values.band) : null, ok ? levelReferenceCell(row, labels.bandLevel) : null,
+            // n is the set's, 0 too (a base whose every recording was left out says so, with why), never blank or 1.
+            dB(delta.leq), dB(delta.band), delta.count === null ? null : String(delta.count), delta.left || null,
+            row.stale && !row.derived ? labels.stale : row.status === 'failed' ? '✕' : row.status === 'mismatch' ? row.mismatch ?? '' : '',
         ].map(csvCell).join(','));
     }
     return '﻿' + lines.join('\r\n') + '\r\n';

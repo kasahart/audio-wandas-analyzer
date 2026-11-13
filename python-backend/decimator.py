@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import TypedDict
 
 import numpy as np
@@ -19,9 +20,17 @@ class WaveformEnvelope(TypedDict):
     absolutePeak: float
 
 
-def _absolute_peak(samples: np.ndarray) -> float:
+def absolute_peak(samples: np.ndarray) -> float:
+    """The largest |sample| of those with a value: a sample that is not finite is a gap (display rules R2), no peak;
+    0 with none."""
+    if not samples.size:
+        return 0.0
     # Adding 0.0 turns the -0.0 that an all-zero signal yields into 0.0.
-    return float(np.maximum(np.max(samples), -np.min(samples))) + 0.0
+    peak = float(np.maximum(np.max(samples), -np.min(samples))) + 0.0
+    if math.isfinite(peak):
+        return peak
+    finite = samples[np.isfinite(samples)]
+    return float(np.max(np.abs(finite))) + 0.0 if finite.size else 0.0
 
 
 def bucket_starts(n: int, count: int) -> np.ndarray:
@@ -41,35 +50,20 @@ def bucket_edges(n: int, count: int) -> np.ndarray:
     return np.append(bucket_starts(n, min(count, n)), n)
 
 
-def decimated_waveform(
-    samples: np.ndarray,
-    point_limit: int,
-    start_sample: int,
-    total_samples: int,
-) -> WaveformEnvelope:
-    """バケット毎に argmin/argmax の値と正規化時刻を返す。
+def bucket_extremes(samples: np.ndarray, point_limit: int) -> tuple[np.ndarray, np.ndarray]:
+    """Per bucket (``bucket_starts``) of at most ``point_limit`` buckets over ``samples``: the index of its lowest
+    sample and the index of its highest one, as two arrays (the first of equal samples; a NaN counts as both).
 
-    minT/maxT は total_samples 全体における正規化位置 (0–1)。
-    """
+    They are indices into ``samples``, never times. Whoever draws them asks the samples' own axis for the x of each
+    index (stage_view.FrameReading.x_at, or sample / samples for the lanes below), so a drawn point is at the x of
+    the sample it is (docs/display-rules.md R2)."""
     if point_limit > MAX_WAVEFORM_POINTS:
         raise InputError(f"point_limit must not exceed {MAX_WAVEFORM_POINTS}")
     n = len(samples)
-    if n == 0:
-        return {"min": [], "max": [], "minT": [], "maxT": [], "samples": [], "absolutePeak": 0.0}
-
     point_count = min(point_limit, n)
     if point_count <= 0:
-        return {
-            "min": [],
-            "max": [],
-            "minT": [],
-            "maxT": [],
-            "samples": [],
-            "absolutePeak": _absolute_peak(samples),
-        }
-    denom = max(1, total_samples - 1)
+        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64)
     starts = bucket_starts(n, point_count)
-    sizes = np.diff(np.append(starts, n))
     minimum_indices = np.full(point_count, n)
     maximum_indices = np.full(point_count, n)
     minima = np.full(point_count, np.inf)
@@ -99,6 +93,42 @@ def decimated_waveform(
         maxima[target] = np.where(replace_maximum, block_maxima, maxima[target])
         minimum_indices[target] = np.where(replace_minimum, block_minimum_indices, minimum_indices[target])
         maximum_indices[target] = np.where(replace_maximum, block_maximum_indices, maximum_indices[target])
+    return minimum_indices, maximum_indices
+
+
+def decimated_waveform(
+    samples: np.ndarray,
+    point_limit: int,
+    start_sample: int,
+    total_samples: int,
+) -> WaveformEnvelope:
+    """The track lanes' waveform: per bucket its lowest and highest sample (``bucket_extremes``), each with its
+    place in the file.
+
+    minT/maxT are places in the whole file as a fraction, 0 to 1: sample index / ``total_samples``. A sample's time
+    is index / fs and the file lasts total_samples / fs, so the fraction times the duration is the sample's own
+    time. They are fractions of the duration only: never multiply them by any other span (the time from the first
+    sample to the last is one sample shorter). A picture on an axis in seconds takes ``bucket_extremes`` and its own
+    axis instead (stage_view.samples_waveform).
+    """
+    minimum_indices, maximum_indices = bucket_extremes(samples, point_limit)
+    n = len(samples)
+    if n == 0:
+        return {"min": [], "max": [], "minT": [], "maxT": [], "samples": [], "absolutePeak": 0.0}
+    if minimum_indices.size == 0:
+        return {
+            "min": [],
+            "max": [],
+            "minT": [],
+            "maxT": [],
+            "samples": [],
+            "absolutePeak": absolute_peak(samples),
+        }
+    # A sample's place in the file's 0..1 is sample / samples, as its time is i / fs of the duration n / fs (and as
+    # analyzer.sample_range maps a 0..1 range back to samples).
+    denom = max(1, total_samples)
+    starts = bucket_starts(n, minimum_indices.size)
+    sizes = np.diff(np.append(starts, n))
     min_values = samples[minimum_indices].astype(float).tolist()
     max_values = samples[maximum_indices].astype(float).tolist()
     min_t = np.minimum(1.0, (start_sample + minimum_indices) / denom).tolist()
@@ -111,5 +141,5 @@ def decimated_waveform(
         "minT": min_t,
         "maxT": max_t,
         "samples": sample_values,
-        "absolutePeak": _absolute_peak(samples),
+        "absolutePeak": absolute_peak(samples),
     }

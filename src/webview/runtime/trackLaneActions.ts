@@ -6,6 +6,7 @@ export type TrackLaneAction =
     | 'stop-playback'
     | 'remove-track'
     | 'configure-calibration'
+    | 'reanalyze-changed'
     | 'offset-up'
     | 'offset-down'
     | 'offset-edit'

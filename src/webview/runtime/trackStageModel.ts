@@ -4,7 +4,6 @@
  */
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import type { StageView } from '../../shared/protocol/backendProtocol';
-import type { UiStrings } from '../../shared/i18n/strings';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
 import { activeSlotReferenced, recipeKey, recipeSteps, slotReferenced, TIME_SLICE, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
 import { withChannel } from '../../shared/recipe/channelSelection';
@@ -13,7 +12,7 @@ import type { StageSpec } from './stageSource';
 import { FULL_PLOT_WINDOW, type PlotWindow } from './plotInteraction';
 import type { NormalizedRange } from './waveformInteraction';
 import type { Combined } from './combineSource';
-import { regionLabel } from './entryTable';
+import { regionKey } from './entryTable';
 
 /** The Recipe the entry table scans with, the one its scans run (the steps that cannot run left out), and the failures. */
 export interface StageRecipe { recipe: RecipeDocument; runRecipe?: RecipeDocument; failed?: Readonly<Record<string, string>> }
@@ -109,7 +108,7 @@ export function channelRecipe(recipe: RecipeDocument | undefined, ch: number | n
 /** The scan for step `id`'s pictures over `region`, one channel or all. */
 export function stageSpec(recipe: StageRecipe | null, region: EntryRegion | null, id: string, ch: number | null = null): StageSpec {
     const run = channelRecipe(recipe?.runRecipe, ch, recipe?.recipe);
-    return { key: `stage|${recipeKey(run)}|${regionLabel(region)}|${id}`, message: { ...(run ? { recipe: run } : {}), ...(region ? { region } : {}), stage: id } };
+    return { key: `stage|${recipeKey(run)}|${regionKey(region)}|${id}`, message: { ...(run ? { recipe: run } : {}), ...(region ? { region } : {}), stage: id } };
 }
 
 /**
@@ -119,7 +118,7 @@ export function stageSpec(recipe: StageRecipe | null, region: EntryRegion | null
 export function regionStageSpec(recipe: StageRecipe | null, region: EntryRegion | null): StageSpec {
     // The metrics: the base recording is not paired in this scan, so the steps measured against it are left out.
     const run = unpairedRecipe(recipe?.runRecipe, recipe?.recipe);
-    return { key: `region|${recipeKey(run)}|${regionLabel(region)}|bins`, message: { ...(run ? { recipe: run } : {}), ...(region ? { region } : {}), spectrumBins: true } };
+    return { key: `region|${recipeKey(run)}|${regionKey(region)}|bins`, message: { ...(run ? { recipe: run } : {}), ...(region ? { region } : {}), spectrumBins: true } };
 }
 
 /** What holding `step` draws: the chain without it (and the steps that then cannot run), on the step on screen `id`. */
@@ -133,14 +132,7 @@ export function holdStageSpec(recipe: StageRecipe | null, id: string | null, ste
     if (!unselected) return undefined;
     // With a channel there is a Recipe to pick it from: the one without the step.
     const without = channelRecipe(unselected, ch, recipe.recipe) ?? unselected;
-    return { key: `hold|${recipeKey(without)}|${regionLabel(region)}|${shownOf}`, message: { recipe: without, ...(region ? { region } : {}), stage: shownOf } };
-}
-
-/** How many points of a picture have a level (silence floors at −300 dB), and their median. */
-export function pictureSummary(view: StageView | null | undefined): { stageValues: number; stageMedian: number | null } {
-    const values = (view?.values ?? view?.matrix?.flat() ?? []).filter((value): value is number => value !== null && value > -250);
-    const sorted = [...values].sort((a, b) => a - b);
-    return { stageValues: values.length, stageMedian: sorted.length ? sorted[Math.floor(sorted.length / 2)] : null };
+    return { key: `hold|${recipeKey(without)}|${regionKey(region)}|${shownOf}`, message: { recipe: without, ...(region ? { region } : {}), stage: shownOf } };
 }
 
 /**
@@ -168,14 +160,17 @@ export function plotsOf<T extends { filePath: string }>(views: (path: string) =>
 /**
  * What to ask the backend to combine for a paint: the base's pictures' kept values (`data`) and the compared
  * file's. Undefined while a picture is not in; null when there is nothing to combine (one base file and nothing
- * compared, or a picture without kept values: a step not drawn, a trigger that found no event).
+ * compared, or a picture without kept values: a step not drawn, a trigger that found no event); 'tooLarge' when a
+ * picture's values were over what the backend keeps (`tooLarge`, its scan's stageDataTooLarge): nothing is asked,
+ * and nothing scanned again, for a combination that cannot be made.
  */
-export function combineRequest(views: (path: string) => StageView | null | undefined, comparePath: string | null, basePaths: readonly string[]): { base: string[]; compare: string | null } | null | undefined {
+export function combineRequest(views: (path: string) => StageView | null | undefined, comparePath: string | null, basePaths: readonly string[], tooLarge: (path: string) => boolean = () => false): { base: string[]; compare: string | null } | 'tooLarge' | null | undefined {
     const compared = !!comparePath && !basePaths.includes(comparePath);
     if (!basePaths.length || (basePaths.length === 1 && !compared)) return null;
     const paths = [...basePaths, ...(compared && comparePath ? [comparePath] : [])];
     const pictures = paths.map(views);
     if (pictures.some(view => view === undefined)) return undefined;
+    if (paths.some(tooLarge)) return 'tooLarge';
     const keys = pictures.map(view => view?.data);
     const base = keys.slice(0, basePaths.length);
     if (base.some(key => !key)) return null;
@@ -185,7 +180,3 @@ export function combineRequest(views: (path: string) => StageView | null | undef
     return { base: base as string[], compare };
 }
 
-/** A base group's title with its waveforms drawn each: "n files" rather than "median of n". */
-export function eachBaseTitle(title: string, count: number, strings: Pick<UiStrings, 'entryBaseMedian' | 'entryBaseCount'>): string {
-    return title.replace(strings.entryBaseMedian.replace('{count}', String(count)), strings.entryBaseCount.replace('{count}', String(count)));
-}

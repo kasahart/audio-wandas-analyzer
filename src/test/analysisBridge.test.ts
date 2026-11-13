@@ -10,7 +10,7 @@ class RecordingClient extends AnalysisClient {
     calls: Array<{ command: BackendCommand; payload: unknown; requestId?: string }> = [];
     protected async request<K extends BackendCommand>(command: K, payload: BackendPayload<K>, requestId?: string): Promise<BackendResult<K>> {
         this.calls.push({ command, payload, requestId });
-        return { channels: [], analysisRevision: 7, ...(command === 'spectrum-slice' ? { frequencyBins: 0, maxFrequencyHz: 8000, windowStartNorm: 0.4, windowEndNorm: 0.6, window: 'hann' } : {}) } as unknown as BackendResult<K>;
+        return { channels: [], analysisRevision: 7, ...(command !== 'range' ? { stftSignature: '256/64/hann' } : {}), ...(command === 'spectrum-slice' ? { frequencyBins: 0, maxFrequencyHz: 8000, windowStartNorm: 0.4, windowEndNorm: 0.6, window: 'hann' } : {}) } as unknown as BackendResult<K>;
     }
 }
 
@@ -18,22 +18,25 @@ test('all analysis paths carry the same settings/calibration context; range carr
     const client = new RecordingClient();
     const context = { stftOptions: { nFft: 256, overlapPercent: 75, window: 'hann' as const },
         calibrationProfile: identityCalibrationProfile([{ channelIndex: 0, label: 'left' }]), analysisRevision: 7 };
-    const identity = { filePath: 'source', trackIndex: 3, requestId: 'ui', analysisId: 'analysis', settingsSignature: 'settings' };
+    const identity = { filePath: 'source', sourceVersion: 'v1', trackIndex: 3, requestId: 'ui', analysisId: 'analysis', settingsSignature: 'settings' };
     await client.analyze('source', context);
     const detail = await executeLazyAnalysis(client, { ...identity, type: 'request-track-detail' }, context);
     assert.equal(detail.type, 'track-detail-result');
     assert.equal(detail.requestId, 'ui');
     assert.equal(detail.filePath, 'source');
+    assert.equal('stftSignature' in detail && detail.stftSignature, '256/64/hann', 'the STFT the backend computed with, not the settings asked under');
     await executeLazyAnalysis(client, { ...identity, type: 'request-waveform-range', startNorm: 0.2, endNorm: 0.7, points: 128 }, context);
     const slice = await executeLazyAnalysis(client, { ...identity, type: 'request-spectrum-slice', cursorNorm: 0.5 }, context);
     assert.equal(slice.type, 'spectrum-slice-result');
     assert.equal('cursorNorm' in slice && slice.cursorNorm, 0.5);
+    assert.equal('stftSignature' in slice && slice.stftSignature, '256/64/hann');
     assert.deepEqual('windowStartNorm' in slice && [slice.windowStartNorm, slice.windowEndNorm, slice.window], [0.4, 0.6, 'hann']);
     for (const call of client.calls) {
         const payload = call.payload as Record<string, unknown>;
         assert.deepEqual(payload.calibrationProfile, context.calibrationProfile);
         assert.equal(payload.analysisRevision, 7);
         assert.equal(payload.filePath, 'source');
+        if (call.command !== 'analyze') assert.equal(payload.sourceVersion, 'v1', `${call.command} names the version of the file its track shows`);
         assert.deepEqual(payload.stftOptions, call.command === 'range' ? undefined : context.stftOptions);
     }
     assert.equal(lazyAnalysisError({ ...identity, type: 'request-spectrum-slice', cursorNorm: 0.5 }, 'failed').type, 'spectrum-slice-error');
@@ -157,7 +160,7 @@ test('an octave-band slice request reaches the backend and its bands reach the W
                 bandsPerOctave: 3, bandCentersHz: [500, 630], windowStartNorm: 0.4, windowEndNorm: 0.6, window: 'boxcar' } as unknown as BackendResult<K>;
         }
     }();
-    const request = { type: 'request-spectrum-slice' as const, filePath: 'source', trackIndex: 0, requestId: 'r',
+    const request = { type: 'request-spectrum-slice' as const, filePath: 'source', sourceVersion: undefined, trackIndex: 0, requestId: 'r',
         analysisId: 'a', settingsSignature: 's', cursorNorm: 0.5, bandsPerOctave: 3 as const };
     const slice = await executeLazyAnalysis(client, request, {});
     assert.equal((client.payloads[0] as { bandsPerOctave?: number }).bandsPerOctave, 3);

@@ -174,3 +174,50 @@ def test_schema_commands_agree_with_jsonschema_on_the_protocol_fixtures() -> Non
         assert not reference.is_valid(_without_envelope(case["response"], protocol_schema.RESPONSE_ENVELOPE_KEYS)), case
         checked += 1
     assert checked > 0
+
+
+def _number_arrays(node: object, path: str) -> list[tuple[str, dict]]:
+    """Every array of numbers under ``node`` (a list of lists counts once), as (path, the number's own schema)."""
+    found: list[tuple[str, dict]] = []
+    if not isinstance(node, dict):
+        return found
+    if node.get("type") == "array":
+        item = node.get("items")
+        while isinstance(item, dict) and (item.get("type") == "array" or "anyOf" in item):
+            item = item["items"] if item.get("type") == "array" else item["anyOf"][0]
+        if isinstance(item, dict) and item.get("type") == "number":
+            return [(path, item)]
+    for key, child in node.items():
+        if isinstance(child, dict):
+            found += _number_arrays(child, f"{path}.{key}")
+        elif isinstance(child, list):
+            for index, entry in enumerate(child):
+                found += _number_arrays(entry, f"{path}.{key}[{index}]")
+    return found
+
+
+def test_every_array_of_numbers_says_whether_it_is_drawn_points_full_data_or_places() -> None:
+    """Rule: an array of numbers in the protocol is exactly one of ``x-drawn`` (points thinned to be drawn),
+    ``x-whole`` (every value of the data) or ``x-place`` (places along an axis, limits, edges: not data values).
+    The webview reads numbers only from ``x-whole`` arrays and can only draw ``x-drawn`` ones, so an array that
+    says nothing could be either. Fix: in protocol_schema.py use _DRAWN_LINE / _DRAWN_GAPPED, _WHOLE_LINE /
+    _WHOLE_GAPPED or _PLACES for the field (see the comment above them for how to choose). Arrays of integers
+    (counts, channel indices) and of strings are not data values and need no mark."""
+    arrays = _number_arrays(DEFINITIONS, "$defs")
+    assert len(arrays) > 30, "the walk finds the protocol's arrays"
+    marks = ("x-drawn", "x-whole", "x-place")
+    unclassified = [path for path, item in arrays if sum(1 for mark in marks if item.get(mark)) != 1]
+    assert unclassified == [], f"these arrays of numbers do not say what they hold (or say two things): {unclassified}"
+    # The check itself fails on an unmarked array and on one marked twice.
+    plain = {"Injected": {"type": "object", "properties": {"values": {"type": "array", "items": {"type": "number"}}}}}
+    assert [item for _, item in _number_arrays(plain, "$defs")] == [{"type": "number"}]
+    nested = {
+        "type": "array",
+        "items": {"type": "array", "items": {"anyOf": [{"type": "number", "x-whole": True}, {"type": "null"}]}},
+    }
+    assert _number_arrays(nested, "$")[0][1].get("x-whole") is True
+
+
+def test_the_waveform_envelopes_picked_samples_are_drawn_points() -> None:
+    """decimator.decimated_waveform keeps one sample of each bucket in ``samples``: thinned, so never read as data."""
+    assert DEFINITIONS["WaveformEnvelope"]["properties"]["samples"]["items"].get("x-drawn") is True

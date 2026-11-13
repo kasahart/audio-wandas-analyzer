@@ -5,6 +5,7 @@
  * filters and the order are the user's; this module only answers them. Pure, so it is unit-tested.
  */
 import type { ScanResult } from '../protocol/backendProtocol';
+import { csvField } from '../utils/csv';
 import { auditAudioMatches, finiteNumber, MAX_CSV_BYTES, parseCSV, profileColumns, resolveAudio, sourceColumns, type DataRow } from './asdData';
 
 /** The CSV the user picked, read: its columns (the source columns left out) and which of them are numeric. */
@@ -230,11 +231,11 @@ export function middleEllipsis(name: string, max = 34): string {
  * recordings (`name` under `group`; every row when not grouped), of `channel` when one channel is compared.
  * Recordings without that channel cannot be a member: they are left out and counted.
  */
-export function baseGroupMembers(pool: readonly DatasetRow[], comparePath: string, group: GroupId, name: string, channel: number | null): { paths: string[]; fewerChannels: number } {
+export function baseGroupMembers(pool: readonly DatasetRow[], comparePath: string, group: GroupId, name: string, channel: number | null): { paths: string[]; fewerChannels: number; fewerPaths: string[] } {
     const others = pool.filter(row => row.filePath !== comparePath && (group === 'none' || groupOf(row, group) === name));
     const members = channel ? others.filter(row => row.ch === channel) : others;
-    const fewerChannels = channel ? new Set(others.filter(row => (row.channels ?? 1) < channel).map(row => row.filePath)).size : 0;
-    return { paths: [...new Set(members.map(row => row.filePath))], fewerChannels };
+    const fewerPaths = channel ? [...new Set(others.filter(row => (row.channels ?? 1) < channel).map(row => row.filePath))] : [];
+    return { paths: [...new Set(members.map(row => row.filePath))], fewerChannels: fewerPaths.length, fewerPaths };
 }
 
 /**
@@ -258,7 +259,6 @@ export function annotatedCsv(csv: DatasetCsv | null, match: CsvMatch | null, fil
         if (!out.length) return '';
         return out.length === all.length ? '1' : out.map(row => `ch${row.ch}`).join(';');
     };
-    const cell = (text: string): string => (/[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text);
     const name = (base: string, taken: readonly string[]): string => (taken.includes(base) ? `${base}_analyzer` : base);
     let lines: string[][];
     if (csv && match) {
@@ -268,5 +268,5 @@ export function annotatedCsv(csv: DatasetCsv | null, match: CsvMatch | null, fil
     } else {
         lines = [['audio_file', 'memo', 'excluded'], ...filePaths.map(filePath => [recordingKey(filePath, rootPath), memoOf(filePath), excludedOf(filePath)])];
     }
-    return '\uFEFF' + lines.map(line => line.map(cell).join(',')).join('\r\n') + '\r\n';
+    return '\uFEFF' + lines.map(line => line.map(csvField).join(',')).join('\r\n') + '\r\n';
 }

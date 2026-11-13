@@ -40,3 +40,15 @@ test('with nothing on screen to come back to, an undo is dropped rather than kep
     assert.equal(history.canUndo(), false);
     assert.equal(history.canRedo(), false);
 });
+
+test('an edit retracted is as if never made: ↶ does not go back to it and ↷ keeps what it had before it (R13: a double click takes back its first press)', () => {
+    const history = createStepHistory<string>();
+    history.record('a');
+    assert.equal(history.undo('b'), 'a');
+    // ↷ would go to b; an edit made from a, then taken back, leaves that as it was.
+    history.record('a');
+    assert.equal(history.canRedo(), false);
+    assert.equal(history.retract(), 'a');
+    assert.equal(history.canUndo(), false, 'the retracted edit is no step to undo');
+    assert.equal(history.redo('a'), 'b', 'what ↷ had before the edit comes back');
+});

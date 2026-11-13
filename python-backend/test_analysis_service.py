@@ -19,6 +19,7 @@ from analysis_engine import AnalysisEngine, compute_spectrogram
 from analysis_service import AnalysisService
 from analyzer import SPECTRUM_DISPLAY_POINT_LIMIT, normalize_stft_options
 from backend_errors import InputError
+from conftest import assert_not_drawn
 
 
 def _write_sine_wav(path: Path, seconds: float = 0.5, sample_rate: int = 16000) -> None:
@@ -59,7 +60,8 @@ def test_known_tones_keep_physical_frequency_in_live_fft_and_cached_stft(tmp_pat
             cut = n_fft // 2 + 1 > SPECTRUM_DISPLAY_POINT_LIMIT
             assert ("frequenciesHz" in result) == cut
             if cut:
-                assert SPECTRUM_DISPLAY_POINT_LIMIT * 0.8 <= result["frequencyBins"] <= SPECTRUM_DISPLAY_POINT_LIMIT
+                # Within the budget, and using much of it: fewer where the channels' extremes share a bin.
+                assert SPECTRUM_DISPLAY_POINT_LIMIT * 0.5 <= result["frequencyBins"] <= SPECTRUM_DISPLAY_POINT_LIMIT
             else:
                 assert result["frequencyBins"] == n_fft // 2 + 1
             for tone, channel in zip(tones, result["channels"], strict=False):
@@ -100,6 +102,62 @@ def test_cursor_spectrum_keeps_a_tone_at_its_frequency_and_level(tmp_path: Path,
     peak = int(np.argmax(values))
     assert abs(_slice_frequencies(shown)[peak] - 80.0) <= max(1.5, rate / n_fft / 2)
     assert abs(values[peak] - np.max(expected)) <= 0.5
+
+
+def test_cursor_spectrum_level_range_is_every_bins_not_the_row_cut_for_display(tmp_path: Path) -> None:
+    # Noise with one narrow notch-deep bin and one tone: the row cut to draw keeps fewer points than the FFT has bins;
+    # the slice's minDb / maxDb are still the ends of every bin of every channel's own row.
+    rate, n_fft = 48000, 16384
+    rng = np.random.default_rng(3)
+    times = np.arange(rate) / rate
+    noise = 0.01 * rng.standard_normal((2, rate))
+    noise[1] += 0.5 * np.sin(2 * np.pi * 3000 * times)
+    audio = tmp_path / "noise.wav"
+    sf.write(audio, noise.T, rate, subtype="FLOAT")
+    options = {"nFft": n_fft, "overlapPercent": 75, "window": "hann"}
+    service = AnalysisService(AnalysisEngine())
+
+    shown = service.spectrum_slice(audio, cursor_norm=0.5, stft_options=options)
+    full = service.spectrum_slice(audio, cursor_norm=0.5, stft_options=options, full_resolution=True)
+
+    assert "frequenciesHz" in shown and shown["frequencyBins"] < full["frequencyBins"]
+    for cut, whole in zip(shown["channels"], full["channels"], strict=True):
+        every = np.asarray(whole["values"])
+        assert cut["minDb"] == pytest.approx(float(every.min()))
+        assert cut["maxDb"] == pytest.approx(float(every.max()))
+        assert whole["minDb"] == pytest.approx(float(every.min()))
+        assert whole["maxDb"] == pytest.approx(float(every.max()))
+        # A row thinned by averaging to the points drawn loses the notch and the tone's top: not this range.
+        width = every.size // len(cut["values"])
+        averaged = every[: every.size // width * width].reshape(-1, width).mean(axis=1)
+        assert_not_drawn(cut["minDb"], float(averaged.min()))
+        assert_not_drawn(cut["maxDb"], float(averaged.max()))
+
+
+def test_a_cursor_slice_sends_its_every_bin_as_bins_only_when_its_row_is_not_cut(tmp_path: Path) -> None:
+    # R7: ``bins`` (x-whole) is what the webview reads; ``values`` (x-drawn) only what it draws. A row cut for display
+    # has no ``bins``; every other row (full resolution, short enough not to be cut, octave bands) sends them, the
+    # same numbers as its uncut values and as many as its bins.
+    rate = 48000
+    rng = np.random.default_rng(5)
+    audio = tmp_path / "noise.wav"
+    sf.write(audio, 0.01 * rng.standard_normal((rate, 2)), rate, subtype="FLOAT")
+    service = AnalysisService(AnalysisEngine())
+    wide = {"nFft": 16384, "overlapPercent": 75, "window": "hann"}
+    narrow = {"nFft": 1024, "overlapPercent": 75, "window": "hann"}
+
+    cut = service.spectrum_slice(audio, cursor_norm=0.5, stft_options=wide)
+    assert "frequenciesHz" in cut
+    assert all("bins" not in channel for channel in cut["channels"])
+    for every in [
+        service.spectrum_slice(audio, cursor_norm=0.5, stft_options=wide, full_resolution=True),
+        service.spectrum_slice(audio, cursor_norm=0.5, stft_options=narrow),
+        service.spectrum_slice(audio, cursor_norm=0.5, stft_options=narrow, bands_per_octave=3),
+    ]:
+        assert "frequenciesHz" not in every
+        for channel in every["channels"]:
+            assert len(channel["bins"]) == every["frequencyBins"]
+            assert channel["bins"] == channel["values"]
 
 
 def test_service_exposes_all_use_cases_without_server_loop(tmp_path: Path) -> None:
@@ -287,6 +345,8 @@ def test_pair_spectrum_recovers_a_known_filter(tmp_path: Path) -> None:
     phase_error = np.angle(np.exp(1j * (phase[reliable] - np.angle(expected[reliable]))))
     assert np.degrees(np.max(np.abs(phase_error))) < 1.0
     assert response["axisLabel"] == "Gain [dB]"
+    # Neither channel is calibrated: the pair says so (calibrated only when both sides are, R4).
+    assert response["calibrationStatus"] == "uncalibrated"
     assert result["nFft"] == 1024 and result["hopLength"] == 512
 
 

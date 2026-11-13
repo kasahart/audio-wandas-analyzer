@@ -78,6 +78,12 @@ def _analysis_revision(command: Command) -> object:
     return command.get("analysisRevision", 0)
 
 
+def _source_version(command: Command) -> object:
+    # The version of the file the asking track was drawn from (sourceVersion of its analysis); absent asks of
+    # the file as it is now.
+    return command.get("sourceVersion")
+
+
 def handle_analyze(service: AnalysisService, command: Command) -> Mapping[str, object]:
     return service.analyze(
         str(command["filePath"]),
@@ -101,6 +107,7 @@ def handle_track_detail(service: AnalysisService, command: Command) -> Mapping[s
         stft_options=_stft_options(command),
         calibration_profile=_calibration_profile(command),
         analysis_revision=_analysis_revision(command),
+        source_version=_source_version(command),
         time_window=window,
         frequency_band=(
             (float(command["lowHz"]), float(command["highHz"])) if "lowHz" in command and "highHz" in command else None
@@ -119,6 +126,7 @@ def handle_spectrum_slice(service: AnalysisService, command: Command) -> Mapping
         stft_options=_stft_options(command),
         calibration_profile=_calibration_profile(command),
         analysis_revision=_analysis_revision(command),
+        source_version=_source_version(command),
         bands_per_octave=int(command["bandsPerOctave"]) if "bandsPerOctave" in command else None,
         full_resolution=bool(command.get("fullResolution", False)),
     )
@@ -144,6 +152,7 @@ def handle_range(service: AnalysisService, command: Command) -> Mapping[str, obj
         point_count=int(command["points"]),
         calibration_profile=_calibration_profile(command),
         analysis_revision=_analysis_revision(command),
+        source_version=_source_version(command),
         read=command.get("read"),
     )
 
@@ -184,6 +193,12 @@ def handle_scan(service: AnalysisService, command: Command) -> Mapping[str, obje
     )
 
 
+def handle_scan_spec(_service: AnalysisService, _command: Command) -> Mapping[str, object]:
+    from scan_service import scan_spec
+
+    return scan_spec()
+
+
 def handle_stage_combine(_service: AnalysisService, command: Command) -> Mapping[str, object]:
     from stage_combine import combine_keys
 
@@ -206,6 +221,7 @@ COMMANDS: dict[str, CommandHandler] = {
     "export-wav-loop": handle_export_wav_loop,
     "build-recipe": handle_build_recipe,
     "scan": handle_scan,
+    "scan-spec": handle_scan_spec,
     "stage-combine": handle_stage_combine,
 }
 

@@ -7,8 +7,7 @@ import { SUPPORTED_AUDIO_DIALOG_EXTENSIONS } from '../shared/utils/audioTarget';
 const repoRoot = path.resolve(__dirname, '../..');
 
 function readText(relativePath: string): string {
-    // Windows checkouts may use CRLF (core.autocrlf); the line-anchored assertions below expect LF.
-    return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8').replace(/\r\n/gu, '\n');
+    return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
 function readJson<T>(relativePath: string): T {
@@ -170,6 +169,8 @@ test('.vscodeignore excludes development-only assets from the published VSIX', (
         'python-backend/__pycache__/**',
         'python-backend/.pytest_cache/**',
         'python-backend/test_*.py',
+        // The fixtures both implementations' tests read (pick_cases.json): test data, not the backend.
+        'python-backend/tests/**',
     ]) {
         assert.match(vscodeIgnore, new RegExp(`(^|\\n)${entry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\n|$)`));
     }

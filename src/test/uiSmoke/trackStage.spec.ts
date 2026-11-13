@@ -1,7 +1,12 @@
 import { readFileSync } from 'node:fs';
+import { stubStage } from './stubStage';
 import path from 'node:path';
-import { expect, test, type Page } from './canvasAudit';
+import { expect, settled, test, type Page } from './canvasAudit';
 import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
+import { FLAG_COLOR } from '../../shared/gui/roleColors';
+
+/** A `#rrggbb` colour as the browser computes it. */
+const rgb = (hex: string): string => `rgb(${[1, 3, 5].map(at => parseInt(hex.slice(at, at + 2), 16)).join(', ')})`;
 
 let scanned: ScannedFile[] | undefined;
 test.beforeAll(() => { scanned = entry100Results(); });
@@ -19,7 +24,7 @@ async function answer(page: Page, view: Record<string, unknown>): Promise<Posted
             window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...file.result, stage: view } }, '*');
         }
         window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
-    }, { request, view, files: scanned! });
+    }, { request, view: stubStage(view), files: scanned! });
     return request;
 }
 
@@ -84,7 +89,7 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
         window.dispatchEvent(new Event('resize'));
     });
     await expect.poll(() => page.evaluate(() => document.querySelector('[data-stage-canvas="overlay"]') !== null)).toBe(true);
-    await page.waitForTimeout(300);
+    await settled(page);
     expect(await page.evaluate(() => (window as unknown as { __hiddenPaints: string[] }).__hiddenPaints)).toEqual([]);
     // Δ on request, under the overlay.
     await page.locator('[data-action="stage-diff"]').click();
@@ -108,6 +113,8 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
     expect((await stageScans(page)).at(-1)!.filePaths).toEqual([first]);
     // As many points as the whole picture, at other frequencies: until the base has its detail too, Δ stays the whole pictures'.
     const zoomed = { ...view, xs: [400, 500, 600], values: [-35, -31, -33] };
+    // The whole pictures' Δ is read once it is written, not while the headline is still being painted.
+    await expect(page.locator('[data-stage-diff-headline]')).not.toHaveText('');
     const wholeDelta = await page.locator('[data-stage-diff-headline]').textContent();
     await answer(page, zoomed);
     await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBeGreaterThan(1);
@@ -171,12 +178,12 @@ const FS_INPUT = { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationS
 const RAW_INPUT = { unit: '', ref: 1, levelReferenceLabel: 'dB re 1 input unit', calibrationStatus: 'uncalibrated', fullScale: false };
 const SPL_INPUT = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: true };
 for (const [source, tableInput, stepInput, standalone, axis, badge, other] of [
-    ['WAV', FS_INPUT, FS_INPUT, false, 'Amplitude, uncalibrated [dBFS]', 'FS', 'Amplitude, uncalibrated [dB re 1 input unit]'],
-    ['CSV', RAW_INPUT, RAW_INPUT, false, 'Amplitude, uncalibrated [dB re 1 input unit]', 'RAW', 'Amplitude, uncalibrated [dBFS]'],
+    ['WAV', FS_INPUT, FS_INPUT, false, 'Level, uncalibrated [dBFS]', 'FS', 'Level, uncalibrated [dB re 1 input unit]'],
+    ['CSV', RAW_INPUT, RAW_INPUT, false, 'Level, uncalibrated [dB re 1 input unit]', 'RAW', 'Level, uncalibrated [dBFS]'],
     // Opened on its own (or before the folder's rescan): the entry table has no result for it, so its step's scan says.
-    ['CSV opened on its own', RAW_INPUT, RAW_INPUT, true, 'Amplitude, uncalibrated [dB re 1 input unit]', 'RAW', 'Amplitude, uncalibrated [dBFS]'],
+    ['CSV opened on its own', RAW_INPUT, RAW_INPUT, true, 'Level, uncalibrated [dB re 1 input unit]', 'RAW', 'Level, uncalibrated [dBFS]'],
     // Calibrated on the drawn channel only: the whole file reads uncalibrated in the table, the drawn channel's step scan in Pa.
-    ['WAV calibrated on the drawn channel only', FS_INPUT, SPL_INPUT, false, 'Amplitude [dB SPL re 20 µPa]', 'FS', 'Amplitude, uncalibrated [dBFS]'],
+    ['WAV calibrated on the drawn channel only', FS_INPUT, SPL_INPUT, false, 'Level [dB SPL re 20 µPa]', 'FS', 'Level, uncalibrated [dBFS]'],
 ] as const) {
     const fullScale = tableInput.fullScale;
     test(`a ${source} track names its level axis by wandas' reference for the channel drawn, and its badge by whether its source has a full scale`, async ({ page }) => {
@@ -231,9 +238,13 @@ for (const [source, tableInput, stepInput, standalone, axis, badge, other] of [
             window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
         }, { request, view, files: standalone ? [lone] : steps });
         await expect(page.locator('.track-stage')).toHaveAttribute('data-pending', /^(|1\/\d+)$/);
-        // A gutter too short for the whole title keeps its unit (fittedAxisTitle).
-        const drawnAxis = (title: string) => async (): Promise<boolean> => (await page.evaluate(() => (window as unknown as { __drawnTexts: string[] }).__drawnTexts))
-            .some(text => text === title || text === /\[([^\]]+)\]$/.exec(title)![1]);
+        // A gutter too short for the whole title keeps its quantity and its unit: on two lines, or the quantity shortened (fitAxisTitle).
+        const drawnAxis = (title: string) => async (): Promise<boolean> => {
+            const texts = await page.evaluate(() => (window as unknown as { __drawnTexts: string[] }).__drawnTexts);
+            const [, quantity, unit] = /^(.*\S)\s*\[([^\]]+)\]$/u.exec(title)!;
+            const ofQuantity = (text: string): boolean => text.startsWith(quantity) || (text.length > 1 && /…( \[[^\]]+\])?$/u.test(text) && quantity.startsWith(text.replace(/…( \[[^\]]+\])?$/u, '')));
+            return texts.includes(title) || texts.some(text => text.endsWith(` [${unit}]`) && ofQuantity(text)) || (texts.includes(`[${unit}]`) && texts.some(ofQuantity));
+        };
         await expect.poll(drawnAxis(axis)).toBe(true);
         expect(await drawnAxis(other)()).toBe(false);
     });
@@ -291,6 +302,8 @@ test('a step that cannot run on these recordings says why: ＋ greys a 48 kHz-on
         window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
     }, request);
     await expect(bar.locator('.step-chip.is-invalid')).toHaveCount(1);
+    // Marked in the failure's orange (R5), the one colour no role, difference or recording has.
+    await expect(bar.locator('.step-chip.is-invalid')).toHaveCSS('border-top-color', rgb(FLAG_COLOR));
     await expect.poll(async () => (await page.evaluate(() => (window as unknown as { __drawnTexts: string[] }).__drawnTexts)).join(' ')).toContain('boom on this file');
 });
 
