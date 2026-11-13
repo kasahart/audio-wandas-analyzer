@@ -38,7 +38,7 @@ export const VALUE_HELPERS: readonly string[] = [
 
 /** Functions that write a number nobody reads as a value of a chart, each with why. */
 export const NOT_CHART_VALUES: Readonly<Record<string, string>> = {
-    'src/webview/runtime/comparisonRuntime.ts:drawSpectrogram': 'the lane\'s data-spectrogram-band / -window / data-colour-bar attributes for the plot tests, not shown',
+    'src/webview/runtime/comparisonRuntime.ts:drawSpectrogram': 'the lane\'s data-spectrogram-band / -window attributes for the plot tests, not shown',
     'src/webview/runtime/comparisonRuntime.ts:drawTrackWaveform': 'the lane\'s data-waveform-height attribute (CSS px) for the plot tests, not shown',
     'src/webview/runtime/comparisonRuntime.ts:moveCursor': 'the lanes\' data-cursor-at attribute (where the time cursor is on the lanes\' axis, s) for the test that a lane\'s click moves it to the time read, not shown',
     'src/webview/runtime/comparisonRuntime.ts:startComparisonRuntime': 'the page\'s layout markup (buildLayout): toolbar states and counts of the files listed, not a chart\'s value',

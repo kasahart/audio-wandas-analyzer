@@ -163,6 +163,11 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         box.dataset.apart = String(dist.apart);
         box.dataset.unit = dist.unit;
         plots.clear();
+        // Folded above the table, the groups' strip is as tall from the start as it will be once every value is in
+        // (one row, or two and a scroll when the pool has more groups), so the table under it never moves while a
+        // folder's values arrive (#781). Its groups are the pool's, known before any value is.
+        const poolGroups = new Set(pool.map(row => groupOf(row, group))).size;
+        groups.style.height = strip ? `${poolGroups > 1 ? 2 * DIST_STRIP_ROW + 8 : DIST_STRIP_ROW}px` : '';
         if (!members) {
             groups.innerHTML = ''; scale = null; rows = [];
             axisCanvas.hidden = true; countAxis.textContent = '';

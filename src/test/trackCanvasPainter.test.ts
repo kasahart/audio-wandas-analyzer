@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { drawableLine } from '../shared/drawnPoints';
 import test from 'node:test';
 import type { SpectrogramData, WaveformEnvelope } from '../shared/analysis/analysisTypes';
-import { hexToRgba, laneSpectrogramView, laneWaveformOverlay, onColourBar, paintTrackSpectrogram } from '../webview/runtime/trackCanvasPainter';
+import { hexToRgba, laneSpectrogramView, laneWaveformOverlay, paintTrackSpectrogram } from '../webview/runtime/trackCanvasPainter';
+import { stagePlotPoint } from '../webview/runtime/stagePanes';
 import { normalizedColor, viridis } from '../shared/gui-core/index';
 import { P, T } from './helpers/figure';
 
@@ -104,9 +105,13 @@ test('a spectrogram lane is drawn by the plot component over its whole width, wi
     // paintColourBar: the name, the low end, the strip, the high end.
     assert.ok(calls.includes('fillText Level [dBFS]') && calls.includes('fillText −80') && calls.includes('fillText −20'), calls.join(','));
     const box = entry.colourBar;
+    // Its colours are a range the user types (⚙ or a double-click on the bar), declared on the plot (R13).
+    assert.equal((canvas.dataset as Record<string, string>).plotColourRange, 'typed');
     assert.ok(box.x > 0 && box.x + box.width <= 396 && box.y === 3 && box.height === 14, JSON.stringify(box));
-    assert.equal(onColourBar(entry, box.x + 1, box.y + 1), true);
-    assert.equal(onColourBar(entry, 10, 50), false);
+    // The pointer finds it by the one hit test of every colour bar (stagePlotPoint, R13): a value axis there, none off it.
+    const onScreen = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 400, height: 60, right: 400, bottom: 60, x: 0, y: 0, toJSON: () => ({}) }) };
+    assert.deepEqual([stagePlotPoint(onScreen, box.x + 1, box.y + 1, entry.plot).axis, stagePlotPoint(onScreen, box.x + 1, box.y + 1, entry.plot).colour], ['y', true]);
+    assert.equal(stagePlotPoint(onScreen, 10, 50, entry.plot).colour, undefined);
     // Its frequency axis runs up to the band shown (in Hz, from its own rows), not the lanes' time axis.
     assert.deepEqual([entry.ticks[0]?.text, entry.ticks.at(-1)?.text], ['0', '1000']);
     // A new name is a new look: the lane is painted again.
