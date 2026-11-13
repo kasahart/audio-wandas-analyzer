@@ -132,12 +132,7 @@ export function postedPictures(posted: ReadonlyArray<{ filePath: string; picture
         if (base.some(member => !member.values) || (read.stage === 'diff' && !compare?.values)) return null;
         const median = xs.map((_, index) => medianOf(base.map(member => member.values?.[index])));
         if (read.stage !== 'diff' || !compare) return { kind: 'line', xs, values: median };
-        const values = xs.map((_, index) => {
-            const value = compare.values?.[index];
-            const middle = median[index];
-            return value === null || value === undefined || !Number.isFinite(value) || middle === null ? null : value - middle;
-        });
-        return { kind: 'line', xs, values };
+        return { kind: 'line', xs, values: differenceFromMedian(compare.values!, base.map(member => member.values!)) };
     };
 }
 
@@ -185,9 +180,44 @@ export function recordingLanes(results: PreviewState['results']): KnownData {
     };
 }
 
-/** Evenly spaced bins from 0 Hz to `maxHz` (a spectrum's every bin, as a stand-in answers them), for the plots `on` names. */
-export function binGrid(on: (read: ReadOf) => boolean, bins: number, maxHz: number): KnownData {
-    return read => (on(read) ? { kind: 'line', xs: Array.from({ length: bins }, (_, bin) => bin / (bins - 1) * maxHz) } : null);
+/**
+ * Evenly spaced bins from 0 Hz to `maxHz` (a spectrum's every bin, as a stand-in answers them), for the plots `on`
+ * names, with the values the page was given for the line read (`valuesOf`, `bins` of them): the next point is then
+ * the next readable one, past silence (on a line with a floor) and gaps, as on every line. A line whose values the
+ * test does not have (or not every bin of) is not known: its check says so, never taking every bin as readable.
+ */
+export function binGrid(on: (read: ReadOf) => boolean, bins: number, maxHz: number, valuesOf: (read: ReadOf, bins: number) => ReadonlyArray<number | null> | null | undefined): KnownData {
+    return read => {
+        if (!on(read)) return null;
+        const values = valuesOf(read, bins);
+        if (!values || values.length !== bins) return null;
+        return { kind: 'line', xs: Array.from({ length: bins }, (_, bin) => bin / (bins - 1) * maxHz), values };
+    };
+}
+
+/** What a page's stand-in served a plot: a recording's channel's every bin (fullReadStandIn.ts uiSmokeServe). */
+export type Served = { plot: string; filePath: string; channelIndex: number; values: ReadonlyArray<number | null> };
+
+/**
+ * The values `served` holds for the line read on `plot`, `bins` long: the recording's channel the line names (its
+ * file's name and "Channel n", n counted from 1), as the stand-in answered it last. None where no one answer is it.
+ */
+export function servedBins(served: readonly Served[], plot: string, read: ReadOf, bins: number): ReadonlyArray<number | null> | null {
+    const label = read.label ?? '';
+    const names = served.filter(item => item.plot === plot && item.values.length === bins
+        && label.includes(item.filePath.split('/').at(-1) ?? '\u0000') && new RegExp(`Channel ${item.channelIndex + 1}(?!\\d)`, 'u').test(label));
+    return names.length === 1 ? names[0].values : null;
+}
+
+/**
+ * A Δ against a base group (R1), point by point: the compared values minus the median of the members' values; none
+ * where the compared one or any member has none.
+ */
+export function differenceFromMedian(compare: ReadonlyArray<number | null | undefined>, members: ReadonlyArray<ReadonlyArray<number | null | undefined>>): Array<number | null> {
+    return compare.map((value, index) => {
+        const middle = medianOf(members.map(member => member[index]));
+        return value === null || value === undefined || !Number.isFinite(value) || middle === null ? null : value - middle;
+    });
 }
 
 /** Whether a picture with these xs is the one a read's view spans (its first and last x). */

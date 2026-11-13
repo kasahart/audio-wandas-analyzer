@@ -7,7 +7,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { postedPictures, stepOf, type ReadOf } from './uiSmoke/knownData';
+import { binGrid, differenceFromMedian, postedPictures, servedBins, stepOf, type ReadOf } from './uiSmoke/knownData';
 
 const xs = [100, 1000, 5000];
 const picture = (values: Array<number | null>): Record<string, unknown> => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', xs, values });
@@ -46,4 +46,26 @@ test('a Δ is the compared recording minus the base group\'s median, none where 
     const lane = known({ ...read('overlay', null), filePath: '/data/b.wav' });
     assert.ok(lane && lane.kind === 'line');
     assert.deepEqual(lane.values, [0, null, 0]);
+});
+
+test('a spectrum\'s bins are stepped on the values the stand-in served the line read: a level line skips a −260 dB bin and a gap, a plain one steps onto −260 dB (R7)', () => {
+    const served = [
+        { plot: 'spectrum', filePath: '/p/tone.wav', channelIndex: 0, values: [-20, -260, null, -30] },
+        { plot: 'spectrum', filePath: '/p/tone.wav', channelIndex: 1, values: [-20, -20, -20, -20] },
+    ];
+    const spectrum = binGrid(line => line.id === 'spectrum-overlay-canvas', 4, 3000, (line, bins) => servedBins(served, 'spectrum', line, bins));
+    const line = { ...read('overlay', 'tone.wav / Channel 1 (L)'), id: 'spectrum-overlay-canvas', frame: 'spectrum', ends: [0, 3000] as const };
+    const known = spectrum(line);
+    assert.ok(known && known.kind === 'line');
+    const start = { at: 0, row: null, index: 0, identity: null };
+    assert.equal((stepOf(start, known, 1, false) as { index: number }).index, 3);
+    assert.equal((stepOf(start, known, 1, true) as { index: number }).index, 1);
+    assert.equal((stepOf({ at: 1000, row: null, index: 1, identity: null }, known, 1, true) as { index: number }).index, 3);
+    // The other channel's line is its own values; a line no served answer names is not known (never every bin readable).
+    assert.deepEqual((spectrum({ ...line, label: 'tone.wav / Channel 2 / 2 (R)' }) as { values: unknown }).values, [-20, -20, -20, -20]);
+    assert.equal(spectrum({ ...line, label: 'other.wav / Channel 1 (L)' }), null);
+});
+
+test('a held Δ is the held row\'s bins minus the median of its base\'s, none where any has none (R1, R7)', () => {
+    assert.deepEqual(differenceFromMedian([-10, -10, -10], [[-20, null, -20], [-40, -40, -30]]), [20, null, 15]);
 });

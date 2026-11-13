@@ -9,7 +9,7 @@ import { ROWS } from '../plotContracts/index';
 import { INPUT_FRAME, isCharted, outputOf, WANDAS_OPERATIONS } from '../../shared/recipe/recipeCatalog';
 import { reachableFrameKinds } from '../helpers/frameKinds';
 import { DIFF_COLOR, FLAG_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
-import { binGrid, firstKnown, isPoint, postedPictures, recordingLanes, stepOf, type KnownData, type PointAt, type ReadOf } from './knownData';
+import { binGrid, differenceFromMedian, firstKnown, isPoint, postedPictures, recordingLanes, servedBins, stepOf, type KnownData, type PointAt, type ReadOf, type Served } from './knownData';
 
 const STR_EN = getStrings('en');
 
@@ -144,6 +144,8 @@ async function knownStep(plot: Locator, from: PointAt, delta: 1 | -1 = 1): Promi
             trackIndex: track ? Number(track[1]) : null, channelIndex: track?.[2] !== undefined ? Number(track[2]) : null,
         };
     });
+    // What the page's stand-in served so far (each plot's every bin it answered last), for the plots known from it.
+    served = Object.values(await plot.page().evaluate(() => (window as unknown as { __uiSmokeServed?: Record<string, Served> }).__uiSmokeServed ?? {}));
     const known = knownData?.(read) ?? null;
     if (!known) return { known: false, why: `no data of its own known for ${read.id || read.attrs.filter(name => name.startsWith('data-')).join(' ')} (${read.frame ?? 'no Frame'}, ${read.label ?? 'unnamed'}, ${JSON.stringify(read.ends)})` };
     const plain = await plot.getAttribute('data-plot-read-floorless') === 'true';
@@ -601,6 +603,8 @@ const checkedPlots = new Set<string>();
  * data it does not know is checked only to step one way and back, and only where NO_KNOWN_DATA says why.
  */
 let knownData: KnownData | null = null;
+/** What the page's stand-in served its plots (fullReadStandIn.ts uiSmokeServe), as knownStep last read it. */
+let served: Served[] = [];
 /** The pictures a comparison test posted (answer, answerKinds): each recording's, by its file. */
 const postedStages: Array<{ filePath: string; picture: Record<string, unknown> }> = [];
 /**
@@ -635,12 +639,16 @@ function pageKnown(html: string, hostPath = false): KnownData {
     const results = appStateOf(html).results;
     const spectrogram = results[0]?.channels[0]?.spectrogram as { frequencyBins: number; maxFrequencyHz: number } | null | undefined;
     const isSpectrum = (read: ReadOf): boolean => read.id === 'spectrum-overlay-canvas';
-    const spectrum = hostPath ? binGrid(isSpectrum, UI_SMOKE_HOST_GRID.spectrumBins, UI_SMOKE_HOST_GRID.maxHz)
-        : spectrogram ? binGrid(isSpectrum, spectrogram.frequencyBins, spectrogram.maxFrequencyHz) : (): null => null;
-    return firstKnown(recordingLanes(results), spectrum, binGrid(read => read.attrs.includes('data-pair-lane'), UI_SMOKE_HOST_GRID.pairBins, UI_SMOKE_HOST_GRID.maxHz));
+    // A line's values are what the stand-in served it: the lane spectrogram's column at the cursor, the stub's bins.
+    const spectrumValues = (read: ReadOf, bins: number): ReturnType<typeof servedBins> => servedBins(served, 'spectrum', read, bins);
+    const spectrum = hostPath ? binGrid(isSpectrum, UI_SMOKE_HOST_GRID.spectrumBins, UI_SMOKE_HOST_GRID.maxHz, spectrumValues)
+        : spectrogram ? binGrid(isSpectrum, spectrogram.frequencyBins, spectrogram.maxFrequencyHz, spectrumValues) : (): null => null;
+    const pairValues = (read: ReadOf, bins: number): ReturnType<typeof servedBins> => servedBins(served, read.id.replace(/^pair-lane-/u, 'pair-'), read, bins);
+    return firstKnown(recordingLanes(results), spectrum, binGrid(read => read.attrs.includes('data-pair-lane'), UI_SMOKE_HOST_GRID.pairBins, UI_SMOKE_HOST_GRID.maxHz, pairValues));
 }
 test.afterEach(() => {
     knownData = null;
+    served = [];
     postedStages.length = 0;
     const unknown = [...unknownPlots];
     unknownPlots.clear();
@@ -973,7 +981,14 @@ test('the entry\'s held plot answers the same gestures as every plot (R13)', asy
     const request = (await binsAsked())!;
     // The held Δ is of the bins answered here: every bin from 0 Hz to half the rate, as the test hands them over.
     const held = scanned!.find(item => request.filePaths.includes(item.filePath))!.result as { spectrumDb: number[][]; input: { fs: number } };
-    knownData = firstKnown(entryKnown(scanned!), binGrid(read => read.attrs.includes('data-entry-held-canvas'), held.spectrumDb[0].length, held.input.fs / 2));
+    // Its values: the held row's channel minus the median of its base's (R1), of the bins answered here for the files
+    // the hold asked for (the held row first, then its base's).
+    const binsOf = (filePath: string): number[][] => (scanned!.find(item => item.filePath === filePath)!.result as { spectrumDb: number[][] }).spectrumDb;
+    const heldKey = await page.locator('[data-entry-rows] tr.entry-row[aria-selected="true"]').getAttribute('data-key');
+    const heldChannel = Number(/#ch(\d+)$/u.exec(heldKey ?? '')?.[1] ?? 0);
+    const [heldPath, ...basePaths] = request.filePaths;
+    const heldDelta = differenceFromMedian(binsOf(heldPath)[heldChannel], basePaths.map(filePath => binsOf(filePath)[heldChannel]));
+    knownData = firstKnown(entryKnown(scanned!), binGrid(read => read.attrs.includes('data-entry-held-canvas'), held.spectrumDb[0].length, held.input.fs / 2, () => heldDelta));
     await page.evaluate(({ request, files }) => {
         for (const file of files.filter(item => (request as unknown as { filePaths: string[] }).filePaths.includes(item.filePath))) {
             const result = file.result as { spectrumDb: number[][]; input: { fs: number } };

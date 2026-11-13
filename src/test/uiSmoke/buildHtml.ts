@@ -239,6 +239,7 @@ const uiSmokeSpectrumResponse = function(message) {
         window: 'hann',
     };
     if (Number.isInteger(message.channelIndex)) {
+        if (message.fullResolution) uiSmokeServe('spectrum', message.filePath, message.channelIndex, uiSmokeSpectrumValues(message.cursorNorm, message.channelIndex, bins));
         return Object.assign(identity, {
             channelIndex: message.channelIndex,
             values: uiSmokeSpectrumValues(message.cursorNorm, message.channelIndex, bins),
@@ -247,6 +248,7 @@ const uiSmokeSpectrumResponse = function(message) {
             maxDb: 0,
         });
     }
+    if (message.fullResolution) [0, 1].forEach(function(channelIndex) { uiSmokeServe('spectrum', message.filePath, channelIndex, uiSmokeSpectrumValues(message.cursorNorm, channelIndex, bins)); });
     return Object.assign(identity, {
         channels: [0, 1].map(function(channelIndex) {
             return {
@@ -263,7 +265,7 @@ const uiSmokeSpectrumResponse = function(message) {
 };
 const uiSmokePairResponse = function(message) {
     const bins = ${UI_SMOKE_HOST_GRID.pairBins};
-    return {
+    const answer = {
         type: 'pair-spectrum-result',
         requestId: message.requestId,
         analysisId: message.analysisId,
@@ -293,6 +295,12 @@ const uiSmokePairResponse = function(message) {
             };
         }),
     };
+    answer.responses.forEach(function(response) {
+        uiSmokeServe('pair-gain', response.filePath, response.channelIndex, response.gainDb);
+        uiSmokeServe('pair-phase', response.filePath, response.channelIndex, response.phaseRad);
+        uiSmokeServe('pair-coherence', response.filePath, response.channelIndex, response.coherence);
+    });
+    return answer;
 };
 window.acquireVsCodeApi = function() {
     return {

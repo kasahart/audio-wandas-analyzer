@@ -28,6 +28,13 @@ export function uiSmokeEnvelopePoints(envelope: { min: number[]; max: number[]; 
  * read, or when the test answers them; and `uiSmokeReadPoints(view, read)` for a picture's.
  */
 export const UI_SMOKE_READS = `
+// What the stand-in served, for the test's expectations (knownData.ts servedBins): each plot's every bin, the latest
+// answer for each recording's channel (and length: a row cut for display is not its every bin).
+function uiSmokeServe(plot, filePath, channelIndex, values) {
+    if (!Array.isArray(values)) return;
+    var served = window.__uiSmokeServed || (window.__uiSmokeServed = {});
+    served[[plot, filePath, channelIndex, values.length].join('|')] = { plot: plot, filePath: filePath, channelIndex: channelIndex, values: values.slice() };
+}
 function uiSmokeReadLine(xs, values, read) {
     var x0 = Math.min.apply(null, read.x), x1 = Math.max.apply(null, read.x);
     if (read.level) {
@@ -146,6 +153,7 @@ function uiSmokeSliceAnswer(message) {
         return { channelIndex: channelIndex, values: spec.values[at], bins: spec.values[at], minDb: spec.minDb, maxDb: spec.maxDb, unit: spec.unit, axisLabel: spec.axisLabel };
     });
     if (channels.some(function(channel) { return !channel; })) return null;
+    channels.forEach(function(channel) { uiSmokeServe('spectrum', message.filePath, channel.channelIndex, channel.bins); });
     var first = result.channels[0].spectrogram;
     return {
         type: 'spectrum-slice-result', requestId: message.requestId, analysisId: message.analysisId, settingsSignature: message.settingsSignature,
