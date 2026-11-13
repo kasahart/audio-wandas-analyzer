@@ -18,7 +18,7 @@ from browser_service import create_service
 from command_dispatch import dispatch, validate_request
 from protocol_schema import DEFINITIONS, first_violation
 from recipe_builder import RecipeSource, spectrum_recipe
-from scan_service import log_spectrum, passband, scan_plans, welch_params
+from scan_service import analysed_samples, log_spectrum, passband, region_label, scan_plans, welch_params
 from stage_view import SPECTRUM_LINE_BUCKETS
 
 ENTRY_RECIPE = json.loads((Path(__file__).parent / "recipes" / "entry-scan.recipe.json").read_text())
@@ -65,6 +65,7 @@ def test_scan_measures_the_analysis_spec_metrics(tmp_path: Path) -> None:
         "fullScale": True,
         # Each channel's own status, in channels' order (a channel taken alone names its own, R4).
         "channelCalibration": ["uncalibrated", "uncalibrated"],
+        "region": None,
     }
     rms_db = [20 * np.log10(0.5 / np.sqrt(2)), 20 * np.log10(0.1 / np.sqrt(2))]
     # A-weighting is 0 dB at 1 kHz and +1.2 dB at 3.15 kHz.
@@ -190,6 +191,56 @@ def test_scan_repeats_exactly_and_names_the_condition(tmp_path: Path) -> None:
     assert region["conditionId"] != first["conditionId"]
     other_recipe = spectrum_recipe(RecipeSource(1, RATE), n_fft=2048, hpf_hz=40.0, trim=(0.0, None))
     assert _scan(service, path, recipe=other_recipe)["conditionId"] != first["conditionId"]
+
+
+def test_condition_id_tells_regions_under_a_millisecond_apart(tmp_path: Path) -> None:
+    # #768: starts of 0.5001 s and 0.5004 s are 14 samples apart at 48 kHz but share the 3-decimal label, which the
+    # ID used to hash. The ID now hashes the analysed samples; the label stays the same (it is for reading only).
+    rate = 48000
+    service = AnalysisService(AnalysisEngine())
+    path = _write(tmp_path / "noise.wav", [np.random.default_rng(3).standard_normal(rate * 2) * 0.1], rate=rate)
+    early, late = {"start": 0.5001, "end": 1.5}, {"start": 0.5004, "end": 1.5}
+    assert region_label(early) == region_label(late)
+
+    first, second = _scan(service, path, region=early), _scan(service, path, region=late)
+
+    assert first["ok"] and second["ok"]
+    assert first["conditionId"] != second["conditionId"]
+    # Each result names the region it was asked for, its ends exact (the webview's sameCondition reads it).
+    assert first["input"]["region"] == early and second["input"]["region"] == late
+
+
+def test_condition_id_is_the_same_for_the_same_analysed_samples(tmp_path: Path) -> None:
+    # Regions spelled apart that analyse the same samples are one condition: the edge guard moves a start inside
+    # it to the guard, and the whole file is the region from 0 to its end.
+    rate = 48000
+    service = AnalysisService(AnalysisEngine())
+    path = _write(tmp_path / "noise.wav", [np.random.default_rng(4).standard_normal(rate * 2) * 0.1], rate=rate)
+    within_guard = [_scan(service, path, region={"start": start, "end": 1.5}) for start in (0.0, spec.EDGE_GUARD_S / 2)]
+    whole = [_scan(service, path), _scan(service, path, region={"start": 0.0, "end": 2.0})]
+    # Under half a sample apart: the same nearest sample.
+    sub_sample = [_scan(service, path, region={"start": 0.5, "end": end}) for end in (1.5, 1.5 + 0.4 / rate)]
+
+    for pair in (within_guard, whole, sub_sample):
+        assert all(result["ok"] for result in pair)
+        assert pair[0]["conditionId"] == pair[1]["conditionId"]
+    assert within_guard[0]["conditionId"] != whole[0]["conditionId"]
+
+
+@pytest.mark.parametrize("version", [1, 2])
+def test_analysed_samples_are_the_samples_the_time_slice_keeps(version: int) -> None:
+    # analysed_samples names the samples wandas' own time slice keeps, for either slice version a Recipe may name:
+    # if wandas rounds otherwise, the IDs would no longer say which samples were analysed.
+    rate = 48000
+    frame = wd.from_numpy(np.zeros((1, rate * 2)), sampling_rate=rate)
+    rng = np.random.default_rng(5)
+    bounds = [(0.5001, 1.5), (0.5004, 1.5), (0.145, 0.155), (0.5 + 0.5 / rate, 1.0 - 0.5 / rate)]
+    bounds += [tuple(sorted(rng.uniform(0.15, 1.85, 2))) for _ in range(50)]
+    for start, end in bounds:
+        sliced = frame.trim(start, end) if version == 2 else frame._time_slice_recipe_v1(start, end)
+        first, last = analysed_samples(start, end, rate, version)
+        assert last - first == sliced.n_samples, (start, end)
+        assert first == round(float(np.atleast_1d(sliced.source_time_offset)[0]) * rate), (start, end)
 
 
 def test_scan_takes_the_region_from_the_payload_not_the_recipe(tmp_path: Path) -> None:

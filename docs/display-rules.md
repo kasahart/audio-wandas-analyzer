@@ -638,3 +638,15 @@
 - テスト: `src/test/pickScaleBoundary.test.ts` › the pick scale scan finds a held painting y added to StagePlot or AxisTransform and a scale made by differencing mapped y's (direct, through a local, through a ?? alias) (R2, R14)
 - テスト: `src/test/uiSmoke/readoutTransitions.spec.ts` › the browser table holds a row for each chart the readout runs on, by its full name, and each real path R7 names
 - テスト: `src/test/trackStagePainter.test.ts` › overlaid, a trigger's events are split by level identity as any line, and a vertical zoom narrows the right-hand axis as the left (A43, A45, R13)
+
+## R15 解析条件が同じかは、解析したサンプルの範囲で決める
+
+2 つのスキャンが同じ解析条件か（`conditionId` が等しいか）は、ファイルの版、チャンネル、校正、単位と基準、Recipe、そして実際に解析したサンプルの範囲で決めます。範囲は、領域の秒をファイルのレートで時間の切り出し（`wandas.frame.time_slice`）がサンプルに直した整数の始まりと終わり（`scan_service.analysed_samples`、端の保護 `EDGE_GUARD_S` をかけた後）です。領域の表示用の名前（バックエンドの `region_label`、小数 3 桁。Webview の `regionLabel`、小数 2 桁）は読むためだけのもので、同一性には使いません。以前の ID は `region_label` を使っていたので、48 kHz で 14 サンプル離れた 0.5001 s と 0.5004 s の始まりが同じ条件になっていました（#768）。
+
+- Recipe のハッシュは領域を切り出しに入れる前に取るので、それだけでは領域を区別しません。ID はそのハッシュと解析したサンプルの範囲を合わせて作ります（`scan_service.condition_id`）。秒の書き方が違っても同じサンプルを解析する領域（保護の中の始まり、ファイル全体と 0〜終わり）は同じ条件です。
+- Webview で「同じ条件か」を決めるのは 1 か所です。`comparePanes.sameCondition` は `conditionId` に加えて、各スキャンが返す頼んだ領域（`input.region`、秒を送ったとおりに）を `entryTable.regionKey` で比べます。`regionKey` が違う 2 つの領域は同じ条件になりません。同じ `regionKey` のスキャンは、バックエンドの ID が同じなら同じ条件です。範囲の決め方を Webview にもう 1 つ書きません。
+- ID の形が変わったので、保存したスキャン結果の索引は `awa.scanIndex.v3` になりました（`entryScan.ENTRY_SCAN_INDEX_KEY`）。古い索引は読まず、ファイルは一度スキャンし直します。保存したセッションの固定した差（D）は、固定したときの古い ID と今の ID が違うので ≠ と出て、測り直せます。
+- テスト: `python-backend/test_scan_service.py` › test_condition_id_tells_regions_under_a_millisecond_apart
+- テスト: `python-backend/test_scan_service.py` › test_condition_id_is_the_same_for_the_same_analysed_samples
+- テスト: `python-backend/test_scan_service.py` › test_analysed_samples_are_the_samples_the_time_slice_keeps
+- テスト: `src/test/comparePanes.test.ts` › sameCondition and regionKey agree on every pair of regions: regions under 1 ms apart are two conditions, one region is one (#768, R15)
