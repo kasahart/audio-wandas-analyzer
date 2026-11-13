@@ -21,10 +21,8 @@ function rowKey(node: Node): string | null {
     return key === null ? null : `${element.hasAttribute('data-derived') ? 'derived' : 'row'}:${key}`;
 }
 
-/** The kept elements whose hint changed in the write going on, told once the rows are in place (HINT_CHANGED_EVENT). */
-let rehinted: Element[] = [];
-
-function syncAttributes(target: Element, source: Element): void {
+/** `rehinted` gathers the kept elements whose hint changed, told once the rows are in place (HINT_CHANGED_EVENT). */
+function syncAttributes(target: Element, source: Element, rehinted: Element[]): void {
     for (const name of target.getAttributeNames()) if (!source.hasAttribute(name)) target.removeAttribute(name);
     for (const { name, value } of source.attributes) {
         if (target.getAttribute(name) === value) continue;
@@ -36,16 +34,16 @@ function syncAttributes(target: Element, source: Element): void {
 const sameKind = (a: Node, b: Node): boolean => a.nodeType === b.nodeType && a.nodeName === b.nodeName;
 
 /** Brings `target` (an element already on screen) to what `source` says, keeping its descendants where they match. */
-function syncNode(target: Node, source: Node): void {
+function syncNode(target: Node, source: Node, rehinted: Element[]): void {
     if (target.nodeType !== 1) {
         if (target.nodeValue !== source.nodeValue) target.nodeValue = source.nodeValue;
         return;
     }
-    syncAttributes(target as Element, source as Element);
+    syncAttributes(target as Element, source as Element, rehinted);
     const next = [...source.childNodes];
     const kept = [...target.childNodes];
     if (next.length === kept.length && next.every((node, index) => sameKind(node, kept[index]))) {
-        next.forEach((node, index) => syncNode(kept[index], node));
+        next.forEach((node, index) => syncNode(kept[index], node, rehinted));
     } else {
         (target as Element).replaceChildren(...next);
     }
@@ -58,6 +56,7 @@ export function writeKeptRows(body: HTMLElement, html: string): void {
     const next = [...template.content.childNodes];
     const keyed = new Map<string, ChildNode>();
     const unkeyed: ChildNode[] = [];
+    const rehinted: Element[] = [];
     for (const node of [...body.childNodes]) {
         const key = rowKey(node);
         if (key !== null && !keyed.has(key)) keyed.set(key, node);
@@ -72,14 +71,12 @@ export function writeKeptRows(body: HTMLElement, html: string): void {
             if (at >= 0) kept = unkeyed.splice(at, 1)[0];
         }
         if (kept && key !== null) keyed.delete(key);
-        const placed = kept && sameKind(kept, node) ? (syncNode(kept, node), kept) : node;
+        const placed = kept && sameKind(kept, node) ? (syncNode(kept, node, rehinted), kept) : node;
         if (body.childNodes[index] !== placed) body.insertBefore(placed, body.childNodes[index] ?? null);
     });
     while (body.childNodes.length > next.length) body.lastChild?.remove();
     // A button kept under a resting pointer gets no mouseover, so the footer is told its hint changed (hintFooter.ts).
-    const told = rehinted;
-    rehinted = [];
-    for (const element of told) {
+    for (const element of rehinted) {
         const view = element.ownerDocument.defaultView;
         if (view && element.isConnected) element.dispatchEvent(new view.Event(HINT_CHANGED_EVENT, { bubbles: true }));
     }
