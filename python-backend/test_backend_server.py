@@ -12,6 +12,7 @@ import sys
 import threading
 import time
 import wave
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -124,6 +125,21 @@ def _no_heartbeat_thread(monkeypatch: pytest.MonkeyPatch) -> None:
     import backend_server
 
     monkeypatch.setattr(backend_server, "_start_heartbeat", lambda: None)
+
+
+def _request_threads() -> list[threading.Thread]:
+    return [thread for thread in threading.enumerate() if thread.name.startswith("awa-request-")]
+
+
+@pytest.fixture(autouse=True)
+def _no_request_thread_outlives_its_test() -> Iterator[None]:
+    # An in-process main() serves requests on threads of its own. One still running a request after its test would
+    # write that reply into whatever stream a later test reads (the reply of a test that returned before its running
+    # request ended once reached another test's stream on Windows). Threads that have only to return are waited for.
+    yield
+    for thread in _request_threads():
+        thread.join(timeout=10)
+    assert not [thread.name for thread in _request_threads()], "a request thread of main() outlived its test"
 
 
 @pytest.fixture
@@ -1989,10 +2005,14 @@ def test_stdin_eof_drops_queued_requests_instead_of_finishing_them(monkeypatch, 
     main(FakeService(), workers=1)  # type: ignore[arg-type]
     returned_after = time.perf_counter() - started
     release.set()
-    time.sleep(0.1)
+    # A request that had started still answers; its reply is this test's, so the test waits for its thread to end.
+    for thread in _request_threads():
+        thread.join(timeout=10)
 
     assert returned_after < 5, "main must not wait for the running request once the host is gone"
     assert "b.wav" not in calls
+    replies = [reply["requestId"] for reply in _replies(capsys.readouterr().out)]
+    assert replies == (["running"] if calls else []), "only a request that had started answers, and within its test"
 
 
 def test_a_path_that_cannot_be_resolved_fails_only_its_own_request(monkeypatch, capsys):
@@ -2167,6 +2187,7 @@ def test_what_a_request_writes_to_the_standard_output_lands_in_the_log_and_never
             "class Service:",
             "    def analyze(self, file_path, **options):",
             "        print('stray print')",
+            "        print('stray \\ud800 lone surrogate')",
             "        sys.stdout.flush()",
             "        os.write(1, b'stray fd 1 write\\n')",
             "        subprocess.run([sys.executable, '-c', 'print(\"stray child output\")'], check=True)",
@@ -2205,7 +2226,8 @@ def test_what_a_request_writes_to_the_standard_output_lands_in_the_log_and_never
         while err.next(deadline, "the backend's stderr") != "":
             pass
         log = "".join(err.seen)
-        for stray in ("stray print", "stray fd 1 write", "stray child output"):
+        # stderr writes what cannot be encoded as escapes (backslashreplace): a stray print can never raise there.
+        for stray in ("stray print", "stray \\ud800 lone surrogate", "stray fd 1 write", "stray child output"):
             assert stray in log, f"{stray!r} is in the log"
         for line in out.seen[:-1]:
             assert isinstance(json.loads(line), dict), f"every line of the reply stream is a message: {line!r}"

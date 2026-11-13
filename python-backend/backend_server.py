@@ -330,6 +330,9 @@ def main(
 
 if __name__ == "__main__":
     # The extension speaks UTF-8; the locale encoding (cp932 on Japanese Windows) would garble non-ASCII paths.
-    for stream in (sys.stdout, sys.stderr):
-        stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+    # stderr is the log, and sys.stdout writes there too (_reply_stream): what cannot be encoded (a lone surrogate in a
+    # stray print) is written as an escape there, never raised in the request that printed it. reconfigure() with an
+    # encoding resets the error policy, so it is given again.
+    sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+    sys.stderr.reconfigure(encoding="utf-8", errors="backslashreplace")  # type: ignore[attr-defined]
     main(requests=_request_stream(), replies=_reply_stream())

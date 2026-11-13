@@ -61,6 +61,26 @@ def pytest_collectreport(report: pytest.CollectReport) -> None:
     _record_skip(report)
 
 
+def _encodable(value: Any) -> Any:
+    """``value`` with every string made UTF-8 encodable (a lone surrogate becomes its escape, ``\\ud800``)."""
+    if isinstance(value, str):
+        return value.encode("utf-8", "backslashreplace").decode("utf-8")
+    if isinstance(value, dict):
+        return {_encodable(key): _encodable(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return type(value)(_encodable(item) for item in value)
+    return value
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_report_to_serializable(config: pytest.Config, report: pytest.TestReport | pytest.CollectReport) -> Any:
+    # A pytest-xdist worker sends each report to the controller as UTF-8. A report that carries a lone surrogate (an
+    # assertion's diff of a string the test built from one, its captured output) cannot be encoded: the worker
+    # crashed with INTERNALERROR and the test's own failure was never shown. Escaped here, it is.
+    serialized = yield
+    return _encodable(serialized)
+
+
 def pytest_sessionfinish(session: pytest.Session) -> None:
     path = session.config.getoption("--record-skips")
     if path and not hasattr(session.config, "workerinput"):
