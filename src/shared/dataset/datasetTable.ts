@@ -5,6 +5,7 @@
  * filters and the order are the user's; this module only answers them. Pure, so it is unit-tested.
  */
 import type { ScanResult } from '../protocol/backendProtocol';
+import { csvField } from '../utils/csv';
 import { auditAudioMatches, finiteNumber, MAX_CSV_BYTES, parseCSV, profileColumns, resolveAudio, sourceColumns, type DataRow } from './asdData';
 
 /** The CSV the user picked, read: its columns (the source columns left out) and which of them are numeric. */
@@ -258,7 +259,6 @@ export function annotatedCsv(csv: DatasetCsv | null, match: CsvMatch | null, fil
         if (!out.length) return '';
         return out.length === all.length ? '1' : out.map(row => `ch${row.ch}`).join(';');
     };
-    const cell = (text: string): string => (/[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text);
     const name = (base: string, taken: readonly string[]): string => (taken.includes(base) ? `${base}_analyzer` : base);
     let lines: string[][];
     if (csv && match) {
@@ -268,5 +268,5 @@ export function annotatedCsv(csv: DatasetCsv | null, match: CsvMatch | null, fil
     } else {
         lines = [['audio_file', 'memo', 'excluded'], ...filePaths.map(filePath => [recordingKey(filePath, rootPath), memoOf(filePath), excludedOf(filePath)])];
     }
-    return '\uFEFF' + lines.map(line => line.map(cell).join(',')).join('\r\n') + '\r\n';
+    return '\uFEFF' + lines.map(line => line.map(csvField).join(',')).join('\r\n') + '\r\n';
 }

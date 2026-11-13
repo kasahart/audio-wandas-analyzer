@@ -16,6 +16,9 @@ export default defineConfig({
         browserName: 'chromium',
         headless: true,
         viewport: { width: 1400, height: 900 },
+        // The browser's locale, never the machine's (headless Chromium takes LANG): navigator.language and the
+        // runtime's Intl (number grouping, the natural sort of names) then read alike on a Japanese desktop and in CI.
+        locale: 'en-US',
         launchOptions: { executablePath: process.env['AWA_CHROMIUM_EXECUTABLE'] || undefined },
     },
 });

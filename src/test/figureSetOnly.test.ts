@@ -9,6 +9,7 @@ import path from 'node:path';
 import test from 'node:test';
 import type { Answer, AnswerIdentity } from '../webview/runtime/answerTypes';
 import { getStrings } from '../shared/i18n/strings';
+import { csvRecords } from '../shared/utils/csv';
 import type { ScanResult, StageView } from '../shared/protocol/backendProtocol';
 import { scanAnswer, type ScanAnswer } from '../webview/runtime/answerStore';
 import { setMedian } from '../webview/runtime/comparePanes';
@@ -176,13 +177,13 @@ test('a stale row is written to the entry CSV with no numbers and is never in a 
     ], null);
     assert.ok([...model.groups.values()].every(rows => rows.every(row => !row.stale)));
     const labels = { file: 'File', condition: (n: number) => `c${n}`, regionStart: 's', regionEnd: 'e', level: levelColumns(STR), peak: 'p', bandLevel: bandLevelColumns(STR, '1 kHz'), deltaLeq: 'dl', deltaBand: 'db', groupSize: 'n', groupLeft: 'left', stale: 'previous chain', status: 'st' };
-    const lines = entryCsv(model, labels, () => ({ leq: 1, band: 1, peak: null, count: 1, left: '1 failed' })).slice(1).trimEnd().split('\r\n');
-    const header = lines[0].split(',');
+    const lines = csvRecords(entryCsv(model, labels, () => ({ leq: 1, band: 1, peak: null, count: 1, left: '1 failed' })));
+    const header = lines[0];
     assert.equal(header[header.indexOf('n') + 1], 'left');
-    const run2 = lines.find(line => line.startsWith('L1_900rpm_run2.wav'))!.split(',');
+    const run2 = lines.find(line => line[0] === 'L1_900rpm_run2.wav')!;
     assert.equal(run2.at(-1), 'previous chain');
     assert.ok(!run2.includes('-21.0'), run2.join(','));
-    const run1 = lines.find(line => line.startsWith('L1_900rpm_run1.wav'))!.split(',');
+    const run1 = lines.find(line => line[0] === 'L1_900rpm_run1.wav')!;
     assert.equal(run1[header.indexOf('left')], '1 failed');
 });
 

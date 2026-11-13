@@ -11,6 +11,7 @@ import type { EntryConditionTable } from '../../shared/analysis/entryScan';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { median } from '../../shared/dataset/distribution';
 import { powerMeanOrNull } from '../../shared/utils/levels';
+import { csvField } from '../../shared/utils/csv';
 import { spacingDecimals } from '../plot/plotText';
 import { folderReference, type ExclusionReason, scanLevelKey, type FigureColumns, type FolderReference } from './figureModel';
 import { scanAnswer } from './answerStore';
@@ -414,7 +415,7 @@ export function bandLabel(band: number): string {
 export function csvCell(value: string | number | null): string {
     if (value === null) return '';
     const text = typeof value === 'number' ? csvNumber(value, 2) : value;
-    return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    return csvField(text);
 }
 
 /**

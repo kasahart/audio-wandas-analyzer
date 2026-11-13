@@ -17,6 +17,7 @@ import {
     type FigureColumns, type FigureNames, type FigureRange, type FigureTitle,
 } from '../webview/runtime/figureModel';
 import { buildSpectrumCsv } from '../webview/runtime/runtimeExports';
+import { csvRecords } from '../shared/utils/csv';
 import { paintOverlay } from '../webview/runtime/stagePanes';
 import { ROWS } from './plotContracts';
 
@@ -124,9 +125,6 @@ test('a figure counts only its ready answers of its identity and axis: pending, 
 
 // ── Every output, mixed references, pending and failed files ─────────────────────────────────────────────────────
 
-/** A CSV's columns, split as the writers quote them. */
-const csvColumns = (line: string): string[] => (line.match(/("([^"]|"")*"|[^,]*)(,|$)/gu) ?? []).map(cell => cell.replace(/,$/u, '').replace(/^"|"$/gu, '').replace(/""/gu, '"')).slice(0, -1);
-
 /** Why a CSV header has a level column without the column that says its reference beside it, or null. */
 function csvHeaderProblem(header: string[], columns: FigureColumns): string | null {
     const level = header.indexOf(columns.level);
@@ -153,7 +151,7 @@ test('every figure and every file written of a base group with another reference
     assert.equal(comparison.blocked, undefined);
     // 報告.csv: the row's reference and the base's, n and files of the same set.
     const report = reportCsv({ model, results, slots: [null, '/f/spl.wav', null, null], compare: () => comparison, region: null, recipe: null, recipeName: 'r', now: new Date(), stale: new Set<string>() }, STR);
-    const [reportHeader, row] = report.slice(1).trimEnd().split('\r\n').map(csvColumns);
+    const [reportHeader, row] = csvRecords(report);
     assert.equal(csvHeaderProblem(reportHeader, levelColumns(STR)), null);
     assert.equal(csvHeaderProblem(reportHeader, baseLevelColumns(STR)), null);
     const cell = (name: string): string => row[reportHeader.indexOf(name)];
@@ -184,7 +182,7 @@ test('every figure and every file written of a base group with another reference
     // entry-table.csv: every level column (Leq and the band's) with its row's reference beside it.
     const columns = levelColumns(STR), band = bandLevelColumns(STR, '3.15 kHz');
     const labels = { file: 'File', condition: (n: number) => `c${n}`, regionStart: 's', regionEnd: 'e', level: columns, peak: STR.entryColPeak, bandLevel: band, deltaLeq: 'dl', deltaBand: 'db', groupSize: 'n', groupLeft: 'gl', stale: 'sl', status: 'st' };
-    const [entryHeader, ...rows] = entryCsv(model, labels, () => null).slice(1).trimEnd().split('\r\n').map(csvColumns);
+    const [entryHeader, ...rows] = csvRecords(entryCsv(model, labels, () => null));
     for (const pairOf of [columns, band]) assert.equal(csvHeaderProblem(entryHeader, pairOf), null);
     const reference = entryHeader.indexOf(columns.reference), bandReference = entryHeader.indexOf(band.reference);
     const spl = rows.find(cells => cells[0] === 'spl.wav') ?? [];
@@ -196,7 +194,7 @@ test('every figure and every file written of a base group with another reference
     // The spectrum CSV: every level column named with its reference, as its axis is.
     const title = (text: string) => axes.left.replace(/\[[^\]]*\]$/u, `[${text}]`) as FigureTitle;
     const spectrum = buildSpectrumCsv([{ name: 'a', slice: { values: [-1], frequencyBins: 1, maxFrequencyHz: 1, minDb: -1, maxDb: 0 }, levelTitle: title('dBFS') }, { name: 's', slice: { values: [60], frequencyBins: 1, maxFrequencyHz: 1, minDb: 0, maxDb: 60 }, levelTitle: title('dB SPL re 20 µPa') }], P('Hz'));
-    for (const column of csvColumns(spectrum.split('\n')[0]).filter((_, index) => index % 2 === 1)) assert.match(column, /\[(dBFS|dB SPL re 20 µPa)\]$/u, column);
+    for (const column of csvRecords(spectrum)[0].filter((_, index) => index % 2 === 1)) assert.match(column, /\[(dBFS|dB SPL re 20 µPa)\]$/u, column);
     // The injected bugs: a header without the reference column, and another reference counted in n, are caught.
     assert.match(csvHeaderProblem(entryHeader.filter(name => name !== band.reference), band) ?? '', /no .* column beside it/u);
     // V6: a level column in bare dB(A) is caught, its reference column beside it or not.

@@ -172,6 +172,8 @@ trackDurRatio  = durationSeconds / globalSpanSec
 
 `npm run verify` runs the static lint plus the unit layers above except Playwright browser smoke and VS Code E2E. `npm run test:ui` is the real-browser smoke layer for Webview regressions. VS Code E2E remains separate (`npm run verify:e2e`) because it needs a full extension host and is slower; CI runs both as separate jobs.
 
+Every browser layer runs in a pinned locale, never the machine's: headless Chromium takes `navigator.language` (the static page's UI language) and its `Intl` from `LANG`, so a Japanese desktop once passed a check that failed in CI's English. `playwright.config.ts` sets `locale: 'en-US'`; `scripts/test-browser-parity.js` opens every page in `en-US` (`AWA_BROWSER_LOCALE=ja npm run test:browser` runs the same checks on the Japanese page). Tests read a CSV the Analyzer wrote with `csvRecords` (`src/shared/utils/csv.ts`), never by splitting a line on `,`: an English header has commas in it ("Level, uncalibrated [dBFS]"). Every CSV writer quotes its fields with `csvField` from that module.
+
 ### GUI triggerability audit boundary
 
 - `scripts/verify-gui-triggerability.js` compares the declared GUI inventory against:

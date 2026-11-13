@@ -1,6 +1,7 @@
 import { expect, settled, test, type Page } from './canvasAudit';
 import { buildUiSmokeHtml, buildUiSmokeManyTracksHtml } from './buildHtml';
 import { getStrings } from '../../shared/i18n/strings';
+import { csvRecords } from '../../shared/utils/csv';
 
 /** The track indexes whose spectrogram the webview has asked the host for. */
 function detailRequests(page: Page): Promise<number[]> {
@@ -274,12 +275,12 @@ test('a cursor moved while the CSV waits: the file holds every shown track at th
         await answerSlices(page);
         return (await csv()) !== null;
     }, { intervals: [50], timeout: 20000 }).toBe(true);
-    const rows = (await csv())!.split('\n');
-    expect(rows[0]).toContain('take00.wav');
-    expect(rows[0]).toContain('take39.wav');
+    const rows = csvRecords((await csv())!);
+    expect(rows[0].join('\n')).toContain('take00.wav');
+    expect(rows[0].join('\n')).toContain('take39.wav');
     // Every bin of the host's 8192-point FFT, not the row drawn: 4097 rows at 4000 / 4096 Hz spacing.
     expect(rows.length).toBe(1 + 4097);
-    expect(rows[2].split(',')[0]).toBe((4000 / 4096).toFixed(4));
+    expect(rows[2][0]).toBe((4000 / 4096).toFixed(4));
 });
 
 test('a failed spectrogram lane shows the host\'s summary on one line and the backend\'s text below it', async ({ page }) => {

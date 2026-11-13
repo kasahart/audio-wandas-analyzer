@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { getStrings } from '../shared/i18n/strings';
+import { csvRecords } from '../shared/utils/csv';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 import { recipeSteps } from '../shared/recipe/recipeSteps';
@@ -41,26 +42,25 @@ test('報告.csv has one row per slot in the agreed columns: dB to one decimal, 
     const model = buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
     const csv = reportCsv({ model, results, slots: [null, '/f/L1_900rpm_run3.wav', null, null], compare: compareFor(model, results, []), region: { start: 0.5, end: 1.5 }, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>() }, getStrings('ja'));
     assert.ok(csv.startsWith('﻿'));
-    const [header, row, ...rest] = csv.slice(1).trimEnd().split('\r\n');
+    const [header, cells, ...rest] = csvRecords(csv);
     assert.equal(rest.length, 0);
-    assert.equal(header, `ファイル,Δ最大帯域 Hz,Δ最大帯域 dB,条件 1,条件 2,開始 s,終了 s,Leq A特性,レベル基準,基準 Leq A特性,基準 レベル基準,Δ Leq A特性,${header.split(',').filter(name => /^Δ [\d.]+ k?Hz dB$/.test(name)).join(',')},基準群 n,基準群ファイル,解析仕様版,手順,ch,メモ,基準の定義`);
-    assert.ok(header.includes(',Δ 3.15 kHz dB,'));
-    const cells = row.split(',');
+    assert.deepEqual(header, ['ファイル', 'Δ最大帯域 Hz', 'Δ最大帯域 dB', '条件 1', '条件 2', '開始 s', '終了 s', 'Leq A特性', 'レベル基準', '基準 Leq A特性', '基準 レベル基準', 'Δ Leq A特性', ...header.filter(name => /^Δ [\d.]+ k?Hz dB$/.test(name)), '基準群 n', '基準群ファイル', '解析仕様版', '手順', 'ch', 'メモ', '基準の定義']);
+    assert.ok(header.includes('Δ 3.15 kHz dB'));
     // Where the file differs most comes first.
     assert.deepEqual(cells.slice(0, 7), ['L1_900rpm_run3.wav', '3150', '20.5', 'L1', '900rpm', '0.50', '1.50']);
     // The Δ is taken from the full levels (−10.06 against the base's −20.02) and rounded only as it is written: 10.0,
     // never the 9.9 of the two rounded columns (−10.1 − −20.0) subtracted.
     assert.deepEqual([cells[7], cells[8], cells[9], cells[10], cells[11]], ['-10.1', 'dBFS 未校正', '-20.0', 'dBFS 未校正', '10.0']);
-    assert.equal(cells[header.split(',').indexOf('Δ 3.15 kHz dB')], '20.5');
-    const at = (name: string): string => cells[header.split(',').indexOf(name)];
+    assert.equal(cells[header.indexOf('Δ 3.15 kHz dB')], '20.5');
+    const at = (name: string): string => cells[header.indexOf(name)];
     assert.deepEqual([at('基準群 n'), at('基準群ファイル'), at('解析仕様版')], ['2', 'L1_900rpm_run1.wav;L1_900rpm_run2.wav', '2']);
     // Which chain the numbers are of: the Recipe beside the CSV, or the previous one where it was not measured again.
     assert.equal(at('手順'), getStrings('ja').reportChainCurrent);
     const previous = reportCsv({ model, results, slots: [null, '/f/L1_900rpm_run3.wav', null, null], compare: compareFor(model, results, []), region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set(['/f/L1_900rpm_run1.wav']) }, getStrings('ja'));
-    assert.equal(previous.trimEnd().split('\r\n')[1].split(',')[header.split(',').indexOf('手順')], getStrings('ja').reportChainPrevious);
+    assert.equal(csvRecords(previous)[1][header.indexOf('手順')], getStrings('ja').reportChainPrevious);
     const whole = reportCsv({ model, results, slots: [null, '/f/L1_900rpm_run3.wav', null, null], compare: compareFor(model, results, []), region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>() }, getStrings('ja'));
     // The whole file is written as the region actually measured: its guarded ends are left out.
-    assert.deepEqual(whole.split('\r\n')[1].split(',').slice(5, 7), ['0.15', '1.85']);
+    assert.deepEqual(csvRecords(whole)[1].slice(5, 7), ['0.15', '1.85']);
 });
 
 test('each compared file\'s row, Recipe and heading give the region that file was measured over, cut within its own length', () => {
@@ -69,9 +69,8 @@ test('each compared file\'s row, Recipe and heading give the region that file wa
     const model = buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
     const STR = getStrings('ja');
     const input = { model, results, slots: ['/f/base.wav', '/f/long.wav', '/f/short.wav', null], compare: compareFor(model, results, ['/f/base.wav']), region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>() };
-    const [header, ...rows] = reportCsv(input, STR).slice(1).trimEnd().split('\r\n');
-    const columns = header.split(',');
-    const span = (row: string): string[] => [row.split(',')[columns.indexOf('開始 s')], row.split(',')[columns.indexOf('終了 s')]];
+    const [columns, ...rows] = csvRecords(reportCsv(input, STR));
+    const span = (row: string[]): string[] => [row[columns.indexOf('開始 s')], row[columns.indexOf('終了 s')]];
     assert.deepEqual(rows.map(span), [['0.15', '9.85'], ['0.15', '4.85']], 'each row its own file\'s measured region');
     assert.equal(summaryRegionText(input, STR), '1: 0.15–9.85 s · 2: 0.15–4.85 s');
     // One Recipe per measured region, each slicing as its rows were measured.
@@ -169,21 +168,20 @@ test('the report says what the comparison was taken from: the value, the filters
         selection: { value: 'Leq A特性', group: 'rpm', filters: ['ch = 2'], excluded: 1 },
         derived: [derived],
     };
-    const [header, row, d] = reportCsv(input, STR).slice(1).trimEnd().split('\r\n');
-    const columns = header.split(',');
+    const [columns, row, d] = csvRecords(reportCsv(input, STR));
     assert.ok(!columns.includes('外れ値'));
-    const cell = (line: string, name: string): string => line.split(',')[columns.indexOf(name)];
-    assert.equal(row.split(',')[0], 'c.wav ch2');
+    const cell = (line: string[], name: string): string => line[columns.indexOf(name)];
+    assert.equal(row[0], 'c.wav ch2');
     assert.deepEqual([cell(row, 'ch'), cell(row, '表示中の値: Leq A特性'), cell(row, 'メモ')], ['2', 'Leq A特性 [dBFS] −10.0', 'ベアリングかも']);
     assert.equal(cell(row, '基準の定義'), '基準群 rpm 1500 · n=2 · ch2 · -1 (< ch2) · ch = 2');
     assert.equal(cell(row, '基準群 n'), '2');
     // A difference fixed with D: under the comparisons, against the base it was fixed with.
-    assert.match(d.split(',')[0], /^固定した差（D） · c\.wav ch2 · all$/);
+    assert.match(d[0], /^固定した差（D） · c\.wav ch2 · all$/);
     assert.equal(cell(d, 'Δ Leq A特性'), '10.5');
     assert.equal(cell(d, '基準の定義'), '基準群 rpm 1500 · n=2 · ch2 · -1 (< ch2) · ch = 2');
     // Fixed under an earlier chain (≠): the table has no number to read, and the report writes none either.
-    const [, , previous] = reportCsv({ ...input, derived: [{ ...derived, stale: true }] }, STR).slice(1).trimEnd().split('\r\n');
-    assert.deepEqual([cell(previous, '表示中の値: Leq A特性'), cell(previous, 'Δ Leq A特性')].filter(Boolean), [], previous);
+    const [, , previous] = csvRecords(reportCsv({ ...input, derived: [{ ...derived, stale: true }] }, STR));
+    assert.deepEqual([cell(previous, '表示中の値: Leq A特性'), cell(previous, 'Δ Leq A特性')].filter(Boolean), [], previous.join(' | '));
     assert.equal(cell(previous, STR.reportChain), STR.reportChainPrevious);
     const definitions = reportDefinitions(input, 2, STR) as { selection: unknown; comparisons: Array<{ slot: number; file: string; channel: number; base: BaseDefinition }> };
     assert.deepEqual(definitions.selection, input.selection);
@@ -261,10 +259,9 @@ test('the CSVs say each row\'s level reference beside its levels: never one cali
     const results = new Map<string, ScanResult>([['/f/L1_900rpm_run1.wav', scan(-20, -30)], ['/f/L1_900rpm_run2.wav', calibrated(60, 50)], ['/f/L1_900rpm_run3.wav', calibrated(62, 52)]]);
     const model = buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
     const csv = reportCsv({ model, results, slots: ['/f/L1_900rpm_run2.wav', '/f/L1_900rpm_run3.wav', '/f/L1_900rpm_run1.wav', null], compare: compareFor(model, results, ['/f/L1_900rpm_run2.wav']), region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>() }, strings);
-    const [header, ...rows] = csv.slice(1).trimEnd().split('\r\n');
-    const names = header.split(',');
+    const [names, ...rows] = csvRecords(csv);
     assert.ok(!names.some(name => name.includes(strings.entryLeqUncalibrated)), 'no heading carries a calibration word');
-    const at = (row: string, name: string): string => row.split(',')[names.indexOf(name)];
+    const at = (row: string[], name: string): string => row[names.indexOf(name)];
     assert.deepEqual(rows.map(row => [at(row, strings.reportLevelReference), at(row, strings.reportBaseLevelReference)]), [
         ['dB SPL re 20 µPa', 'dB SPL re 20 µPa'],
         // The uncalibrated file against a calibrated base: both levels, each with its own reference (no Δ across them).

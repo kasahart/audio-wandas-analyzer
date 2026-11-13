@@ -8,6 +8,7 @@ import type { RecipeDocument } from '../recipe/recipeSelection';
 import { withChannel } from '../recipe/channelSelection';
 import { recordingKey, type DatasetRow } from '../dataset/datasetTable';
 import { RUN_RECIPE_PY } from './runRecipeScript';
+import { csvField } from '../utils/csv';
 
 export interface BatchFile { name: string; text: string }
 
@@ -64,7 +65,6 @@ const TARGET_COLUMNS = ['path', 'channel', 'recipe'];
 /** The CSV's id column as targets.csv names it: one called path, channel or recipe would hide the column run_recipe.py reads. */
 const idHeader = (column: string): string => (TARGET_COLUMNS.includes(column.trim().toLowerCase()) ? `id_${column}` : column);
 const recipeFile = (name: string, channel: number | null): string => `${name}${channel ? `.ch${channel}` : ''}.recipe.json`;
-const cell = (text: string): string => (/[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text);
 
 export function batchFolderName(recipeName: string, now: Date): string {
     const pad = (value: number): string => String(value).padStart(2, '0');
@@ -80,7 +80,7 @@ export function batchBundle(input: BatchInput): { folder: string; files: BatchFi
     }));
     const header = [...TARGET_COLUMNS, ...(input.idColumn ? [idHeader(input.idColumn)] : [])];
     const targetsCsv = [header, ...targets.map(target => [target.path, target.channel ? String(target.channel) : '', target.recipe, ...(input.idColumn ? [target.id] : [])])]
-        .map(line => line.map(cell).join(',')).join('\r\n') + '\r\n';
+        .map(line => line.map(csvField).join(',')).join('\r\n') + '\r\n';
     const files = [...recipes, { name: 'targets.csv', text: targetsCsv }, { name: 'run_recipe.py', text: RUN_RECIPE_PY }, { name: 'README.txt', text: readme(input, targets.length, channels) }];
     return { folder: batchFolderName(input.recipeName, input.now), files };
 }

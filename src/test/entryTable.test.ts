@@ -12,6 +12,7 @@ import { compareOf } from './helpers/compareInput';
 import { derivedIsStale } from '../webview/runtime/entryRuntime';
 import { entryMeasure } from '../webview/runtime/compareReport';
 import { getStrings } from '../shared/i18n/strings';
+import { csvRecords } from '../shared/utils/csv';
 import { bandLevelColumns, levelColumns } from '../webview/runtime/figureModel';
 
 /** Each file measured against its condition's other files, as a comparison with no slot 0 measures it here. */
@@ -54,7 +55,7 @@ test('a Δ is taken from the full levels and rounded only as written: −9.996 a
         { filePath: '/f/L1_900rpm_run1.wav', result: scan(-9.996, -30) },
     ];
     const model = buildEntryModel(files, null, { band: BAND_CENTERS_HZ.indexOf(3150) });
-    assert.equal(entryCsv(model, LABELS, byCondition(model, files)).split('\r\n')[2].split(',')[11], '0.0');
+    assert.equal(csvRecords(entryCsv(model, LABELS, byCondition(model, files)))[2][11], '0.0');
 });
 
 test('a file row has no Δ of its own: the CSV writes what `measure` (the screen\'s base) gives, the band centre as its column names it', () => {
@@ -66,10 +67,10 @@ test('a file row has no Δ of its own: the CSV writes what `measure` (the screen
     assert.ok(model.rows.every(row => Object.values(row.delta).every(value => value === null)), 'no group is made in the model');
     // A base the model knows nothing of (as slot 0 or a filtered group would be): its numbers are the CSV's.
     const measure = (filePath: string): EntryMeasure | null => (filePath.endsWith('run4.wav') ? { leq: 1.25, band: 12.05, peak: { hz: 31.5, db: -7.5 }, count: 3, left: '' } : null);
-    const lines = entryCsv(model, LABELS, measure).slice(1).trimEnd().split('\r\n');
-    const run4 = lines.find(line => line.startsWith('L1_900rpm_run4.wav'))!.split(',');
+    const lines = csvRecords(entryCsv(model, LABELS, measure));
+    const run4 = lines.find(line => line[0] === 'L1_900rpm_run4.wav')!;
     assert.deepEqual(run4.slice(7, 14), ['31.5', '-7.5', '-18.0', 'dBFS uncalibrated', '1.3', '12.1', '3']);
-    const free = lines.find(line => line.startsWith('free.wav'))!.split(',');
+    const free = lines.find(line => line[0] === 'free.wav')!;
     assert.deepEqual(free.slice(7, 14), ['', '', '-35.0', 'dBFS uncalibrated', '', '', '']);
 });
 
@@ -77,8 +78,8 @@ test('every band centre is written in the CSV as its column header names it, nev
     const files: EntryFile[] = [{ filePath: '/f/a.wav', result: scan(-20, -30) }];
     const model = buildEntryModel(files, null, { band: BAND_3150 });
     for (const hz of BAND_CENTERS_HZ) {
-        const line = entryCsv(model, LABELS, () => ({ leq: 0, band: 0, peak: { hz, db: 1 }, count: 1, left: '' })).slice(1).split('\r\n')[1];
-        assert.equal(line.split(',')[7], String(hz));
+        const line = csvRecords(entryCsv(model, LABELS, () => ({ leq: 0, band: 0, peak: { hz, db: 1 }, count: 1, left: '' })))[1];
+        assert.equal(line[7], String(hz));
     }
 });
 
@@ -192,8 +193,8 @@ test('a derived row sits under its parent with the parent\'s condition and Δ ag
     assert.equal(child.delta.band, 6);
     // The file rows are those of the table without the derived row.
     assert.deepEqual(model.rows.filter(row => !row.derived).map(row => row.values), plain.rows.map(row => row.values));
-    const csv = entryCsv(model, LABELS, byCondition(plain, files)).slice(1).split('\r\n');
-    assert.equal(csv[parent + 2].split(',').slice(0, 5).join(','), 'L1_900rpm_run1.wav,L1,900rpm,0.50,1.50');
+    const csv = csvRecords(entryCsv(model, LABELS, byCondition(plain, files)));
+    assert.deepEqual(csv[parent + 2].slice(0, 5), ['L1_900rpm_run1.wav', 'L1', '900rpm', '0.50', '1.50']);
 });
 
 test('a fixed difference made stale by a recipe change shows ≠ and writes no Δ, no base n and no left-out files (R4)', () => {
@@ -203,10 +204,10 @@ test('a fixed difference made stale by a recipe change shows ≠ and writes no �
         base: { leq: -20, bands: BAND_CENTERS_HZ.map(() => -26), paths: ['/f/L1_900rpm_run0.wav', '/f/L1_900rpm_run2.wav'],
             definition: { kind: 'group', count: 2, channel: null, filters: [], fewerChannels: 0, left: { failed: 1 } } },
     };
-    const header = entryCsv(buildEntryModel([], null), LABELS, () => null).slice(1).split('\r\n')[0].split(',');
-    const column = (line: string, name: string): string => line.split(',')[header.indexOf(name)];
+    const header = csvRecords(entryCsv(buildEntryModel([], null), LABELS, () => null))[0];
+    const column = (line: string[], name: string): string => line[header.indexOf(name)];
     const rowOf = (model: EntryModel) => model.rows.find(row => row.derived)!;
-    const csvOf = (model: EntryModel): string => entryCsv(model, LABELS, () => null).slice(1).split('\r\n')[model.rows.indexOf(rowOf(model)) + 1];
+    const csvOf = (model: EntryModel): string[] => csvRecords(entryCsv(model, LABELS, () => null))[model.rows.indexOf(rowOf(model)) + 1];
     // Current, its saved base n and left-out files are written.
     const current = buildEntryModel(files, null, { band: BAND_3150, derived: [fixed] });
     assert.deepEqual([column(csvOf(current), 'Δ Leq'), column(csvOf(current), 'n'), column(csvOf(current), 'Left out')], ['5.0', '2', '-1 (failed)']);

@@ -1,3 +1,4 @@
+import { csvField } from '../../shared/utils/csv';
 import { binFrequencyHz } from '../draw/canvasDrawers';
 import type { FigureTitle, PlainTitle } from './figureModel';
 import type { SpectrumSlice } from './types';
@@ -22,10 +23,6 @@ export interface WavLoopRegion {
     endNorm: number;
 }
 
-function csvCell(s: string): string {
-    return /[,"\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-}
-
 /**
  * The spectra at the cursor as CSV: per track a frequency and a level column, each named as its axis is ("Quantity
  * [unit]", the level with its reference: never a bare dB), `frequencyTitle` the frequency axis's name.
@@ -33,8 +30,8 @@ function csvCell(s: string): string {
 export function buildSpectrumCsv(tracks: CsvSpectrumTrack[], frequencyTitle: PlainTitle): string {
     const headers: string[] = [];
     tracks.forEach(function (t) {
-        headers.push(csvCell(t.name + ' ' + frequencyTitle));
-        headers.push(csvCell(t.name + ' ' + t.levelTitle));
+        headers.push(csvField(t.name + ' ' + frequencyTitle));
+        headers.push(csvField(t.name + ' ' + t.levelTitle));
     });
     const rows = [headers.join(',')];
     const maxBins = tracks.reduce(function (max, t) {

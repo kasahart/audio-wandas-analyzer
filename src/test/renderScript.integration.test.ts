@@ -21,6 +21,7 @@ import { getRenderScript, getRenderStyles } from './helpers/comparisonScriptLoad
 import { createWebviewEnv, evalScript } from './helpers/webviewTestEnv';
 import { UI_SMOKE_READS } from './uiSmoke/fullReadStandIn';
 import { OWN_COLORS } from '../shared/gui/roleColors';
+import { csvRecords } from '../shared/utils/csv';
 
 // scripts/build-webview.js が tsc 後に生成。__dirname は dist/test なので 1 階層上が dist/。
 const LOOP_REGION_JS = readFileSync(
@@ -2693,12 +2694,12 @@ test('renderScript: export-csv replaces a cursor spectrum cut for display with e
         assert.ok(asked.length > 0 && asked.every((request: any) => request.fullResolution === true));
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'CSV download anchor が作られること');
-        const rows = decodeDataUriPayload(anchor.href).split('\n');
+        const rows = csvRecords(decodeDataUriPayload(anchor.href));
         // Four evenly spaced bins per track from the every-bin answer; the cut row's 123.25 Hz point is not written.
         assert.equal(rows.length, 1 + 4);
         // Not the frequencies of the row cut for display: the CSV of the drawn points would list those.
-        assert.notDeepEqual(rows.slice(1).map(row => row.split(',')[0]), drawn.frequenciesHz.map(hz => hz.toFixed(4)), 'not the three points of the row cut for display');
-        assert.equal(rows[2].split(',')[0], '7350.0000');
+        assert.notDeepEqual(rows.slice(1).map(row => row[0]), drawn.frequenciesHz.map(hz => hz.toFixed(4)), 'not the three points of the row cut for display');
+        assert.equal(rows[2][0], '7350.0000');
         assert.ok(!rows.some(row => row.includes('123.2500')));
     } finally {
         env.dom.window.document.createElement = origCreate;

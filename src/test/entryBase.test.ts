@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { getStrings } from '../shared/i18n/strings';
+import { csvRecords } from '../shared/utils/csv';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { datasetRows, type DatasetRow, type GroupId } from '../shared/dataset/datasetTable';
 import { channelOfRow, createEntryBase, regionAnswers, type EntryBaseDeps } from '../webview/runtime/entryBase';
@@ -249,8 +250,8 @@ test('over a region the base counts what was measured there now: a recording sta
     assert.equal(pending.definition.left?.pending, 1);
     assert.deepEqual(base.comparison('/d/a.wav', false, partial).base?.filePaths, ['/d/b.wav']);
     // The report over the region (its stale set empty: every number is measured now) writes c's base as current: n 2.
-    const report = (stale: ReadonlySet<string>): string[][] => reportCsv({ model: buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null), results: regionMap, slots: [null, '/d/a.wav', null, null],
-        compare: path => base.comparison(path, false, region), region: { start: 0, end: 1 }, recipe: null, recipeName: 'r', now: new Date(), stale }, strings).slice(1).trimEnd().split('\r\n').map(line => line.split(','));
+    const report = (stale: ReadonlySet<string>): string[][] => csvRecords(reportCsv({ model: buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null), results: regionMap, slots: [null, '/d/a.wav', null, null],
+        compare: path => base.comparison(path, false, region), region: { start: 0, end: 1 }, recipe: null, recipeName: 'r', now: new Date(), stale }, strings));
     const [header, row] = report(reportStale(new Set(['/d/c.wav']), regionMap));
     assert.equal(row[header.indexOf(strings.entryCsvGroupSize)], '2');
     assert.ok(row.includes(strings.reportChainCurrent) && !row.includes(strings.reportChainPrevious), row.join(','));

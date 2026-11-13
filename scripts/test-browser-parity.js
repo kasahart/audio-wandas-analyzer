@@ -13,6 +13,20 @@ async function removeAllTracks(page, act = 'click') {
     }
 }
 const root = path.resolve(__dirname, '..');
+// The page speaks the browser's language (staticHost: navigator.language), and headless Chromium takes that from the
+// machine's LANG unless told: a Japanese desktop ran the Japanese page where CI (LANG=C.UTF-8) ran the English one, so
+// a check could pass on one and fail on the other. Every page opened here is in this one locale; CI's is en-US.
+// AWA_BROWSER_LOCALE=ja runs the same checks on the Japanese page. A page that asks for its own locale keeps it.
+const BROWSER_LOCALE = process.env.AWA_BROWSER_LOCALE || 'en-US';
+function pinLocale(browser) {
+    for (const name of ['newPage', 'newContext']) {
+        const open = browser[name].bind(browser);
+        browser[name] = (options = {}) => open({ locale: BROWSER_LOCALE, ...options });
+    }
+    return browser;
+}
+// The exports read back by the reader of what the Analyzer writes (RFC 4180): an English header has commas in it.
+const { csvRecords } = require(path.join(root, 'dist/shared/utils/csv.js'));
 const fixtureNames = ['short-stereo.wav', 'changing-stereo.wav'];
 const fixtures = fixtureNames.map(name => ({ name, bytes: fs.readFileSync(path.join(root, 'src/test/fixtures', name)) }));
 const toneRate = 16000, toneBytes = Buffer.alloc(44 + toneRate * 4);
@@ -167,13 +181,15 @@ const server = http.createServer((req,res) => {
     await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
     let browser;
     try {
-        browser=await chromium.launch({headless:true,executablePath:process.env.AWA_CHROMIUM_EXECUTABLE||undefined,args:['--mute-audio']});
+        browser=pinLocale(await chromium.launch({headless:true,executablePath:process.env.AWA_CHROMIUM_EXECUTABLE||undefined,args:['--mute-audio']}));
         const page=await browser.newPage();
         const errors=[]; page.on('pageerror',error=>errors.push(error.message));
         const origin=`http://127.0.0.1:${server.address().port}`;
         await page.goto(origin+'/analyzer/index.html');
         // The page speaks the browser's language: what it says is read from its own strings, not assumed English.
         const S=await page.evaluate(()=>window.__APP_STRINGS__);
+        assert.equal(await page.evaluate(()=>navigator.language),BROWSER_LOCALE,'the page runs in the pinned locale, not the machine\'s');
+        console.log(`Browser locale ${BROWSER_LOCALE}.`);
         const READY=S.browserReady.slice(0,S.browserReady.indexOf('{count}')).trim();
         const OPEN_FILE='input[data-action="browser-open-wav"]';
         const results=await page.evaluate(async ({fixtures,commands})=>{
@@ -260,8 +276,11 @@ const server = http.createServer((req,res) => {
         const csv = fs.readFileSync(await csvDownload.path(),'utf8');
         const artifact = await page.evaluate(()=>window.__csvArtifact);
         assert.equal(csv,artifact.content);assert.equal(artifact.mimeType,'text/csv;charset=utf-8');
-        const csvRows = csv.trim().split('\n').map(line=>line.split(','));
+        const csvRows = csvRecords(csv);
         assert.equal(csvRows[0].length,4,'stereo exports frequency/level for both channels');
+        // Each column named as its axis is: the frequency, and the level with its quantity, unit and reference (C5).
+        const levelHeader = S.axisLevelUncal.replace('{label}','dBFS');
+        csvRows[0].forEach((header,column)=>assert.ok(header.endsWith(' '+(column%2 ? levelHeader : S.axisFrequency)),`CSV column ${column}: ${header}`));
         // Every bin of the cursor's FFT: n_fft/2+1 rows at fs/n_fft spacing up to Nyquist.
         const csvBins = csvRows.length - 1;
         assert.ok(Number.isInteger(Math.log2(csvBins - 1)), `${csvBins} CSV rows are not n_fft/2+1`);
@@ -462,7 +481,7 @@ const server = http.createServer((req,res) => {
         const toneCsvMenu = page.locator('details').filter({has:page.locator('[data-action="export-csv"]')});
         if (!await toneCsvMenu.evaluate(node=>node.open)) await toneCsvMenu.locator('summary').click();
         const [toneCsvDownload] = await Promise.all([page.waitForEvent('download'),page.locator('[data-action="export-csv"]').click()]);
-        const toneCsvRows = fs.readFileSync(await toneCsvDownload.path(),'utf8').trim().split('\n').slice(1).map(row=>row.split(',').map(Number));
+        const toneCsvRows = csvRecords(fs.readFileSync(await toneCsvDownload.path(),'utf8')).slice(1).map(row=>row.map(Number));
         assert.equal(toneCsvRows.length,2048/2+1);
         // The menu closes after an export; close it only if it is still open, or a click would open it over the spectra.
         if (await toneCsvMenu.evaluate(node=>node.open)) await toneCsvMenu.locator('summary').click();
