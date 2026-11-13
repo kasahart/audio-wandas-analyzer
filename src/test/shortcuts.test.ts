@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 import { arrowCursorStep, globalShortcutAction, isTextEntryTag, keydownContextFor, keydownIntent, type KeydownContext } from '../webview/runtime/shortcuts';
 
@@ -25,7 +27,18 @@ test('isTextEntryTag treats form fields as text entry regardless of case', () =>
 });
 
 /** The keyboard-focus exception of docs/display-rules.md R7: a focused lane's ← / → move its time cursor, not the readout. */
-const FOCUS_EXCEPTION = 'R7\'s keyboard-focus exception (docs/display-rules.md): a lane with the keyboard focus moves its time cursor with ← / →, one pixel of the zoomed view, 0.1 s with Shift. Change the rule there first if this is meant.';
+const FOCUS_EXCEPTION = 'R7\'s keyboard-focus exception (docs/display-rules.md): a lane with the keyboard focus moves its time cursor with ← / →, one pixel of the zoomed view, 0.1 s with Shift: it is transport (where to listen), not reading; the readout steps by keys on a plot that is not a lane. Change the rule there first if this is meant.';
+
+test('R7 states the keyboard-focus exception these tests hold, with its reason (transport, not reading) and where keys read instead', () => {
+    const rules = readFileSync(path.resolve(__dirname, '..', '..', 'docs', 'display-rules.md'), 'utf8');
+    const r7 = rules.slice(rules.indexOf('## R7 '), rules.indexOf('\n## ', rules.indexOf('## R7 ') + 1));
+    for (const phrase of [
+        'キーボードのフォーカスの例外（← / →）',
+        '← / → は再生の時刻カーソルを動かします。これは読み取りではなく再生の操作（聞く位置を動かすこと）だからです',
+        'キーで読み値を 1 点ずつ進めるのは、レーンではなくグラフ（カーソルスペクトル、ペアの図、比較の図、入口の図）にフォーカスがあるとき',
+        '1 回で今の拡大の窓の 1 画素ぶん、Shift を押すと 0.1 秒です（`shortcuts.ts` の `keydownIntent` と `arrowCursorStep`）',
+    ]) assert.ok(r7.includes(phrase), `R7 no longer says: ${phrase}. ${FOCUS_EXCEPTION}`);
+});
 
 test('arrowCursorStep moves one pixel of the zoomed view, or 0.1 s with Shift (R7)', () => {
     assert.equal(arrowCursorStep(false, 10, 0.25, 0.75, 500), 0.001, FOCUS_EXCEPTION);

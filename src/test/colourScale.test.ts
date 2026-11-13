@@ -180,7 +180,7 @@ test('a value axis\'s range fields are the ends it is painted with, zoomed or ty
             const line = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'level', xs: [0, 1], values: [low, high] } as StageView;
             const plot = paintOverlay(canvas, { layers: [{ view: line, color: 'a', full: held(line) }] }, range, N({ x: 'Time [s]', y: 'Level [dBFS]' }));
             let request: RangePopoverRequest | null = null;
-            const popover: RangePopover = { open(given) { request = given; }, close() { /* nothing open */ } };
+            const popover: RangePopover = { open(given) { request = given; }, close() { /* nothing open */ }, dispose() { /* nothing attached */ } };
             const set: Array<{ start: number; end: number }> = [];
             openAxisPart(popover, { mapping: linearAxis(low, high, 'Level [dBFS]'), horizontal: false, current: part, clientX: 0, clientY: 0, invalid: '', set: next => { set.push(next); }, shown: plot?.valueRange ?? { min: NaN, max: NaN } });
             const opened = request as RangePopoverRequest | null;

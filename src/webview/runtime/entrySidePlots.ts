@@ -77,8 +77,10 @@ export interface SidePlots {
     onLevelAxis(filePath: string): boolean;
     /** The side plots painted on the next frame; `distribution`: the distribution too, not only the strip's window. */
     schedule(distribution?: boolean): void;
-    /** The gestures on the plots, and a click on the strip. */
+    /** The gestures on the plots, and a click on the strip; attached again, those attached before are taken off first. */
     attach(): void;
+    /** Takes off what attach() put on (the plots' gestures: attachPlotInteraction's clean-up promise). */
+    dispose(): void;
 }
 
 /** The strip's band axis: log in Hz, from the lowest band's lower edge to the highest band's upper edge. */
@@ -181,7 +183,10 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         deps.window.requestAnimationFrame(() => { pending.frame = false; paint(); });
     }
 
+    /** Takes off what attach() put on (the plots' gestures, its range popover's keys, its zoom box). */
+    let detach = (): void => undefined;
     function attach(): void {
+        detach();
         const zoomBox = document.createElement('div');
         zoomBox.className = 'entry-zoom-box';
         zoomBox.hidden = true;
@@ -197,7 +202,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
             const drawn = plot === overview ? overviewDrawn : deps.heldPicture()?.drawn ?? null;
             return drawn ? stagePlotPoint(plot, clientX, clientY, drawn) : plotPointIn(plot, marginsOf(plot), clientX, clientY);
         };
-        attachPlotInteraction(side, document, '[data-entry-held-canvas], [data-entry-overview]', {
+        const detachGestures = attachPlotInteraction(side, document, '[data-entry-held-canvas], [data-entry-overview]', {
             locate(target, clientX, clientY) {
                 const plot = (target as HTMLElement | null)?.closest?.<HTMLElement>('[data-entry-held-canvas], [data-entry-overview]');
                 if (!plot || plot.closest('[hidden]')) return null;
@@ -275,9 +280,11 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
                 return true;
             },
         });
+        detach = () => { detachGestures(); rangePopover.dispose(); zoomBox.remove(); detach = () => undefined; };
     }
 
     return {
+        dispose: () => detach(),
         window: plotWindow,
         keepWindow,
         levelLabel,

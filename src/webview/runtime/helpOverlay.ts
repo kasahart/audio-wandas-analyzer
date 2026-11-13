@@ -13,6 +13,8 @@ export interface Help {
     open(view: HelpView): void;
     close(): boolean;
     isOpen(): boolean;
+    /** Takes off its key context (keyRouter's clean-up promise), for an owner that tears it down. */
+    dispose(): void;
 }
 
 function keyRows(rows: readonly KeyRow[], strings: UiStrings): string {
@@ -104,7 +106,7 @@ export function installHelpOverlay(document: Document, window: Pick<Window, 'add
         else return false;
         return true;
     }
-    keyRouterFor(window).add({
+    const removeKeys = keyRouterFor(window).add({
         layer: 'help',
         keydown(event) {
             const toggle = event.key === '?' || event.key === 'F1';
@@ -125,5 +127,5 @@ export function installHelpOverlay(document: Document, window: Pick<Window, 'add
             return true;
         },
     });
-    return { open, close, isOpen: () => !overlay.hidden };
+    return { open, close, isOpen: () => !overlay.hidden, dispose: removeKeys };
 }

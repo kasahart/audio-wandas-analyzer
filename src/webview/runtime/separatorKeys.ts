@@ -44,33 +44,33 @@ function syncHandle(handle: HTMLElement, control: SeparatorControl): void {
 export interface SeparatorKeys {
     /** Sets every edge's aria values again, after a drag or a rebuild. */
     sync(): void;
+    /** Takes off its key context (keyRouter's clean-up promise), for an owner that tears it down. */
+    dispose(): void;
 }
 
 export function attachSeparatorKeys(document: Document, control: SeparatorControl): SeparatorKeys {
     const handles = (): HTMLElement[] => Array.from(document.querySelectorAll<HTMLElement>('[role="separator"]'));
     const keyWindow = document.defaultView;
-    if (keyWindow) {
-        keyRouterFor(keyWindow).add({
-            layer: 'widget',
-            keydown(event) {
-                const handle = (event.target as Element | null)?.closest?.<HTMLElement>('[role="separator"]');
-                if (!handle || event.ctrlKey || event.metaKey || event.altKey) return false;
-                const range = control.range(handle);
-                if (!range) return false;
-                const next = separatorKeyValue(event.key, event.shiftKey, control.growKey(handle), range);
-                if (next === null) return false;
-                event.preventDefault();
-                control.set(handle, next);
-                syncHandle(handle, control);
-                return true;
-            },
-        });
-    }
+    const removeKeys = keyWindow ? keyRouterFor(keyWindow).add({
+        layer: 'widget',
+        keydown(event) {
+            const handle = (event.target as Element | null)?.closest?.<HTMLElement>('[role="separator"]');
+            if (!handle || event.ctrlKey || event.metaKey || event.altKey) return false;
+            const range = control.range(handle);
+            if (!range) return false;
+            const next = separatorKeyValue(event.key, event.shiftKey, control.growKey(handle), range);
+            if (next === null) return false;
+            event.preventDefault();
+            control.set(handle, next);
+            syncHandle(handle, control);
+            return true;
+        },
+    }) : () => undefined;
     document.addEventListener('focusin', event => {
         const handle = (event.target as Element | null)?.closest?.<HTMLElement>('[role="separator"]');
         if (handle) syncHandle(handle, control);
     });
     const sync = (): void => handles().forEach(handle => syncHandle(handle, control));
     sync();
-    return { sync };
+    return { sync, dispose: removeKeys };
 }

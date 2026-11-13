@@ -79,6 +79,8 @@ export interface DistributionPane {
     paint(inputs: DistributionInputs): void;
     /** What was drawn last, for tests. */
     last(): Distribution | null;
+    /** Takes off the rows' gestures (attachPlotInteraction's clean-up promise) and its range popover, for an owner that tears the pane down. */
+    dispose(): void;
 }
 
 /** A row's plot fills its canvas: its names are beside it, its axis on the strip below. */
@@ -290,7 +292,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
     screen.append(zoomBox);
     const rangePopover = installRangePopover(document, { rootId: 'entry-dist-range-popover', badgeId: 'entry-dist-range-axis-badge', idPrefix: 'entry-dist-range', strings: rangePopoverStrings(strings), position: positionPopover });
     const setWindow = (next: PlotWindow | null): void => { zoomWindow = next ? { x: next.x, y: FULL_PLOT_WINDOW.y } : FULL_PLOT_WINDOW; repaint(); };
-    attachPlotInteraction(box, document, '[data-dist-canvas]', {
+    const detachGestures = attachPlotInteraction(box, document, '[data-dist-canvas]', {
         locate(target, clientX, clientY) {
             const plot = canvasOf(target);
             if (!plot || plot.closest('[hidden]')) return null;
@@ -369,5 +371,5 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         // Its vertical axis is the count per group, defined to show every count always (R13): a box zooms the value axis.
         verticalAxis: DIST_VERTICAL,
     });
-    return { place, paint, last: () => drawn };
+    return { place, paint, last: () => drawn, dispose() { detachGestures(); rangePopover.dispose(); zoomBox.remove(); } };
 }

@@ -26,9 +26,10 @@ export function attachToolbarActions(container: HTMLElement | null, handlers: To
     });
 }
 
-export function attachExclusiveMenus(toolbar: HTMLElement | null): void {
+/** Returns the disposer of its key context (keyRouter's clean-up promise), for an owner that tears the toolbar down. */
+export function attachExclusiveMenus(toolbar: HTMLElement | null): () => void {
     if (!toolbar) {
-        return;
+        return () => undefined;
     }
     toolbar.querySelectorAll<HTMLDetailsElement>('details.tb-menu').forEach(function (menu) {
         menu.addEventListener('toggle', function () {
@@ -61,18 +62,16 @@ export function attachExclusiveMenus(toolbar: HTMLElement | null): void {
         closeAll(eventTarget(e));
     }, true);
     const keyWindow = toolbar.ownerDocument.defaultView;
-    if (keyWindow) {
-        keyRouterFor(keyWindow).add({
-            layer: 'popover',
-            keydown(e) {
-                if (e.key !== 'Escape' || !toolbar.querySelector('details.tb-menu[open]')) {
-                    return false;
-                }
-                closeAll();
-                return true;
-            },
-        });
-    }
+    return keyWindow ? keyRouterFor(keyWindow).add({
+        layer: 'popover',
+        keydown(e) {
+            if (e.key !== 'Escape' || !toolbar.querySelector('details.tb-menu[open]')) {
+                return false;
+            }
+            closeAll();
+            return true;
+        },
+    }) : () => undefined;
 }
 
 export function attachHeightResizeListeners(

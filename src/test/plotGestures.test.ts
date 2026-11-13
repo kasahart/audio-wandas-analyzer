@@ -38,7 +38,7 @@ const NOT_PLOTS: Record<string, { sites: readonly string[]; why: string }> = {
     'runtime/entryRuntime.ts': { sites: ['query(\'.entry-bar\'):dblclick', 'screen:click', 'document:mouseover', 'document:pointerdown', 'screen:dragover', 'screen:drop', 'body:dblclick'], why: 'the entry table\'s rows and bar (double-click a row or the bar, a row lights its lane, a press outside its popovers, the screen\'s buttons and menus, files dropped on the screen)' },
     'runtime/helpOverlay.ts': { sites: ['openButton:mousedown', 'openButton:click', 'overlay:click'], why: 'the help button keeps the focus where it was; it opens the help, and its backdrop or × closes it' },
     'runtime/hintFooter.ts': { sites: ['doc:mousemove', 'doc:mouseover', 'doc:mouseout', 'canvas:focus', 'canvas:blur'], why: 'the footer names what is under the pointer or focused (data-hint), on every element' },
-    'runtime/offsetInlineEditor.ts': { sites: ['input:keydown', 'input:blur', 'wrapper:dblclick', 'wrapper:click'], why: 'the track offset\'s text field, opened or reset on its value' },
+    'runtime/offsetInlineEditor.ts': { sites: ['input:keydown', 'input:blur', 'wrapper:mousedown', 'wrapper:click'], why: 'the track offset\'s text field: a click opens it, a double click\'s second press (the browser\'s detail 2) takes that back and resets the offset' },
     'runtime/pairSpectrumPanel.ts': { sites: ['divider?:pointerdown', 'this.doc:pointermove', 'this.doc:pointerup', 'this.doc:pointercancel'], why: 'the divider between the power spectrum and the pair view dragged' },
     'runtime/roleChip.ts': { sites: ['root:click', 'root:keydown', 'root:pointerdown'], why: 'a role chip\'s menu' },
     'runtime/separatorKeys.ts': { sites: ['document:focusin'], why: 'a focused resize edge says its value' },
@@ -229,4 +229,50 @@ test('every plot that acts on a press that stayed put (plotInteraction\'s tap) a
     assert.match(shared, /const takeBack = typeof action === 'function' \? action\(\) : undefined;/u, `a tap acts at once. ${fix}`);
     assert.doesNotMatch(shared, /setTimeout|DOUBLE_CLICK_MS/u, `the shared gestures wait a click out. ${fix}`);
     for (const { file, body } of taps) assert.doesNotMatch(body, /setTimeout|DOUBLE_CLICK|CLICK_WAIT|\.detail/u, `${file}: a tap that waits out a double click, or tells its second press apart, itself (R13: a click acts at once)`);
+});
+
+/**
+ * The clean-up promise of the shared gestures (docs/plot-layers.md): attachPlotInteraction, attachTrackPointerListeners
+ * and a key router's `add` each return a disposer that takes off every listener they added. A caller that drops it
+ * leaves listeners on the document and the window that nothing can take off, answering for a plot or a lane torn down.
+ * So every call keeps it: assigned (`const off = …`, `this.detach = …`), returned (`return …`, an arrow's body),
+ * pushed or passed on (`list.push(…)`), or one branch of a choice (`keyWindow ? … : …`).
+ */
+const DISPOSING_CALL = /\b(?:attachPlotInteraction|attachTrackPointerListeners)\s*\(|\b(?:keyRouterFor\([^()]*\)|router|keys)\s*\.\s*add\s*\(/g;
+
+/** What comes before a call, with comments left out: the token that says whether its result is kept. */
+function keptBy(source: string, at: number): string | null {
+    const before = source.slice(0, at).replace(/\/\/[^\n]*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '').trimEnd();
+    const token = /(=>|return|[=?:(,[])$/.exec(before);
+    return token ? token[1] : null;
+}
+
+/** Each call of the three that drops its disposer, as `file:line`. */
+function droppedDisposers(file: string, source: string): string[] {
+    return [...source.matchAll(DISPOSING_CALL)]
+        .filter(match => !/^\s*(?:export\s+)?function\b/.test(source.slice(source.lastIndexOf('\n', match.index) + 1, match.index)))
+        .filter(match => keptBy(source, match.index) === null)
+        .map(match => `${file}:${source.slice(0, match.index).split('\n').length}`);
+}
+
+test('the disposer check finds a call that drops its disposer, and passes one kept, returned or pushed', () => {
+    assert.deepEqual(droppedDisposers('x.ts', [
+        "attachPlotInteraction(surface, doc, '.plot', deps);",
+        "    keyRouterFor(window).add({ layer: 'help', keydown });",
+        "const off = attachPlotInteraction(surface, doc, '.plot', deps);",
+        "this.detach = attachPlotInteraction(surface, doc, '.plot', deps);",
+        "return attachTrackPointerListeners(surface, doc, keys, handlers);",
+        "const gestures = (s: string): Off => attachPlotInteraction(root, doc, s, deps);",
+        "pageLifetime.push(keyRouterFor(window).add({ layer: 'lanes', keydown }));",
+        "removers.push(keys.add({ layer: 'plot', keydown }));",
+        "const off = view ? keyRouterFor(view).add(context) : () => undefined;",
+        'export function attachTrackPointerListeners(surface: Surface): Off {',
+    ].join('\n')), ['x.ts:1', 'x.ts:2']);
+});
+
+test('no caller drops the disposer of attachPlotInteraction, attachTrackPointerListeners or a key router\'s add: each is kept or returned (clean-up promise)', () => {
+    const calls = sources(webview).flatMap(file => [...read(file).matchAll(DISPOSING_CALL)].map(() => file));
+    // The check looks at every call there is: the plots' owners and the key contexts of the page.
+    assert.ok(calls.length >= 20, `found only ${calls.length} calls`);
+    assert.deepEqual(sources(webview).flatMap(file => droppedDisposers(file, read(file))), []);
 });

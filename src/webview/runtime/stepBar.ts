@@ -46,6 +46,8 @@ export interface StepBar {
      * back as if never made (no ↷ for it), while it is still the last edit: a double click's second press (R13).
      */
     edit(recipe: RecipeDocument, said: string): () => void;
+    /** Takes off its key context (keyRouter's clean-up promise), for an owner that tears the bar down. */
+    dispose(): void;
 }
 
 export function createStepBar(deps: {
@@ -427,7 +429,7 @@ export function createStepBar(deps: {
     });
     // Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y) undo and redo the bar's edits: with the focus in the bar, or nowhere in
     // particular while this bar is the one in front (the comparison's over the table's).
-    keyRouterFor(view).add({
+    const removeKeys = keyRouterFor(view).add({
         layer: 'step-bar',
         keydown(event) {
             if (!(event.ctrlKey || event.metaKey) || event.altKey) return false;
@@ -474,6 +476,7 @@ export function createStepBar(deps: {
     });
     return {
         element,
+        dispose: removeKeys,
         set(next: StepBarState): void {
             state = next;
             // Re-rendering would wipe what the user is typing into an open form or the menu's filter.

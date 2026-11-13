@@ -142,6 +142,8 @@ export interface TrackStageMode {
     paint(): void;
     handle(message: { type: string }): boolean;
     attach(surface: HTMLElement): void;
+    /** Takes off its key context, its plots' gestures and its step bar's keys (the clean-up promise of keyRouter and attachPlotInteraction). */
+    dispose(): void;
     /** The track's role: 0 the base, 1–3 a slot; undefined for a track not slotted. */
     role(filePath: string): number | undefined;
     /** Opens the mode for a comparison from the entry table, on `stage` (the chain's end without one). */
@@ -338,7 +340,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     let pressing: { slot: number; at: number; timer: number } | null = null;
     const keysLive = (event: KeyboardEvent): boolean => state.on && deps.inFront() && !(event.target as Element | null)?.closest?.('input, select, textarea, [data-step-bar], #track-stage-range-popover, details.role-chip');
     const router = keyRouterFor(deps.window);
-    router.add({
+    const removeKeys = router.add({
         layer: 'stage',
         keydown(event) {
             if (!keysLive(event) || event.ctrlKey || event.metaKey || event.altKey) return false;
@@ -893,7 +895,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 invalidSteps: stepBar.element.querySelectorAll('.step-chip.is-invalid').length,
             };
         },
+        dispose() { removeKeys(); stageGestures?.dispose(); stageGestures = null; stepBar.dispose(); },
         attach(surface) {
+            // Attached anew, the gestures on the surface before go first: one set of listeners per surface.
+            stageGestures?.dispose();
             stageGestures = attachStageGestures(surface, root, document, { strings, state, drawnOn, painted: () => painted, moved: () => detail.moved(), rerender: () => deps.rerender(), hint: text => deps.hint(text), lanesApart: () => lanesMarked, toggleEvent });
         },
     };

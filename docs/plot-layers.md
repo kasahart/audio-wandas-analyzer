@@ -67,6 +67,30 @@ points drawn never set a range.
 The readout under the pointer, the point an arrow key steps to, and the Δ headline are read through `full`, never
 from `view`.
 
+### The gestures' clean-up promise
+
+The plot component's gestures are attached with `attachPlotInteraction` (plotInteraction.ts), which builds on
+`attachTrackPointerListeners` (trackPointerEvents.ts) and adds key contexts with a key router's `add` (keyRouter.ts).
+Each of the three returns a disposer. Calling it takes off every listener the call added (on the surface, the
+document and the window) and its key context, so none of them fires again and none holds the plot. Calling it twice
+does nothing.
+
+- The owner of a plot or lane keeps the disposer and calls it when it tears the plot or lane down, or before it
+  attaches the gestures again (`PairSpectrumPanel.attach`, `SidePlots.attach`, `TrackStageMode.attach`).
+- An owner that lives as long as the page passes the disposer on as its own `dispose` (a popover, the step bar,
+  the entry screen, the comparison mode). The page root holds what is left (`pageLifetime` in comparisonRuntime.ts):
+  the page is not torn down while it is shown.
+- The key router's own two window listeners belong to the window. Every bundle of the page shares them.
+
+Why: a listener on the document or the window outlives the element it was for. A plot rebuilt without the old
+disposer called answers the pointer and the keys twice, once for a plot no longer on screen.
+
+Tests:
+- `src/test/plotGestures.test.ts` › no caller drops the disposer of attachPlotInteraction, attachTrackPointerListeners or a key router's add: each is kept or returned (clean-up promise)
+- `src/test/plotGestures.test.ts` › the disposer check finds a call that drops its disposer, and passes one kept, returned or pushed
+- `src/test/plotInteraction.test.ts` › after its disposer runs no listener of a plot's gestures fires: every one added on the surface, the document and the window is taken off, and its key context too (clean-up promise)
+- `src/test/plotInteraction.test.ts` › a key context added to the router sees no key once its disposer runs (clean-up promise)
+
 ## Layer 4: full data, and the two number types
 
 Two types in `src/shared/provenance.ts` say where a number came from:

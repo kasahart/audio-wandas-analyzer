@@ -25,6 +25,8 @@ export interface SpectrogramSettingsPopover {
     close(): void;
     isOpen(): boolean;
     applyAutoState(): void;
+    /** Takes off its key context (keyRouter's clean-up promise), for an owner that tears it down. */
+    dispose(): void;
 }
 
 const NFFT_OPTIONS = [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384];
@@ -176,18 +178,16 @@ export function installSpectrogramSettingsPopover(
         }
     });
     const keyWindow = document.defaultView;
-    if (keyWindow) {
-        keyRouterFor(keyWindow).add({
-            layer: 'popover',
-            keydown(ev) {
-                if (ev.key !== 'Escape' || !popover || popover.hidden) {
-                    return false;
-                }
-                close();
-                return true;
-            },
-        });
-    }
+    const removeKeys = keyWindow ? keyRouterFor(keyWindow).add({
+        layer: 'popover',
+        keydown(ev) {
+            if (ev.key !== 'Escape' || !popover || popover.hidden) {
+                return false;
+            }
+            close();
+            return true;
+        },
+    }) : () => undefined;
 
-    return { open, close, isOpen: () => !!popover && !popover.hidden, applyAutoState };
+    return { open, close, isOpen: () => !!popover && !popover.hidden, applyAutoState, dispose: removeKeys };
 }
