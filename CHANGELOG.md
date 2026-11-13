@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Windows: a request whose analysis loads a scipy module for the first time no longer waits for the next request before it is answered (the Python backend could sit on it until something else was asked).
 - Every plot: medians, Δ, the largest-difference headline and the order lines are stacked in are computed from every value before it is rounded or thinned for drawing, in double precision. A group median is stacked by the median line it draws, whichever recording is first, and the order stays the same when zoomed.
 - Every plot: the pointer reads the point nearest it on screen at the axis's exact scale, also on a narrowly zoomed value axis and on the right-hand axis. ← / → visit every point once, including points that share a value. Over a gap with no value in reach the readout says "— (no value here)"; a readout that is still waiting stays blank.
 - Every plot: a click acts at once, on the point the readout shows. A double click only resets the zoom (it takes back what its first click did), at any double-click speed the system allows. A click on a track lane that reads nothing seeks to the pointer's time. While a drag is under way, the wheel and the zoom and arrow keys leave the view alone.

@@ -152,6 +152,7 @@ Line endings: every text file is LF in the repository and in every checkout, on 
 - Types: **pyright** basic mode over the non-test modules (`[tool.pyright]` in `pyproject.toml`). Silence a finding only where wandas' own annotations are wrong, with a narrow `# pyright: ignore[rule]` and the reason.
 - Prefer wandas APIs over reimplementing DSP. See `python-backend/analyzer.py` for the canonical entry point.
 - Tests use `pytest` and live alongside the module they test (`python-backend/test_*.py`).
+- The backend never leaves its request pipe as the process's standard input: `backend_server._request_stream` reads requests through a private fd and points fd 0 and the Win32 standard input handle at the null device, because on Windows a thread loading a DLL (a lazy scipy import) queries the standard input and would wait for the main thread's pending read on the pipe, that is for the host's next request.
 
 ### Charts
 

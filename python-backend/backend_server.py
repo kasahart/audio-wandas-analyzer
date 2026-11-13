@@ -1,4 +1,10 @@
-"""Persistent newline-delimited JSON backend for Audio Wandas Analyzer."""
+"""Persistent newline-delimited JSON backend for Audio Wandas Analyzer.
+
+The backend never leaves its request pipe as the process's standard input (fd 0 and the Win32 standard input
+handle are the null device; requests come through a private fd): on Windows a thread loading a DLL queries the
+standard input and would wait for the main thread's pending read on the pipe, that is for the host's next request
+(``_request_stream``).
+"""
 
 from __future__ import annotations
 
@@ -212,28 +218,29 @@ def _cancelled_ids(parsed: dict[str, object]) -> list[str]:
 
 
 def _request_stream() -> TextIO:
-    """The host's requests, read as UTF-8 lines; on Windows from the stdin pipe moved off the standard input handle.
+    """Takes the host's request pipe off the process's standard input and returns it, read as UTF-8 lines.
 
-    Windows serialises every call on a synchronous pipe handle: while the main thread waits in a read on stdin, any
-    other call on that handle waits for the read to end, that is for the host's next request. Loading a DLL calls
-    one (a library's C runtime start-up queries the standard handles' file type), and a request thread loads them:
-    the first use of a scipy module wandas imports lazily. The request then stalled until the host sent another line,
-    for good when the host waits for its reply (it hung the numpy reference tests on Windows CI). So the pipe is read
-    through a handle of its own and the standard input handle (fd 0, ``sys.stdin``) is the null device, which nothing
-    blocks on. Elsewhere stdin is read as it is.
+    Called once at start, before any thread. The pipe is read through a private fd (``os.dup``); fd 0, and on Windows
+    the Win32 standard input handle, become the null device. Why: Windows serialises the calls on a synchronous file
+    object. While the main thread waits in its read on the pipe, another thread's call on the same file object (a
+    C or Fortran runtime's start-up asks the standard input's file type, a DLL initialiser that sets up stdio) waits
+    until the read returns, that is until the host's next line. A request thread loads such DLLs on the first use of
+    a scipy module wandas imports lazily, and the host waits for that request's reply: the backend hung. The private
+    fd is a duplicate of the same file object, so the read itself still blocks it; what removes the hang is that
+    nothing else looks there any more, as nothing reaches the pipe through the standard input. The same on every OS.
     """
-    if sys.platform != "win32":
-        sys.stdin.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
-        return sys.stdin
-    import ctypes
-    import msvcrt
-
     requests = os.fdopen(os.dup(0), "r", encoding="utf-8")
     null = os.open(os.devnull, os.O_RDONLY)
     os.dup2(null, 0)
     os.close(null)
-    std_input_handle = -10  # STD_INPUT_HANDLE
-    ctypes.windll.kernel32.SetStdHandle(std_input_handle, msvcrt.get_osfhandle(0))  # type: ignore[attr-defined]
+    if sys.platform == "win32":
+        # The C runtime's dup2 updates the standard handle of a console program (python.exe is one); said outright, as
+        # the hang above depends on it.
+        import ctypes
+        import msvcrt
+
+        std_input_handle = -10  # STD_INPUT_HANDLE
+        ctypes.windll.kernel32.SetStdHandle(std_input_handle, msvcrt.get_osfhandle(0))
     sys.stdin = open(0, encoding="utf-8", closefd=False)  # noqa: SIM115 - the process's stdin for its whole life
     return requests
 

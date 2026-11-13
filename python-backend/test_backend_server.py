@@ -5,6 +5,7 @@ import io
 import json
 import math
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -2011,3 +2012,126 @@ def test_requests_are_read_from_the_stream_given_not_stdin(
     response = json.loads(lines[-1])
     assert response["error"]["code"] == "input-error"
     assert "from-stdin" not in "\n".join(lines)
+
+
+# --- The backend process and its standard input --------------------------------------------------------------------
+# The backend never leaves its request pipe as the process's standard input (backend_server._request_stream).
+
+_SERVER = Path(__file__).parent / "backend_server.py"
+#: A reply takes seconds; this bounds a reply that never comes (the hang these tests hold away), never a slow one.
+_REPLY_LIMIT_S = 120.0
+
+
+class _Lines:
+    """A stream's lines, read on a thread of their own, so that every wait for one is bounded."""
+
+    def __init__(self, stream: Any) -> None:
+        import queue
+
+        self.lines: queue.Queue[str] = queue.Queue()
+        self.seen: list[str] = []
+        threading.Thread(target=self._pump, args=(stream,), daemon=True).start()
+
+    def _pump(self, stream: Any) -> None:
+        for line in stream:
+            self.lines.put(line)
+        self.lines.put("")
+
+    def next(self, deadline: float, what: str) -> str:
+        import queue
+
+        try:
+            line = self.lines.get(timeout=max(0.0, deadline - time.monotonic()))
+        except queue.Empty:
+            raise AssertionError(f"{what}: nothing within the bound") from None
+        self.seen.append(line)
+        return line
+
+
+def test_the_backends_first_request_that_loads_a_dll_on_its_thread_is_answered_while_the_main_thread_waits_on_the_pipe(
+    tmp_path: Path,
+) -> None:
+    # As the extension starts it: the script, pipes for stdin, stdout and stderr, -X importtime as AWA_IMPORT_TIME
+    # gives. The first request is a Welch spectrum, whose scipy.signal (C extensions: DLLs on Windows) wandas imports
+    # lazily on the request thread while the main thread is back in its read of the pipe. Before the request pipe
+    # left the standard input, that import waited for the host's next line on Windows, and the reply never came.
+    from test_numpy_reference import WELCH, write
+
+    path = write(tmp_path / "tone.wav", np.sin(2 * np.pi * 440 * np.arange(4 * 16_000) / 16_000))
+    process = subprocess.Popen(
+        [sys.executable, "-X", "importtime", str(_SERVER)],
+        cwd=_SERVER.parent.parent,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        env={**os.environ, "AWA_PERF_LOG": "1"},
+    )
+    assert process.stdin is not None and process.stdout is not None and process.stderr is not None
+    try:
+        out, err = _Lines(process.stdout), _Lines(process.stderr)
+        deadline = time.monotonic() + _REPLY_LIMIT_S
+        assert json.loads(out.next(deadline, "ready")).get("type") == "ready"
+        request = {
+            "cmd": "scan",
+            "requestId": "first",
+            "filePath": str(path),
+            "recipe": WELCH,
+            "stage": WELCH["output"],
+        }
+        process.stdin.write(json.dumps(request) + "\n")
+        process.stdin.flush()
+        while True:
+            message = json.loads(out.next(deadline, "the first request's reply") or "{}")
+            assert message, "the backend closed its output"
+            if message.get("requestId") == "first" and message.get("type") != "started":
+                break
+        assert message.get("ok") is True, message
+        # The witness that the DLLs were loaded on the request thread after start, not before it.
+        process.stdin.close()
+        process.wait(timeout=30)
+        rest = deadline + 30
+        while err.next(rest, "the backend's stderr") != "":
+            pass
+        log = "".join(err.seen)
+        before, after = log.split("phase=startup_ready", 1)
+        signal_import = re.compile(r"\|\s+scipy\.signal(\.\w+)*\n")
+        assert signal_import.search(after), "scipy.signal is imported by the request, after start"
+        assert not signal_import.search(before), "and not before it: else nothing here loads a DLL late"
+    finally:
+        process.kill()
+        process.wait()
+
+
+def test_the_backends_standard_input_is_not_its_request_pipe() -> None:
+    # After start, fd 0 and the process's standard input (what a child inherits: the Win32 handle on Windows) read the
+    # null device, while the host's line comes through the request stream. The pipe is kept open: a read of it
+    # instead would wait, and the bound would fail.
+    probe = "\n".join(
+        [
+            "import os, subprocess, sys",
+            f"sys.path.insert(0, {str(_SERVER.parent)!r})",
+            "import backend_server",
+            "requests = backend_server._request_stream()",
+            "print(repr(requests.readline()), flush=True)",
+            "print(repr(os.read(0, 64)), flush=True)",
+            "print(repr(sys.stdin.read()), flush=True)",
+            "child = [sys.executable, '-c', 'import sys; print(repr(sys.stdin.read()))']",
+            "print(subprocess.run(child, stdout=subprocess.PIPE, text=True).stdout.strip(), flush=True)",
+        ]
+    )
+    process = subprocess.Popen(
+        [sys.executable, "-c", probe], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding="utf-8"
+    )
+    assert process.stdin is not None and process.stdout is not None
+    try:
+        out = _Lines(process.stdout)
+        process.stdin.write('{"cmd": "ping"}\n')
+        process.stdin.flush()
+        deadline = time.monotonic() + 60
+        read = [out.next(deadline, step).strip() for step in ("the request", "fd 0", "sys.stdin", "a child's stdin")]
+        assert read == ['\'{"cmd": "ping"}\\n\'', "b''", "''", "''"]
+    finally:
+        process.kill()
+        process.wait()

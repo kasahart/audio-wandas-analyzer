@@ -81,7 +81,7 @@ class Backend:
         text = self._log_path.read_text(encoding="utf-8", errors="replace")
         # From the last stack dump on (each starts with faulthandler's "Timeout (" line), else the log's end.
         start = text.rfind("Timeout (")
-        return f"backend log ({self._log_path}), from its last stack dump:\n{text[start if start >= 0 else -6000 :]}"
+        return f"backend stderr, from its last stack dump:\n{text[start if start >= 0 else -6000 :]}"
 
     def _read(self) -> dict[str, Any]:
         assert self._process.stdout is not None
