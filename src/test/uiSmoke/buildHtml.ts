@@ -96,7 +96,8 @@ function uiSmokeCombined(message) {
     if (baseBins) base.levelBins = baseBins;
     if (views.length > 1) result.base = base;
     if (!compare || /Segments$/.test(first.frame)) return result;
-    const minus = function(a, b) { return a === null || b === null ? null : Math.round((a - b) * 100) / 100; };
+    // A Δ is sent unrounded, as the backend sends it (R1, stage_combine._sent): only its text is rounded.
+    const minus = function(a, b) { return a === null || b === null ? null : a - b; };
     const diff = compare.matrix
         ? Object.assign(strip(compare), { matrix: compare.matrix.map(function(row, r) { return row.map(function(value, c) { return minus(value, base.matrix[r][c]); }); }) })
         : Object.assign(strip(compare), { values: (compare.values || []).map(function(value, i) { return minus(value, base.values[i]); }) });

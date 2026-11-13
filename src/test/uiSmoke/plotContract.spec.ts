@@ -69,8 +69,9 @@ async function openComparison(page: Page, files: ScannedFile[]): Promise<void> {
         channels: [{ label: 'L', peakAbsolute: 0.5, fullScale: true, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } }],
     }));
     await page.evaluate(results => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results } })), results);
-    // Every plot the comparison draws reads the pictures the test posts (answer, answerKinds) or the recordings' lanes.
-    knownData = firstKnown(postedPictures(postedStages), recordingLanes(results));
+    // Every plot the comparison draws reads the pictures the test posts (answer, answerKinds) or the recordings' lanes;
+    // its median and Δ are of the groups slotted here (base the first, compare 1 the other), never of the first posted.
+    knownData = firstKnown(postedPictures(postedStages, { base: [paths[0]], compare: paths[1] }), recordingLanes(results));
     await expect(page.locator('.track-stage')).toBeVisible();
     await expect.poll(async () => (await stageScans(page)).length).toBeGreaterThan(0);
     const bar = page.locator('.track-stage-bar');
@@ -139,7 +140,7 @@ async function knownStep(plot: Locator, from: PointAt, delta: 1 | -1 = 1): Promi
         const track = /^track-(?:spec-)?canvas-(\d+)(?:-(\d+))?$/u.exec(canvas.id);
         return {
             id: canvas.id, stage: canvas.getAttribute('data-stage-canvas'), attrs: Array.from(canvas.attributes).map(attribute => attribute.name), label: noted?.layer.label ?? null, frame: noted?.layer.view.frame ?? null,
-            image: !!noted?.image, ends: xs?.length ? [xs[0], xs[xs.length - 1]] as [number, number] : null,
+            image: !!noted?.image, filePath: canvas.closest('[data-file-path]')?.getAttribute('data-file-path') ?? null, ends: xs?.length ? [xs[0], xs[xs.length - 1]] as [number, number] : null,
             trackIndex: track ? Number(track[1]) : null, channelIndex: track?.[2] !== undefined ? Number(track[2]) : null,
         };
     });

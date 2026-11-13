@@ -12,9 +12,12 @@ import type { PreviewState } from './buildHtml';
 /** A point read, as the test tells points apart: its place, an image's row, its index in its source's every point, its identity. */
 export type PointAt = { at: number; row: number | null; index: number | null; identity: string | null };
 
-/** The read whose next point is asked: the plot and the line it reads (its name, its Frame kind, its view's x extent). */
+/**
+ * The read whose next point is asked: the plot and the line it reads (its name, its Frame kind, its view's x extent),
+ * and the recording whose lane the plot is (`filePath`: the lane's row on the page, null for a plot of no one lane).
+ */
 export type ReadOf = {
-    id: string; stage: string | null; attrs: readonly string[]; label: string | null; frame: string | null; image: boolean;
+    id: string; stage: string | null; attrs: readonly string[]; label: string | null; frame: string | null; image: boolean; filePath: string | null;
     ends: readonly [number, number] | null; trackIndex: number | null; channelIndex: number | null;
 };
 
@@ -78,34 +81,84 @@ type Picture = Record<string, unknown> & { frame?: string; kind?: string; xs?: n
     waveform?: { min: number[]; max: number[]; minT?: number[]; maxT?: number[] }; events?: Array<{ id: number; xs?: number[]; values: Array<number | null> }> };
 
 /**
- * The comparison's plots, read from the pictures the test posted (`posted`: each recording's, by its file), as the
- * page's stand-in answers them (buildHtml.ts uiSmokeCombine, uiSmokeReadPoints): the picture of the read's Frame kind
- * and x extent; a recording's own where the line names its file, else the first (a median or a Δ has the same points).
+ * The comparison's groups as the test itself slotted them: the base group's recordings (their files) and the compared
+ * one. A line no single recording is (the base's median, the Δ) is known from these, never from one of them.
+ */
+export type ComparedGroups = { base: readonly string[]; compare: string | null };
+
+/**
+ * The median of the members' values at one point (R1, stage_combine's rule written apart from it): the middle value,
+ * or the mean of the two middle ones of an even count; none where any member has none.
+ */
+function medianOf(values: ReadonlyArray<number | null | undefined>): number | null {
+    if (!values.length || values.some(value => value === null || value === undefined || !Number.isFinite(value))) return null;
+    const sorted = (values as number[]).slice().sort((a, b) => a - b);
+    const middle = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+/**
+ * The comparison's plots, read from the pictures the test posted (`posted`: each recording's, by its file) and the
+ * groups it slotted (`groups`), as the backend makes them (R1): the picture of the read's Frame kind and x extent,
+ * each recording's latest; a recording's own in its lane or where the line names its file; else the base group's median, point by
+ * point over every member's values; a Δ the compared recording's values minus that median (no floor, unrounded). A
+ * line made of several recordings is never one of them: a median's readable points are not its first member's.
  * A signal is its envelope's points, a trigger's event its own line, an image its columns.
  */
-export function postedPictures(posted: ReadonlyArray<{ filePath: string; picture: Picture }>): KnownData {
+export function postedPictures(posted: ReadonlyArray<{ filePath: string; picture: Picture }>, groups: ComparedGroups): KnownData {
     return read => {
         // A trigger's event is drawn on its own xs (each event's line), the picture on its own.
-        const fits = posted.filter(({ picture }) => picture.frame === read.frame
+        const fitting = posted.filter(({ picture }) => picture.frame === read.frame
             && (extentFits(picture.xs, read.ends) || !!picture.events?.some(event => extentFits(event.xs ?? picture.xs, read.ends))));
-        const own = fits.find(({ filePath }) => !!read.label && read.label.includes(filePath.split('/').at(-1) ?? '\u0000')) ?? fits[0];
-        if (!own) return null;
-        const picture = own.picture, xs = picture.xs ?? [];
-        if (picture.kind === 'heatmap' || picture.matrix) return { kind: 'image', xs };
-        if (picture.events?.length) {
-            // A trigger's event line is named "#n @ t s", n counted from 1 (its id + 1).
-            const number = /#(\d+)\s*@/u.exec(read.label ?? '')?.[1];
-            const event = picture.events.find(item => number !== undefined && item.id === Number(number) - 1);
-            return event ? { kind: 'line', xs: event.xs ?? xs, values: event.values } : null;
-        }
-        // A Δ is a line of the pictures' values, never an envelope (the stand-in's uiSmokeCombine strips it).
-        if (picture.waveform && read.stage !== 'diff') {
-            const line = uiSmokeEnvelopePoints(picture.waveform, (index, count) => (xs.length ? xs[0] + (xs[xs.length - 1] - xs[0]) * (index + 0.5) / count : index));
-            return { kind: 'line', xs: line.xs, values: line.values };
-        }
-        return { kind: 'line', xs, ...(picture.values ? { values: picture.values } : {}) };
+        // A recording answered again (another step, the same Frame kind) is drawn from its latest picture.
+        const latest = (filePath: string): Picture | undefined => [...fitting].reverse().find(item => item.filePath === filePath)?.picture;
+        const nameOf = (filePath: string): string => filePath.split('/').at(-1) ?? filePath;
+        // A recording's lane is its own line; else the file the line names (of names one inside another, 1.wav and
+        // 11.wav, the longest it holds).
+        const files = [...new Set(fitting.map(item => item.filePath))];
+        const named = read.stage === 'diff' ? undefined : files.find(filePath => filePath === read.filePath)
+            ?? files.filter(filePath => !!read.label && read.label.includes(nameOf(filePath))).sort((a, b) => nameOf(b).length - nameOf(a).length)[0];
+        if (named) return ownLine(latest(named)!, read);
+        const members = groups.base.map(latest);
+        if (!members.length || members.some(member => !member)) return null;
+        const base = members as Picture[];
+        const xs = base[0].xs ?? [];
+        // A median is of recordings on one axis: pictures on others are not known to be combined here.
+        if (base.some(member => !sameXs(member.xs ?? [], xs))) return null;
+        const compare = groups.compare !== null ? latest(groups.compare) : undefined;
+        if (read.stage === 'diff' && (!compare || !sameXs(compare.xs ?? [], xs))) return null;
+        if (base.some(member => member.kind === 'heatmap' || member.matrix)) return { kind: 'image', xs };
+        // A line whose values the test never gave is not known (never taken as every point readable).
+        if (base.some(member => !member.values) || (read.stage === 'diff' && !compare?.values)) return null;
+        const median = xs.map((_, index) => medianOf(base.map(member => member.values?.[index])));
+        if (read.stage !== 'diff' || !compare) return { kind: 'line', xs, values: median };
+        const values = xs.map((_, index) => {
+            const value = compare.values?.[index];
+            const middle = median[index];
+            return value === null || value === undefined || !Number.isFinite(value) || middle === null ? null : value - middle;
+        });
+        return { kind: 'line', xs, values };
     };
 }
+
+/** A recording's own line: an image's columns, a trigger's event line, a signal's envelope points, else its values. */
+function ownLine(picture: Picture, read: ReadOf): Known | null {
+    const xs = picture.xs ?? [];
+    if (picture.kind === 'heatmap' || picture.matrix) return { kind: 'image', xs };
+    if (picture.events?.length) {
+        // A trigger's event line is named "#n @ t s", n counted from 1 (its id + 1).
+        const number = /#(\d+)\s*@/u.exec(read.label ?? '')?.[1];
+        const event = picture.events.find(item => number !== undefined && item.id === Number(number) - 1);
+        return event ? { kind: 'line', xs: event.xs ?? xs, values: event.values } : null;
+    }
+    if (picture.waveform) {
+        const line = uiSmokeEnvelopePoints(picture.waveform, (index, count) => (xs.length ? xs[0] + (xs[xs.length - 1] - xs[0]) * (index + 0.5) / count : index));
+        return { kind: 'line', xs: line.xs, values: line.values };
+    }
+    return { kind: 'line', xs, ...(picture.values ? { values: picture.values } : {}) };
+}
+
+const sameXs = (a: readonly number[], b: readonly number[]): boolean => a.length === b.length && a.every((x, index) => samePlace(x, b[index]));
 
 /**
  * A track's lanes, read from the results the page was given (an analysis-update the test posted, or the app state it
