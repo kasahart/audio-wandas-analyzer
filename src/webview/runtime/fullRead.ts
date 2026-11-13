@@ -518,23 +518,13 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
     // an older one of either kind is no longer wanted.
     let next: { key: string; read: StageRead } | null = null;
     let nextLevel: { key: string; read: StageRead } | null = null;
-    const waiting = new Set<() => void>();
-    // A read failed: those waiting on it are told once its pause is over, so a still pointer is read again (R7).
-    let woken: ReturnType<typeof setTimeout> | null = null;
-    const wakeAt = (at: number, ready: () => void): void => {
-        waiting.add(ready);
-        if (woken !== null) return;
-        woken = setTimeout(() => {
-            woken = null;
-            const calls = [...waiting];
-            waiting.clear();
-            for (const call of calls) call();
-        }, Math.max(0, at - now()) + 1);
-        (woken as { unref?: () => void }).unref?.();
-    };
     const keep = (key: string, read: StageRead, points: FullPoints | null): void => {
         if (points) kept.ready(keyOf(key), { read, points });
         else kept.fail(keyOf(key));
+    };
+    /** A read waiting in line is no longer wanted (a newer one of its kind took its place): its readers wait on that one. */
+    const supersede = (item: { key: string } | null, by: string): void => {
+        if (item && item.key !== busy) kept.supersede(keyOf(item.key), keyOf(by));
     };
     const ask = (key: string, read: StageRead): void => {
         busy = key;
@@ -542,17 +532,19 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
             busy = null;
             // undefined: no answer (the backend let the data go and the picture is scanned again): nothing is kept and
             // nothing is asked again until the plot reads anew, once its picture is back.
-            if (points === undefined) { next = null; nextLevel = null; return; }
+            if (points === undefined) {
+                for (const item of [{ key }, next, nextLevel]) if (item) kept.forget(keyOf(item.key));
+                next = null; nextLevel = null;
+                return;
+            }
+            // Kept, and every reader waiting on it is told by the store (whenSettled).
             keep(key, read, points ? fullPointsOf(points) : null);
             // The pointer's read first, then the level: the first not answered meanwhile is asked.
-            const unanswered = (item: { key: string } | null): boolean => !!item && kept.state(keyOf(item.key)) === 'missing';
+            const unanswered = (item: { key: string } | null): boolean => !!item && kept.state(keyOf(item.key)) === 'pending';
             const queued = unanswered(next) ? next : unanswered(nextLevel) ? nextLevel : null;
             if (queued === next || !unanswered(next)) next = null;
             if (queued === nextLevel || !unanswered(nextLevel)) nextLevel = null;
             if (queued) ask(queued.key, queued.read);
-            const calls = [...waiting];
-            waiting.clear();
-            for (const call of calls) call();
         });
     };
     /**
@@ -566,18 +558,21 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
         for (const [held, item] of kept.newestFirst()) {
             if (held.id === own.id) {
                 if (item.state === 'ready') return item.value.points;
-                // The store's own pause (FAILED_RETRY_MS): told once it is over, the read is asked again.
-                if (item.state === 'failed') wakeAt(item.retryAt, ready);
-                return null;
+                // The store's own pause (FAILED_RETRY_MS): the store tells the reader when it is over, and the read
+                // made then asks again. No timer here: the store keeps the time.
+                if (item.state === 'failed') { kept.whenFailureEnds(own, ready); return null; }
+                // On its way, or waiting in line: told when it is in.
+                if (item.state === 'pending') { kept.whenSettled(own, ready); return undefined; }
+                continue;
             }
             if (item.state === 'ready' && found(item.value.points, item.value.read)) return item.value.points;
         }
-        waiting.add(ready);
-        if (busy !== key) {
-            if (busy === null) ask(key, read);
-            else if (read.level) nextLevel = { key, read };
-            else next = { key, read };
-        }
+        // Pending in the store from now (never evicted while it is), until its answer comes or a newer read takes its place.
+        kept.ask(own);
+        kept.whenSettled(own, ready);
+        if (busy === null) ask(key, read);
+        else if (read.level) { supersede(nextLevel, key); nextLevel = { key, read }; }
+        else { supersede(next, key); next = { key, read }; }
         return undefined;
     };
     const source: FetchedFullSource = fullSource('fetched', {

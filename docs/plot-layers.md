@@ -36,7 +36,21 @@ store lowers the ceiling. Until the ceiling is 0, an answer read from one of the
 place's own rules for keys, pauses and retries, not the store's.
 
 For new code: outside the store, keep no `Map`, `Set` or array of answers that outlives a call, and write no pause or
-retry of your own after a failure. The test finds such a holder by the type of what it holds and fails. If the test
+retry of your own after a failure. The test finds such a holder by the type of what it holds and fails.
+
+When a failed answer is asked again is the store's alone. A reader that wants to read a failed answer again subscribes
+with `whenFailureEnds(key, ready)`: the store tells every subscriber of that key at the moment its hold
+(`FAILED_RETRY_MS`) ends, once, from one timer of its own, and the read made then asks again. A reader waiting on an
+answer on its way subscribes with `whenSettled`; an ask replaced before it was sent hands its readers on
+(`supersede`). So an answer source (a file that calls a maker of `answerStore.ts`, or `fetchedSource` /
+`fullSource('fetched', …)`) keeps no timer, no list of waiting readers and no wake of its own. The test
+"no answer source schedules with a timer of its own" in `src/test/answerStoreBoundary.test.ts` finds any
+`setTimeout`, `setInterval`, `requestAnimationFrame`, `setImmediate` or `requestIdleCallback` in an answer source by
+what the call resolves to (an alias or `window.setTimeout` too), not by its name, and fails. A screen that is also an
+answer source and times its own drawing or gathering (not a failure) is listed in `SCHEDULING_OWNERS` with what its
+timers are for; that list only shrinks. The behaviour is held by `answerStore.test.ts` › "a failed answer's readers
+are told exactly when its hold ends…" and `fullRead.test.ts` › "a failed full read is asked again exactly when the
+store's hold ends…". If the test
 names your new collection and it holds no answers (a gesture's state, a canvas's drawing), list it in
 `src/test/answerBoundaryAllowlist.ts` as `notAnswer` with what it holds. Never add an `unmigrated` entry.
 

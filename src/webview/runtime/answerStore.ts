@@ -9,6 +9,9 @@
  * - An answer is pending (asked, not in), ready (a value), empty (answered with nothing to show), failed (asked again
  *   once FAILED_RETRY_MS have passed: a passing failure never stays) or missing (the backend let the data go and it
  *   could not be had again).
+ * - When a failure's hold ends is the store's alone: a reader waiting to read a failed answer again subscribes
+ *   (whenFailureEnds) and is told at the hold's end. No source keeps a timer, a list of waiting readers or a wake of
+ *   its own for it (answerStoreBoundary.test.ts forbids any timer call in an answer source).
  * - A ready answer carries the identity it is of (AnswerIdentity, answerTypes.ts); the figure model reads it there.
  *
  * What a figure draws of the answers, and which files it counts, is the figure model's (figureModel.ts), never this.
@@ -125,15 +128,33 @@ export interface AnswerStore<T> {
      * let go here too, so it is asked for again once that is back ('again'); a second time it is missing ('given-up').
      */
     unreached(key: AnswerKey, group: string): 'again' | 'given-up';
-    /** Lets the answer go: it is asked for anew. */
+    /** Lets the answer go: it is asked for anew; whoever waited on it settling (whenSettled) is let go untold. */
     forget(key: AnswerKey): void;
+    /**
+     * A newer ask took the place of `old` before it was sent (a moving pointer's next read): `old` is let go, and
+     * whoever waited on it settling waits on `by` instead, so no reader is left waiting on an ask that will not come.
+     */
+    supersede(old: AnswerKey, by: AnswerKey): void;
     /** Lets go every ready answer `gone` names (the values the backend no longer keeps). */
     forgetWhere(gone: (value: T, key: AnswerKey) => boolean): void;
     clear(): void;
     /** The answer in the shared form the figure model reads, of `identity`. */
     answer(key: AnswerKey, identity: AnswerIdentity): Answer<T>;
-    /** Calls `then` once the answer is in (ready, empty, failed or missing), or at once if it is. */
+    /**
+     * Calls `then` once the answer is in (ready, empty, failed or missing), or at once if it is. One function given
+     * twice for one key is called once. Forgetting the key (forget, clear) lets its waiters go untold: what they waited
+     * on was superseded, and a newer read waits on its own.
+     */
     whenSettled(key: AnswerKey, then: () => void): void;
+    /**
+     * Calls `then` once, when the failure held under `key` stops standing: at its hold's end (FAILED_RETRY_MS after it
+     * failed, not before), or earlier if it is let go (forgotten, answered, cleared, evicted). The answer is then asked
+     * for anew by the next read. Every subscriber of one key is told together, from one timer of the store's (one function given again is one subscriber); a failure
+     * of the key again before the hold ends moves the moment to the new hold's end. Returns the cancel: a subscriber
+     * dropped is never told, and the timer stops when no one is left. A key not failed now is never told (the cancel
+     * does nothing), nor is a lasting failure until it is let go.
+     */
+    whenFailureEnds(key: AnswerKey, then: () => void): () => void;
     /** The value kept under `key`, made (and kept as ready) the first time it is wanted: a source's handle on its data. */
     keep(key: AnswerKey, make: () => T): T;
     /** Every answer held, the most recent first. */
@@ -144,8 +165,36 @@ export interface AnswerStore<T> {
 export function createAnswerStore<T>(options: AnswerStoreOptions): AnswerStore<T> {
     const now = options.now ?? (() => Date.now());
     const slots = new Map<string, { key: AnswerKey; slot: Slot<T> }>();
-    const settled = new Map<string, Array<() => void>>();
+    const settled = new Map<string, Set<() => void>>();
     const retried = new Set<string>();
+    /** The readers told when a failed answer's hold ends (whenFailureEnds), and the one timer for each key's hold. */
+    const ending = new Map<string, { key: AnswerKey; calls: Set<() => void>; timer: ReturnType<typeof setTimeout> | null }>();
+    /** The failure under `id` no longer stands: everyone subscribed to it is told, once. */
+    const ended = (id: string): void => {
+        const entry = ending.get(id);
+        if (!entry) return;
+        ending.delete(id);
+        if (entry.timer !== null) clearTimeout(entry.timer);
+        for (const call of [...entry.calls]) call();
+    };
+    /** Sets the key's timer to its failure's hold end, or tells its subscribers now if the failure no longer stands. */
+    const arm = (id: string): void => {
+        const entry = ending.get(id);
+        if (!entry) return;
+        if (entry.timer !== null) { clearTimeout(entry.timer); entry.timer = null; }
+        const found = held(entry.key);
+        if (found?.state !== 'failed') { ended(id); return; }
+        // A lasting failure has no end: its subscribers are told when it is let go.
+        if (!Number.isFinite(found.retryAt)) return;
+        // At the hold's end, by the store's clock: a timer that wakes a little early (another clock) is set again.
+        entry.timer = setTimeout(() => { entry.timer = null; arm(id); }, Math.max(1, found.retryAt - now()));
+        (entry.timer as { unref?: () => void }).unref?.();
+    };
+    /** Lets an answer go: any failure subscribers of it are told, the answer is asked for anew. */
+    const drop = (id: string): void => {
+        slots.delete(id);
+        if (ending.has(id)) ended(id);
+    };
     /** The slot now, with a failure past its retry let go. */
     const held = (key: AnswerKey): Slot<T> | undefined => {
         const found = slots.get(key.id)?.slot;
@@ -162,20 +211,22 @@ export function createAnswerStore<T>(options: AnswerStoreOptions): AnswerStore<T
                 if (asks.size <= options.capacity) break;
                 // An ask with an answer on its way stays: its answers are about to be wanted.
                 if ([...slots.values()].some(item => item.key.ask === oldest && item.slot.state === 'pending')) continue;
-                for (const [id, item] of slots) if (item.key.ask === oldest) slots.delete(id);
+                for (const [id, item] of slots) if (item.key.ask === oldest) drop(id);
                 asks.delete(oldest);
             }
             return;
         }
         for (const [id, item] of slots) {
             if (slots.size <= options.capacity) break;
-            if (item.slot.state !== 'pending') slots.delete(id);
+            if (item.slot.state !== 'pending') drop(id);
         }
     };
     const put = (key: AnswerKey, slot: Slot<T>): void => {
         slots.delete(key.id);
         slots.set(key.id, { key, slot });
         evict();
+        // A failure again moves its subscribers' moment to the new hold's end; any other answer ends the failure.
+        if (ending.has(key.id) && slots.has(key.id)) arm(key.id);
         if (slot.state === 'pending') return;
         const calls = settled.get(key.id);
         settled.delete(key.id);
@@ -210,17 +261,28 @@ export function createAnswerStore<T>(options: AnswerStoreOptions): AnswerStore<T
         unreached(key, group) {
             if (!retried.has(group)) {
                 retried.add(group);
-                slots.delete(key.id);
+                drop(key.id);
                 return 'again';
             }
             put(key, { state: 'missing' });
             return 'given-up';
         },
-        forget(key) { slots.delete(key.id); },
+        forget(key) { drop(key.id); settled.delete(key.id); },
+        supersede(old, by) {
+            if (old.id === by.id) return;
+            const calls = settled.get(old.id);
+            store.forget(old);
+            for (const call of calls ?? []) store.whenSettled(by, call);
+        },
         forgetWhere(gone) {
             for (const [id, item] of slots) if (item.slot.state === 'ready' && gone(item.slot.value, item.key)) slots.delete(id);
         },
-        clear() { slots.clear(); retried.clear(); },
+        clear() {
+            slots.clear();
+            retried.clear();
+            settled.clear();
+            for (const id of [...ending.keys()]) ended(id);
+        },
         answer(key, identity) {
             const found = held(key);
             if (found?.state === 'ready') return { state: 'ready', value: found.value, identity: found.identity ?? identity };
@@ -230,7 +292,27 @@ export function createAnswerStore<T>(options: AnswerStoreOptions): AnswerStore<T
         whenSettled(key, then) {
             const state = held(key)?.state;
             if (state !== undefined && state !== 'pending') { then(); return; }
-            settled.set(key.id, [...(settled.get(key.id) ?? []), then]);
+            const calls = settled.get(key.id) ?? new Set<() => void>();
+            calls.add(then);
+            settled.set(key.id, calls);
+        },
+        whenFailureEnds(key, then) {
+            const found = held(key);
+            if (found?.state !== 'failed') return () => undefined;
+            let entry = ending.get(key.id);
+            if (!entry) {
+                entry = { key, calls: new Set(), timer: null };
+                ending.set(key.id, entry);
+            }
+            // One function given again (a reader drawn again while the failure stands) is one subscriber, told once.
+            entry.calls.add(then);
+            if (entry.timer === null) arm(key.id);
+            return () => {
+                const current = ending.get(key.id);
+                if (current !== entry || !current.calls.delete(then) || current.calls.size) return;
+                if (current.timer !== null) clearTimeout(current.timer);
+                ending.delete(key.id);
+            };
         },
         keep(key, make) {
             const found = held(key);
