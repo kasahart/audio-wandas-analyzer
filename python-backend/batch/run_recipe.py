@@ -98,7 +98,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         results = [run_one(args.root, args.out, row) for row in rows]
     fields = [*(rows[0].keys() if rows else ["path", "channel", "recipe"]), "status", "output", "error", "seconds"]
-    with open(Path(args.out) / "results_index.csv", "w", encoding="utf-8", newline="") as index:
+    # As every CSV the Analyzer writes (src/shared/utils/csv.ts): UTF-8 with a BOM, CRLF (the csv module's line end).
+    with open(Path(args.out) / "results_index.csv", "w", encoding="utf-8-sig", newline="") as index:
         writer = csv.DictWriter(index, fieldnames=fields)
         writer.writeheader()
         writer.writerows(results)
