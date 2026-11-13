@@ -715,7 +715,7 @@ function pythonFlowReaders(sources?: Readonly<Record<string, string>>): Record<s
     const script = sources
         ? ['-c', 'import json,sys; sys.path.insert(0, "scripts"); import check_decimation_flow as c; print(json.dumps(c.find_readers(json.loads(sys.stdin.buffer.read().decode("utf-8")))))']
         : ['scripts/check_decimation_flow.py', '--readers'];
-    const run = spawnSync(python, script, { cwd: repoRoot, encoding: 'utf8', input: sources ? JSON.stringify(sources) : undefined });
+    const run = spawnSync(python.command, [...python.args, ...script], { cwd: repoRoot, encoding: 'utf8', input: sources ? JSON.stringify(sources) : undefined });
     assert.equal(run.status, 0, `check_decimation_flow.py --readers: ${run.stderr}`);
     return JSON.parse(run.stdout) as Record<string, string[]>;
 }
@@ -1042,7 +1042,7 @@ function pythonProof(targets: readonly string[], proof: Proof): string | null {
     const ask = (items: ReadonlyArray<{ targets: readonly string[]; proof: Proof }>): Array<string | null> => {
         const python = pythonExecutable();
         const input = JSON.stringify(items.map(item => ({ targets: item.targets, file: item.proof.file, name: item.proof.name })));
-        const run = spawnSync(python, ['scripts/check_test_proofs.py'], { cwd: repoRoot, encoding: 'utf8', input });
+        const run = spawnSync(python.command, [...python.args, 'scripts/check_test_proofs.py'], { cwd: repoRoot, encoding: 'utf8', input });
         assert.equal(run.status, 0, `check_test_proofs.py: ${run.stderr}`);
         return JSON.parse(run.stdout) as Array<string | null>;
     };

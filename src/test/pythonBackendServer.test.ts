@@ -544,6 +544,10 @@ for (const fails of [false, true]) {
 interface HarnessOptions {
     events?: import('../extension/pythonBackendServer').BackendServerEvents;
     timeoutsMs?: Partial<Record<BackendCommand, number>>;
+    /** The interpreter the server is given (PythonEnvironment.backendInvocation); python3 by default. */
+    python?: import('../extension/pythonInterpreter').PythonInvocation;
+    /** Collects each spawn's program and arguments. */
+    spawned?: Array<{ command: string; args: readonly string[] }>;
 }
 
 function recipeRestartHarness(
@@ -586,7 +590,8 @@ function recipeRestartHarness(
     runInNewContext(readFileSync(modulePath, 'utf8'), {
         exports: backendExports,
         require: (name: string) => {
-            if (name === 'child_process') return { spawn: () => {
+            if (name === 'child_process') return { spawn: (command: string, args: readonly string[]) => {
+                options.spawned?.push({ command, args });
                 const child = new ControlledChild(); children.push(child);
                 queueMicrotask(() => {
                     if (startup) startup(child);
@@ -599,7 +604,6 @@ function recipeRestartHarness(
                 workspace: { getConfiguration: () => ({ get: (_key: string, fallback: unknown) => fallback }) },
                 CancellationError: class CancellationError extends Error { constructor() { super('Canceled'); this.name = 'Canceled'; } },
             };
-            if (name === './pythonEnvironment') return { resolveConfiguredPythonCommand: (command: string) => command };
             return localRequire(name);
         },
         process, setTimeout, clearTimeout, setInterval, clearInterval,
@@ -607,7 +611,7 @@ function recipeRestartHarness(
     const backendModule = backendExports as unknown as typeof import('../extension/pythonBackendServer');
     const server = new class extends backendModule.PythonBackendServer {
         constructor() {
-            super('unused', () => 'python3', undefined, undefined, preflight ? {
+            super('unused', () => options.python ?? { command: 'python3', args: [] }, undefined, undefined, preflight ? {
                 current: () => ({ calibrationProfile: { schemaVersion: 1, channels: [] } }),
                 discardStale: async () => false,
             } : undefined, options.events);
@@ -616,6 +620,14 @@ function recipeRestartHarness(
     }();
     return { server, children };
 }
+
+test('the backend starts a command with arguments as the program and its arguments before the script: py -3 is py with -3 first', async () => {
+    const spawned: Array<{ command: string; args: readonly string[] }> = [];
+    const { server } = recipeRestartHarness(false, false, undefined, { python: { command: 'py', args: ['-3'] }, spawned });
+    await server.warmup();
+    assert.deepEqual(spawned.map(({ command, args }) => [command, args[0], path.basename(String(args[1]))]), [['py', '-3', 'backend_server.py']]);
+    server.dispose();
+});
 
 test('startup error keeps an unterminated stderr line written after the process exits', async () => {
     const { server } = recipeRestartHarness(false, false, child => child.exit(1, null, 'Traceback: late failure'));

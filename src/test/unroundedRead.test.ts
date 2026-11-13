@@ -18,14 +18,14 @@ const required = backendRequired();
 /** Each read the plot sends, answered by the backend's own read path (answer.py: stage_combine.read_points). */
 function backendAnswer(read: unknown): StagePoints | null | undefined {
     const python = backendPython();
-    const run = python ? spawnSync(python, [ANSWER, JSON.stringify(read)], { encoding: 'utf8', timeout: 60_000 }) : undefined;
+    const run = python ? spawnSync(python.command, [...python.args, ANSWER, JSON.stringify(read)], { encoding: 'utf8', timeout: 60_000 }) : undefined;
     if (!run || run.status !== 0) throw new Error(`the backend's read failed: ${run?.stderr ?? 'no Python'}`);
     return JSON.parse(run.stdout) as StagePoints | null;
 }
 
 function backendReady(): boolean {
     const python = backendPython();
-    const ok = !!python && spawnSync(python, [ANSWER, '{"x":[100],"beyond":0}'], { encoding: 'utf8', timeout: 60_000 }).status === 0;
+    const ok = !!python && spawnSync(python.command, [...python.args, ANSWER, '{"x":[100],"beyond":0}'], { encoding: 'utf8', timeout: 60_000 }).status === 0;
     if (!ok && required) throw new Error('the Python backend is required here (AWA_REQUIRE_BACKEND, or the repo\'s .venv) but answer.py could not run');
     return ok;
 }

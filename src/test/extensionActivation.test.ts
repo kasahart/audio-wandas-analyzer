@@ -176,12 +176,16 @@ function loadActivation(options: {
             return {
                 PythonEnvironment: class {
                     async selectPythonEnvironment(): Promise<void> {}
-                    async checkAndPromptInstallDependencies(pythonCommand: string): Promise<boolean> {
+                    async checkAndPromptInstallDependencies(candidates: ReadonlyArray<{ command: string }>): Promise<boolean> {
+                        const pythonCommand = candidates[0].command;
                         state.dependencyChecks.push(pythonCommand);
                         return options.checkDependencies ? options.checkDependencies(pythonCommand) : true;
                     }
                     dispose(): void {}
                     getPythonCommand(): string { return state.pythonCommand; }
+                    getPythonCandidates() { return [{ command: state.pythonCommand, args: [] }]; }
+                    interpreterLabel(): string { return state.pythonCommand; }
+                    backendInvocation() { return { command: state.pythonCommand, args: [] }; }
                     async refreshDefaultInterpreter(): Promise<boolean> {
                         state.defaultInterpreterLookups += 1;
                         return false;

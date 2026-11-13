@@ -25,7 +25,7 @@ import {
     type BackendResult,
 } from '../shared/protocol/backendProtocol';
 import type { BackendCancelControl } from '../shared/protocol/generated/backendProtocolSchema';
-import { resolveConfiguredPythonCommand } from './pythonEnvironment';
+import { invocationText, type PythonInvocation } from './pythonInterpreter';
 import { AnalysisRequestError } from './analysisRequestError';
 
 export { AnalysisRequestError };
@@ -87,8 +87,11 @@ export class PythonBackendServer extends AnalysisClient {
 
     constructor(
         private readonly extensionPath: string,
-        /** The interpreter to spawn, read again at every start so a changed selection takes effect. */
-        private readonly pythonCommand: () => string,
+        /**
+         * The interpreter to spawn, resolved, as a command and its own arguments (`py -3`): read again at every start,
+         * so a changed selection takes effect (PythonEnvironment.backendInvocation).
+         */
+        private readonly python: () => PythonInvocation,
         private readonly onPerfLine: (line: string) => void = () => { /* no-op */ },
         private readonly onReady: () => void = () => { /* no-op */ },
         contextPolicy?: AnalysisContextPolicy,
@@ -248,15 +251,16 @@ export class PythonBackendServer extends AnalysisClient {
     private startServer(): Promise<void> {
         return new Promise<void>((resolve, reject) => {
             const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
-            const pythonCommand = resolveConfiguredPythonCommand(this.pythonCommand());
+            const python = this.python();
+            const pythonCommand = invocationText(python);
             const cacheMb = Math.max(64, config.get<number>('cacheMemoryMb', 1024));
             const scriptPath = path.join(this.extensionPath, 'python-backend', 'backend_server.py');
             const importTimingEnabled = globalThis.process.env['AWA_IMPORT_TIME'] === '1';
-            const pythonArgs = importTimingEnabled ? ['-X', 'importtime', scriptPath] : [scriptPath];
+            const pythonArgs = [...python.args, ...(importTimingEnabled ? ['-X', 'importtime', scriptPath] : [scriptPath])];
             const startupStartedAt = Date.now();
 
             this.onPerfLine(`[ts] backend spawn python=${pythonCommand} import_time=${importTimingEnabled ? 'on' : 'off'}`);
-            const child = spawn(pythonCommand, pythonArgs, {
+            const child = spawn(python.command, pythonArgs, {
                 cwd: this.extensionPath,
                 stdio: ['pipe', 'pipe', 'pipe'],
                 env: {

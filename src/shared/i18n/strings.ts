@@ -824,6 +824,7 @@ export interface UiStrings {
     pyTooltipSelect: string;
     pyTooltipMissingDeps: string;
     pyTooltipMissingInterpreter: string;
+    pyTooltipNoInterpreterRuns: string;
     pyTooltipPipUnavailable: string;
     pyTooltipCheckFailed: string;
     pyTooltipImporting: string;
@@ -842,6 +843,10 @@ export interface UiStrings {
     pyPickBrowse: string;
     pyPickBrowseOpenLabel: string;
     pyInterpreterNotFound: string;
+    /** No candidate interpreter ran; {tried} lists each with why (pyCandidateNotFound, pyCandidateFailed). */
+    pyNoInterpreterRuns: string;
+    pyCandidateNotFound: string;
+    pyCandidateFailed: string;
     pyPipUnavailable: string;
     pyCheckFailed: string;
     pyMissingPackages: string;
@@ -1644,6 +1649,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         pyTooltipSelect: 'Click to select the Python environment',
         pyTooltipMissingDeps: 'Python packages are missing or incompatible. Click to select an environment or install them.',
         pyTooltipMissingInterpreter: 'The Python interpreter was not found. Click to select another environment.',
+        pyTooltipNoInterpreterRuns: 'No Python interpreter could be run. Click to select an environment.',
         pyTooltipPipUnavailable: 'pip is not available in this environment. Click to select another environment.',
         pyTooltipCheckFailed: 'The Python environment check failed. Click to select another environment.',
         pyTooltipImporting: 'Importing the Python analysis modules in the background.',
@@ -1662,6 +1668,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         pyPickBrowse: '$(folder) Browse...',
         pyPickBrowseOpenLabel: 'Select Python environment',
         pyInterpreterNotFound: 'Python interpreter not found: {command}. Select an environment, or try the browser version, which needs no Python.',
+        pyNoInterpreterRuns: 'No Python interpreter could be run. Tried: {tried}. Set audioWandasAnalyzer.pythonCommand to a Python environment folder or interpreter (Select Environment does it), or try the browser version, which needs no Python.',
+        pyCandidateNotFound: 'not found',
+        pyCandidateFailed: 'did not run: {detail}',
         pyPipUnavailable: 'pip is not available in {command}. Select another environment or create a .venv.',
         pyCheckFailed: 'Could not check the Python packages in {command}. See the log for details.',
         pyMissingPackages: 'Audio Wandas Analyzer needs compatible Python packages in {command}: {packages}',
@@ -2462,6 +2471,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         pyTooltipSelect: 'クリックして Python 環境を選択',
         pyTooltipMissingDeps: 'Python パッケージが不足しているか互換性がありません。クリックして環境を選択するかインストールします。',
         pyTooltipMissingInterpreter: 'Python インタープリターが見つかりません。クリックして別の環境を選択します。',
+        pyTooltipNoInterpreterRuns: 'Python インタープリターを起動できませんでした。クリックして環境を選択します。',
         pyTooltipPipUnavailable: 'この環境では pip を使えません。クリックして別の環境を選択します。',
         pyTooltipCheckFailed: 'Python 環境の確認に失敗しました。クリックして別の環境を選択します。',
         pyTooltipImporting: 'Python の解析モジュールをバックグラウンドで読み込んでいます。',
@@ -2480,6 +2490,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         pyPickBrowse: '$(folder) 参照...',
         pyPickBrowseOpenLabel: 'Python 環境を選択',
         pyInterpreterNotFound: 'Python インタープリターが見つかりません: {command}。環境を選択するか、Python 不要のブラウザ版で試せます。',
+        pyNoInterpreterRuns: 'Python インタープリターを起動できませんでした。試したもの: {tried}。audioWandasAnalyzer.pythonCommand に Python 環境フォルダかインタープリターを設定するか（「環境を選択」で設定できます）、Python 不要のブラウザ版で試せます。',
+        pyCandidateNotFound: '見つかりません',
+        pyCandidateFailed: '起動できません: {detail}',
         pyPipUnavailable: '{command} では pip を使えません。別の環境を選択するか .venv を作成してください。',
         pyCheckFailed: '{command} の Python パッケージを確認できませんでした。詳細はログを参照してください。',
         pyMissingPackages: 'Audio Wandas Analyzer には {command} に互換性のある Python パッケージが必要です: {packages}',

@@ -140,7 +140,7 @@ test('on the scanned entry100 fixture the three resonances stand 10 dB above the
     if (!python) { t.skip('no Python'); return; }
     const out = mkdtempSync(path.join(tmpdir(), 'entry100-'));
     try {
-        const run = spawnSync(python, [path.join(repoRoot, 'src', 'test', 'fixtures', 'entry100', 'scan.py'), out], { encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
+        const run = spawnSync(python.command, [...python.args, path.join(repoRoot, 'src', 'test', 'fixtures', 'entry100', 'scan.py'), out], { encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
         if (run.status !== 0 && /No module named 'wandas'/.test(run.stderr)) { t.skip('wandas is not installed'); return; }
         assert.equal(run.status, 0, run.stderr);
         const files = JSON.parse(run.stdout) as EntryFile[];

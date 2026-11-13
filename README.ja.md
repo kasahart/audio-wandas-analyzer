@@ -60,7 +60,7 @@ pip install "wandas[psychoacoustic,effects]>=0.13.0,<0.14.0" "numpy>=2.0.2" "sci
 
 | 設定キー | 既定値 | 説明 |
 | --- | --- | --- |
-| `audioWandasAnalyzer.pythonCommand` | `python3` | バックエンドに使う Python 環境フォルダまたは実行ファイル |
+| `audioWandasAnalyzer.pythonCommand` | 未設定 | バックエンドに使う Python 環境フォルダまたは実行ファイル。未設定なら Python 拡張の環境、次に `VIRTUAL_ENV`、なければ `py -3`, `python`（Windows）または `python3`, `python`（その他）のうち最初に起動できたもの |
 | `audioWandasAnalyzer.cacheMemoryMb` | `1024` | 読み込んだ音声のキャッシュに使うメモリの上限（MB） |
 
 信頼していないワークスペースでは機能を限定して動きます。解析はできますが、`audioWandasAnalyzer.pythonCommand` と `audioWandasAnalyzer.debugFilePath` はユーザー設定の値だけを読むため、フォルダの `.vscode/settings.json` から起動するプログラムを選ぶことはできません。音声をローカルのファイルシステムから読むため、仮想ワークスペース（ブラウザーで開いた GitHub リポジトリなど）には対応していません。
@@ -69,7 +69,7 @@ pip install "wandas[psychoacoustic,effects]>=0.13.0,<0.14.0" "numpy>=2.0.2" "sci
 
 ### トラブルシューティング
 
-- **Python interpreter was not found:** パッケージを入れた環境を選ぶか、`audioWandasAnalyzer.pythonCommand` を更新してください。
+- **Python インタープリターを起動できない / 見つからない:** メッセージに試したインタープリターと失敗の理由が並びます。パッケージを入れた環境を選ぶか、`audioWandasAnalyzer.pythonCommand` を設定してください。
 - **解析に失敗する:** **Output: Audio Wandas Analyzer** で Python 側のエラーを確認してください。
 - **ファイルが読み込めない:** 上の形式か確認してください。M4A は非対応です。
 - **大きなファイルが重い:** 波形は表示範囲だけを取得します。スペクトログラムは FFT 長やオーバーラップを小さくしてください。

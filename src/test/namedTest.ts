@@ -1,15 +1,20 @@
 /** Finds a test by its title in its file, for the lists of tests docs and contract tables name (displayRules, plotContracts). */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import path from 'node:path';
+import type { PythonInvocation } from '../extension/pythonInterpreter';
+import { testPython } from './helpers/python';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 
-/** The Python the repository's checks run: the project's .venv when there is one. */
-export function pythonExecutable(): string {
-    const venv = path.join(repoRoot, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
-    return existsSync(venv) ? venv : process.platform === 'win32' ? 'python' : 'python3';
+/**
+ * The Python the repository's checks run: the tests' one (helpers/python.ts, the rule of pythonInterpreter.ts), a
+ * command and its own arguments (`py -3`). These checks need only the standard library and never skip without it.
+ */
+export function pythonExecutable(): PythonInvocation {
+    const python = testPython();
+    if (!python) throw new Error('no Python found for the repository\'s checks (helpers/python.ts testPython)');
+    return python;
 }
 
 /** A test or def of a Python file as scripts/check_test_proofs.py --tests finds it: its lines, from 1. */
@@ -25,7 +30,8 @@ const discovered = new Map<string, PythonDiscovery>();
 export function pythonDiscovery(texts: readonly string[]): PythonDiscovery[] {
     const asked = [...new Set(texts.filter(text => !discovered.has(text)))];
     if (asked.length) {
-        const run = spawnSync(pythonExecutable(), ['scripts/check_test_proofs.py', '--tests'], { cwd: repoRoot, encoding: 'utf8', input: JSON.stringify(asked), maxBuffer: 1 << 28 });
+        const python = pythonExecutable();
+        const run = spawnSync(python.command, [...python.args, 'scripts/check_test_proofs.py', '--tests'], { cwd: repoRoot, encoding: 'utf8', input: JSON.stringify(asked), maxBuffer: 1 << 28 });
         if (run.status !== 0) throw new Error(`scripts/check_test_proofs.py --tests: ${run.stderr || run.error}`);
         const found = JSON.parse(run.stdout) as PythonDiscovery[];
         asked.forEach((text, index) => discovered.set(text, found[index]));

@@ -1,12 +1,16 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
+import type { PythonInvocation } from '../../extension/pythonInterpreter';
 import { testPython } from '../helpers/python';
 
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
 
-/** The Python with wandas the tests use, found as the extension finds it (helpers/python.ts). */
-export function backendPython(): string | undefined {
+/**
+ * The Python with wandas the tests use, found as the extension finds it (helpers/python.ts): a command and its own
+ * arguments (`py -3`), started as `spawn(python.command, [...python.args, ...])`.
+ */
+export function backendPython(): PythonInvocation | undefined {
     return testPython();
 }
 
@@ -14,7 +18,7 @@ export function backendPython(): string | undefined {
 export function runFixture(script: string, args: string[]): { out?: string; error?: string } {
     const python = backendPython();
     if (!python) return { error: 'no Python found' };
-    const run = spawnSync(python, [path.join(repoRoot, script), ...args], { encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
+    const run = spawnSync(python.command, [...python.args, path.join(repoRoot, script), ...args], { encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
     return run.status === 0 ? { out: run.stdout } : { error: `exit ${run.status}: ${(run.stderr ?? '').slice(-2000)}` };
 }
 
@@ -31,7 +35,7 @@ export class RealBackend {
     constructor() {
         const python = backendPython();
         if (!python) throw new Error('no Python found for the backend');
-        this.child = spawn(python, [path.join(repoRoot, 'python-backend', 'backend_server.py')], { cwd: repoRoot, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, AWA_PERF_LOG: '0' } });
+        this.child = spawn(python.command, [...python.args, path.join(repoRoot, 'python-backend', 'backend_server.py')], { cwd: repoRoot, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, AWA_PERF_LOG: '0' } });
         this.child.stdout!.setEncoding('utf8');
         this.child.stdout!.on('data', (chunk: string) => {
             this.buffered += chunk;
