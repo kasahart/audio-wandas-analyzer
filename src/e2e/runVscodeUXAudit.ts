@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { runTests } from '@vscode/test-electron';
 import {
     DEVCONTAINER_EXTENSION_HOST_ENV_KEYS,
+    LOCALE_LAUNCH_ARGS,
     downloadVSCodeForE2E,
     resolveNlsMessagesFile,
     withFilteredStderr,
@@ -46,6 +47,7 @@ async function main(): Promise<void> {
                 '--disable-gpu',
                 '--disable-telemetry',
                 '--disable-updates',
+                ...LOCALE_LAUNCH_ARGS,
                 `--remote-debugging-port=${cdpPort}`, // Expose CDP port for Playwright
                 '--user-data-dir', userDataDir,
             ],

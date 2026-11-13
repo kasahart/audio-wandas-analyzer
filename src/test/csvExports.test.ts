@@ -8,7 +8,7 @@ import { getStrings } from '../shared/i18n/strings';
 import type { EntryConditionTable } from '../shared/analysis/entryScan';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
-import { csvField, csvRecords } from '../shared/utils/csv';
+import { csvField, csvFile, csvRecords } from '../shared/utils/csv';
 import { parseCSV } from '../shared/dataset/asdData';
 import { reportCsv } from '../webview/runtime/compareReport';
 import { BAND_CENTERS_HZ, buildEntryModel, entryCsv } from '../webview/runtime/entryTable';
@@ -20,6 +20,20 @@ import { P, T } from './helpers/figure';
 /** What a field can hold that a bare join would break: a comma (an English header has one), a quote, a line break. */
 const AWKWARD = 'a, "b"\nc';
 const EN = getStrings('en');
+/**
+ * The file format of every CSV the Analyzer writes (src/shared/utils/csv.ts): EF BB BF first, CRLF after every record
+ * and nowhere a bare CR or LF outside a quoted field, and the bytes `csvFile` writes for what `csvRecords` reads back.
+ */
+function assertCsvFormat(text: string, name: string): string[][] {
+    const bytes = Buffer.from(text, 'utf8');
+    assert.deepEqual([...bytes.subarray(0, 3)], [0xEF, 0xBB, 0xBF], `${name} starts with the UTF-8 BOM`);
+    assert.ok(text.endsWith('\r\n'), `${name} ends its last record with CRLF`);
+    const unquoted = text.replace(/"(?:[^"]|"")*"/gu, '""');
+    assert.doesNotMatch(unquoted, /\r(?!\n)|(?<!\r)\n/u, `${name} ends every record with CRLF, never a bare LF or CR`);
+    const records = csvRecords(text);
+    assert.equal(csvFile(records[0], records.slice(1)), text, `${name} round-trips through csvRecords as the bytes csvFile writes`);
+    return records;
+}
 const sameWidth = (records: string[][]): void => records.forEach((record, index) => assert.equal(record.length, records[0].length, `record ${index}: ${JSON.stringify(record)}`));
 
 function scan(leq: number): ScanResult {
@@ -54,7 +68,7 @@ test('the spectrum export keeps an English level header ("Level, uncalibrated [d
     const csv = buildSpectrumCsv([0, 1].map(channel => ({
         name: `${AWKWARD} ch${channel + 1}`, slice: { values: [-10, -20], bins: [-10, -20], frequencyBins: 2, maxFrequencyHz: 8000, minDb: -20, maxDb: -10 }, levelTitle: T(level),
     })), P(EN.axisFrequency));
-    const records = csvRecords(csv);
+    const records = assertCsvFormat(csv, 'spectrum-export.csv');
     assert.deepEqual(records[0], [`${AWKWARD} ch1 ${EN.axisFrequency}`, `${AWKWARD} ch1 ${level}`, `${AWKWARD} ch2 ${EN.axisFrequency}`, `${AWKWARD} ch2 ${level}`]);
     sameWidth(records);
     assert.deepEqual(records[2].map(Number), [8000, -20, 8000, -20]);
@@ -69,7 +83,7 @@ test('the entry CSV keeps a condition column named with a comma, a quote and a l
         level: levelColumns(EN), peak: EN.entryColPeak, bandLevel: bandLevelColumns(EN, '3.15 kHz'), deltaLeq: `Δ ${EN.entryColLeq}`, deltaBand: 'Δ 3.15 kHz dB',
         groupSize: EN.entryCsvGroupSize, groupLeft: EN.entryCsvGroupLeft, status: EN.dsReason, stale: EN.reportChainPrevious,
     }, () => null);
-    const records = csvRecords(csv);
+    const records = assertCsvFormat(csv, 'entry-table.csv');
     sameWidth(records);
     assert.equal(records.length, 3);
     assert.ok(records[0].includes(levelColumns(EN).level) && records[0].includes(levelColumns(EN).reference), records[0].join(' | '));
@@ -85,7 +99,7 @@ test('報告.csv keeps a memo and a row label with a comma, a quote and a line b
         compare: (filePath: string) => compareOf(model, results, filePath, '/f/a.wav', EN),
         rowInfo: () => ({ label: AWKWARD, value: '', memo: AWKWARD, channel: 1, base: { kind: 'file', file: AWKWARD, count: 1, channel: 1, filters: [AWKWARD], fewerChannels: 0 } }),
     }, EN);
-    const records = csvRecords(csv);
+    const records = assertCsvFormat(csv, 'report.csv');
     sameWidth(records);
     assert.equal(records.length, 2);
     assert.equal(records[1][0], AWKWARD);
@@ -98,7 +112,7 @@ test('the notes CSV gives back a picked CSV whose column names and values hold c
     const files = ['/d/a.wav'];
     const match = matchCsv(csv, files, '/d');
     const rows = datasetRows(files, '/d', match.attributes, new Map());
-    const records = csvRecords(annotatedCsv(csv, match, files, '/d', rows, new Map([[rows[0].key, AWKWARD]]), new Set()));
+    const records = assertCsvFormat(annotatedCsv(csv, match, files, '/d', rows, new Map([[rows[0].key, AWKWARD]]), new Set()), 'notes.csv');
     assert.deepEqual(records, [['audio_file', AWKWARD, 'level', 'memo', 'excluded'], ['a.wav', 'x, y', '1', AWKWARD, '']]);
 });
 
@@ -108,7 +122,7 @@ test('a batch\'s targets.csv keeps a recording path and an id column with commas
     const files = ['/d/a, b.wav'];
     const all = datasetRows(files, '/d', matchCsv(picked, files, '/d').attributes, new Map());
     const { files: written } = batchBundle({ recipe, recipeName: 'Standard', rows: all, allRows: all, rootPath: '/d', idColumn: 'id, "sample"', now: new Date(2026, 0, 1) });
-    const records = csvRecords(written.find(file => file.name === 'targets.csv')?.text ?? '');
+    const records = assertCsvFormat(written.find(file => file.name === 'targets.csv')?.text ?? '', 'targets.csv');
     assert.deepEqual(records, [['path', 'channel', 'recipe', 'id, "sample"'], ['a, b.wav', '', 'Standard.recipe.json', 'S1']]);
 });
 
@@ -124,4 +138,29 @@ test('every CSV the Analyzer writes quotes its fields through shared/utils/csv.t
     };
     roots.forEach(walk);
     assert.deepEqual(copies, []);
+});
+
+test('every CSV file is UTF-8 with a BOM and CRLF, written whole by csvFile: no export builds CSV text without it', () => {
+    assert.equal(csvFile(['a', 'b, c'], [['1', ''], [AWKWARD, '2']]), '\uFEFFa,"b, c"\r\n1,\r\n"a, ""b""\nc",2\r\n');
+    assertCsvFormat(csvFile(['only'], []), 'a header alone');
+    // An export that quoted its own fields or wrote its own BOM would be a second place the file format is decided:
+    // the spectrum CSV once went out without the BOM and with LF while the others had both.
+    const csvModule = path.join('src', 'shared', 'utils', 'csv.ts');
+    const found: string[] = [];
+    const walk = (dir: string): void => {
+        for (const name of readdirSync(dir)) {
+            const file = path.join(dir, name);
+            if (statSync(file).isDirectory()) { walk(file); continue; }
+            const relative = path.relative(path.join(__dirname, '..', '..'), file);
+            if (!file.endsWith('.ts') || relative === csvModule) continue;
+            readFileSync(file, 'utf8').split('\n').forEach((line, index) => {
+                // A BOM is only ever stripped from a CSV read (a regex anchored at its start), never written.
+                const bom = /\\u\{?0*feff\}?|\uFEFF/iu.test(line.replace(/\/\^(?:\\uFEFF|\uFEFF)\//gu, ''));
+                if (bom || /\bcsvField\b/u.test(line)) found.push(`${relative}:${index + 1}: ${line.trim()}`);
+            });
+        }
+    };
+    ['shared', 'webview', 'extension'].forEach(dir => walk(path.join(__dirname, '..', '..', 'src', dir)));
+    assert.deepEqual(found, [], 'Rule: every CSV the Analyzer writes is written by csvFile (src/shared/utils/csv.ts), which alone '
+        + 'quotes the fields (csvField) and adds the BOM and the CRLF:\n' + found.join('\n'));
 });

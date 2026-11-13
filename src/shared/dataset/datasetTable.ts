@@ -5,7 +5,7 @@
  * filters and the order are the user's; this module only answers them. Pure, so it is unit-tested.
  */
 import type { ScanResult } from '../protocol/backendProtocol';
-import { csvField } from '../utils/csv';
+import { csvFile } from '../utils/csv';
 import { auditAudioMatches, finiteNumber, MAX_CSV_BYTES, parseCSV, profileColumns, resolveAudio, sourceColumns, type DataRow } from './asdData';
 
 /** The CSV the user picked, read: its columns (the source columns left out) and which of them are numeric. */
@@ -268,5 +268,5 @@ export function annotatedCsv(csv: DatasetCsv | null, match: CsvMatch | null, fil
     } else {
         lines = [['audio_file', 'memo', 'excluded'], ...filePaths.map(filePath => [recordingKey(filePath, rootPath), memoOf(filePath), excludedOf(filePath)])];
     }
-    return '\uFEFF' + lines.map(line => line.map(csvField).join(',')).join('\r\n') + '\r\n';
+    return csvFile(lines[0], lines.slice(1));
 }

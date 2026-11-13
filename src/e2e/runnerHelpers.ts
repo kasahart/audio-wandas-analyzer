@@ -2,6 +2,16 @@ import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { downloadAndUnzipVSCode } from '@vscode/test-electron';
 
+/**
+ * The locale the VS Code under test runs in, never the machine's: as playwright.config.ts (`locale: 'en-US'`) and
+ * scripts/test-browser-parity.js pin it for the browser layers. The webview's `navigator.language` and its `Intl`
+ * default come from Chromium's `--lang`, which VS Code sets from `--locale` on Linux and Windows (and from the OS
+ * otherwise); `--lang` is also passed for macOS, where VS Code sets none. `--locale` also keeps the display language
+ * English, as VSCODE_NLS_CONFIG asks. The single-track E2E check reads the webview's locale back (`intlLocale`).
+ */
+export const E2E_LOCALE = 'en-US';
+export const LOCALE_LAUNCH_ARGS = [`--locale=${E2E_LOCALE}`, `--lang=${E2E_LOCALE}`];
+
 export const VSCODE_VERSION = process.env['AUDIO_WANDAS_E2E_VSCODE_VERSION'] || '1.122.1';
 const VSCODE_DOWNLOAD_ATTEMPTS = 3;
 

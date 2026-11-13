@@ -42,7 +42,10 @@ test('the bundle is for the filtered rows, said as recordings and channels, or f
     const filtered = (await folders(page)).at(-1)!;
     expect(filtered.folder).toMatch(/_batch_\d{8}-\d{6}$/);
     expect(filtered.files.map(file => file.name)).toEqual(['標準.ch2.recipe.json', 'targets.csv', 'run_recipe.py', 'README.txt'].map(name => name.replace('標準', STR.stepRecipeName)));
-    const targets = filtered.files.find(file => file.name === 'targets.csv')!.text!.trimEnd().split('\r\n');
+    const targetsCsv = filtered.files.find(file => file.name === 'targets.csv')!.text!;
+    // UTF-8 with a BOM and CRLF, as every CSV the Analyzer writes (src/shared/utils/csv.ts csvFile).
+    expect(targetsCsv.startsWith('\uFEFF') && targetsCsv.endsWith('\r\n')).toBe(true);
+    const targets = targetsCsv.slice(1).trimEnd().split('\r\n');
     expect(targets[0]).toBe('path,channel,recipe,sample_id');
     expect(targets.length - 1).toBe(visible);
     expect(targets.slice(1).every(line => /^L2_[^,]+\.wav,2,[^,]+\.ch2\.recipe\.json,S\d+$/.test(line))).toBe(true);

@@ -87,7 +87,11 @@ def test_an_exported_bundle_runs_its_recipe_over_its_targets_and_the_outputs_loa
         errors="replace",
     )
     assert run.returncode == 1, run.stderr
-    with open(out / "results_index.csv", encoding="utf-8") as index:
+    # The format of every CSV the Analyzer writes (src/shared/utils/csv.ts): UTF-8 with a BOM, CRLF after each record.
+    written = (out / "results_index.csv").read_bytes()
+    assert written.startswith(b"\xef\xbb\xbf"), written[:8]
+    assert written.endswith(b"\r\n") and written.count(b"\n") == written.count(b"\r\n") == 4, written
+    with open(out / "results_index.csv", encoding="utf-8-sig", newline="") as index:
         results = {row["path"]: row for row in csv.DictReader(index)}
     assert [results[path]["status"] for path in ("L1/mono.wav", "two.wav", "gone.wav")] == ["ok", "ok", "error"]
     assert results["two.wav"]["channel"] == "2"
