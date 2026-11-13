@@ -2683,7 +2683,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function attachEvents() {
         // The comparison's lanes, spectrum and keys live as long as the page, which is never torn down while it is
         // shown: their disposers (the clean-up promise of attachPlotInteraction and keyRouter) are held here.
-        const pageLifetime: Array<() => void> = [];
+        let releasePage = (): void => undefined;
+        const holdForPage = (dispose: () => void): void => { const before = releasePage; releasePage = () => { before(); dispose(); }; };
         if (isSelectionMode) {
             attachDirectorySelectionEvents();
         }
@@ -2701,7 +2702,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
         });
         syncSpectrumHeaderHint();
-        pageLifetime.push(keyRouterFor(window).add({
+        holdForPage(keyRouterFor(window).add({
             layer: 'lanes',
             keydown(e) {
                 // A text field (the offset editor) uses Esc to cancel its own edit.
@@ -2797,7 +2798,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
         // The lanes answer the shared plot gestures on their one time window: zooming one lane zooms them all. In the
         // steps mode they answer the mode's (trackStageGestures.ts) instead.
-        pageLifetime.push(attachPlotInteraction(tracksWrapper, document, '.track-canvas', {
+        holdForPage(attachPlotInteraction(tracksWrapper, document, '.track-canvas', {
             locate: laneHit,
             pointOn(plot, clientX, clientY) {
                 const canvas = plot.isConnected ? plot : canvasById(document, plot.id);
@@ -2939,7 +2940,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 attachCanvasFocusHint(canvas, hintFooter, STR.cursorHelpKeys);
             });
         }
-        pageLifetime.push(attachGlobalKeyboardListeners(keyRouterFor(window), document, {
+        holdForPage(attachGlobalKeyboardListeners(keyRouterFor(window), document, {
             helpOverlay: () => document.getElementById('help-overlay'),
             runShortcut: handleToolbarAction,
             togglePlayback(target, active) {
@@ -2991,7 +2992,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     x: { start: spectrumView.freqStart, end: spectrumView.freqEnd },
                     y: boxedDb && spectrumView.dbMin === boxedDb.min && spectrumView.dbMax === boxedDb.max ? boxedDb.y : FULL_PLOT_WINDOW.y,
                 });
-                pageLifetime.push(attachPlotInteraction(overlayCanvas.parentElement ?? overlayCanvas, document, '#spectrum-overlay-canvas', {
+                holdForPage(attachPlotInteraction(overlayCanvas.parentElement ?? overlayCanvas, document, '#spectrum-overlay-canvas', {
                     locate(target, clientX, clientY) {
                         if (target !== overlayCanvas || !spectrumView.hasData()) return null;
                         const at = canvasPoint(clientX, clientY);

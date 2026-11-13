@@ -78,7 +78,7 @@ does nothing.
 - The owner of a plot or lane keeps the disposer and calls it when it tears the plot or lane down, or before it
   attaches the gestures again (`PairSpectrumPanel.attach`, `SidePlots.attach`, `TrackStageMode.attach`).
 - An owner that lives as long as the page passes the disposer on as its own `dispose` (a popover, the step bar,
-  the entry screen, the comparison mode). The page root holds what is left (`pageLifetime` in comparisonRuntime.ts):
+  the entry screen, the comparison mode). The page root holds what is left (`holdForPage` in comparisonRuntime.ts):
   the page is not torn down while it is shown.
 - The key router's own two window listeners belong to the window. Every bundle of the page shares them.
 

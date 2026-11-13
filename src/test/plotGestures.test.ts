@@ -263,8 +263,8 @@ test('the disposer check finds a call that drops its disposer, and passes one ke
         "this.detach = attachPlotInteraction(surface, doc, '.plot', deps);",
         "return attachTrackPointerListeners(surface, doc, keys, handlers);",
         "const gestures = (s: string): Off => attachPlotInteraction(root, doc, s, deps);",
-        "pageLifetime.push(keyRouterFor(window).add({ layer: 'lanes', keydown }));",
-        "removers.push(keys.add({ layer: 'plot', keydown }));",
+        "holdForPage(keyRouterFor(window).add({ layer: 'lanes', keydown }));",
+        "alsoTakeOff(keys.add({ layer: 'plot', keydown }));",
         "const off = view ? keyRouterFor(view).add(context) : () => undefined;",
         'export function attachTrackPointerListeners(surface: Surface): Off {',
     ].join('\n')), ['x.ts:1', 'x.ts:2']);

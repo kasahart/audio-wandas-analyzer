@@ -93,13 +93,15 @@ const TRACK_SELECTORS: PlotSelectors = { plot: '.track-canvas', axis: '.track-ax
  * plotInteraction.ts returns it to the plot's owner, who calls it when it tears the plot or lane down.
  */
 export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: Pick<Document, 'addEventListener' | 'removeEventListener'> & Partial<Pick<Document, 'elementFromPoint'>>, keys: Pick<KeyRouter, 'add'>, handlers: TrackPointerHandlers, selectors: PlotSelectors = TRACK_SELECTORS): PlotGesturesDisposer {
-    const removers: Array<() => void> = [];
+    /** Takes off what was added so far: each listener (and the key context) put on adds its own removal to it. */
+    let takeOff = (): void => undefined;
+    const alsoTakeOff = (remove: () => void): void => { const before = takeOff; takeOff = () => { before(); remove(); }; };
     /** Every listener goes through here, so the disposer takes each one off again. */
     function listen<K extends keyof DocumentEventMap>(target: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>, type: K, listener: (event: DocumentEventMap[K]) => void, options?: boolean | AddEventListenerOptions): void {
         const fn = listener as EventListener;
         target.addEventListener(type, fn, options);
         const capture = typeof options === 'boolean' ? options : !!options?.capture;
-        removers.push(() => target.removeEventListener(type, fn, capture));
+        alsoTakeOff(() => target.removeEventListener(type, fn, capture));
     }
     listen(tracksWrapper, 'dblclick', function (e) {
         const target = e.target as Partial<Element> | null;
@@ -181,7 +183,7 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
         focusGave = null;
         if (!over) handlers.clearHover();
     });
-    removers.push(keys.add({
+    alsoTakeOff(keys.add({
         layer: 'plot',
         keydown(e) {
             // + / − / 0 zoom the plot under the pointer (not one only focused: the view's own keys take those).
@@ -250,6 +252,7 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
     return () => {
         if (disposed) return;
         disposed = true;
-        for (const remove of removers.splice(0)) remove();
+        takeOff();
+        takeOff = () => undefined;
     };
 }
