@@ -2294,7 +2294,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             paintOverlay(canvas, { layers: [] }, plainRange(0, 1), plainNames(plainTitle(STR, 'axisTime'), plainTitle(STR, 'axisFrequency')), { axisCanvas: null, empty: message });
             // No picture, no colour bar: the pointer finds none where the last one was.
             spectrogramPlots.delete(canvas);
-            delete canvas.dataset.colourBar;
             delete canvas.dataset.plotAxis;
             delete canvas.dataset.plotWindow;
             return;
@@ -2332,7 +2331,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         canvas.dataset.spectrogramBand = spec.bandLowHz !== undefined && spec.bandHighHz !== undefined ? `${spec.bandLowHz} ${spec.bandHighHz}` : '';
         // Which time window the picture was drawn from: the whole file, or the zoom window asked again (R3).
         canvas.dataset.spectrogramWindow = shown && shown.window ? `${shown.window.startNorm} ${shown.window.endNorm}` : '0 1';
-        canvas.dataset.colourBar = [painted.colourBar.x, painted.colourBar.y, painted.colourBar.width, painted.colourBar.height].map(value => Math.round(value)).join(' ');
         if (spectrogramHover && spectrogramHover.canvas === canvas) showSpectrogramReadout(canvas, spectrogramHover.clientX, spectrogramHover.clientY);
         if (overlayCtx) {
             drawSpectrogramOverlayLines(overlayCtx, W, H, trackIndex);

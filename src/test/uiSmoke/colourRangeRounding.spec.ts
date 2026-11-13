@@ -6,7 +6,7 @@ test('the auto colour scale opens with round dB ends, and typed ends are kept as
     await page.setContent(buildUiSmokeFractionalLevelsHtml(), { waitUntil: 'domcontentloaded' });
     const canvas = page.locator('#track-row-0 .track-spec-canvas').first();
     const openColourRange = async () => {
-        await expect(canvas).toHaveAttribute('data-colour-bar', /\d/);
+        await expect(canvas).toHaveAttribute('data-plot-colour-bar', /\d/);
         await canvas.dblclick({ position: await colourBarAt(canvas) });
         await expect(page.locator('#waveform-range-popover')).toBeVisible();
     };
@@ -24,7 +24,7 @@ test('a typed colour range is painted, written on the colour bar and offered aga
     await page.setContent(buildUiSmokeFractionalLevelsHtml(), { waitUntil: 'domcontentloaded' });
     const canvas = page.locator('#track-row-0 .track-spec-canvas').first();
     const openColourRange = async () => {
-        await expect(canvas).toHaveAttribute('data-colour-bar', /\d/);
+        await expect(canvas).toHaveAttribute('data-plot-colour-bar', /\d/);
         await canvas.dblclick({ position: await colourBarAt(canvas) });
         await expect(page.locator('#waveform-range-popover')).toBeVisible();
     };
