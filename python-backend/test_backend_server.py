@@ -12,7 +12,6 @@ import sys
 import threading
 import time
 import wave
-from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -125,21 +124,6 @@ def _no_heartbeat_thread(monkeypatch: pytest.MonkeyPatch) -> None:
     import backend_server
 
     monkeypatch.setattr(backend_server, "_start_heartbeat", lambda: None)
-
-
-def _request_threads() -> list[threading.Thread]:
-    return [thread for thread in threading.enumerate() if thread.name.startswith("awa-request-")]
-
-
-@pytest.fixture(autouse=True)
-def _no_request_thread_outlives_its_test() -> Iterator[None]:
-    # An in-process main() serves requests on threads of its own. One still running a request after its test would
-    # write that reply into whatever stream a later test reads (the reply of a test that returned before its running
-    # request ended once reached another test's stream on Windows). Threads that have only to return are waited for.
-    yield
-    for thread in _request_threads():
-        thread.join(timeout=10)
-    assert not [thread.name for thread in _request_threads()], "a request thread of main() outlived its test"
 
 
 @pytest.fixture
@@ -1513,51 +1497,76 @@ def test_heartbeat_and_large_responses_are_serialized(monkeypatch):
 
     import backend_server
 
-    yield_now = time.sleep  # the real one: backend_server.time.sleep is replaced below
     output = io.StringIO()
-    barrier = threading.Barrier(2)
     writes = []
     flushes = []
-    # The two threads are made to meet: the first response's write, after its first fragment, lets the heartbeat
-    # thread go on to emit and waits until it has, so that heartbeat is due while the response holds the stream.
-    # Without the lock in _emit it would land inside the response. Between fragments the writer only yields
-    # (sleep(0)): a sleep under a millisecond waits a whole timer tick on Windows (up to 15.6 ms), and some 750 of
-    # them made the join bound below a matter of luck there.
+    # The two threads are made to meet, by events alone: the first response's write, after its first fragment, waits
+    # until the heartbeat thread has come to emit, so that heartbeat is due while the response holds the stream. With
+    # the lock in _emit it comes to the lock and waits there; without the lock its line lands inside the response.
+    # Nothing here waits on the clock or yields to the scheduler: the test once yielded (sleep(0)) between some 800
+    # fragments, and on a loaded Windows runner, where a yield can give up a whole scheduler quantum, that took longer
+    # than the join bound. The heartbeat thread, waiting at the lock behind the responses, was left running then.
     response_started = threading.Event()
-    heartbeat_released = threading.Event()
+    heartbeat_came = threading.Event()
+    stop = threading.Event()
+
+    class Stopped(Exception):
+        pass
 
     class FragmentingOutput:
         def write(self, value):
+            if stop.is_set():
+                raise Stopped
             writes.append(value)
+            if '"heartbeat"' in value:
+                heartbeat_came.set()
             for start in range(0, len(value), 127):
                 output.write(value[start : start + 127])
                 if '"requestId"' in value and start == 0 and not response_started.is_set():
                     response_started.set()
-                    assert heartbeat_released.wait(timeout=10), "the heartbeat thread never came to emit"
-                yield_now(0)
+                    assert heartbeat_came.wait(timeout=10), "the heartbeat thread never came to emit"
 
         def flush(self):
             flushes.append(True)
 
+    class ReportingLock:
+        """_emit's lock, saying when the heartbeat thread comes to it."""
+
+        def __init__(self, lock):
+            self._lock = lock
+
+        def __enter__(self):
+            if threading.current_thread().name == "awa-test-heartbeat":
+                heartbeat_came.set()
+            return self._lock.__enter__()
+
+        def __exit__(self, *exc_info):
+            return self._lock.__exit__(*exc_info)
+
     heartbeats = 0
 
-    def heartbeat_sleep(_interval):
-        nonlocal heartbeats
-        if heartbeats == 12:
-            raise SystemExit
-        heartbeats += 1
-        if heartbeats == 1:
-            assert response_started.wait(timeout=10), "the first response never started"
-            heartbeat_released.set()
-        yield_now(0)
+    class HeartbeatClock:
+        """backend_server's time, its sleep the heartbeat's beat: 12 beats, the first once the response holds the
+        stream. Only backend_server's own name is replaced: the time module stays as it is for every other thread."""
+
+        def __getattr__(self, name):
+            return getattr(time, name)
+
+        def sleep(self, _interval):
+            nonlocal heartbeats
+            if heartbeats == 12 or stop.is_set():
+                raise SystemExit
+            heartbeats += 1
+            if heartbeats == 1:
+                assert response_started.wait(timeout=10), "the first response never started"
 
     # _emit writes to the private reply stream the process takes at start (backend_server._reply_stream).
     monkeypatch.setattr(backend_server, "_replies", FragmentingOutput())
-    monkeypatch.setattr(backend_server.time, "sleep", heartbeat_sleep)
+    monkeypatch.setattr(backend_server, "_REPLIES_LOCK", ReportingLock(backend_server._REPLIES_LOCK))
+    monkeypatch.setattr(backend_server, "time", HeartbeatClock())
     errors = []
 
     def heartbeat():
-        barrier.wait()
         try:
             backend_server._heartbeat_loop()
         except SystemExit:
@@ -1566,21 +1575,32 @@ def test_heartbeat_and_large_responses_are_serialized(monkeypatch):
             errors.append(error)
 
     def responses():
-        barrier.wait()
         try:
             for index in range(8):
                 backend_server._emit({"requestId": str(index), "samples": [index] * 4000, "label": "音声"})
         except Exception as error:
             errors.append(error)
 
-    threads = [threading.Thread(target=heartbeat), threading.Thread(target=responses)]
+    # Named as backend threads (conftest.py): none may outlive this test, nor write into another's stream.
+    threads = [
+        threading.Thread(target=heartbeat, name="awa-test-heartbeat"),
+        threading.Thread(target=responses, name="awa-test-responses"),
+    ]
     for thread in threads:
         thread.start()
-    for thread in threads:
-        thread.join(timeout=10)
-        assert not thread.is_alive()
+    try:
+        for thread in threads:
+            thread.join(timeout=10)
+        assert not [thread.name for thread in threads if thread.is_alive()]
+    finally:
+        # A thread still running when the test fails is told to stop, and is waited for: every wait above ends then.
+        stop.set()
+        response_started.set()
+        heartbeat_came.set()
+        for thread in threads:
+            thread.join(timeout=10)
     assert errors == []
-    assert heartbeat_released.is_set(), "a heartbeat came due while a response held the stream"
+    assert heartbeat_came.is_set(), "a heartbeat came due while a response held the stream"
     messages = [json.loads(line) for line in output.getvalue().splitlines()]
     assert sum(message.get("type") == "heartbeat" for message in messages) == 12
     responses = [message for message in messages if "requestId" in message]
@@ -2006,8 +2026,9 @@ def test_stdin_eof_drops_queued_requests_instead_of_finishing_them(monkeypatch, 
     returned_after = time.perf_counter() - started
     release.set()
     # A request that had started still answers; its reply is this test's, so the test waits for its thread to end.
-    for thread in _request_threads():
-        thread.join(timeout=10)
+    for thread in threading.enumerate():
+        if thread.name.startswith("awa-request-"):
+            thread.join(timeout=10)
 
     assert returned_after < 5, "main must not wait for the running request once the host is gone"
     assert "b.wav" not in calls

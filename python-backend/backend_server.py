@@ -71,7 +71,8 @@ def _heartbeat_loop() -> None:
 
 
 def _start_heartbeat() -> None:
-    threading.Thread(target=_heartbeat_loop, daemon=True).start()
+    # The backend's threads are named "awa-...": the tests let none outlive its test (conftest.py).
+    threading.Thread(target=_heartbeat_loop, name="awa-heartbeat", daemon=True).start()
 
 
 def _worker_count() -> int:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import threading
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -112,6 +113,37 @@ def _restore_dask_config() -> Iterator[None]:
     yield
     dask.config.config.clear()
     dask.config.config.update(saved)
+
+
+#: Threads named so are the backend's own (backend_server: "awa-request-<n>", "awa-heartbeat") or a test's that
+#: drive backend code, which writes replies (a test names those "awa-test-<what>").
+#: Held by _no_backend_thread_outlives_its_test.
+BACKEND_THREAD_PREFIX = "awa-"
+#: Bounds the wait for a backend thread that has only to return when its test ends; never one that is still working.
+_THREAD_RETURN_S = 10.0
+
+
+def _backend_threads() -> list[threading.Thread]:
+    return [thread for thread in threading.enumerate() if thread.name.startswith(BACKEND_THREAD_PREFIX)]
+
+
+@pytest.fixture(autouse=True)
+def _no_backend_thread_outlives_its_test() -> Iterator[None]:
+    """A backend thread writes replies into whatever reply stream is in place when it writes (backend_server._emit).
+    One that outlived its test wrote into the next test's stream: on Windows CI a test that failed while its threads
+    still ran made the next test read their replies, and its heartbeat thread, its sleep given back, beat for the rest
+    of the session. So a test ends only when its backend threads have (else it errors at teardown), and while one
+    still runs no later test starts (it errors at setup): no test reads a reply that is not its own."""
+    running = [thread.name for thread in _backend_threads()]
+    if running:
+        pytest.fail(
+            f"backend thread(s) of an earlier test still running, so this test cannot run: {running}", pytrace=False
+        )
+    yield
+    for thread in _backend_threads():
+        thread.join(timeout=_THREAD_RETURN_S)
+    left = [thread.name for thread in _backend_threads()]
+    assert not left, f"backend thread(s) outlived their test: {left}"
 
 
 @pytest.fixture
