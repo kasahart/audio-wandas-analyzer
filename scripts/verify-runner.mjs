@@ -11,16 +11,24 @@
 //   is reported as stopped, not as failed, and its output so far is printed.
 // - No orphans: a step is a process tree (npm starts node, pytest starts its xdist workers). Killing only the direct
 //   child leaves the rest running — on Windows always, as there are no signals to a group. So each step is started
-//   as its own process group on POSIX and the group is killed; on Windows `taskkill /T /F` ends the tree.
-//   Whatever a step leaves behind when it exits by itself is ended with it too (POSIX), and verify does not wait more
-//   than a moment for pipes such a leftover still holds open (it would never end otherwise).
+//   as its own process group on POSIX and the group is killed; on Windows each step runs in a job object
+//   (scripts/verify-job.ps1), which holds every process started in it whoever its parent, and `taskkill /T /F` on the
+//   step ends the tree and with it the job.
+// - A step waits for what it starts: a process still running in the step's process group (POSIX) or job (Windows) a
+//   moment after the step exited fails the step, and is ended. Why: on Windows such a process could not be found by
+//   process tree any more, and on any OS it would run on unseen, holding the step's output pipes open.
 // - Ctrl+C, or a CI cancel (SIGINT / SIGTERM), stops every step the same way and prints what each lane had so far.
 import { spawn, spawnSync } from 'node:child_process';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const windows = process.platform === 'win32';
-// How long a step that has exited may keep its output pipes open (a leftover grandchild holding them) before verify
-// stops reading them. Not a step time limit: steps run as long as they need.
+// How long a step that has exited may keep its output pipes open, and the processes it started may take to exit by
+// themselves (a compiler's helper ends when its pipe from the step closes), before verify stops reading the pipes
+// and fails the step for what it left running. Not a step time limit: steps run as long as they need.
 const PIPE_CLOSE_GRACE_MS = 2000;
+const LEFTOVER_GRACE_MS = 2000;
+const jobHelper = join(dirname(fileURLToPath(import.meta.url)), 'verify-job.ps1');
 
 const seconds = since => `${((Date.now() - since) / 1000).toFixed(1)} s`;
 
@@ -39,6 +47,79 @@ export function killTree(child) {
     } catch {
         // The group is gone already.
     }
+}
+
+/** An argument as Windows programs parse their command line (the rule Node's own spawn quotes by). */
+export function windowsArgument(arg) {
+    if (arg === '') {
+        return '""';
+    }
+    if (!/[\s"]/u.test(arg)) {
+        return arg;
+    }
+    let quoted = '"';
+    let backslashes = 0;
+    for (const character of arg) {
+        if (character === '\\') {
+            backslashes += 1;
+            continue;
+        }
+        quoted += '\\'.repeat(character === '"' ? backslashes * 2 + 1 : backslashes) + character;
+        backslashes = 0;
+    }
+    return `${quoted}${'\\'.repeat(backslashes * 2)}"`;
+}
+
+/** Starts a step: on Windows inside a job object, through scripts/verify-job.ps1; on POSIX as its own process group. */
+function startStep(command, args, { cwd, env, stdio }) {
+    if (!windows) {
+        return spawn(command, args, { cwd, env, detached: true, stdio });
+    }
+    return spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', jobHelper], {
+        cwd,
+        env: {
+            ...(env ?? process.env),
+            AWA_VERIFY_JOB_COMMAND_LINE: [command, ...args].map(windowsArgument).join(' '),
+            AWA_VERIFY_JOB_GRACE_MS: String(LEFTOVER_GRACE_MS),
+        },
+        windowsHide: true,
+        stdio,
+    });
+}
+
+/** Whether any process of process group `group` still exists (a zombie too). */
+function groupExists(group) {
+    try {
+        process.kill(-group, 0);
+        return true;
+    } catch (error) {
+        return error.code === 'EPERM';
+    }
+}
+
+/** The processes of process group `group` that still run (zombies, which have ended, left out), as `pid command`. */
+function groupMembers(group) {
+    const listed = spawnSync('ps', ['-A', '-o', 'pid=,pgid=,stat=,args='], { encoding: 'utf8' }).stdout ?? '';
+    return listed.split('\n').map(line => line.trim().split(/\s+/u)).filter(([, pgid, stat]) => Number(pgid) === group && stat && !stat.startsWith('Z'))
+        .map(([pid, , , ...words]) => `${pid} ${words.join(' ').slice(0, 120)}`);
+}
+
+/**
+ * What a step that exited by itself left running in its process group (POSIX) once the processes there had a moment
+ * to exit by themselves; empty when nothing did. On Windows the job helper checks the same (scripts/verify-job.ps1).
+ */
+async function leftRunning(child) {
+    if (windows) {
+        return [];
+    }
+    const deadline = Date.now() + LEFTOVER_GRACE_MS;
+    while (groupExists(child.pid)) {
+        if (Date.now() >= deadline) {
+            return groupMembers(child.pid);
+        }
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    return [];
 }
 
 /**
@@ -91,11 +172,9 @@ export async function runLanes(lanes, { cwd, env, serial = false, out = process.
             }
             const started = Date.now();
             write(`==> ${label}\n`);
-            const child = spawn(command, args.map(arg => typeof arg === 'function' ? arg() : arg), {
+            const child = startStep(command, args.map(arg => typeof arg === 'function' ? arg() : arg), {
                 cwd,
                 env,
-                detached: !windows,
-                windowsHide: true,
                 stdio: live ? ['ignore', 'inherit', 'inherit'] : ['ignore', 'pipe', 'pipe'],
             });
             running.add(child);
@@ -114,33 +193,36 @@ export async function runLanes(lanes, { cwd, env, serial = false, out = process.
                 resolve(outcome);
             };
             child.on('error', error => finish('failed', `verify: could not start ${command}: ${error.message}\n`));
-            child.on('exit', (status, signal) => {
+            // The step's output pipes have all closed (registered now: they may close while its leftovers are checked).
+            const closed = new Promise(resolveClosed => child.on('close', resolveClosed));
+            child.on('exit', (status, signal) => void (async () => {
+                const left = stopped.has(child) ? [] : await leftRunning(child);
                 if (!windows) {
-                    // What the step left running ends with it (on Windows its pid may already be another process's).
+                    // What the step left running ends with it (on Windows its pid may already be another process's;
+                    // the job helper ends what is left there).
                     killTree(child);
                 }
-                const end = () => {
-                    if (stopped.has(child)) {
-                        finish('stopped', `\nverify: ${label} stopped after ${seconds(started)}: ${stopReason}\n`);
-                    } else if (status === 0) {
-                        finish('ok', `<== ${label} (${seconds(started)})\n`);
-                    } else {
-                        finish('failed', `verify: ${label} failed (${signal ? `signal ${signal}` : `exit ${status}`})\n`);
-                    }
-                };
-                if (live) {
-                    return end();
-                }
-                const grace = setTimeout(() => {
-                    child.stdout.destroy();
-                    child.stderr.destroy();
-                    end();
-                }, PIPE_CLOSE_GRACE_MS);
-                child.on('close', () => {
+                if (!live) {
+                    let grace;
+                    await Promise.race([closed, new Promise(resolveGrace => {
+                        grace = setTimeout(() => {
+                            child.stdout.destroy();
+                            child.stderr.destroy();
+                            resolveGrace();
+                        }, PIPE_CLOSE_GRACE_MS);
+                    })]);
                     clearTimeout(grace);
-                    end();
-                });
-            });
+                }
+                if (stopped.has(child)) {
+                    finish('stopped', `\nverify: ${label} stopped after ${seconds(started)}: ${stopReason}\n`);
+                } else if (left.length > 0) {
+                    finish('failed', `verify: ${label} failed: the step left ${left.length} process(es) running after it exited (they were ended): a step must wait for every process it starts\n${left.map(line => `  ${line}\n`).join('')}`);
+                } else if (status === 0) {
+                    finish('ok', `<== ${label} (${seconds(started)})\n`);
+                } else {
+                    finish('failed', `verify: ${label} failed (${signal ? `signal ${signal}` : `exit ${status}`})\n`);
+                }
+            })());
         });
     });
 

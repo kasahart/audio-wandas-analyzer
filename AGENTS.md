@@ -58,6 +58,8 @@ pytest opt-ins: `AWA_SLOW=1` runs the slow operation-catalog probe (CI sets it o
 
 No silent skips in CI: with `CI=true` (GitHub Actions sets it) a node:test or pytest test that skips fails verify unless `scripts/test-skip-allowlist.json` lists it for that OS with its reason; the allowlist only shrinks (an entry whose test runs fails too, and `src/test/testSkipGate.test.ts` holds its size to a ceiling). Why: tests that looked for `.venv/bin/python` only skipped in CI on every OS, unseen. A test that needs Python finds it as the extension does (`src/test/helpers/python.ts` over `src/extension/pythonInterpreter.ts`: `WANDAS_PYTHON`, the workspace venv, `VIRTUAL_ENV`, `python3`), and a test that needs a link uses a directory junction, which Windows allows without extra rights. `scripts/test-skips.mjs` says how the gate works.
 
+A verify step waits for every process it starts: one still running a moment after the step exited fails the step and is ended (its process group on POSIX; on Windows each step runs in a job object, `scripts/verify-job.ps1`, as Windows cannot find such a process by process tree). Held by `src/test/verifyRunner.test.ts`.
+
 Speed: verify runs three lanes at once (TypeScript, ESLint, Python; `AWA_VERIFY_SERIAL=1` runs them one by one with live output; the first failed step stops every lane with its whole process tree and verify exits non-zero at once, `scripts/verify-runner.mjs`) and pytest across the CPU cores (pytest-xdist `-n auto`). The Playwright smoke uses one worker per core (`AWA_UI_WORKERS` overrides it) and runs `plotContract.spec.ts` in parallel inside the file. `AWA_PERF=1` turns both back to serial pytest and Playwright's default workers, so its budgets see the load they were set under.
 
 ```bash
