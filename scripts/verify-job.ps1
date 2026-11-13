@@ -20,8 +20,18 @@ $graceMs = [int]$env:AWA_VERIFY_JOB_GRACE_MS
 Remove-Item Env:AWA_VERIFY_JOB_COMMAND_LINE
 Remove-Item Env:AWA_VERIFY_JOB_GRACE_MS
 
+# Exit code that tells verify the helper could not be set up (scripts/verify-runner.mjs JOB_HELPER_BLOCKED, which
+# turns it into a message that says what happened and what to do).
+$blocked = 213
+# PowerShell's Constrained Language Mode (set by AppLocker, WDAC or a lockdown policy) refuses Add-Type, which this
+# helper needs. Said plainly here, rather than as the raw PowerShell error.
+if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
+    $Host.UI.WriteErrorLine('verify-job: PowerShell runs in ' + $ExecutionContext.SessionState.LanguageMode + ' mode, which blocks Add-Type')
+    exit $blocked
+}
+
 # C# 5: Windows PowerShell 5.1 compiles with it (no string interpolation, no out variables).
-Add-Type -TypeDefinition @'
+$definition = @'
 using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
@@ -184,5 +194,11 @@ public static class AwaVerifyJob
     }
 }
 '@
+try {
+    Add-Type -TypeDefinition $definition
+} catch {
+    $Host.UI.WriteErrorLine('verify-job: Add-Type failed: ' + $_.Exception.Message)
+    exit $blocked
+}
 
 exit ([AwaVerifyJob]::Run($commandLine, $graceMs))

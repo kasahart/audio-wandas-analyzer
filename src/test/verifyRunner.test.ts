@@ -157,7 +157,9 @@ process.exit(failures.length ? 1 : 0);`, dir);
         assert.equal(status, 1, output);
         assert.match(output, /<== helper ends by itself/u, 'a process that exits by itself within moments does not fail its step');
         assert.match(output, /started a process and left it running/u);
-        assert.match(output, /left 1 process\(es\) running after it exited \(they were ended\)/u);
+        // Not a count of one: on Windows a venv's python.exe is a launcher that starts the base interpreter as its child,
+        // so the process left running is two processes there.
+        assert.match(output, /left [1-9]\d* process\(es\) running after it exited \(they were ended\)/u);
         assert.match(output, /failures: \["leaves a process"\]/u);
         assert.deepEqual(await stillRunning([Number(fs.readFileSync(pids, 'utf8'))]), [false], 'what the step left running does not outlive it');
     } finally {
@@ -177,4 +179,23 @@ test('a step\'s command line on Windows quotes each argument as Windows programs
 console.log(JSON.stringify(${JSON.stringify(['', 'plain', 'two words', 'say "hi"', 'C:\\Program Files\\node.exe', 'ends\\', 'end space\\', 'a\\"b', 'tab\there'])}.map(windowsArgument)));`, os.tmpdir());
     assert.equal(status, 0, output);
     assert.deepEqual(JSON.parse(output), ['""', 'plain', '"two words"', '"say \\"hi\\""', '"C:\\Program Files\\node.exe"', 'ends\\', '"end space\\\\"', '"a\\\\\\"b"', '"tab\there"']);
+});
+
+test('when PowerShell refuses to compile the job helper (Constrained Language Mode), verify says what happened and what to do', async () => {
+    // Stands in for scripts/verify-job.ps1 as it ends under Constrained Language Mode: the raw reason on stderr, and
+    // the exit code that says the helper could not be set up.
+    const blocked = `console.error('verify-job: Add-Type failed: Cannot add type. Definition of new types is not supported in this language mode.'); process.exit(213);`;
+    const { status, output } = await runDriver(`import { runLanes } from ${JSON.stringify(runner)};
+const failures = await runLanes([['Lane', [['node:test', process.execPath, ['-e', '']]]]], { cwd: process.cwd(), env: process.env, serial: true, jobLauncher: [process.execPath, ['-e', ${JSON.stringify(blocked)}]] });
+console.log('failures: ' + JSON.stringify(failures));
+process.exit(failures.length ? 1 : 0);`, os.tmpdir());
+    assert.equal(status, 1, output);
+    assert.match(output, /verify: node:test could not start: PowerShell could not compile the job-object helper \(scripts\/verify-job\.ps1\)/u);
+    assert.match(output, /Constrained Language Mode .* blocks Add-Type\. Run verify from an unrestricted shell/u);
+    assert.match(output, /failures: \["node:test"\]/u);
+    // The helper and the runner agree on the code.
+    const helper = fs.readFileSync(path.join(repoRoot, 'scripts', 'verify-job.ps1'), 'utf8');
+    const { JOB_HELPER_BLOCKED } = JSON.parse((await runDriver(`import { JOB_HELPER_BLOCKED } from ${JSON.stringify(runner)}; console.log(JSON.stringify({ JOB_HELPER_BLOCKED }));`, os.tmpdir())).output) as { JOB_HELPER_BLOCKED: number };
+    assert.match(helper, new RegExp(`^\\$blocked = ${JOB_HELPER_BLOCKED}$`, 'mu'));
+    assert.match(helper, /LanguageMode -ne 'FullLanguage'[\s\S]*exit \$blocked[\s\S]*catch \{[\s\S]*exit \$blocked/u, 'both a non-full language mode and a failed Add-Type end with that code');
 });

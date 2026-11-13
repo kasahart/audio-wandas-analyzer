@@ -29,6 +29,17 @@ const windows = process.platform === 'win32';
 const PIPE_CLOSE_GRACE_MS = 2000;
 const LEFTOVER_GRACE_MS = 2000;
 const jobHelper = join(dirname(fileURLToPath(import.meta.url)), 'verify-job.ps1');
+/** The exit code with which scripts/verify-job.ps1 says it could not be set up (Add-Type refused or failed); under 256,
+ * so a stand-in for the helper can give it on every OS. A step that itself exits with it on Windows would be reported
+ * the same way; no step does. */
+export const JOB_HELPER_BLOCKED = 213;
+/** What verify says when the job helper could not be set up: what happened, and what to do. */
+export const JOB_HELPER_BLOCKED_MESSAGE = 'PowerShell could not compile the job-object helper (scripts/verify-job.ps1), which verify needs to run '
+    + 'each step on Windows. PowerShell\'s Constrained Language Mode (set by AppLocker, WDAC or a lockdown policy) blocks '
+    + 'Add-Type. Run verify from an unrestricted shell: one where `$ExecutionContext.SessionState.LanguageMode` in PowerShell '
+    + 'says FullLanguage (ask whoever manages the machine if a policy sets it).';
+/** On Windows each step is started through the job helper: [command, args] of the launcher. */
+const WINDOWS_JOB_LAUNCHER = ['powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', jobHelper]];
 
 const seconds = since => `${((Date.now() - since) / 1000).toFixed(1)} s`;
 
@@ -70,13 +81,17 @@ export function windowsArgument(arg) {
     return `${quoted}${'\\'.repeat(backslashes * 2)}"`;
 }
 
-/** Starts a step: on Windows inside a job object, through scripts/verify-job.ps1; on POSIX as its own process group. */
-function startStep(command, args, { cwd, env, stdio }) {
-    if (!windows) {
-        return spawn(command, args, { cwd, env, detached: true, stdio });
+/**
+ * Starts a step: through `launcher` when there is one (on Windows the job helper, scripts/verify-job.ps1, which runs
+ * it inside a job object), and on POSIX as its own process group.
+ */
+function startStep(command, args, { cwd, env, stdio, launcher }) {
+    if (!launcher) {
+        return spawn(command, args, { cwd, env, detached: !windows, windowsHide: true, stdio });
     }
-    return spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', jobHelper], {
+    return spawn(launcher[0], launcher[1], {
         cwd,
+        detached: !windows,
         env: {
             ...(env ?? process.env),
             AWA_VERIFY_JOB_COMMAND_LINE: [command, ...args].map(windowsArgument).join(' '),
@@ -126,8 +141,9 @@ async function leftRunning(child) {
  * Runs `lanes` ([name, steps][]; a step is [label, command, args, { after }?], an arg may be a function called at
  * start) and resolves to the labels of the failed steps (empty when every step passed). `serial` runs the lanes one by
  * one with their output live; otherwise each lane's output is printed whole when it ends, so lanes do not interleave.
+ * `jobLauncher` ([command, args]) starts each step on Windows (the job helper); a test passes its own to stand in for it.
  */
-export async function runLanes(lanes, { cwd, env, serial = false, out = process.stdout } = {}) {
+export async function runLanes(lanes, { cwd, env, serial = false, out = process.stdout, jobLauncher = windows ? WINDOWS_JOB_LAUNCHER : undefined } = {}) {
     /** Children running now, and those verify itself stopped (a stopped step is not a failure of its own). */
     const running = new Set();
     const stopped = new Set();
@@ -176,6 +192,7 @@ export async function runLanes(lanes, { cwd, env, serial = false, out = process.
                 cwd,
                 env,
                 stdio: live ? ['ignore', 'inherit', 'inherit'] : ['ignore', 'pipe', 'pipe'],
+                launcher: jobLauncher,
             });
             running.add(child);
             if (!live) {
@@ -217,6 +234,8 @@ export async function runLanes(lanes, { cwd, env, serial = false, out = process.
                     finish('stopped', `\nverify: ${label} stopped after ${seconds(started)}: ${stopReason}\n`);
                 } else if (left.length > 0) {
                     finish('failed', `verify: ${label} failed: the step left ${left.length} process(es) running after it exited (they were ended): a step must wait for every process it starts\n${left.map(line => `  ${line}\n`).join('')}`);
+                } else if (jobLauncher && status === JOB_HELPER_BLOCKED) {
+                    finish('failed', `verify: ${label} could not start: ${JOB_HELPER_BLOCKED_MESSAGE}\n`);
                 } else if (status === 0) {
                     finish('ok', `<== ${label} (${seconds(started)})\n`);
                 } else {
