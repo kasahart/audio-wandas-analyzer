@@ -56,7 +56,7 @@ These apply too, each when its condition holds. They are checked by the tests na
 
 | When | What you add | What fails without it |
 | --- | --- | --- |
-| a number the backend sends | the field in `python-backend/protocol_schema.py`, then `node scripts/generate-protocol-types.mjs --write`; an array of numbers says `x-drawn`, `x-whole` or `x-place` | `npm run verify` › generated protocol types; `python-backend/test_protocol_schema.py` |
+| a number the backend sends | the field in the backend's TypedDict of the answer (`stage_view.py` `StageView`), and in `python-backend/protocol_schema.py`, then `node scripts/generate-protocol-types.mjs --write`; an array of numbers says `x-drawn`, `x-whole` or `x-place` | `npm run verify` › pyright, generated protocol types; `python-backend/test_protocol_schema.py`; and for the example, `guideExamples.test.ts` › the guide's backend example type-checks |
 | that number is shown | an adapter in `wholeAnswers.ts` that mints it (`mint.field`) | `provenanceBoundary.test.ts` (a mint anywhere else); the compiler where the text function takes `Whole` |
 | a new chart | a UI test that shows it, so the canvas audit sees what was drawn ("Adding a canvas or an SVG") | `npm run test:ui` |
 | a `ticks` row | a test of `TICK_PLACES` (`model.ts`) in it | `plotContracts.test.ts` › every chart with a level, value or row axis names in its ticks row a test … |
@@ -182,10 +182,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from stage_view import StageView, min_max_line
+from stage_view import StageKurtosisPeak, StageView, min_max_line
 
 
-def kurtosis_peak(times: np.ndarray, values: np.ndarray) -> dict[str, float] | None:
+def kurtosis_peak(times: np.ndarray, values: np.ndarray) -> StageKurtosisPeak | None:
     """The largest kurtosis and when, found among every frame before thinning."""
     if not values.size:
         return None
@@ -275,8 +275,25 @@ That is the point of the type: the line was thinned to a few hundred points, and
 largest. Do it in three steps instead.
 
 1. **Backend**: take the number of every value and send it as a plain number, beside the picture
-   (`kurtosis_peak` above; `stage_combine.py` does this for `peak` and `valueRange`). Add the field to
-   `python-backend/protocol_schema.py`, on `StageView`:
+   (`kurtosis_peak` above; `stage_combine.py` does this for `peak` and `valueRange`). The backend's own type of the
+   picture says it has the field, or pyright (`npm run verify`) refuses `view["kurtosisPeak"] = peak`
+   (`python-backend/stage_view.py`):
+
+   <!-- guide-example patch=python-backend/stage_view.py -->
+   ```python
+   class StageView(TypedDict):
+       # ... its fields, and:
+       kurtosisPeak: NotRequired[StageKurtosisPeak]
+
+
+   class StageKurtosisPeak(TypedDict):
+       """The largest kurtosis and when (kurtosis_view.kurtosis_peak), of every frame before thinning."""
+
+       x: float
+       value: float
+   ```
+
+   Add the field to `python-backend/protocol_schema.py`, on `StageView`:
 
    ```python
    "kurtosisPeak": {"type": "object", "required": ["x", "value"], "properties": {"x": _NUMBER, "value": _NUMBER}},

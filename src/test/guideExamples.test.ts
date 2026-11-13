@@ -20,8 +20,9 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { runInThisContext } from 'node:vm';
@@ -160,11 +161,11 @@ test('the guide check fails on a block that names a function that does not exist
 // can change alone.
 
 /** Every block marked `guide-example`, any language: a file's code, or a registry's entries. */
-export function exampleBlocks(markdown: string): Array<{ line: number; file?: string; entries?: string; code: string }> {
+export function exampleBlocks(markdown: string): Array<{ line: number; file?: string; entries?: string; patch?: string; code: string }> {
     const lines = markdown.split('\n');
-    const found: Array<{ line: number; file?: string; entries?: string; code: string }> = [];
+    const found: Array<{ line: number; file?: string; entries?: string; patch?: string; code: string }> = [];
     for (let index = 0; index < lines.length; index++) {
-        const marked = /^\s*<!-- guide-example (file|entries)=(\S+) -->\s*$/u.exec(lines[index]);
+        const marked = /^\s*<!-- guide-example (file|entries|patch)=(\S+) -->\s*$/u.exec(lines[index]);
         if (!marked) continue;
         const fence = /^(\s*)```\w+\s*$/u.exec(lines[index + 1] ?? '');
         assert.ok(fence, `${GUIDE}:${index + 1}: a guide-example comment is right above a code block`);
@@ -211,6 +212,8 @@ interface Example {
     readers: Record<string, BackendReader>;
     allowed: Sites;
     answerWrites: Record<string, Listed>;
+    /** Whether the chart is in CONTRACTS (index.ts); its file is in charts/ either way. */
+    indexed: boolean;
     /** Whether docs/plot-contracts.md is regenerated with the example's chart. */
     doc: boolean;
 }
@@ -238,6 +241,7 @@ function guideExample(markdown: string): Example {
         readers: { ...BACKEND_READERS, ...(JSON.parse(`{${entries('readers')}}`) as Record<string, BackendReader>) },
         allowed: evaluated(`module.exports = {\n${entries('ALLOWED')}\n};`, 'src/test/figureModel.test.ts') as Sites,
         answerWrites: { ...NOT_ANSWER_WRITES, ...evaluated(`module.exports = {\n${entries('NOT_ANSWER_WRITES')}\n};`, 'src/test/answerBoundaryAllowlist.ts', "const { notAnswer } = require('./answerBoundaryAllowlist');\n") as Record<string, Listed> },
+        indexed: true,
         doc: true,
     };
 }
@@ -250,14 +254,16 @@ const keyOf = (files: ReadonlyMap<string, string>): string => JSON.stringify([..
 
 /** What fails of the example, check by check: `check: message`. Empty when every step is followed. */
 function exampleProblems(example: Example): string[] {
-    const table: Table = { ...TABLE, contracts: [...TABLE.contracts, example.contract].filter(contract => contract.chart.id !== 'kurtosis' || contract === example.contract), chartFiles: [...TABLE.chartFiles, 'kurtosis'], schemaFields: example.schemaFields, backendReaders: example.readers };
+    const table: Table = { ...TABLE, contracts: example.indexed ? [...TABLE.contracts, example.contract] : TABLE.contracts, chartFiles: [...TABLE.chartFiles, 'kurtosis'], schemaFields: example.schemaFields, backendReaders: example.readers };
     const own: Table = { ...table, contracts: table.contracts.filter(contract => contract.chart.id === 'kurtosis') };
-    const files = new Map(example.files);
-    files.set('docs/plot-contracts.md', example.doc ? renderContractDoc(table.contracts) : readFileSync(path.join(repoRoot, 'docs/plot-contracts.md'), 'utf8'));
-    const key = `${keyOf(example.files)} doc:${String(example.doc)}`;
-    // One program for the example's files and the tests its rows give as proof.
-    const code = codes.get(key) ?? withProofs(rowsOf(own), codeWith(files));
+    const key = keyOf(example.files);
+    // One program for the example's files and the tests its rows give as proof (the example's rows, whether or not
+    // index.ts lists them, so that leaving the index out builds no other program).
+    const code = codes.get(key) ?? withProofs(example.contract.rows.map(row => ({ ...row, chart: 'kurtosis' })), codeWith(example.files));
     codes.set(key, code);
+    // docs/plot-contracts.md as committed: regenerated with the example's chart, or as it is.
+    const doc = example.doc ? renderContractDoc(table.contracts) : readFileSync(path.join(repoRoot, 'docs/plot-contracts.md'), 'utf8');
+    const withDoc: Code = { ...code, read: file => (file === 'docs/plot-contracts.md' ? doc : code.read(file)) };
     const written = [...example.files.keys()].filter(file => /^src\/.*\.ts$/u.test(file));
     const problems: string[] = [];
     const run = (check: string, body: () => void): void => {
@@ -296,7 +302,7 @@ function exampleProblems(example: Example): string[] {
         checkBackendReaders(flow, code, table);
     });
     run('schema-fields', () => checkProtocolFields(protocolFields(code), table));
-    run('doc', () => checkContractDoc(code, table));
+    run('doc', () => checkContractDoc(withDoc, table));
     run('rule-quotes', () => checkRuleQuotes(code, own));
     return problems;
 }
@@ -311,7 +317,7 @@ const OMISSIONS: Readonly<Record<string, { without: (example: Example) => Exampl
         fails: /^painted-by: Rule: every call of the plot component .*kurtosisPane\.ts:paintKurtosis/msu,
     },
     index: {
-        without: example => ({ ...example, contract: { ...example.contract, chart: { ...example.contract.chart, id: 'not-in-index' }, rows: [] } }),
+        without: example => ({ ...example, indexed: false }),
         fails: /^index: Rule: a chart's file in src\/test\/plotContracts\/charts is named by its chart's id, and index\.ts lists every one/mu,
     },
     rows: {
@@ -378,29 +384,64 @@ test('the guide\'s checklist names every step the example is checked for, and th
     }
 });
 
-/** The guide's backend module run by Python (never written to disk): `kurtosis_view` of a kurtosis line, as JSON. */
-function guideKurtosisView(module: string, times: readonly number[], values: readonly number[], points: number): StageView {
-    const script = [
-        'import json, sys, types',
-        'import numpy as np',
-        'sys.path.insert(0, "python-backend")',
-        'given = json.loads(sys.stdin.read())',
-        'module = types.ModuleType("kurtosis_view")',
-        'exec(compile(given["module"], "kurtosis_view.py", "exec"), module.__dict__)',
-        'print(json.dumps(module.kurtosis_view(np.array(given["times"]), np.array(given["values"]), given["points"])))',
-    ].join('\n');
-    const run = spawnSync(pythonExecutable(), ['-c', script], { cwd: repoRoot, encoding: 'utf8', input: JSON.stringify({ module, times, values, points }) });
-    assert.equal(run.status, 0, `the guide's kurtosis_view.py runs: ${run.stderr}`);
-    return JSON.parse(run.stdout) as StageView;
+/**
+ * The guide's backend: its kurtosis_view.py, and stage_view.py with the guide's patch (the field added to the
+ * `StageView` class, the classes after it added at the end), in a directory of their own that is removed after `use`.
+ */
+function withGuideBackend<T>(use: (dir: string) => T): T {
+    const blocks = exampleBlocks(readFileSync(path.join(repoRoot, GUIDE), 'utf8'));
+    const module = blocks.find(block => block.file === 'python-backend/kurtosis_view.py')?.code;
+    const patch = blocks.find(block => block.patch === 'python-backend/stage_view.py')?.code;
+    assert.ok(module && patch, `${GUIDE} has the example's backend module and its patch of stage_view.py`);
+    const header = 'class StageView(TypedDict):';
+    const [inClass, ...after] = patch.split(/\n(?=class )/u);
+    assert.ok(inClass.startsWith(header), `the patch of stage_view.py starts with "${header}"`);
+    const fields = inClass.split('\n').slice(1).filter(line => line.trim() && !line.trim().startsWith('#'));
+    const own = readFileSync(path.join(repoRoot, 'python-backend/stage_view.py'), 'utf8');
+    assert.ok(own.includes(`\n${header}\n`), `python-backend/stage_view.py has "${header}"`);
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'awa-guide-'));
+    try {
+        writeFileSync(path.join(dir, 'stage_view.py'), `${own.replace(`\n${header}\n`, `\n${header}\n${fields.join('\n')}\n`).trimEnd()}\n\n\n${after.join('\n').trimEnd()}\n`);
+        writeFileSync(path.join(dir, 'kurtosis_view.py'), `${module.trimEnd()}\n`);
+        return use(dir);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
 }
 
+/** The guide's `kurtosis_view` of a kurtosis line, run by Python, as JSON. */
+function guideKurtosisView(times: readonly number[], values: readonly number[], points: number): StageView {
+    return withGuideBackend(dir => {
+        const script = [
+            'import json, sys',
+            'import numpy as np',
+            'given = json.loads(sys.stdin.read())',
+            'sys.path[0:0] = [given["dir"], "python-backend"]',
+            'from kurtosis_view import kurtosis_view',
+            'print(json.dumps(kurtosis_view(np.array(given["times"]), np.array(given["values"]), given["points"])))',
+        ].join('\n');
+        const run = spawnSync(pythonExecutable(), ['-c', script], { cwd: repoRoot, encoding: 'utf8', input: JSON.stringify({ dir, times, values, points }) });
+        assert.equal(run.status, 0, `the guide's kurtosis_view.py runs: ${run.stderr}`);
+        return JSON.parse(run.stdout) as StageView;
+    });
+}
+
+test('the guide\'s backend example type-checks as the repository\'s backend does (pyright, pyproject.toml\'s settings)', () => {
+    const problems = withGuideBackend(dir => {
+        writeFileSync(path.join(dir, 'pyrightconfig.json'), JSON.stringify({ include: ['kurtosis_view.py', 'stage_view.py'], extraPaths: [path.join(repoRoot, 'python-backend')], pythonVersion: '3.11', typeCheckingMode: 'basic' }));
+        const run = spawnSync(pythonExecutable(), ['-m', 'pyright', '--outputjson', '-p', path.join(dir, 'pyrightconfig.json')], { cwd: dir, encoding: 'utf8' });
+        const report = JSON.parse(run.stdout || '{}') as { generalDiagnostics?: Array<{ file: string; range: { start: { line: number } }; message: string; severity: string }> };
+        assert.ok(report.generalDiagnostics, `pyright ran: ${run.stderr || run.stdout}`);
+        return report.generalDiagnostics.filter(item => item.severity === 'error').map(item => `${path.basename(item.file)}:${item.range.start.line + 1}: ${item.message}`);
+    });
+    assert.deepEqual(problems, [], `the guide's kurtosis_view.py and its patch of stage_view.py (${GUIDE}) must pass pyright as the backend's modules do`);
+});
+
 test('the guide\'s backend example sends the full data\'s value range, so the plot\'s range encloses every value, not only the points drawn (R9)', () => {
-    const module = exampleBlocks(readFileSync(path.join(repoRoot, GUIDE), 'utf8')).find(block => block.file === 'python-backend/kurtosis_view.py')?.code;
-    assert.ok(module, `${GUIDE} has the example's backend module`);
     // 400 frames of kurtosis near 3, one burst to 9.5 and one dip to 1.2, thinned to 8 buckets to draw.
     const times = Array.from({ length: 400 }, (_, index) => index * 0.01);
     const values = times.map((_, index) => (index === 123 ? 9.5 : index === 301 ? 1.2 : 3 + 0.2 * Math.sin(index)));
-    const view = guideKurtosisView(module, times, values, 8);
+    const view = guideKurtosisView(times, values, 8);
     assert.deepEqual(view.valueRange, { min: 1.2, max: 9.5 });
     const range = stageRange([view]);
     assert.ok(range.min <= 1.2 && range.max >= 9.5, `the plot's range ${JSON.stringify(range)} encloses every value (1.2 to 9.5)`);
