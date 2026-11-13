@@ -195,7 +195,7 @@ export function paintTrackSpectrogram(
     const cells = full ? mappedSource(full, seconds => seconds - span[0], seconds => seconds + span[0]) : NO_FULL_DATA;
     const plot = paintOverlay(canvas, { layers: [{ view: picture, color: '', span, full: cells }] }, typedColourRange(view.dbLo, view.dbHi, view.dbTyped ?? { min: false, max: false }),
         plainNames(titles.time, titles.frequency, titles.colour),
-        { axisCanvas, axisView, heatmapPalette: viridis, xAxisCanvas: view.timeAxis ?? null, ...(view.readout === false ? { readout: false as const } : {}), window: { x: view.window, y: { start: (Math.max(0, view.minFrequencyHz) - low) / rowSpan, end: (view.maxFrequencyHz - low) / rowSpan } } });
+        { axisCanvas, axisView, heatmapPalette: viridis, colourRange: 'typed', xAxisCanvas: view.timeAxis ?? null, ...(view.readout === false ? { readout: false as const } : {}), window: { x: view.window, y: { start: (Math.max(0, view.minFrequencyHz) - low) / rowSpan, end: (view.maxFrequencyHz - low) / rowSpan } } });
     return { source: spec, key, full, plot, colourBar: plot?.colourBar ?? { x: 0, y: 0, width: 0, height: 0 }, ticks: plot?.levelTicks ?? [] };
 }
 

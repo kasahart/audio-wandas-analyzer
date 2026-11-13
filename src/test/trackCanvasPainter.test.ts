@@ -105,6 +105,8 @@ test('a spectrogram lane is drawn by the plot component over its whole width, wi
     // paintColourBar: the name, the low end, the strip, the high end.
     assert.ok(calls.includes('fillText Level [dBFS]') && calls.includes('fillText −80') && calls.includes('fillText −20'), calls.join(','));
     const box = entry.colourBar;
+    // Its colours are a range the user types (⚙ or a double-click on the bar), declared on the plot (R13).
+    assert.equal((canvas.dataset as Record<string, string>).plotColourRange, 'typed');
     assert.ok(box.x > 0 && box.x + box.width <= 396 && box.y === 3 && box.height === 14, JSON.stringify(box));
     // The pointer finds it by the one hit test of every colour bar (stagePlotPoint, R13): a value axis there, none off it.
     const onScreen = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 400, height: 60, right: 400, bottom: 60, x: 0, y: 0, toJSON: () => ({}) }) };

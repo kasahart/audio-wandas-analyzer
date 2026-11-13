@@ -622,7 +622,7 @@ test('the overview strip has a row per channel, as the table does: its readout n
     const strip = page.locator('[data-entry-overview]');
     await expect.poll(() => strip.getAttribute('data-plot-axes')).not.toBe(null);
     const box = (await strip.boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + OVERVIEW_MARGINS.top + 3);
+    await page.mouse.move(box.x + box.width / 2, box.y + Math.max(OVERVIEW_MARGINS.top + 3, ((await strip.getAttribute('data-plot-colour-bar')) ?? '0 0 0 0').split(' ').map(Number).reduce((end, value, index) => (index === 1 || index === 3 ? end + value : end), 2))); // just under the colour bar, a value axis (R13)
     const readout = page.locator('.entry-overview-box [data-plot-readout]');
     await expect(readout).toContainText(/\.wav ch[12]\b/);
 });

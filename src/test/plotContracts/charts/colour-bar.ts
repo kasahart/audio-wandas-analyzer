@@ -31,7 +31,7 @@ export const colourBar: ChartContract = {
         {
             id: 'colour-bar.range', value: 'range', what: 'カラーバーの上の軸の操作が動かす窓（Ctrl+ホイール、+ / − / 0、ドラッグ）と、ダブルクリックで開く色の範囲',
             computedIn: [`${SP}:stagePlotPoint`, 'src/webview/runtime/plotInteraction.ts:centredZoomWindow', 'src/webview/runtime/comparisonRuntime.ts:openSpectrogramRangePopup', 'src/webview/runtime/figureModel.ts:colourScale'],
-            from: 'axis', trace: '帯の上かどうかは 1 つのヒットテスト（stagePlotPoint が部品の返した StagePlot.colourBar を見る）で決め、トラック表示のレーン、比較の熱図、入口の概観帯が同じものを使う。帯の上は値の軸で、Ctrl+ホイールは横軸を真ん中を中心に拡大（centredZoomWindow）、ドラッグは矩形を描かない。ダブルクリックは、トラック表示のレーンでは帯が書く端の数（StagePlot.colourScale）で色の範囲の入力を開き、ほかのグラフでは拡大を戻す（R13）。',
+            from: 'axis', trace: '帯の上かどうかは 1 つのヒットテスト（stagePlotPoint が部品の返した StagePlot.colourBar を見る）で決め、トラック表示のレーン、比較の熱図、入口の概観帯が同じものを使う。帯の上は値の軸で、Ctrl+ホイールは横軸を真ん中を中心に拡大（centredZoomWindow）、ドラッグは矩形を描かない。ダブルクリックは、グラフが宣言した色の範囲の種類（paintOverlay の colourRange、data-plot-colour-range）のとおり：typed（トラック表示のレーン）では帯が書く端の数（StagePlot.colourScale）で色の範囲の入力を開き、data（比較の熱図、入口の概観帯：色がデータに従う）では拡大を戻す（R13）。',
             tests: [
                 t('src/test/uiSmoke/plotContract.spec.ts', 'every plot the comparison shows answers the same gestures: readout above it, ← / → step it, Ctrl+wheel zoom, double-click reset, axis range, both axes named (R13)'),
                 t('src/test/trackStageGestures.test.ts', 'over a heatmap\'s colour bar every axis gesture answers as on an axis, by the one hit test of it (stagePlotPoint): Ctrl+wheel zooms the horizontal axis about its middle, a press draws no box, a hover reads no cell, a double-click resets the zoom (R13)'),

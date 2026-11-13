@@ -1034,6 +1034,13 @@ export interface StagePaintOptions {
     xAxisCanvas?: HTMLCanvasElement | null;
     /** A heatmap's level colours (the track spectrogram lanes' viridis); grey levels when not given. */
     heatmapPalette?: Palette;
+    /**
+     * Where a heatmap's colour range comes from (R13): 'typed', a range the user can type (the track view's
+     * spectrogram lanes: a double-click on the colour bar opens it), or 'data' (the default: the colours follow the
+     * data, and a double-click on the bar resets the zoom). Named on the canvas (data-plot-colour-range), so the plot
+     * contract expects exactly the declared double-click.
+     */
+    colourRange?: 'typed' | 'data';
     /** Each point of a signal's line (CSS pixels on the canvas, its value and time, whether seen), for a pointer that reads them. */
     onSignalPoint?: SignalPointSink;
     /** false for a figure no pointer reads (a report's): its pictures need no full data, and nothing is read on it. */
@@ -1231,6 +1238,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         delete canvas.dataset.plotColourScale;
         delete canvas.dataset.plotColourEnds;
         delete canvas.dataset.plotColourBar;
+        delete canvas.dataset.plotColourRange;
         delete canvas.dataset.plotEnds;
     }
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -1426,7 +1434,10 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         }, { text, back: pendingColors.back, line });
         // Where the bar is (CSS pixels on the canvas): the box the one hit test reads (stagePlotPoint), named on the
         // canvas so the plot contract presses the bar of every heatmap for each axis gesture (R13).
-        if (canvas.dataset) canvas.dataset.plotColourBar = [plot.colourBar.x, plot.colourBar.y, plot.colourBar.width, plot.colourBar.height].map(value => value.toFixed(1)).join(' ');
+        if (canvas.dataset) {
+            canvas.dataset.plotColourBar = [plot.colourBar.x, plot.colourBar.y, plot.colourBar.width, plot.colourBar.height].map(value => value.toFixed(1)).join(' ');
+            canvas.dataset.plotColourRange = options.colourRange ?? 'data';
+        }
     } else {
         context.strokeStyle = line;
         context.lineWidth = 1;

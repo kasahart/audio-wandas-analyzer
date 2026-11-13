@@ -433,10 +433,12 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     // Ctrl+wheel one step in zooms the horizontal axis by the wheel's step (×0.85) about its middle, so exactly
     // 0.075 … 0.925, the vertical axis untouched (never about the pointer, at the plot's top right); + / − / 0 there
     // zoom about the middle by the keys' step (×0.7: 0.150 … 0.850) and give the whole back; a drag from it draws no
-    // box and zooms nothing; a double-click on it opens the colour range at the ends the bar writes
-    // (data-plot-colour-scale, exactly), where the plot's colours can be typed (the track view's lanes), and resets the
-    // zoom elsewhere, never another axis's range. A heatmap (it names its colour, data-plot-colour) that does not say
-    // where its bar is fails; a plot without colours has no bar to press.
+    // box and zooms nothing; a double-click on it does exactly what the plot declares of its colour range
+    // (data-plot-colour-range, the plot component's colourRange option): 'typed' (the track view's lanes) opens that
+    // range at the ends the bar writes (data-plot-colour-scale, exactly), 'data' (colours that follow the data: the
+    // comparison's heatmaps, the entry's strip) resets the zoom and opens no range. A heatmap (it names its colour,
+    // data-plot-colour) that does not say where its bar is, or what its colour range is, fails; a plot without colours
+    // has no bar to press.
     const colourName = (await plot.getAttribute('data-plot-colour')) ?? '';
     const barText = await plot.getAttribute('data-plot-colour-bar');
     const barBox = (barText ?? '').split(' ').map(Number);
@@ -456,19 +458,22 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
         await settled(page);
         const barWheel = await plot.getAttribute('data-plot-window');
         const wheeled = (whole ?? FULL) === FULL && barWheel === centredBy(0.85) && await picture() !== barPicture;
-        // A double-click on the bar: its colour range (at the ends the bar writes) or, where none is typed, the zoom reset.
+        // A double-click on the bar: exactly what the plot declares, its typed colour range opened at the ends the bar
+        // writes, or (its colours following the data) the zoom reset with no range opened.
+        const declared = await plot.getAttribute('data-plot-colour-range');
         const scale = ((await plot.getAttribute('data-plot-colour-scale')) ?? '').split(' ').map(Number);
         await page.mouse.dblclick(bar.x, bar.y);
         const popover = page.locator('[id$="range-popover"]:visible');
+        const opened = (await popover.count()) > 0;
         let doubled = false;
-        if (await popover.count()) {
+        if (opened) {
             const low = Number(await popover.locator('input[id$="-min"]').inputValue()), high = Number(await popover.locator('input[id$="-max"]').inputValue());
-            doubled = scale.length === 2 && low === scale[0] && high === scale[1];
+            doubled = declared === 'typed' && scale.length === 2 && low === scale[0] && high === scale[1];
             await page.keyboard.press('Escape');
             await page.mouse.dblclick(middle.x, middle.y);
         } else {
             await settled(page);
-            doubled = (await plot.getAttribute('data-plot-window')) === FULL;
+            doubled = declared === 'data' && (await plot.getAttribute('data-plot-window')) === FULL;
         }
         await settled(page);
         // + / − / 0 with the pointer on the bar: the plot's keys, about its middle.
@@ -487,7 +492,7 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
         await page.mouse.up();
         await settled(page);
         const dragged = boxShown === 0 && (await plot.getAttribute('data-plot-window')) === FULL;
-        if (!wheeled || !doubled || !keyed || !dragged) colourBarFound.push(`over its colour bar: Ctrl+wheel ${barWheel ?? 'none'} (expected ${centredBy(0.85)}), double-click ${doubled ? 'ok' : 'neither its colour range nor the zoom reset'}, + ${barKey ?? 'none'} (expected ${centredBy(0.7)}), drag ${dragged ? 'ok' : 'zoomed into a box'}`);
+        if (!wheeled || !doubled || !keyed || !dragged) colourBarFound.push(`over its colour bar: Ctrl+wheel ${barWheel ?? 'none'} (expected ${centredBy(0.85)}), double-click ${doubled ? 'ok' : `${opened ? 'opened a range' : 'opened none'} where it declares data-plot-colour-range ${JSON.stringify(declared)} ('typed': its colour range at the bar's ends; 'data': the zoom reset)`}, + ${barKey ?? 'none'} (expected ${centredBy(0.7)}), drag ${dragged ? 'ok' : 'zoomed into a box'}`);
         else passed.add('colour bar');
         if ((await plot.getAttribute('data-plot-window')) !== FULL) { await page.mouse.dblclick(middle.x, middle.y); await settled(page); }
     } else colourBarFound.push(`names its colour ${JSON.stringify(colourName)} but not where its colour bar is (data-plot-colour-bar ${JSON.stringify(barText)})`);
