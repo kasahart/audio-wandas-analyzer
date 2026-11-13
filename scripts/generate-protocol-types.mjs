@@ -6,17 +6,16 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { firstPython, pythonCandidates } from './python-candidates.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const target = join(root, 'src/shared/protocol/generated/backendProtocolSchema.ts');
-// Looks in .venv, then $WANDAS_PYTHON, then PATH. protocol_schema.py needs only the standard library.
+// protocol_schema.py needs only the standard library; any Python of the shared rule will do
+// (scripts/python-candidates.mjs: WANDAS_PYTHON, the workspace venv, VIRTUAL_ENV, python3, python).
 function findPython() {
-    for (const candidate of [join(root, '.venv/bin/python'), join(root, '.venv/Scripts/python.exe'), process.env.WANDAS_PYTHON, 'python3', 'python']) {
-        if (!candidate) continue;
-        if (candidate.includes('/') || candidate.includes('\\')) { if (existsSync(candidate)) return candidate; continue; }
-        if (spawnSync(candidate, ['--version'], { stdio: 'ignore' }).status === 0) return candidate;
-    }
-    throw new Error('No Python found for python-backend/protocol_schema.py (tried .venv, $WANDAS_PYTHON, python3, python)');
+    const found = firstPython(pythonCandidates({ root }));
+    if (!found) throw new Error('No Python found for python-backend/protocol_schema.py (tried WANDAS_PYTHON, .venv, venv, env, VIRTUAL_ENV, python3, python)');
+    return found;
 }
 const python = findPython();
 const dumped = spawnSync(python, ['protocol_schema.py'], { cwd: join(root, 'python-backend'), encoding: 'utf8' });

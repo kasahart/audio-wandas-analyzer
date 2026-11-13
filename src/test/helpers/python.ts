@@ -1,26 +1,22 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { choosePythonCommand, resolvePythonCommand, virtualEnvPythonCommand, workspaceVenvCommands } from '../../extension/pythonInterpreter';
+import { firstPython, pythonCandidates, workspaceVenvCommands } from '../../extension/pythonInterpreter';
 
-// The Python the tests run the backend's code with, chosen as the extension chooses it (src/extension/pythonInterpreter.ts),
-// so a test that needs Python runs wherever the extension would find one, on every OS. WANDAS_PYTHON stands for the
-// user's `pythonCommand` setting; the repository's workspace venv (.venv, venv, env) for the interpreter the Python
-// extension makes active in a workspace that has one. In CI a test that skips for want of it fails verify
+// The Python the tests run the backend's code with, by the rule of src/extension/pythonInterpreter.ts
+// (`pythonCandidates`: WANDAS_PYTHON, the workspace venv, VIRTUAL_ENV, python3, python), the same on every OS and the
+// same as verify's (scripts/python-candidates.mjs). In CI a test that skips for want of it fails verify
 // (scripts/test-skips.mjs).
 
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
 
-/** The interpreter command or path, before checking that it runs. */
-export function testPythonCommand({ env = process.env, platform = process.platform, root = repoRoot, exists = existsSync }: {
-    env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform; root?: string; exists?: (file: string) => boolean;
-} = {}): string {
-    const chosen = choosePythonCommand({
-        configured: env['WANDAS_PYTHON'] || undefined,
-        active: workspaceVenvCommands(root, platform, exists)[0],
-        virtualEnv: virtualEnvPythonCommand(env, platform, exists),
-    });
-    return resolvePythonCommand(chosen, platform, root);
+const starts = (command: string): boolean => spawnSync(command, ['--version'], { stdio: 'ignore', windowsHide: true }).status === 0;
+
+/** The interpreter the tests choose: the first candidate that exists (a path) or `runs` (a command). */
+export function testPythonCommand({ env = process.env, platform = process.platform, root = repoRoot, exists = existsSync, runs = starts }: {
+    env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform; root?: string; exists?: (file: string) => boolean; runs?: (command: string) => boolean;
+} = {}): string | undefined {
+    return firstPython(pythonCandidates({ root, env, platform }), { exists, runs });
 }
 
 let found: string | null | undefined;
@@ -29,7 +25,7 @@ let found: string | null | undefined;
 export function testPython(): string | undefined {
     if (found === undefined) {
         const command = testPythonCommand();
-        found = spawnSync(command, ['--version'], { stdio: 'ignore', windowsHide: true }).status === 0 ? command : null;
+        found = command !== undefined && starts(command) ? command : null;
     }
     return found ?? undefined;
 }

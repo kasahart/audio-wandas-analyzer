@@ -72,3 +72,38 @@ export function workspaceVenvCommands(
 export function choosePythonCommand(sources: { configured?: string; active?: string; virtualEnv?: string }): string {
     return sources.configured ?? sources.active ?? sources.virtualEnv ?? DEFAULT_PYTHON_COMMAND;
 }
+
+/** The commands tried last outside VS Code, after every interpreter path. */
+export const FALLBACK_PYTHON_COMMANDS = ['python3', 'python'] as const;
+
+/** The interpreter inside an environment folder: `Scripts\python.exe` on Windows, `bin/python` elsewhere. */
+function venvInterpreter(folder: string, platform: NodeJS.Platform): string {
+    return platform === 'win32' ? path.win32.join(folder, 'Scripts', 'python.exe') : path.posix.join(folder, 'bin', 'python');
+}
+
+/**
+ * The interpreters a process outside VS Code tries for the backend's code (the tests, and through
+ * scripts/python-candidates.mjs verify and the protocol-type generator), in order: WANDAS_PYTHON (an interpreter path
+ * or command, as given; it stands for the `pythonCommand` setting), the workspace venvs (what the Python extension
+ * makes active in a workspace that has one), the activated venv (VIRTUAL_ENV), then FALLBACK_PYTHON_COMMANDS.
+ * One rule in two files: the scripts run before `tsc compile`, so they cannot import this; the test of this module
+ * fails when the two lists differ for any OS.
+ */
+export function pythonCandidates({ root, env = process.env, platform = process.platform }: {
+    root: string; env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform;
+}): string[] {
+    const pathApi = platform === 'win32' ? path.win32 : path.posix;
+    return [
+        ...(env['WANDAS_PYTHON'] ? [env['WANDAS_PYTHON']] : []),
+        ...WORKSPACE_VENV_NAMES.map(name => venvInterpreter(pathApi.join(root, name), platform)),
+        ...(env['VIRTUAL_ENV'] ? [venvInterpreter(env['VIRTUAL_ENV'], platform)] : []),
+        ...FALLBACK_PYTHON_COMMANDS,
+    ];
+}
+
+/** The first candidate that is there: a path that `exists`, or a command that `runs`. */
+export function firstPython(candidates: readonly string[], { exists, runs }: {
+    exists: (file: string) => boolean; runs: (command: string) => boolean;
+}): string | undefined {
+    return candidates.find(candidate => (/[\\/]/u.test(candidate) ? exists(candidate) : runs(candidate)));
+}
