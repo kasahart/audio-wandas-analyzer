@@ -9,7 +9,7 @@ import { ROWS } from '../plotContracts/index';
 import { INPUT_FRAME, isCharted, outputOf, WANDAS_OPERATIONS } from '../../shared/recipe/recipeCatalog';
 import { reachableFrameKinds } from '../helpers/frameKinds';
 import { DIFF_COLOR, FLAG_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
-import { binGrid, differenceFromMedian, firstKnown, isPoint, knownBars, knownBin, knownDistribution, knownDistributionScans, knownMembersInOrder, KNOWN_DISTRIBUTION, postedPictures, recordingLanes, servedBins, stepOf, type KnownData, type PointAt, type ReadOf, type Served } from './knownData';
+import { binGrid, differenceFromMedian, firstKnown, isPoint, knownBars, knownBin, knownDistribution, knownDistributionScans, knownMembersInOrder, KNOWN_DISTRIBUTION, scannedDistribution, postedPictures, recordingLanes, servedBins, stepOf, type KnownData, type PointAt, type ReadOf, type Served } from './knownData';
 
 const STR_EN = getStrings('en');
 
@@ -71,7 +71,7 @@ async function openComparison(page: Page, files: ScannedFile[]): Promise<void> {
     await page.evaluate(results => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results } })), results);
     // Every plot the comparison draws reads the pictures the test posts (answer, answerKinds) or the recordings' lanes;
     // its median and Δ are of the groups slotted here (base the first, compare 1 the other), never of the first posted.
-    knownData = firstKnown(postedPictures(postedStages, { base: [paths[0]], compare: paths[1] }), recordingLanes(results));
+    knownData = firstKnown(postedPictures(postedStages, { base: [paths[0]], compare: paths[1] }), recordingLanes(results), scannedDistribution(files));
     await expect(page.locator('.track-stage')).toBeVisible();
     await expect.poll(async () => (await stageScans(page)).length).toBeGreaterThan(0);
     const bar = page.locator('.track-stage-bar');
@@ -622,10 +622,12 @@ function movedOn(from: PointAt, to: PointAt | null): boolean {
 }
 /** The nominal 1/3-octave centres (IEC 61260), from 20 Hz: the entry overview's columns, as many as a scan has bands. */
 const THIRD_OCTAVE_CENTRES = [20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800, 1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000];
-/** The entry's plots, from the scan results the test opened it with: the overview's columns are each band of a row. */
+/** The entry's plots, from the scan results the test opened it with: the overview's columns are each band of a row; the distribution, each channel's Leq. */
 function entryKnown(files: ScannedFile[]): KnownData {
     const bands = ((files[0]?.result.thirdOctDb as number[][] | undefined)?.[0] ?? []).length;
-    return read => (read.image && read.attrs.includes('data-entry-overview') ? { kind: 'image', xs: THIRD_OCTAVE_CENTRES.slice(0, bands) } : null);
+    const overview: KnownData = read => (read.image && read.attrs.includes('data-entry-overview') ? { kind: 'image', xs: THIRD_OCTAVE_CENTRES.slice(0, bands) } : null);
+    // The distribution beside them, from the same scans (knownData.ts scannedDistribution).
+    return firstKnown(overview, scannedDistribution(files));
 }
 /**
  * A page the test built (buildHtml.ts), from what it was built with: the tracks' lanes from its app state, the cursor
@@ -1015,7 +1017,7 @@ test('the entry\'s distribution answers the same gestures as every plot: each gr
     await page.setViewportSize({ width: 1280, height: 900 });
     // A distribution the test knows to the count (knownData.ts KNOWN_DISTRIBUTION): its keys are checked to the bar and recording.
     await openEntry(page, knownDistributionScans(), { language: 'en' });
-    knownData = firstKnown(entryKnown(knownDistributionScans()), knownDistribution());
+    knownData = firstKnown(knownDistribution(), entryKnown(knownDistributionScans()));
     const plot = page.locator('[data-dist-canvas]').first();
     await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe(null);
     await expectContract(page, 'entry distribution', plot);

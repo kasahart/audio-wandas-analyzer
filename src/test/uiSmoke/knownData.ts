@@ -304,3 +304,33 @@ export function knownDistribution(): KnownData {
         return { kind: 'line', xs: members.map(member => member.value), keys: members.map(member => member.key) };
     };
 }
+
+/**
+ * The distribution on a page opened with real scans (the entry100 fixture), where it is not the plot under test but is
+ * checked as every plot on screen is: each channel's Leq as scanned (its row's key: the file, with "#chN" where the
+ * file has several channels), one group. Its rug is those values in the data's order (by value, then key); its bars
+ * the values counted into the bins the bars are drawn at (DISTRIBUTION_BINS equal bins across the axis; their ends
+ * from the first and last centre drawn), counted here, not by the chart. The distribution's own tests use a fixture
+ * whose bins are worked out by hand instead (KNOWN_DISTRIBUTION), so the axis's ends are checked there.
+ */
+export function scannedDistribution(files: ReadonlyArray<{ filePath: string; result: Record<string, unknown> }>): KnownData {
+    const members = files.flatMap(({ filePath, result }) => {
+        const scan = result as { ok?: boolean; leqDbA?: Array<number | null> };
+        if (!scan.ok || !scan.leqDbA) return [];
+        const channels = scan.leqDbA.length;
+        return scan.leqDbA.flatMap((value, index) => (value === null || !Number.isFinite(value) ? [] : [{ key: channels > 1 ? `${filePath}#ch${index + 1}` : filePath, value }]));
+    }).sort((a, b) => a.value - b.value || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    return read => {
+        if (!read.attrs.includes('data-dist-canvas') || !read.ends || !members.length) return null;
+        if (read.kind === 'bar') {
+            const bins = KNOWN_DISTRIBUTION.bins;
+            const width = (read.ends[1] - read.ends[0]) / (bins - 1);
+            const low = read.ends[0] - width / 2;
+            const counts = new Array<number>(bins).fill(0);
+            for (const { value } of members) counts[Math.max(0, Math.min(bins - 1, Math.floor((value - low) / width)))] += 1;
+            return { kind: 'line', xs: counts.map((_, bin) => low + (bin + 0.5) * width), values: counts.map(count => count || null) };
+        }
+        if (!extentFits(members.map(member => member.value), read.ends)) return null;
+        return { kind: 'line', xs: members.map(member => member.value), keys: members.map(member => member.key) };
+    };
+}
