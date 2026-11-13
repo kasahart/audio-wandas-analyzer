@@ -862,6 +862,10 @@ DEFINITIONS: dict[str, Schema] = {
             # Scanned against the base slot's recording: the status of the base channel it is paired with, since
             # a pair's values are calibrated only when both of its sides are.
             "baseCalibrationStatus": {"type": "string", "enum": ["uncalibrated", "calibrated"]},
+            # The region the scan was asked for, its ends exactly as sent (null = the whole file). The webview's
+            # sameCondition compares it through regionKey; the condition itself is the analysed samples, which the
+            # conditionId hashes (scan_service.condition_id).
+            "region": {"anyOf": [{"$ref": "#/$defs/ScanRegion"}, _NULL]},
         },
     },
     # A file that cannot be scanned answers ``ok: false`` with a one-line ``reason`` and nothing else;

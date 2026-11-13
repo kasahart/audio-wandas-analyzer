@@ -12,7 +12,7 @@ import test from 'node:test';
 import { held } from './helpers/heldSource';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
-import { BAND_CENTERS_HZ, buildEntryModel } from '../webview/runtime/entryTable';
+import { BAND_CENTERS_HZ, buildEntryModel, regionKey, regionLabel } from '../webview/runtime/entryTable';
 import { deltaFigure } from '../webview/runtime/compareReport';
 import { SPECTRUM_POINTS, binsSource, binsView, deltaViews, diffHeadline, minMaxLine, sameCondition, legendHtml, levelsHeadline, paneAxes, trackLevelInput, type LevelInput } from '../webview/runtime/comparePanes';
 import type { ChannelSummary } from '../shared/analysis/analysisTypes';
@@ -395,6 +395,28 @@ test('the table\'s results take the bins of a scan of the same condition only, n
     assert.equal(other.state === 'ready' ? other.value : null, run1, 'a file not measured now keeps the store\'s answer');
     assert.equal(sameCondition(own, same), true);
     assert.equal(sameCondition(run1, changed), false);
+});
+
+test('sameCondition and regionKey agree on every pair of regions: regions under 1 ms apart are two conditions, one region is one (#768, R15)', () => {
+    // A scan of `region` as the backend answers it: the region it was asked for, echoed exactly, and a conditionId.
+    // The ID is the same for every scan here, as the backend gave regions sharing a 3-decimal label before #768.
+    const over = (region: { start: number; end: number } | null, conditionId = 'c'): ScanResult => {
+        const base = files.get('/f/free.wav')!;
+        return { ...base, conditionId, input: { ...base.input!, region } };
+    };
+    const regions = [null, { start: 0.5001, end: 1.5 }, { start: 0.5004, end: 1.5 }, { start: 0.5, end: 1.5 }, { start: 0.5, end: 1.5 + 1e-9 }];
+    assert.equal(regionLabel(regions[1]), regionLabel(regions[2]), 'the label reads them alike: it is never the key');
+    for (const a of regions) {
+        for (const b of regions) {
+            const keyed = regionKey(a) === regionKey(b);
+            assert.equal(sameCondition(over(a), over(b)), keyed, `${regionKey(a)} vs ${regionKey(b)}`);
+            // A copy of the region (as JSON brings it back from the backend) is the same key and the same condition.
+            const echoed = a && JSON.parse(JSON.stringify(a)) as { start: number; end: number };
+            assert.equal(sameCondition(over(a), over(echoed)), true);
+        }
+    }
+    // Within one region key the backend's ID still decides: another file version or calibration is another condition.
+    assert.equal(sameCondition(over(regions[1], 'c1'), over(regions[1], 'c2')), false);
 });
 
 test('the held Δ zoomed in is drawn again from every bin between its ends, not the whole Δ decimated and stretched (R1, R3)', () => {
