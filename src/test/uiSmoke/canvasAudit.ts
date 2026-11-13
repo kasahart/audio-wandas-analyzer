@@ -78,7 +78,8 @@ const SETTLE_TIMER_MS = 1000;
  *
  * It also counts what the page asked for from outside itself and has not been given yet: a fetch (a test's
  * page.route answers it from the test's own process, which a loaded machine makes slow) and a read of a file's or a
- * response's bytes. The page draws again when each arrives, so until then it has not finished answering. Anything new
+ * response's bytes, and a message posted to the page itself until it is delivered (an answer a timer posts arrives
+ * a task later). The page draws again when each arrives, so until then it has not finished answering. Anything new
  * the page waits on from outside its own thread belongs here too; otherwise settled() ends early on a slow machine
  * and the test acts on a page that is about to move.
  */
@@ -116,6 +117,23 @@ function installSettleTracker(timerMs: number): void {
             if (native) (owner as unknown as Record<string, unknown>)[read] = function (this: unknown): Promise<unknown> { return untilGiven(native.call(this)); };
         }
     }
+    // A message posted to the page itself (window.postMessage: the stand-in host's answer from its timer, a test's
+    // scan results, the real-backend bridge's answers), until it is delivered. It arrives in a task of its own after
+    // the one that posts it, and frames can run in between: a timer that posts an answer is no longer counted once it
+    // has run, so without this the page looked quiet with the answer still on its way, and a test read it as it was
+    // before the answer. Delivered in posting order; counted off as its dispatch begins (busy() is read only between
+    // tasks, so by then every listener has handled it and what it draws from it is counted above). One that cannot
+    // arrive (another target origin) is not counted.
+    let inFlight = 0;
+    const nativePost = window.postMessage.bind(window) as (message: unknown, options?: unknown, transfer?: Transferable[]) => void;
+    window.postMessage = ((message: unknown, options?: string | WindowPostMessageOptions, transfer?: Transferable[]): void => {
+        nativePost(message, options, transfer);
+        const origin = typeof options === 'string' ? options : options?.targetOrigin ?? '/';
+        if (origin === '*' || origin === '/' || origin === window.location.origin) inFlight++;
+    }) as typeof window.postMessage;
+    const delivered = (event: MessageEvent): void => { if (event.source === window && inFlight > 0) inFlight--; };
+    window.addEventListener('message', delivered, true);
+    window.addEventListener('messageerror', delivered, true);
     // Requests the test answers from outside the page: posted (the stand-in host's __uiSmokePostedMessages) and not answered yet.
     const awaited = new Set<string>(), answered = new Set<string>();
     const unanswered = (): number => {
@@ -124,7 +142,7 @@ function installSettleTracker(timerMs: number): void {
         return posted.filter(message => awaited.has(message.type ?? '') && !answered.has(message.requestId ?? '')).length;
     };
     window.__settle = {
-        busy: () => frames.size + timers.size + outside + unanswered(),
+        busy: () => frames.size + timers.size + outside + inFlight + unanswered(),
         frame: callback => { nativeFrame(() => callback()); },
         awaitHost: types => { for (const type of types) awaited.add(type); },
         answered: requestId => { answered.add(requestId); },
@@ -559,7 +577,7 @@ export function withAuditFirst(html: string): string {
 /**
  * Waits until the page has answered what the test just did: two frames in a row with no frame it asked for, no
  * short timer it set still to run (a redraw, a debounce, a reply the stand-in host posts later, the next step of a
- * read) and no fetch or file read it is still waiting for. Use it where a test would otherwise wait a fixed time before reading what the page shows: a slow machine
+ * read), no fetch or file read it is still waiting for and no message posted to it not yet delivered. Use it where a test would otherwise wait a fixed time before reading what the page shows: a slow machine
  * then waits longer and a fast one less, and the page read is the one the input led to. A page that keeps drawing
  * (playback) never settles: after `timeoutMs` the wait ends, and the read is the page as it is then.
  */

@@ -591,6 +591,10 @@
 - テスト: `src/test/entryDistributionPane.test.ts` › Alt+drag on a row picks a range, as Alt+drag is on every plot (plotInteraction.ts); a plain drag is the plot's box zoom, not a pick
 - テスト: `src/test/plotInteraction.test.ts` › + / − zoom the horizontal axis of the plot under the pointer around its middle and 0 shows it whole; the window it set is named on the plot (R13)
 - テスト: `src/test/plotInteraction.test.ts` › Ctrl+wheel over an axis zooms the horizontal axis around its middle; over the plot, around the pointer (R13)
+- **UI テストが画面を読むのは、ページが答え終わってから（`settled()`）です。** 固定の時間は待ちません。`settled()`（`src/test/uiSmoke/canvasAudit.ts`）は 1 つの仕組み（`installSettleTracker`）で、ページがまだ答えていないものを全部数えます。頼んだアニメーションのフレーム、1 秒以下のタイマー、fetch とファイルの読み出し、ホストに頼んで答えの来ていない要求、そしてページが自分に送ってまだ届いていないメッセージ（`window.postMessage`）です。これが 2 フレーム続けて 0 のときに、待ち終わります。メッセージを数えるのは、ui-smoke の代わりのホストが答えをタイマーから `postMessage` で送るからです（`buildHtml.ts`：読み値の読み出し、`compare-combine`、スペクトルの切り口）。`postMessage` は送ったタスクのあとの別のタスクで届き、そのあいだにフレームが進みます。タイマーは動いた時点で数えなくなるので、メッセージを数えないと、答えがまだ届いていないのにページが静かに見え、テストは答えの前の画面（全データ待ちの空の読み値、R7）を読んで、正しい動きを失敗にしていました。負荷の高いマシンほど起き、線の多いグラフ（トリガーのイベントを重ねた図：線ごとに読み出しを頼む）ほど起きました。ページが待つものを新しく足すとき（Worker、MessageChannel など）は、テストごとに待つのではなく、この仕組みに数えさせます。
+- テスト: `src/test/uiSmoke/hostAnswer.spec.ts` › settled() waits for a message the page posts to itself until the page has read it: a stand-in host's answer from a timer
+- テスト: `src/test/uiSmoke/hostAnswer.spec.ts` › settled() counts a host request as answered only once the page has read the answer, not when it is sent
+- テスト: `src/test/uiSmokeWaits.test.ts` › ui-smoke tests wait for the page, not for a fixed time, but where the time is what they test
 
 ## R14 線は自分の軸の変換で描き、読み、印を付ける
 

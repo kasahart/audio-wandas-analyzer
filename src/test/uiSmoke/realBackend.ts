@@ -85,24 +85,16 @@ export class RealBackend {
 type Posted = Record<string, unknown> & { type: string; requestId: string };
 
 /**
- * Runs in the page: posts a request's last answer as the host does, and tells settled() the request is answered only
- * once the page has read that answer. window.postMessage delivers in a task of its own, after this one: marked
- * answered here, settled() would find the page quiet (no frame, timer or request outstanding) with the answer still on
- * its way, and under load the frames it waits on can come before that task. A readout read then is the one before
- * the answer (empty while its full data is pending, R7), and the test fails on the page's correct behaviour. The
- * listener is added after the page's own (it listens from its first script), so it runs once the page has handled
- * the message and scheduled whatever it draws from it, which settled() then waits for.
+ * Runs in the page: posts a request's last answer as the host does, and tells settled() the request is answered.
+ * window.postMessage delivers in a task of its own, after this one; until then settled() counts the message itself
+ * (canvasAudit.ts installSettleTracker), so the page is not quiet before it has read the answer and scheduled whatever
+ * it draws from it. Otherwise, under load, the frames settled() waits on could come first and a readout read then is
+ * the one before the answer (empty while its full data is pending, R7): the test would fail on the page's correct
+ * behaviour.
  */
 export function postLastAnswer({ data, requestId }: { data: { type: string; requestId: string; [field: string]: unknown }; requestId: string }): void {
-    const settle = (window as unknown as { __settle?: { answered(requestId: string): void } }).__settle;
-    const handled = (event: MessageEvent): void => {
-        const got = event.data as { type?: string; requestId?: string } | null;
-        if (event.source !== window || got?.type !== data.type || got.requestId !== requestId) return;
-        window.removeEventListener('message', handled);
-        settle?.answered(requestId);
-    };
-    window.addEventListener('message', handled);
     window.postMessage(data, '*');
+    (window as unknown as { __settle?: { answered(requestId: string): void } }).__settle?.answered(requestId);
 }
 
 /**
