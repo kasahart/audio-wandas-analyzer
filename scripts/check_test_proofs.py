@@ -15,8 +15,16 @@ this script checks, by its code and not its words, that the test:
 What this cannot see: whether ``drawn`` really is what the thinned points would give, and whether the answer asserted
 is the value the row is about. Those are for the reviewer (docs/plot-contracts-guide.md).
 
+A pytest is named as pytest collects it, by ``tests_of`` (the one discovery, which src/test/namedTest.ts asks too):
+``test_y`` for a test function of the module, ``TestX::test_y`` for a test method of a test class (classes nested
+in it joined the same way). A name that is not a test of its file is a problem, whatever def of that name is in it.
+
 Input (stdin): JSON ``[{"targets": ["python-backend/mod.py:func", ...], "file": "python-backend/test_x.py",
 "name": "test_..."}]``. Output: JSON, a problem (text) or null for each.
+
+``--tests`` instead reads JSON ``[source text, ...]`` and writes, for each, every test of it (``tests_of``) and every
+def (by its name in its module, ``Class.method`` for a method) with its lines: the discovery the TypeScript checks
+use, so a name is a test for both or for neither.
 """
 
 from __future__ import annotations
@@ -24,6 +32,7 @@ from __future__ import annotations
 import ast
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,6 +63,84 @@ COMMON_METHODS = frozenset(
     | {"join", "split", "format", "index", "count", "sort", "setdefault", "clear", "remove", "insert", "tolist"}
 )
 CONSTANT_NAMES = frozenset({"None", "True", "False", "inf", "nan", "pi"})
+
+Def = ast.FunctionDef | ast.AsyncFunctionDef
+
+
+@dataclass(frozen=True)
+class Found:
+    """A def of a test file: its node, and the decorators above it and above each class it is in, outermost first."""
+
+    node: Def
+    decorators: tuple[ast.expr, ...]
+
+
+def _collected_class(node: ast.ClassDef) -> bool:
+    """Whether pytest collects ``node`` as a test class: named ``Test…`` and with no ``__init__`` of its own."""
+    return node.name.startswith("Test") and not any(
+        isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name == "__init__" for item in node.body
+    )
+
+
+def tests_of(tree: ast.Module) -> dict[str, Found]:
+    """Every test pytest collects of a module (its default rules: ``test…`` functions of the module, ``test…``
+    methods of ``Test…`` classes without ``__init__``, nested ones too), by the name it collects it under:
+    ``test_y`` or ``TestX::test_y``. The one test discovery of the repository: check() and src/test/namedTest.ts both
+    name a pytest by it."""
+    found: dict[str, Found] = {}
+
+    def walk(body: list[ast.stmt], prefix: str, decorators: tuple[ast.expr, ...]) -> None:
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
+                found.setdefault(f"{prefix}{node.name}", Found(node, (*decorators, *node.decorator_list)))
+            elif isinstance(node, ast.ClassDef) and _collected_class(node):
+                walk(node.body, f"{prefix}{node.name}::", (*decorators, *node.decorator_list))
+
+    walk(tree.body, "", ())
+    return found
+
+
+def defs_of(tree: ast.Module) -> dict[str, Def]:
+    """Every def of a module at its top or in its classes, by ``function`` or ``Class.method`` (nested classes
+    joined by dots); a def inside a def is part of that def's body."""
+    found: dict[str, Def] = {}
+
+    def walk(body: list[ast.stmt], prefix: str) -> None:
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                found.setdefault(f"{prefix}{node.name}", node)
+            elif isinstance(node, ast.ClassDef):
+                walk(node.body, f"{prefix}{node.name}.")
+
+    walk(tree.body, "")
+    return found
+
+
+def not_a_test(tree: ast.Module, name: str) -> str:
+    """Why ``name`` is not a test of ``tree``, naming the test it may mean (a def of that name in a test class)."""
+    meant = sorted(test for test in tests_of(tree) if test.rsplit("::", 1)[-1] == name.rsplit("::", 1)[-1])
+    hint = f": name it {' or '.join(repr(test) for test in meant)}" if meant and name not in meant else ""
+    return f"is not a test of its file{hint}"
+
+
+def _lines(node: Def) -> tuple[int, int]:
+    return node.lineno, node.end_lineno or node.lineno
+
+
+def discovery(text: str) -> dict[str, object]:
+    """``text``'s tests and defs, as src/test/namedTest.ts reads them: each with its def's first and last line and
+    the first line of its decorators (and of those of the classes it is in)."""
+    tree = ast.parse(text)
+    tests = {}
+    for name, found in tests_of(tree).items():
+        first, last = _lines(found.node)
+        tests[name] = {
+            "line": first,
+            "end": last,
+            "declared": [ast.get_source_segment(text, decorator) or "" for decorator in found.decorators],
+        }
+    defs = {name: dict(zip(("line", "end"), _lines(node), strict=True)) for name, node in defs_of(tree).items()}
+    return {"tests": tests, "defs": defs}
 
 
 class Backend:
@@ -161,19 +248,22 @@ class Proof:
         names, aliases = backend.imports(tree)
         self.names, self.aliases = names, aliases
         # The test module's own helpers are followed as the backend's are.
+        # A method of a class is a helper too (``self.helper()`` is a call of a method by its name): its key's
+        # part after the colon is its own name, as for any method (``reachers``).
         local: dict[str, set[str]] = {}
-        self.test: ast.FunctionDef | None = None
-        for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                called = set()
-                for inner in ast.walk(node):
-                    if isinstance(inner, ast.Call):
-                        target = resolve(inner, file.stem, names, aliases)
-                        if target:
-                            called.add(target)
-                local[f"{file.stem}:{node.name}"] = called
-                if node.name == name and isinstance(node, ast.FunctionDef):
-                    self.test = node
+        for qualified, node in defs_of(tree).items():
+            cls, _, own = qualified.rpartition(".")
+            called = set()
+            for inner in ast.walk(node):
+                if isinstance(inner, ast.Call):
+                    target = resolve(inner, file.stem, names, aliases)
+                    if target:
+                        called.add(target)
+            local[f"{file.stem}{'.' + cls if cls else ''}:{own}"] = called
+        found = tests_of(tree).get(name)
+        self.test: Def | None = found.node if found else None
+        self.tree = tree
+        self.name = name
         graph = Backend.__new__(Backend)
         graph.calls = {**backend.calls, **local}
         graph.exports = backend.exports
@@ -216,9 +306,9 @@ class Proof:
     def check(self) -> str | None:
         test = self.test
         if test is None:
-            return "is not a test of its file"
+            return not_a_test(self.tree, self.name)
         if not self.reaching(test):
-            return f'"{test.name}" never reaches it'
+            return f'"{self.name}" never reaches it'
         answers: set[str] = set()
         constants = set(CONSTANT_NAMES)
         grown = True
@@ -282,14 +372,19 @@ class Proof:
                 mine, drawn = node.args[0], node.args[1]
                 if answer(mine) and not constant(drawn) and ast.dump(mine) != ast.dump(drawn):
                     told.append(ast.dump(mine))
-            elif isinstance(node, ast.Call) and callee_name(node) in POSITIVE_CALLS and callee_name(node) != "approx":
-                if callee_name(node).startswith("assert_") and not self.inside_raises(test, node):
-                    state(*node.args[:2])
+            elif (
+                isinstance(node, ast.Call)
+                and callee_name(node) in POSITIVE_CALLS
+                and callee_name(node) != "approx"
+                and callee_name(node).startswith("assert_")
+                and not self.inside_raises(test, node)
+            ):
+                state(*node.args[:2])
         if not stated or not told:
-            return f'"{test.name}" asserts no case where the full data and the drawn points give different answers'
+            return f'"{self.name}" asserts no case where the full data and the drawn points give different answers'
         if not any(value in stated for value in told):
             return (
-                f'"{test.name}" states one value outright and tells another apart from the drawn points: '
+                f'"{self.name}" states one value outright and tells another apart from the drawn points: '
                 "`assert X == expected` and `assert_not_drawn(X, drawn)` must be of the same expression X"
             )
         return None
@@ -305,7 +400,7 @@ class Proof:
                 return True
         return False
 
-    def inside_raises(self, test: ast.FunctionDef, call: ast.Call) -> bool:
+    def inside_raises(self, test: Def, call: ast.Call) -> bool:
         blocks = [node for node in ast.walk(test) if isinstance(node, ast.With) and self.raises_assertion(node)]
         return any(inner is call for block in blocks for statement in block.body for inner in ast.walk(statement))
 
@@ -341,5 +436,14 @@ def check(items: list[dict[str, object]]) -> list[str | None]:
     return out
 
 
+def main(argv: list[str]) -> int:
+    data = json.loads(sys.stdin.buffer.read().decode("utf-8"))
+    if argv == ["--tests"]:
+        print(json.dumps([discovery(str(text)) for text in data]))
+    else:
+        print(json.dumps(check(data)))
+    return 0
+
+
 if __name__ == "__main__":
-    print(json.dumps(check(json.load(sys.stdin))))
+    sys.exit(main(sys.argv[1:]))
