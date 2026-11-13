@@ -13,7 +13,9 @@
  */
 import { keyRouterFor } from './keyRouter';
 import type { PlotPlace } from './plotHoverLayer';
-import { attachTrackPointerListeners } from './trackPointerEvents';
+import { attachTrackPointerListeners, type PlotGesturesDisposer } from './trackPointerEvents';
+
+export type { PlotGesturesDisposer };
 import { exceedsDragThreshold, MIN_SELECTION_SPAN, PAN_STEP_RATIO, ZOOM_IN_FACTOR, panNormalizedRangeBy, wheelPanPixels, wheelStepDirection, wheelZoomFactor, zoomRangeAroundPivot, type NormalizedRange } from './waveformInteraction';
 
 /** A point on a plot: across (0 at the left) and up (0 at the bottom) the part on screen. */
@@ -212,17 +214,27 @@ function plotPressesOf(doc: object): PlotPresses {
     return holder[PLOT_PRESSES] ??= { count: 0, dragging: false, endedBy: null, click: null };
 }
 
-export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 'addEventListener'>, plotSelector: string, deps: PlotInteractionDeps): void {
+/**
+ * Attaches the plot component's gestures (R7, R13) to the plots matching `plotSelector` on `surface`.
+ *
+ * Clean-up promise: the returned disposer takes off every listener this added (on the surface, the document and the
+ * window: those of trackPointerEvents.ts too) and its key context (keyRouter.ts), so none of them fires again, nor holds
+ * the surface. The owner of the surface keeps it and calls it when it tears the plot or lane down, or before it attaches
+ * the gestures again; an owner that lives as long as the page hands it on to its own owner. Calling it twice does
+ * nothing. No caller drops it (src/test/plotGestures.test.ts; docs/plot-layers.md).
+ */
+export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 'addEventListener' | 'removeEventListener'>, plotSelector: string, deps: PlotInteractionDeps): PlotGesturesDisposer {
     const presses = plotPressesOf(doc);
     /** Whether an event's target is on this surface (a release is told on the document). */
     const onSurface = (target: EventTarget | null): target is Element => !!target && 'nodeType' in target && surface.contains(target as Node);
     // A press that became a drag (a box zoom) is not a click: the click it ends with is not passed on, so a
     // plot's own click (picking a point, going to a row) answers only a press that stayed put, as on the lanes.
     let draggedAt = -Infinity;
-    surface.addEventListener('click', event => {
+    const swallowDragClick = (event: MouseEvent): void => {
         if (event.timeStamp - draggedAt < 300) { event.stopPropagation(); event.preventDefault(); }
         draggedAt = -Infinity;
-    }, true);
+    };
+    surface.addEventListener('click', swallowDragClick, true);
     let press: { plot: HTMLElement; from: PlotPoint; clientX: number; clientY: number; isDrag: boolean; to: PlotPoint; drag: PlotDrag | null; last: { clientX: number; clientY: number } } | null = null;
     let lastDouble: PlotHit | null = null;
     // The window these gestures last set is named on the plot they were made on, so one test reads every plot's
@@ -250,7 +262,7 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
         return deps.wheelAt ? deps.wheelAt(event.target, event.clientX, event.clientY, gesture) : deps.locate(event.target, event.clientX, event.clientY) ?? onAxis(event.target, event.clientX, event.clientY);
     };
     const view = surface.ownerDocument.defaultView;
-    attachTrackPointerListeners(surface, doc, view ? keyRouterFor(view) : { add: () => () => undefined }, {
+    const detach = attachTrackPointerListeners(surface, doc, view ? keyRouterFor(view) : { add: () => () => undefined }, {
         step(plot, delta, pointer) {
             // A plot these gestures do not answer now (locate finds none there: the steps' view off, the lanes in it): not theirs.
             const box = plot.getBoundingClientRect();
@@ -441,4 +453,13 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
             if (perPixel > 0) setWindow(hit.plot, wheelPanWindow(deps.window(hit.plot), wheelPanPixels(event, 1 / perPixel) * perPixel));
         },
     }, { plot: plotSelector, ...(deps.axes ? { axis: deps.axes.selector } : {}), ...(deps.focusKeepsArrows ? { focusKeepsArrows: true } : {}) });
+    return () => {
+        surface.removeEventListener('click', swallowDragClick, true);
+        // A click of this surface's still waiting for its double click's second press is no longer anyone's to take back.
+        if (presses.click && surface.contains(presses.click.plot)) presses.click = null;
+        // A drag of this surface's under way ends with it: no other plot stays frozen waiting for its release (R7).
+        if (press?.isDrag) presses.dragging = false;
+        press = null;
+        detach();
+    };
 }

@@ -168,6 +168,8 @@ export interface EntryScreen {
     addFiles(filePaths: string[]): void;
     /** Whether the table covers the window (maximized); in the side panel it is not "open" over the track view. */
     isOpen(): boolean;
+    /** Takes off its key context, its plots' gestures and its step bar's keys (the clean-up promise of keyRouter and attachPlotInteraction). */
+    dispose(): void;
     /** Widens the table to the whole window, or shrinks it back into the side panel. */
     setMaximized(maximized: boolean): void;
     /** Whether the side panel's table has the keyboard (a key goes to it, not to the lanes). */
@@ -1493,7 +1495,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const ownKeys = (event: Event): boolean => !!(event.target as Element | null)?.closest?.('button, summary, select, input, textarea, [data-entry-pop], [data-step-bar], #entry-range-popover');
     // In front of the comparison and the lanes: a key the table is given goes no further, so one that just
     // switched screens does not act on the other one too.
-    keyRouterFor(window).add({
+    const removeKeys = keyRouterFor(window).add({
         layer: 'entry',
         keydown: event => redraw.batch(() => {
             if (!keysHere(event)) return false;
@@ -1539,6 +1541,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     });
 
     return {
+        dispose() { removeKeys(); sidePlots.dispose(); distPane.dispose(); stepBar.dispose(); },
         open(paths: string[], root = '', maximize = false): void {
             filePaths = paths.filter(path => !isMetadataCandidate(path));
             rootPath = root;

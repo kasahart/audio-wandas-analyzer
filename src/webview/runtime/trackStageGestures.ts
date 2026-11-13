@@ -4,7 +4,7 @@
  */
 import type { UiStrings } from '../../shared/i18n/strings';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
-import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotClick, type PlotHit, type PlotWindow } from './plotInteraction';
+import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotClick, type PlotGesturesDisposer, type PlotHit, type PlotWindow } from './plotInteraction';
 import { axisFractionOf, axisValueAt, drawnMargins, rowFractionOf, rowValueAt, stagePlotPoint, type StagePlot } from './stagePanes';
 import { clickOnRead, createPlotHoverLayer } from './plotHoverLayer';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
@@ -17,6 +17,8 @@ export interface StageGestures {
     hovering(): boolean;
     /** Draws the hover marks again on what the plot under the still pointer now shows. */
     redraw(): void;
+    /** Takes off the gestures of both surfaces (attachPlotInteraction's disposers), when the mode attaches them anew. */
+    dispose(): void;
 }
 
 export function attachStageGestures(surface: HTMLElement, root: HTMLElement, document: Document, deps: {
@@ -123,7 +125,7 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
             return line ? toggle(line)?.() : undefined;
         });
     };
-    const gestures = (selector: string, container: HTMLElement): void => attachPlotInteraction(container, document, selector, {
+    const gestures = (selector: string, container: HTMLElement): PlotGesturesDisposer => attachPlotInteraction(container, document, selector, {
         locate(target, clientX, clientY): PlotHit | null {
             const plot = (target as HTMLElement | null)?.closest?.<HTMLElement>(selector);
             if (!state.on || !plot || !deps.painted() || plot.closest('[hidden]')) return null;
@@ -185,10 +187,10 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
             return true;
         },
     });
-    gestures('.track-canvas', surface);
-    gestures('[data-stage-canvas]', root);
+    const disposers = [gestures('.track-canvas', surface), gestures('[data-stage-canvas]', root)];
     return {
         hovering: () => hovered !== null,
         redraw: showHover,
+        dispose() { for (const dispose of disposers) dispose(); hovered = null; hideHover(); },
     };
 }

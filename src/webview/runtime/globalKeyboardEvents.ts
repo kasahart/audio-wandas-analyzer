@@ -13,9 +13,9 @@ interface KeyboardDocument<A> {
     readonly activeElement: A | null;
 }
 
-/** The lanes' keys: the context at the back of the router, reached by what the views in front leave. */
-export function attachGlobalKeyboardListeners<A extends FocusedElementLike>(router: Pick<KeyRouter, 'add'>, doc: KeyboardDocument<A>, handlers: GlobalKeyboardHandlers<A>): void {
-    router.add({ layer: 'lanes', keydown, keyup });
+/** The lanes' keys: the context at the back of the router, reached by what the views in front leave. Returns the context's disposer (keyRouter's clean-up promise). */
+export function attachGlobalKeyboardListeners<A extends FocusedElementLike>(router: Pick<KeyRouter, 'add'>, doc: KeyboardDocument<A>, handlers: GlobalKeyboardHandlers<A>): () => void {
+    const removeKeys = router.add({ layer: 'lanes', keydown, keyup });
     function keydown(e: KeyboardEvent): boolean {
         // A focused role chip takes the digits as its slot (roleChip.ts).
         if (/^[0-3]$/.test(e.key) && (e.target as Element | null)?.closest?.('details.role-chip')) {
@@ -44,4 +44,5 @@ export function attachGlobalKeyboardListeners<A extends FocusedElementLike>(rout
         }
         return false;
     }
+    return removeKeys;
 }

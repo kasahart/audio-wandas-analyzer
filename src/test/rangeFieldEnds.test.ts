@@ -236,7 +236,7 @@ test('a plot\'s range boxes write the ends its axes are painted with, across and
                 const shown = across ? plot?.xRange : plot?.rowRange;
                 if (!shown) { failures.push(`${name}: no painted ends`); continue; }
                 let request: RangePopoverRequest | null = null;
-                const popover: RangePopover = { open(given) { request = given; }, close() { /* nothing open */ } };
+                const popover: RangePopover = { open(given) { request = given; }, close() { /* nothing open */ }, dispose() { /* nothing attached */ } };
                 const set: Array<{ start: number; end: number }> = [];
                 // The axis's own mapping between its parts and its values, as the plots' callers give it.
                 const ends = across ? [view.xs?.[0] ?? 0, view.xs?.[view.xs.length - 1] ?? 1] : [image.ys?.[0] ?? 0, image.ys?.[image.ys.length - 1] ?? 1];

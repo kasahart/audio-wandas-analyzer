@@ -38,7 +38,13 @@ export interface TrackPointerHandlers {
     zoomKey(plot: Element, action: 'in' | 'out' | 'reset'): boolean;
 }
 
-type PointerSurface = Pick<HTMLElement, 'addEventListener' | 'contains'>;
+type PointerSurface = Pick<HTMLElement, 'addEventListener' | 'removeEventListener' | 'contains'>;
+
+/**
+ * Takes off every listener a plot's gestures added (on the surface, the document, the window) and its key context, so
+ * nothing of them answers again. Call it when the plot or lane it was attached for is torn down; calling it again does nothing.
+ */
+export type PlotGesturesDisposer = () => void;
 
 /** Which elements are plots (a double-click resets their zoom) and which are axes (it opens their range). */
 export interface PlotSelectors {
@@ -81,9 +87,23 @@ const TRACK_SELECTORS: PlotSelectors = { plot: '.track-canvas', axis: '.track-ax
  * to reset (or, on an axis, to set its range), ← / → to step the readout of the plot under the pointer one
  * point at a time (R7), and + / − / 0 to zoom that plot's horizontal axis around its middle or show it whole. plotInteraction.ts attaches every plot, the lanes too, through these listeners, and
  * nothing else attaches them (src/test/plotGestures.test.ts).
+ *
+ * Clean-up promise: the returned disposer takes off every listener added here (the surface's, the document's, the
+ * window's blur) and the 'plot' key context, so none of them fires again; calling it twice does nothing.
+ * plotInteraction.ts returns it to the plot's owner, who calls it when it tears the plot or lane down.
  */
-export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: Pick<Document, 'addEventListener'> & Partial<Pick<Document, 'elementFromPoint'>>, keys: Pick<KeyRouter, 'add'>, handlers: TrackPointerHandlers, selectors: PlotSelectors = TRACK_SELECTORS): void {
-    tracksWrapper.addEventListener('dblclick', function (e) {
+export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: Pick<Document, 'addEventListener' | 'removeEventListener'> & Partial<Pick<Document, 'elementFromPoint'>>, keys: Pick<KeyRouter, 'add'>, handlers: TrackPointerHandlers, selectors: PlotSelectors = TRACK_SELECTORS): PlotGesturesDisposer {
+    /** Takes off what was added so far: each listener (and the key context) put on adds its own removal to it. */
+    let takeOff = (): void => undefined;
+    const alsoTakeOff = (remove: () => void): void => { const before = takeOff; takeOff = () => { before(); remove(); }; };
+    /** Every listener goes through here, so the disposer takes each one off again. */
+    function listen<K extends keyof DocumentEventMap>(target: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>, type: K, listener: (event: DocumentEventMap[K]) => void, options?: boolean | AddEventListenerOptions): void {
+        const fn = listener as EventListener;
+        target.addEventListener(type, fn, options);
+        const capture = typeof options === 'boolean' ? options : !!options?.capture;
+        alsoTakeOff(() => target.removeEventListener(type, fn, capture));
+    }
+    listen(tracksWrapper, 'dblclick', function (e) {
         const target = e.target as Partial<Element> | null;
         const hit = target && target.closest ? target.closest([selectors.plot, selectors.axis].filter(Boolean).join(', ')) : null;
         if (!hit) {
@@ -128,10 +148,10 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
     const pointerElsewhere = (plot: Element): boolean => !!shared.plot && shared.plot !== plot && shared.plot.isConnected;
     /** The plot whose readout the focus gave (none since the pointer read one here): only that readout goes with the focus. */
     let focusGave: Element | null = null;
-    tracksWrapper.addEventListener('mousemove', function (e) { over = plotOf(e.target); notePointer(over, e); focusGave = null; pointer = { x: e.clientX, y: e.clientY }; handlers.hover(e); });
+    listen(tracksWrapper, 'mousemove', function (e) { over = plotOf(e.target); notePointer(over, e); focusGave = null; pointer = { x: e.clientX, y: e.clientY }; handlers.hover(e); });
     // A scroll under a still pointer moves another place of a plot, or another plot, under it: read there, as a
     // pointer moved there would (R7), never a readout only taken away, nor one left where the plot was.
-    doc.addEventListener('scroll', function (e) {
+    listen(doc, 'scroll', function (e) {
         const at = pointer;
         const under = at && typeof doc.elementFromPoint === 'function' ? doc.elementFromPoint(at.x, at.y) : null;
         if (!at || !under) return;
@@ -147,23 +167,23 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
         notePointer(over, e);
         handlers.hover({ clientX: at.x, clientY: at.y, target: under, altKey: false, shiftKey: false, ctrlKey: false, metaKey: false, buttons: 0 } as unknown as MouseEvent);
     }, true);
-    tracksWrapper.addEventListener('mouseleave', function () { if (shared.plot && shared.plot === over) shared.plot = null; over = null; pointer = null; handlers.clearHover(); });
+    listen(tracksWrapper, 'mouseleave', function () { if (shared.plot && shared.plot === over) shared.plot = null; over = null; pointer = null; handlers.clearHover(); });
     // A plot given the focus from the keyboard reads where it starts, so the arrows have a point to step from;
     // let go of the focus with the pointer elsewhere, its readout goes.
     // With the pointer over a plot, of this surface or another (one inside it too), the readout is the pointer's (A47).
-    tracksWrapper.addEventListener('focusin', function (e) {
+    listen(tracksWrapper, 'focusin', function (e) {
         const plot = plotOf(e.target);
         if (!plot || over || selectors.focusKeepsArrows || pointerElsewhere(plot)) return;
         if (handlers.step(plot, 0)) focusGave = plot;
     });
     // Only a readout the focus gave goes: one the pointer read since, here or on a plot inside this surface, stays.
-    tracksWrapper.addEventListener('focusout', function (e) {
+    listen(tracksWrapper, 'focusout', function (e) {
         const plot = plotOf(e.target);
         if (!plot || focusGave !== plot) return;
         focusGave = null;
         if (!over) handlers.clearHover();
     });
-    keys.add({
+    alsoTakeOff(keys.add({
         layer: 'plot',
         keydown(e) {
             // + / − / 0 zoom the plot under the pointer (not one only focused: the view's own keys take those).
@@ -196,22 +216,23 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
             e.preventDefault();
             return true;
         },
-    });
-    tracksWrapper.addEventListener('mousedown', function (e) { handlers.press(e); });
-    doc.addEventListener('mousedown', function (e) { if (e.detail > 1) handlers.secondPress?.(e); }, true);
+    }));
+    listen(tracksWrapper, 'mousedown', function (e) { handlers.press(e); });
+    listen(doc, 'mousedown', function (e) { if (e.detail > 1) handlers.secondPress?.(e); }, true);
     // A move with no button down is a press whose release was lost (let go outside the page): it ends there.
-    doc.addEventListener('mousemove', function (e) { if (e.buttons === 0 && handlers.abandon) handlers.abandon(e); else handlers.drag(e); });
-    doc.addEventListener('mouseup', function (e) { handlers.release(e); });
+    listen(doc, 'mousemove', function (e) { if (e.buttons === 0 && handlers.abandon) handlers.abandon(e); else handlers.drag(e); });
+    listen(doc, 'mouseup', function (e) { handlers.release(e); });
     // Every other way a press ends without its release reaching the page ends it too, with nothing done.
     const lost = (): void => handlers.abandon?.();
-    doc.addEventListener('pointercancel', lost, true);
-    doc.addEventListener('lostpointercapture', lost, true);
-    doc.addEventListener('visibilitychange', function () { if ((doc as Partial<Document>).hidden) lost(); });
-    (doc as Partial<Document>).defaultView?.addEventListener('blur', lost);
+    listen(doc, 'pointercancel', lost, true);
+    listen(doc, 'lostpointercapture', lost, true);
+    listen(doc, 'visibilitychange', function () { if ((doc as Partial<Document>).hidden) lost(); });
+    const view = (doc as Partial<Document>).defaultView;
+    if (view) listen(view, 'blur', lost);
     // A swipe keeps the direction its first events took until it pauses, so a diagonal one does not
     // alternate between panning the time and scrolling the lanes.
     let swipe: { sideways: boolean; at: number } | null = null;
-    tracksWrapper.addEventListener('wheel', function (e) {
+    listen(tracksWrapper, 'wheel', function (e) {
         if (e.ctrlKey || e.shiftKey) {
             swipe = null;
             e.preventDefault();
@@ -227,4 +248,11 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
             handlers.panWheel(e, true);
         }
     }, { passive: false });
+    let disposed = false;
+    return () => {
+        if (disposed) return;
+        disposed = true;
+        takeOff();
+        takeOff = () => undefined;
+    };
 }

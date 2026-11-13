@@ -91,6 +91,8 @@ export class PairSpectrumPanel {
     /** The answers, by the request (its sources, offsets, range, settings) each answered; a failed one is asked again after the store's pause. */
     private readonly answers = createAnswerStore<PairSpectrumResultMessage>({ capacity: 4, retried: () => this.schedule(0) });
     private timer: ReturnType<typeof setTimeout> | null = null;
+    /** Takes off the plots' gestures attached last (attachPlotInteraction's clean-up promise): before they are attached again, and on dispose. */
+    private detachGestures: () => void = () => undefined;
     /** The pointer over one of the pair plots, while it is. */
     private pointer: { lane: PairLaneKey; clientX: number; clientY: number } | null = null;
     /** The frequency the pair cursor last read under the pointer. */
@@ -540,11 +542,14 @@ export class PairSpectrumPanel {
 
     /** The plots' gestures (the plot component's, R9) and the divider drag; call again after the spectrum section is rebuilt. */
     attach(): void {
+        // One set of gestures at a time: those of the section before it was rebuilt go first.
+        this.detachGestures();
+        this.detachGestures = () => undefined;
         const plotsEl = this.doc.getElementById('pair-spectrum-plot');
         if (plotsEl) {
             this.marks = new Map(PAIR_LANES.map(key => [key, createPlotHoverLayer(this.doc, { noValue: this.strings.plotNoValue }, 'pair-cursor')]));
             const laneOf = (element: Element): PairLaneKey => (element.getAttribute('data-pair-lane') ?? 'gain') as PairLaneKey;
-            attachPlotInteraction(plotsEl, this.doc, '[data-pair-lane]', {
+            this.detachGestures = attachPlotInteraction(plotsEl, this.doc, '[data-pair-lane]', {
                 locate: (target, clientX, clientY) => {
                     const plot = (target as Element | null)?.closest?.<HTMLElement>('[data-pair-lane]');
                     // A plot still waiting for its result takes the pointer too, so it reads once the result arrives.
@@ -642,6 +647,8 @@ export class PairSpectrumPanel {
     }
 
     dispose(): void {
+        this.detachGestures();
+        this.detachGestures = () => undefined;
         if (this.timer !== null) {
             clearTimeout(this.timer);
             this.timer = null;

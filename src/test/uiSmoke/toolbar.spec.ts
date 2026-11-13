@@ -734,6 +734,30 @@ test('the track\'s … menu stays open through repeated ±10 ms nudges', async (
     await expect(menu).not.toHaveAttribute('open', '');
 });
 
+test('a click on a lane\'s offset opens its field at once; a double click resets the offset to 0 and leaves no field (R13)', async ({ page }) => {
+    await loadUi(page);
+    const menu = page.locator('#track-row-0 details.track-more');
+    await menu.locator('summary').click();
+    await menu.locator('[data-action="offset-up"]').click();
+    await menu.locator('summary').click();
+    await expect(menu).not.toHaveAttribute('open', '');
+    const offset = page.locator('#track-row-0 .track-offset-val');
+    await expect(offset).toContainText('0.010');
+    const box = await offset.boundingBox();
+    if (!box) throw new Error('the offset is not on screen');
+    const x = box.x + box.width / 2, y = box.y + box.height / 2;
+    // A click: the field is there when the click has been told, with no wait of the page's own.
+    await page.mouse.click(x, y);
+    expect(await page.evaluate(() => !!document.querySelector('#track-row-0 .track-offset-input'))).toBe(true);
+    await page.locator('#track-row-0 .track-offset-input').press('Escape');
+    await expect(offset).toContainText('0.010');
+    // A double click, as the browser tells it (the second press's detail 2): the offset back to 0, no field open.
+    await page.mouse.dblclick(x, y);
+    await settled(page);
+    await expect(page.locator('#track-row-0 .track-offset-input')).toHaveCount(0);
+    await expect(offset).toBeHidden();
+});
+
 test('a theme switched while open repaints the lanes: the colour bar\'s strip takes the light background', async ({ page }) => {
     await page.setContent(buildUiSmokeHtml().replace(/<body([^>]*)>/, '<body$1 data-theme-kind="dark">'), { waitUntil: 'domcontentloaded' });
     const spec = page.locator('#track-spec-canvas-0');

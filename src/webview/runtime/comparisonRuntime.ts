@@ -2689,6 +2689,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     // ── Events ──
     function attachEvents() {
+        // The comparison's lanes, spectrum and keys live as long as the page, which is never torn down while it is
+        // shown: their disposers (the clean-up promise of attachPlotInteraction and keyRouter) are held here.
+        let releasePage = (): void => undefined;
+        const holdForPage = (dispose: () => void): void => { const before = releasePage; releasePage = () => { before(); dispose(); }; };
         if (isSelectionMode) {
             attachDirectorySelectionEvents();
         }
@@ -2706,7 +2710,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
         });
         syncSpectrumHeaderHint();
-        keyRouterFor(window).add({
+        holdForPage(keyRouterFor(window).add({
             layer: 'lanes',
             keydown(e) {
                 // A text field (the offset editor) uses Esc to cancel its own edit.
@@ -2714,7 +2718,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 setSpectrumMaximized(false);
                 return true;
             },
-        });
+        }));
         // Double-clicking a panel's resize edge folds it, the shortcut for its toggle button.
         document.addEventListener('dblclick', function (e) {
             const target = eventTarget(e);
@@ -2802,7 +2806,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
         // The lanes answer the shared plot gestures on their one time window: zooming one lane zooms them all. In the
         // steps mode they answer the mode's (trackStageGestures.ts) instead.
-        attachPlotInteraction(tracksWrapper, document, '.track-canvas', {
+        holdForPage(attachPlotInteraction(tracksWrapper, document, '.track-canvas', {
             locate: laneHit,
             pointOn(plot, clientX, clientY) {
                 const canvas = plot.isConnected ? plot : canvasById(document, plot.id);
@@ -2846,7 +2850,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 },
             },
             focusKeepsArrows: true,
-        });
+        }));
         // The split between a lane's waveform and spectrogram: one share for every lane, kept across sessions.
         let splitDrag: { startY: number; startShare: number } | null = null;
         tracksWrapper.addEventListener('pointerdown', function (e) {
@@ -2944,7 +2948,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 attachCanvasFocusHint(canvas, hintFooter, STR.cursorHelpKeys);
             });
         }
-        attachGlobalKeyboardListeners(keyRouterFor(window), document, {
+        holdForPage(attachGlobalKeyboardListeners(keyRouterFor(window), document, {
             helpOverlay: () => document.getElementById('help-overlay'),
             runShortcut: handleToolbarAction,
             togglePlayback(target, active) {
@@ -2969,7 +2973,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 moveCursor(viewState.cursor + direction * step);
             },
             arrowReleased: () => scheduleSpectrumRefresh('immediate'),
-        });
+        }));
         // カーソル時刻のパワースペクトルのホバーとキーボード
         (function attachSpectrumCursorEvents() {
             const overlayCanvas = canvasById(document, 'spectrum-overlay-canvas');
@@ -2996,7 +3000,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     x: { start: spectrumView.freqStart, end: spectrumView.freqEnd },
                     y: boxedDb && spectrumView.dbMin === boxedDb.min && spectrumView.dbMax === boxedDb.max ? boxedDb.y : FULL_PLOT_WINDOW.y,
                 });
-                attachPlotInteraction(overlayCanvas.parentElement ?? overlayCanvas, document, '#spectrum-overlay-canvas', {
+                holdForPage(attachPlotInteraction(overlayCanvas.parentElement ?? overlayCanvas, document, '#spectrum-overlay-canvas', {
                     locate(target, clientX, clientY) {
                         if (target !== overlayCanvas || !spectrumView.hasData()) return null;
                         const at = canvasPoint(clientX, clientY);
@@ -3040,7 +3044,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     hideBox() { zoomBox.hidden = true; },
                     // The right-hand level axis opens its own range, as on every plot with two level axes (R13).
                     openAxisRange(hit, clientX, clientY) { openSpectrumRangePopup(hit.axis === 'y' ? (hit.right && spectrumRightAxis ? 'db-right' : 'db') : 'freq', clientX, clientY); return true; },
-                });
+                }));
                 attachCanvasFocusHint(overlayCanvas, hintFooter, STR.hintSpectrumPlot);
             }
             pairPanel.attach();

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
+import { keyRouterFor } from '../webview/runtime/keyRouter';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, windowFromBox, type PlotDrag, type PlotInteractionDeps, type PlotPoint, type PlotWindow } from '../webview/runtime/plotInteraction';
 
 test('a box zooms both axes; one too thin on an axis it zooms zooms nothing', () => {
@@ -26,7 +27,7 @@ function surface(extra: Partial<PlotInteractionDeps> = {}) {
     const calls: string[] = [];
     let window_: PlotWindow = FULL_PLOT_WINDOW;
     const point = (clientX: number, clientY: number): PlotPoint => ({ fx: clientX / 100, fy: 1 - clientY / 100 });
-    attachPlotInteraction(element('surface'), doc, '.plot', {
+    const dispose = attachPlotInteraction(element('surface'), doc, '.plot', {
         locate: (target, clientX, clientY) => {
             const plot = (target as HTMLElement | null)?.closest?.<HTMLElement>('.plot');
             return plot ? { plot, point: point(clientX, clientY), axis: null } : null;
@@ -51,7 +52,7 @@ function surface(extra: Partial<PlotInteractionDeps> = {}) {
         mouse(doc, 'mouseup', to, init);
     };
     const wheel = (id: string, init: WheelEventInit): void => { element(id).dispatchEvent(new window.WheelEvent('wheel', { bubbles: true, cancelable: true, clientX: 50, clientY: 50, ...init })); };
-    return { window, doc, element, calls, mouse, drag, wheel };
+    return { window, doc, element, calls, mouse, drag, wheel, dispose };
 }
 
 const recorder = (calls: string[], name: string): PlotDrag => ({
@@ -436,4 +437,96 @@ test('a lost release tells the press\'s owner it ended: an Alt+drag is ended whe
         lose(doc, element('a'));
         assert.deepEqual(taps, [false], `after ${name} the owner of a plain press was not told it ended as no click. ${fix}`);
     }
+});
+
+test('after its disposer runs no listener of a plot\'s gestures fires: every one added on the surface, the document and the window is taken off, and its key context too (clean-up promise)', () => {
+    // Every listener added and taken off on the three targets, counted; and every gesture's dep recording that it was asked.
+    const { window } = new JSDOM('<!doctype html><body><div id="surface"><canvas class="plot" id="a"></canvas><canvas class="axis" id="axis"></canvas></div></body>');
+    const doc = window.document;
+    const surfaceEl = doc.getElementById('surface') as HTMLElement;
+    const plot = doc.getElementById('a') as HTMLElement;
+    plot.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100, x: 0, y: 0, toJSON: () => ({}) });
+    // jsdom's selector engine listens on the window the first time a selector is matched: before the count.
+    plot.closest('.plot');
+    const live = new Map<string, number>();
+    for (const [name, target] of [['surface', surfaceEl], ['document', doc], ['window', window]] as const) {
+        const add = target.addEventListener.bind(target), remove = target.removeEventListener.bind(target);
+        const added: Array<{ type: string; listener: unknown; capture: boolean }> = [];
+        target.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions) => {
+            const capture = typeof options === 'boolean' ? options : !!options?.capture;
+            added.push({ type, listener, capture });
+            live.set(name, (live.get(name) ?? 0) + 1);
+            add(type, listener, options);
+        }) as typeof target.addEventListener;
+        target.removeEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions) => {
+            const capture = typeof options === 'boolean' ? options : !!options?.capture;
+            const at = added.findIndex(entry => entry.type === type && entry.listener === listener && entry.capture === capture);
+            if (at >= 0) { added.splice(at, 1); live.set(name, (live.get(name) ?? 0) - 1); }
+            remove(type, listener, options);
+        }) as typeof target.removeEventListener;
+    }
+    // The router's own window listeners, made once for the window, are not the plot's: made before it is attached.
+    const router = keyRouterFor(window);
+    live.clear();
+    const asked: string[] = [];
+    const ask = (name: string) => () => { asked.push(name); };
+    const dispose = attachPlotInteraction(surfaceEl, doc, '.plot', {
+        locate: (target, clientX, clientY) => { asked.push('locate'); const at = (target as HTMLElement | null)?.closest?.<HTMLElement>('.plot'); return at ? { plot: at, point: { fx: clientX / 100, fy: clientY / 100 }, axis: null } : null; },
+        pointOn: () => { asked.push('pointOn'); return { fx: 0.5, fy: 0.5 }; },
+        window: () => FULL_PLOT_WINDOW,
+        setWindow: ask('setWindow'),
+        hover: ask('hover'),
+        clearHover: ask('clearHover'),
+        showBox: ask('showBox'),
+        hideBox: ask('hideBox'),
+        openAxisRange: () => { asked.push('openAxisRange'); return true; },
+        stepFrom: () => { asked.push('stepFrom'); return null; },
+        tap: () => { asked.push('tap'); },
+        pressed: ask('pressed'),
+        takesKeys: () => { asked.push('takesKeys'); return true; },
+    });
+    assert.ok([...live.values()].reduce((a, b) => a + b, 0) > 0, 'the gestures listen while attached');
+    assert.ok(router.layers().includes('plot'), 'and have their key context');
+    const every = (): void => {
+        const mouse = (target: EventTarget, type: string, init: MouseEventInit = {}) => target.dispatchEvent(new window.MouseEvent(type, { bubbles: true, cancelable: true, clientX: 50, clientY: 50, ...init }));
+        mouse(plot, 'mousemove');
+        mouse(plot, 'mousedown', { detail: 1 });
+        mouse(doc, 'mousemove', { buttons: 1, clientX: 90 });
+        mouse(doc, 'mouseup');
+        mouse(plot, 'click');
+        mouse(plot, 'mousedown', { detail: 2 });
+        mouse(plot, 'dblclick', { detail: 2 });
+        mouse(plot, 'mouseleave');
+        plot.dispatchEvent(new window.WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -100, clientX: 50, clientY: 50 }));
+        plot.dispatchEvent(new window.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaX: 100, clientX: 50, clientY: 50 }));
+        plot.dispatchEvent(new window.FocusEvent('focusin', { bubbles: true }));
+        plot.dispatchEvent(new window.FocusEvent('focusout', { bubbles: true }));
+        doc.dispatchEvent(new window.Event('scroll'));
+        doc.dispatchEvent(new window.Event('pointercancel'));
+        doc.dispatchEvent(new window.Event('visibilitychange'));
+        window.dispatchEvent(new window.FocusEvent('blur'));
+        for (const key of [{ key: 'ArrowRight', code: 'ArrowRight' }, { key: '+', code: 'Equal' }, { key: '0', code: 'Digit0' }]) plot.dispatchEvent(new window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...key }));
+    };
+    every();
+    assert.ok(asked.length > 0, 'attached, the gestures answer these events');
+    dispose();
+    asked.length = 0;
+    every();
+    assert.deepEqual(asked, [], 'after dispose no gesture is asked anything');
+    assert.deepEqual(Object.fromEntries(live), { surface: 0, document: 0, window: 0 }, 'every listener added is taken off');
+    assert.ok(!router.layers().includes('plot'), 'its key context is out of the router');
+    dispose();
+    assert.deepEqual(Object.fromEntries(live), { surface: 0, document: 0, window: 0 }, 'a second dispose does nothing');
+});
+
+test('a key context added to the router sees no key once its disposer runs (clean-up promise)', () => {
+    const { window } = new JSDOM('<!doctype html><body></body>');
+    const keys: string[] = [];
+    const remove = keyRouterFor(window).add({ layer: 'popover', keydown: event => { keys.push(event.key); return true; } });
+    window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
+    remove();
+    remove();
+    window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
+    assert.deepEqual(keys, ['Escape']);
+    assert.deepEqual(keyRouterFor(window).layers(), []);
 });

@@ -17,7 +17,13 @@ export interface KeyContext {
 }
 
 export interface KeyRouter {
-    /** Adds a context; the returned function takes it out again (a popover closing). */
+    /**
+     * Adds a context. Clean-up promise: the returned function takes it out again, so it sees no key after (a popover
+     * closing, a plot torn down); calling it twice does nothing. The owner of the context keeps it and calls it when it
+     * tears down what the keys were for; an owner that lives as long as the page hands it on to its own owner. No
+     * caller drops it (src/test/plotGestures.test.ts). The router's own two window listeners belong to the window: every
+     * bundle of the page shares them (keyRouterFor), so no one context's owner takes them off.
+     */
     add(context: KeyContext): () => void;
     /** The layers in front for this key, front first: for tests and the help's choice of section. */
     layers(): KeyLayer[];

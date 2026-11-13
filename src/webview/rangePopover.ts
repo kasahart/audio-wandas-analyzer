@@ -39,6 +39,8 @@ export interface RangePopoverRequest {
 export interface RangePopover {
     open(request: RangePopoverRequest): void;
     close(): void;
+    /** Takes off its key context (keyRouter's clean-up promise), its press-outside listener and its element. */
+    dispose(): void;
 }
 
 /** A plot axis between its parts (0–1 of the plot) and its values, as typed and shown. */
@@ -167,21 +169,21 @@ export function installRangePopover(doc: Document, config: RangePopoverConfig): 
     });
     closeButton.addEventListener('click', close);
     const keyWindow = doc.defaultView;
-    if (keyWindow) {
-        keyRouterFor(keyWindow).add({
-            layer: 'popover',
-            keydown(event) {
-                if (event.key !== 'Escape' || pop.style.display === 'none') return false;
-                close();
-                return true;
-            },
-        });
-    }
-    doc.addEventListener('mousedown', event => {
+    const removeKeys = keyWindow ? keyRouterFor(keyWindow).add({
+        layer: 'popover',
+        keydown(event) {
+            if (event.key !== 'Escape' || pop.style.display === 'none') return false;
+            close();
+            return true;
+        },
+    }) : () => undefined;
+    const pressOutside = (event: MouseEvent): void => {
         if (pop.style.display !== 'none' && !pop.contains(event.target as Node | null)) { close(); }
-    });
+    };
+    doc.addEventListener('mousedown', pressOutside);
 
     return {
+        dispose(): void { removeKeys(); doc.removeEventListener('mousedown', pressOutside); pop.remove(); },
         open(request: RangePopoverRequest): void {
             active = request;
             badge.textContent = request.axisLabel;
