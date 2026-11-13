@@ -12,11 +12,13 @@
 //                         independent lanes at once, TypeScript / ESLint / Python, and prints each lane when it ends)
 // pytest runs across the CPU cores (pytest-xdist, -n auto) unless AWA_PERF=1, whose budgets assume a serial run.
 // E2E (npm run verify:e2e) and the Playwright smoke (npm run test:ui) are separate CI jobs.
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runLanes } from './verify-runner.mjs';
 
+const started = Date.now();
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const windows = process.platform === 'win32';
 const pathKey = Object.keys(process.env).find(key => key.toUpperCase() === 'PATH') ?? 'PATH';
@@ -42,8 +44,8 @@ for (const tool of ['ruff', 'pyright']) {
 
 // A lane is a list of steps that depend on the ones before them (node:test runs what tsc built); lanes run at once. A
 // step that needs another lane's step names it in `after` and waits for it (pytest runs the compiled batch bundle in
-// dist/, which tsc compile rewrites). A failed step ends its lane; the other lanes still finish, and verify fails
-// naming each failure.
+// dist/, which tsc compile rewrites). The first failed step ends verify: the steps still running in the other lanes
+// are stopped with their whole process tree, and verify fails naming the failure (scripts/verify-runner.mjs).
 const pytestArgs = process.env.AWA_PERF === '1' ? [] : ['-n', 'auto', '--dist', 'worksteal'];
 const lanes = [
     ['TypeScript', [
@@ -80,95 +82,13 @@ function pythonExecutable() {
     return spawnSync(python, ['-c', 'import sys; print(sys.executable)'], { env, encoding: 'utf8' }).stdout.trim();
 }
 
-const seconds = since => `${((Date.now() - since) / 1000).toFixed(1)} s`;
-
-/** Each step's outcome (true when it exited 0), by label, settled once it ran, failed or will not run. */
-const outcomes = new Map();
-const settle = new Map();
-for (const [, steps] of lanes) {
-    for (const [label] of steps) {
-        outcomes.set(label, new Promise(resolve => settle.set(label, resolve)));
-    }
-}
-
-/** Runs one step; resolves to true when it exits 0. `write` gets its output (live, or into the lane's buffer). */
-async function step(item, write, live) {
-    const passed = await runStep(item, write, live);
-    settle.get(item[0])?.(passed);
-    return passed;
-}
-
-async function runStep([label, command, args, { after } = {}], write, live) {
-    if (after && !await outcomes.get(after)) {
-        write(`verify: ${label} not run: ${after} failed\n`);
-        return false;
-    }
-    return new Promise(resolve => {
-        const started = Date.now();
-        write(`==> ${label}\n`);
-        const child = spawn(command, args.map(arg => typeof arg === 'function' ? arg() : arg), { cwd: root, env, stdio: live ? 'inherit' : ['ignore', 'pipe', 'pipe'] });
-        if (!live) {
-            child.stdout.on('data', chunk => write(chunk));
-            child.stderr.on('data', chunk => write(chunk));
-        }
-        child.on('error', error => {
-            write(`verify: could not start ${command}: ${error.message}\n`);
-            resolve(false);
-        });
-        child.on('close', status => {
-            write(status === 0 ? `<== ${label} (${seconds(started)})\n` : `verify: ${label} failed (exit ${status})\n`);
-            resolve(status === 0);
-        });
-    });
-}
-
-/** Runs a lane's steps in order, stopping at the first failure; resolves to the failed step's label, if any. */
-async function lane(steps, write, live) {
-    for (const [index, item] of steps.entries()) {
-        if (!await step(item, write, live)) {
-            // The steps left in this lane will not run: a step in another lane waiting on one of them stops too.
-            for (const [label] of steps.slice(index + 1)) {
-                settle.get(label)?.(false);
-            }
-            return item[0];
-        }
-    }
-    return undefined;
-}
-
-const serial = process.env.AWA_VERIFY_SERIAL === '1';
-const started = Date.now();
-const failures = [];
-if (serial) {
-    for (const [, steps] of lanes) {
-        const failed = await lane(steps, text => process.stdout.write(text), true);
-        if (failed) {
-            failures.push(failed);
-            break;
-        }
-    }
-} else {
-    console.log(`verify: running lanes at once: ${lanes.map(([name]) => name).join(', ')} (AWA_VERIFY_SERIAL=1 runs them one by one)`);
-    await Promise.all(lanes.map(async ([name, steps]) => {
-        const laneStarted = Date.now();
-        const chunks = [];
-        const failed = await lane(steps, text => chunks.push(Buffer.from(text)), false);
-        // A lane's output is printed whole, when it ends, so lanes do not interleave.
-        process.stdout.write(`\n---- ${name} lane: ${failed ? 'FAILED' : 'ok'} (${seconds(laneStarted)}) ----\n`);
-        process.stdout.write(Buffer.concat(chunks));
-        if (failed) {
-            failures.push(failed);
-        }
-    }));
-}
+const failures = await runLanes(lanes, { cwd: root, env, serial: process.env.AWA_VERIFY_SERIAL === '1' });
 if (failures.length === 0 && process.env.AWA_VERIFY_BROWSER === '1') {
     // Builds into dist/ like tsc compile, so it runs after every lane.
-    if (!await step(['browser Worker/native parity', ...npm(['run', 'test:browser'])], text => process.stdout.write(text), true)) {
-        failures.push('browser Worker/native parity');
-    }
+    failures.push(...await runLanes([['Browser parity', [['browser Worker/native parity', ...npm(['run', 'test:browser'])]]]], { cwd: root, env, serial: true }));
 }
 if (failures.length > 0) {
-    console.error(`verify: failed: ${failures.join('; ')} (${seconds(started)})`);
+    console.error(`verify: failed: ${failures.join('; ')} (${((Date.now() - started) / 1000).toFixed(1)} s)`);
     process.exit(1);
 }
-console.log(`verify: OK (${seconds(started)})`);
+console.log(`verify: OK (${((Date.now() - started) / 1000).toFixed(1)} s)`);

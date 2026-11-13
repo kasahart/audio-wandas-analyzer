@@ -1,2 +1,31 @@
+# Line endings are part of the repository's contract: every text file is stored with LF and checked out with LF on
+# every OS, whatever core.autocrlf says, so a checkout is byte-identical on Windows, macOS and Linux. Tests compare
+# files byte for byte (a generated document against its rendering, a copy against its source) and never normalise
+# line endings. No checked-in file needs CRLF (the CSV the extension writes has CRLF records, made by code, not
+# stored here). A file that ever must be CRLF is listed below with `eol=crlf` and the reason.
+* text=auto eol=lf
+
+# Binary: never converted, never diffed as text.
+*.wav binary
+*.png binary
+*.gif binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.whl binary
+*.vsix binary
+*.woff binary
+*.woff2 binary
+*.wasm binary
+*.npy binary
+*.npz binary
+
+# The GUI core is a byte-for-byte copy of the wandas-gui repository, held to pinned hashes (scripts/sync-gui-core.mjs
+# checks them): git keeps these bytes exactly as committed (LF, as upstream) and never converts them.
 src/shared/gui-core/** -text
 scripts/sync-gui-core.mjs -text

@@ -56,7 +56,7 @@ Node 22 (`.nvmrc`, `engines.node`) and Python 3.11 are the supported versions (m
 
 pytest opt-ins: `AWA_SLOW=1` runs the slow operation-catalog probe (CI sets it on Linux); `AWA_PERF=1` holds wall-clock budgets in pytest, node:test and the Playwright smoke, which are otherwise only reported.
 
-Speed: verify runs three lanes at once (TypeScript, ESLint, Python; `AWA_VERIFY_SERIAL=1` runs them one by one with live output) and pytest across the CPU cores (pytest-xdist `-n auto`). The Playwright smoke uses one worker per core (`AWA_UI_WORKERS` overrides it) and runs `plotContract.spec.ts` in parallel inside the file. `AWA_PERF=1` turns both back to serial pytest and Playwright's default workers, so its budgets see the load they were set under.
+Speed: verify runs three lanes at once (TypeScript, ESLint, Python; `AWA_VERIFY_SERIAL=1` runs them one by one with live output; the first failed step stops every lane with its whole process tree and verify exits non-zero at once, `scripts/verify-runner.mjs`) and pytest across the CPU cores (pytest-xdist `-n auto`). The Playwright smoke uses one worker per core (`AWA_UI_WORKERS` overrides it) and runs `plotContract.spec.ts` in parallel inside the file. `AWA_PERF=1` turns both back to serial pytest and Playwright's default workers, so its budgets see the load they were set under.
 
 ```bash
 npm run verify        # see scripts/verify.mjs
@@ -135,6 +135,8 @@ trackDurRatio  = durationSeconds / globalSpanSec
 ---
 
 ## 5. Conventions
+
+Line endings: every text file is LF in the repository and in every checkout, on every OS (`.gitattributes`, which overrides `core.autocrlf`), so tests compare files byte for byte and never normalise `\r\n`; a file that must be CRLF is named in `.gitattributes` with its reason.
 
 ### TypeScript
 

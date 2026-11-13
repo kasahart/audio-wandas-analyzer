@@ -89,8 +89,7 @@ const output = [
     '',
 ].join('\n');
 
-// Compare without line-ending differences so a CRLF checkout (core.autocrlf) still passes.
-const current = existsSync(target) ? readFileSync(target, 'utf8').replace(/\r\n/g, '\n') : '';
+const current = existsSync(target) ? readFileSync(target, 'utf8') : '';
 if (current === output) {
     console.log('Generated protocol types match python-backend/protocol_schema.py');
 } else if (process.argv.includes('--write')) {

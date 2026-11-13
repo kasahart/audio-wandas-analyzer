@@ -712,7 +712,7 @@ function pythonFlowReaders(sources?: Readonly<Record<string, string>>): Record<s
     const venv = path.join(repoRoot, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
     const python = existsSync(venv) ? venv : process.platform === 'win32' ? 'python' : 'python3';
     const script = sources
-        ? ['-c', 'import json,sys; sys.path.insert(0, "scripts"); import check_decimation_flow as c; print(json.dumps(c.find_readers(json.load(sys.stdin))))']
+        ? ['-c', 'import json,sys; sys.path.insert(0, "scripts"); import check_decimation_flow as c; print(json.dumps(c.find_readers(json.loads(sys.stdin.buffer.read().decode("utf-8")))))']
         : ['scripts/check_decimation_flow.py', '--readers'];
     const run = spawnSync(python, script, { cwd: repoRoot, encoding: 'utf8', input: sources ? JSON.stringify(sources) : undefined });
     assert.equal(run.status, 0, `check_decimation_flow.py --readers: ${run.stderr}`);
@@ -1144,5 +1144,7 @@ test('every exception a row takes is one docs/display-rules.md approves, and eve
 });
 
 test('docs/plot-contracts.md is the table as plotContracts renders it', () => {
-    assert.equal(read(CONTRACT_DOC), renderContractDoc(), 'run: npm run compile && node dist/test/plotContracts/render.js');
+    // Compared byte for byte, line endings included: the repo stores every text file with LF and checks it out so on
+    // every OS (.gitattributes), so a difference here is a difference of content, never of the machine.
+    assert.equal(read(CONTRACT_DOC), renderContractDoc(), `${CONTRACT_DOC} is generated from src/test/plotContracts/ and is not the table it renders. Fix: change the table there, not the document, then run \`npm run compile && node dist/test/plotContracts/render.js\` and commit the document it writes. If the only difference is CR LF line endings, the checkout is not the repository's: git must honour .gitattributes (\`git add --renormalize .\`, then check out again) — never make this comparison ignore them.`);
 });
