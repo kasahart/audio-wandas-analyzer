@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
+import threading
 from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import Any
 
 import dask
@@ -17,17 +20,78 @@ RecipeFactory = Callable[..., dict[str, Any]]
 OPT_IN = {"slow": "AWA_SLOW", "perf": "AWA_PERF"}
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--record-skips",
+        metavar="PATH",
+        help="write the skipped tests (runner, test, reason) as JSON to PATH (the skip gate, scripts/test-skips.mjs)",
+    )
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    for marker, variable in OPT_IN.items():
-        if os.environ.get(variable) == "1":
-            continue
-        skip = pytest.mark.skip(reason=f"{marker}: set {variable}=1 to run")
-        for item in items:
-            if marker in item.keywords:
-                item.add_marker(skip)
+    # Deselected, not skipped: a test of an opt-in marker is not part of a run unless its variable asks for it, and
+    # in CI a skip fails verify (scripts/test-skips.mjs). The summary names what was left out and how to run it.
+    off = {marker: variable for marker, variable in OPT_IN.items() if os.environ.get(variable) != "1"}
+    deselected = [item for item in items if any(marker in item.keywords for marker in off)]
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+        items[:] = [item for item in items if item not in deselected]
+
+
+_SKIPPED: list[dict[str, str]] = []  # runner, test, reason
+
+
+def _record_skip(report: pytest.TestReport | pytest.CollectReport) -> None:
+    if report.skipped and not hasattr(report, "wasxfail"):
+        reason = report.longrepr[2] if isinstance(report.longrepr, tuple) else str(report.longrepr)
+        skip = {"runner": "pytest", "test": report.nodeid, "reason": reason.removeprefix("Skipped: ")}
+        if skip not in _SKIPPED:
+            _SKIPPED.append(skip)
+
+
+def pytest_runtest_logreport(report: pytest.TestReport) -> None:
+    # A test that skips while it runs (pytest.skip, a skip or skipif mark). On the controller of a pytest-xdist run
+    # too: the workers' reports reach this hook there.
+    _record_skip(report)
+
+
+def pytest_collectreport(report: pytest.CollectReport) -> None:
+    # A whole module or class that skips while it is collected (pytest.skip(..., allow_module_level=True), a
+    # module-level pytest.importorskip): it is reported here, never to pytest_runtest_logreport. pytest-xdist hands
+    # the workers' skipped collection reports to the controller's hook, once each.
+    _record_skip(report)
+
+
+def _encodable(value: Any) -> Any:
+    """``value`` with every string made UTF-8 encodable (a lone surrogate becomes its escape, ``\\ud800``)."""
+    if isinstance(value, str):
+        return value.encode("utf-8", "backslashreplace").decode("utf-8")
+    if isinstance(value, dict):
+        return {_encodable(key): _encodable(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return type(value)(_encodable(item) for item in value)
+    return value
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_report_to_serializable(config: pytest.Config, report: pytest.TestReport | pytest.CollectReport) -> Any:
+    # A pytest-xdist worker sends each report to the controller as UTF-8. A report that carries a lone surrogate (an
+    # assertion's diff of a string the test built from one, its captured output) cannot be encoded: the worker
+    # crashed with INTERNALERROR and the test's own failure was never shown. Escaped here, it is.
+    serialized = yield
+    return _encodable(serialized)
+
+
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    path = session.config.getoption("--record-skips")
+    if path and not hasattr(session.config, "workerinput"):
+        Path(path).write_text(json.dumps(_SKIPPED, indent=1), encoding="utf-8")
 
 
 def pytest_terminal_summary(terminalreporter: Any) -> None:
+    for marker, variable in OPT_IN.items():
+        if os.environ.get(variable) != "1":
+            terminalreporter.write_line(f"{marker} tests deselected: set {variable}=1 to run them")
     timings = [
         f"  {report.nodeid}: {value}"
         for reports in terminalreporter.stats.values()
@@ -49,6 +113,37 @@ def _restore_dask_config() -> Iterator[None]:
     yield
     dask.config.config.clear()
     dask.config.config.update(saved)
+
+
+#: Threads named so are the backend's own (backend_server: "awa-request-<n>", "awa-heartbeat") or a test's that
+#: drive backend code, which writes replies (a test names those "awa-test-<what>").
+#: Held by _no_backend_thread_outlives_its_test.
+BACKEND_THREAD_PREFIX = "awa-"
+#: Bounds the wait for a backend thread that has only to return when its test ends; never one that is still working.
+_THREAD_RETURN_S = 10.0
+
+
+def _backend_threads() -> list[threading.Thread]:
+    return [thread for thread in threading.enumerate() if thread.name.startswith(BACKEND_THREAD_PREFIX)]
+
+
+@pytest.fixture(autouse=True)
+def _no_backend_thread_outlives_its_test() -> Iterator[None]:
+    """A backend thread writes replies into whatever reply stream is in place when it writes (backend_server._emit).
+    One that outlived its test wrote into the next test's stream: on Windows CI a test that failed while its threads
+    still ran made the next test read their replies, and its heartbeat thread, its sleep given back, beat for the rest
+    of the session. So a test ends only when its backend threads have (else it errors at teardown), and while one
+    still runs no later test starts (it errors at setup): no test reads a reply that is not its own."""
+    running = [thread.name for thread in _backend_threads()]
+    if running:
+        pytest.fail(
+            f"backend thread(s) of an earlier test still running, so this test cannot run: {running}", pytrace=False
+        )
+    yield
+    for thread in _backend_threads():
+        thread.join(timeout=_THREAD_RETURN_S)
+    left = [thread.name for thread in _backend_threads()]
+    assert not left, f"backend thread(s) outlived their test: {left}"
 
 
 @pytest.fixture

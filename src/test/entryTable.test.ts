@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,6 +9,7 @@ import {
     BAND_CENTERS_HZ, buildEntryModel, csvNumber, entryCsv, filenameConditions, levelDelta, type DerivedRow, type EntryFile, type EntryMeasure, type EntryModel,
 } from '../webview/runtime/entryTable';
 import { compareOf } from './helpers/compareInput';
+import { testPython } from './helpers/python';
 import { derivedIsStale } from '../webview/runtime/entryRuntime';
 import { entryMeasure } from '../webview/runtime/compareReport';
 import { getStrings } from '../shared/i18n/strings';
@@ -134,18 +135,8 @@ test('one stored scan result stays within about 5 KB', () => {
     assert.ok(JSON.stringify(twoChannels).length < 5 * 1024, String(JSON.stringify(twoChannels).length));
 });
 
-function findPython(): string | null {
-    for (const candidate of [path.join(repoRoot, '.venv', 'bin', 'python'), path.join(repoRoot, '.venv', 'Scripts', 'python.exe'), process.env.WANDAS_PYTHON]) {
-        if (candidate && existsSync(candidate)) return candidate;
-    }
-    for (const command of ['python3', 'python']) {
-        if (spawnSync(command, ['--version'], { stdio: 'ignore' }).status === 0) return command;
-    }
-    return null;
-}
-
 test('on the scanned entry100 fixture the three resonances stand 10 dB above their groups at 3.15 kHz, one ✕ and one ≠', (t) => {
-    const python = findPython();
+    const python = testPython();
     if (!python) { t.skip('no Python'); return; }
     const out = mkdtempSync(path.join(tmpdir(), 'entry100-'));
     try {

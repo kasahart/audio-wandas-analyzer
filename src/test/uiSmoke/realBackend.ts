@@ -1,14 +1,13 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
+import { testPython } from '../helpers/python';
 
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
 
-/** The Python with wandas the tests use: the repository's .venv, else WANDAS_PYTHON, else python3. */
+/** The Python with wandas the tests use, found as the extension finds it (helpers/python.ts). */
 export function backendPython(): string | undefined {
-    return [path.join(repoRoot, '.venv', 'bin', 'python'), process.env.WANDAS_PYTHON, 'python3']
-        .find(candidate => candidate && (candidate === 'python3' || existsSync(candidate)));
+    return testPython();
 }
 
 /** Runs a fixture script with that Python; its stdout, or undefined (with why in `error`) when it fails. */
