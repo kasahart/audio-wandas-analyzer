@@ -278,3 +278,49 @@ test('the steps\' gestures place the pointer on the plot as it was drawn: with a
     assert.equal(over.right, true);
     assert.ok(Math.abs(stagePlotPoint(canvas, 300, 100, drawn).fx - 248 / 496) < 1e-9, 'the middle is read on the drawn width');
 });
+
+test('over a heatmap\'s colour bar every axis gesture answers as on an axis, by the one hit test of it (stagePlotPoint): Ctrl+wheel zooms the horizontal axis about its middle, a press draws no box, a hover reads no cell, a double-click resets the zoom (R13)', async () => {
+    const { stagePlotPoint } = await import('../webview/runtime/stagePanes');
+    const dom = drawing(new JSDOM('<!doctype html><body><div class="lanes"></div><div class="track-stage"><canvas data-stage-canvas="overlay"></canvas></div></body>'));
+    const { document } = dom.window;
+    const view = dom.window;
+    const root = document.querySelector('.track-stage') as HTMLElement;
+    const canvas = root.querySelector('canvas') as HTMLCanvasElement;
+    const frame = { left: STAGE_MARGINS.left, top: STAGE_MARGINS.top, width: 400, height: 200 };
+    const width = frame.left + frame.width + STAGE_MARGINS.right, height = frame.top + frame.height + STAGE_MARGINS.bottom;
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width, height, right: width, bottom: height, x: 0, y: 0, toJSON: () => ({}) });
+    // The colour bar inside the plot's top right, as paintColourBar returns its box (CSS pixels on the canvas).
+    const colourBar = { x: frame.left + 280, y: frame.top + 3, width: 116, height: 14 };
+    const plot = { frame, colourBar, xAt: (value: number) => frame.left + value * frame.width, ...Y(value => frame.top + (1 - value) * frame.height, frame.height), xOf: (x: number) => (x - frame.left) / frame.width, ratioStep: 1, diff: false, lines: [] } as unknown as StagePlot;
+    const bar = { clientX: colourBar.x + colourBar.width / 2, clientY: colourBar.y + colourBar.height / 2 };
+    // The one hit test: the bar is a value axis; just off it, the plot.
+    assert.deepEqual(stagePlotPoint(canvas, bar.clientX, bar.clientY, plot), { ...stagePlotPoint(canvas, bar.clientX, bar.clientY, { frame }), axis: 'y', colour: true });
+    assert.equal(stagePlotPoint(canvas, colourBar.x - 1, bar.clientY, plot).axis, null);
+    assert.equal(stagePlotPoint(canvas, bar.clientX, colourBar.y + colourBar.height + 1, plot).axis, null);
+    const state = initialStageState();
+    state.on = true;
+    const hints: string[] = [];
+    attachStageGestures(document.querySelector('.lanes') as HTMLElement, root, document, {
+        strings: getStrings('en'), state, drawnOn: new Map([[canvas, { picture: { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', xs: [0, 1], ys: [0, 1], matrix: [[0, 0], [0, 0]] }, range: R({ min: 0, max: 1 }), axes: N({ x: 't', y: 'f' }), plot } as never]]), painted: () => true,
+        moved: () => undefined, rerender: () => undefined, hint: text => { hints.push(text); }, lanesApart: () => false,
+    });
+    const fix = 'Fix: hit-test the colour bar in stagePanes.stagePlotPoint, the one hit test every plot uses (docs/display-rules.md R13).';
+    // Ctrl+wheel, one step in (×0.85, waveformInteraction.wheelZoomFactor): about the middle, 0.075 to 0.925, never about the pointer.
+    canvas.dispatchEvent(new view.WheelEvent('wheel', { ...bar, deltaY: -100, ctrlKey: true, bubbles: true, cancelable: true }));
+    assert.ok(Math.abs(state.window.x.start - 0.075) < 1e-12 && Math.abs(state.window.x.end - 0.925) < 1e-12, `Ctrl+wheel over the colour bar zoomed to ${JSON.stringify(state.window.x)}, not about the middle. ${fix}`);
+    assert.deepEqual(state.window.y, { start: 0, end: 1 });
+    // A hover there reads no cell: the axis's hint.
+    canvas.dispatchEvent(new view.MouseEvent('mousemove', { ...bar, bubbles: true }));
+    assert.equal(hints.at(-1), getStrings('en').compareHintAxis, `a hover over the colour bar read the plot. ${fix}`);
+    // A press dragged from the bar draws no box and zooms nothing.
+    const zoomed = JSON.stringify(state.window);
+    canvas.dispatchEvent(new view.MouseEvent('mousedown', { ...bar, button: 0, bubbles: true, detail: 1 }));
+    document.dispatchEvent(new view.MouseEvent('mousemove', { clientX: frame.left + 20, clientY: frame.top + 150, buttons: 1, bubbles: true }));
+    document.dispatchEvent(new view.MouseEvent('mouseup', { clientX: frame.left + 20, clientY: frame.top + 150, button: 0, bubbles: true, detail: 1 }));
+    assert.equal(JSON.stringify(state.window), zoomed, `a drag from the colour bar zoomed into a box. ${fix}`);
+    assert.equal(document.querySelector<HTMLElement>('.track-stage-box')?.hidden, true);
+    // A double-click on it: no colour range to type here, so the zoom is reset (never the rows' range).
+    canvas.dispatchEvent(new view.MouseEvent('dblclick', { ...bar, bubbles: true }));
+    assert.deepEqual(state.window, { x: { start: 0, end: 1 }, y: { start: 0, end: 1 } }, `a double-click on the colour bar did not reset the zoom. ${fix}`);
+    assert.equal(document.getElementById('track-stage-range-popover')?.style.display, 'none', 'no range popover opened for the colour bar');
+});

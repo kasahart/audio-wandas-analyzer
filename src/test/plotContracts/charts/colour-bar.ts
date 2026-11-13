@@ -5,7 +5,7 @@ export const colourBar: ChartContract = {
     chart: {
         id: 'colour-bar', name: 'カラーバー（比較台の熱図、スペクトログラムのレーン、入口の概観帯）',
         paintedBy: [`${SP}:paintColourBar`],
-        requires: ['ticks', 'axis'],
+        requires: ['ticks', 'axis', 'range'],
     },
     rows: [
         {
@@ -27,6 +27,16 @@ export const colourBar: ChartContract = {
                 t('src/test/stagePanes.test.ts', 'a colour bar stays inside a narrow plot and never leaves out its name: beside the scale, else above it, shortened only as every axis name is (R4)'),
             ],
             names: { quantity: true, unit: true, reference: true },
+        },
+        {
+            id: 'colour-bar.range', value: 'range', what: 'カラーバーの上の軸の操作が動かす窓（Ctrl+ホイール、+ / − / 0、ドラッグ）と、ダブルクリックで開く色の範囲',
+            computedIn: [`${SP}:stagePlotPoint`, 'src/webview/runtime/plotInteraction.ts:centredZoomWindow', 'src/webview/runtime/comparisonRuntime.ts:openSpectrogramRangePopup'],
+            from: 'axis', trace: '帯の上かどうかは 1 つのヒットテスト（stagePlotPoint が部品の返した StagePlot.colourBar を見る）で決め、トラック表示のレーン、比較の熱図、入口の概観帯が同じものを使う。帯の上は値の軸で、Ctrl+ホイールは横軸を真ん中を中心に拡大（centredZoomWindow）、ドラッグは矩形を描かない。ダブルクリックは、トラック表示のレーンでは帯が書く端の数（StagePlot.colourScale）で色の範囲の入力を開き、ほかのグラフでは拡大を戻す（R13）。',
+            tests: [
+                t('src/test/uiSmoke/plotContract.spec.ts', 'every plot the comparison shows answers the same gestures: readout above it, ← / → step it, Ctrl+wheel zoom, double-click reset, axis range, both axes named (R13)'),
+                t('src/test/trackStageGestures.test.ts', 'over a heatmap\'s colour bar every axis gesture answers as on an axis, by the one hit test of it (stagePlotPoint): Ctrl+wheel zooms the horizontal axis about its middle, a press draws no box, a hover reads no cell, a double-click resets the zoom (R13)'),
+                t('src/test/trackCanvasPainter.test.ts', 'a spectrogram lane is drawn by the plot component over its whole width, with the colour bar every coloured picture draws in its top right (R13)'),
+            ],
         },
     ],
     knownGaps: {},

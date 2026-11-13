@@ -18,11 +18,12 @@ const STR_EN = getStrings('en');
  * the screens with plots, collects each canvas the component drew (`data-plot`) and gives it the same checks:
  * the readout above it under the pointer, ← / → stepping that readout one point at a time, Ctrl+wheel zoom and
  * double-click reset, + / − / 0 over it zooming its horizontal axis about the middle and showing it whole, Ctrl+wheel
- * over its value axis zooming about the middle too, a box zoom, each axis's range, both axes named.
+ * over its value axis zooming about the middle too (a heatmap's colour bar is a value axis: each axis gesture on it),
+ * a box zoom, each axis's range, both axes named.
  * A plot that does not pass one yet is listed in KNOWN_GAPS with the deviation of the unified plot spec it waits
  * for; a gap that is fixed fails here until it is taken off, so the list only shrinks.
  */
-type Check = 'readout' | 'step' | 'zoom' | 'reset' | 'zoom keys' | 'axis wheel' | 'box zoom' | 'lost release' | 'axis range' | 'x range' | 'axes' | 'names inside' | 'tick places';
+type Check = 'readout' | 'step' | 'zoom' | 'reset' | 'zoom keys' | 'axis wheel' | 'colour bar' | 'box zoom' | 'lost release' | 'axis range' | 'x range' | 'axes' | 'names inside' | 'tick places';
 const KNOWN_GAPS: Record<string, readonly Check[]> = {};
 
 const FULL = '0.000 1.000 0.000 1.000';
@@ -168,6 +169,8 @@ const NO_VERTICAL_TICKS: Record<string, string> = {
 };
 /** What 'tick places' found wrong on the plot being checked, for expectContract to report with the plot's name. */
 const tickPlacesFound: string[] = [];
+/** What a plot's colour bar did under the axis gestures, where it failed the 'colour bar' check (R13). */
+const colourBarFound: string[] = [];
 /** The plot's vertical axes' tick labels held to where its axes paint their numbers (canvasAudit.ts tickPlaces). */
 const tickPlacesOf = (plot: Locator): Promise<TickPlaces> => plot.evaluate(canvas => window.__tickPlaces?.(canvas as HTMLCanvasElement) ?? { declared: false, judged: 0, wrong: ['the ui-smoke audit is not installed'] });
 
@@ -424,6 +427,70 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
         await settled(page);
     }
     if (leftWheel && rightWheel) passed.add('axis wheel');
+    // A heatmap's colour bar is a value axis (R13): the one hit test of it (stagePanes.stagePlotPoint) makes every axis
+    // gesture over it answer as over the track view's spectrogram lane's, on every plot that draws one. Pressed in the
+    // middle of the bar the plot component painted (data-plot-colour-bar, CSS pixels on the canvas), from the whole:
+    // Ctrl+wheel one step in zooms the horizontal axis by the wheel's step (×0.85) about its middle, so exactly
+    // 0.075 … 0.925, the vertical axis untouched (never about the pointer, at the plot's top right); + / − / 0 there
+    // zoom about the middle by the keys' step (×0.7: 0.150 … 0.850) and give the whole back; a drag from it draws no
+    // box and zooms nothing; a double-click on it opens the colour range at the ends the bar writes
+    // (data-plot-colour-scale, exactly), where the plot's colours can be typed (the track view's lanes), and resets the
+    // zoom elsewhere, never another axis's range. A heatmap (it names its colour, data-plot-colour) that does not say
+    // where its bar is fails; a plot without colours has no bar to press.
+    const colourName = (await plot.getAttribute('data-plot-colour')) ?? '';
+    const barText = await plot.getAttribute('data-plot-colour-bar');
+    const barBox = (barText ?? '').split(' ').map(Number);
+    if (!colourName && barText === null) passed.add('colour bar');
+    else if (barBox.length === 4 && barBox.every(Number.isFinite) && barBox[2] > 0 && barBox[3] > 0) {
+        const bar = { x: box.x + barBox[0] + barBox[2] / 2, y: box.y + barBox[1] + barBox[3] / 2 };
+        const [, , y0, y1] = await windowOf();
+        const ups = `${y0.toFixed(3)} ${y1.toFixed(3)}`;
+        const centredBy = (factor: number): string => `${(0.5 - factor / 2).toFixed(3)} ${(0.5 + factor / 2).toFixed(3)} ${ups}`;
+        const whole = await plot.getAttribute('data-plot-window');
+        await page.mouse.move(bar.x, bar.y);
+        await settled(page);
+        const barPicture = await picture();
+        await page.keyboard.down('Control');
+        await page.mouse.wheel(0, -240);
+        await page.keyboard.up('Control');
+        await settled(page);
+        const barWheel = await plot.getAttribute('data-plot-window');
+        const wheeled = (whole ?? FULL) === FULL && barWheel === centredBy(0.85) && await picture() !== barPicture;
+        // A double-click on the bar: its colour range (at the ends the bar writes) or, where none is typed, the zoom reset.
+        const scale = ((await plot.getAttribute('data-plot-colour-scale')) ?? '').split(' ').map(Number);
+        await page.mouse.dblclick(bar.x, bar.y);
+        const popover = page.locator('[id$="range-popover"]:visible');
+        let doubled = false;
+        if (await popover.count()) {
+            const low = Number(await popover.locator('input[id$="-min"]').inputValue()), high = Number(await popover.locator('input[id$="-max"]').inputValue());
+            doubled = scale.length === 2 && low === scale[0] && high === scale[1];
+            await page.keyboard.press('Escape');
+            await page.mouse.dblclick(middle.x, middle.y);
+        } else {
+            await settled(page);
+            doubled = (await plot.getAttribute('data-plot-window')) === FULL;
+        }
+        await settled(page);
+        // + / − / 0 with the pointer on the bar: the plot's keys, about its middle.
+        await page.mouse.move(bar.x, bar.y);
+        await page.keyboard.press('=');
+        await settled(page);
+        const barKey = await plot.getAttribute('data-plot-window');
+        await page.keyboard.press('0');
+        await settled(page);
+        const keyed = barKey === centredBy(0.7) && (await plot.getAttribute('data-plot-window')) === FULL;
+        // A drag from the bar into the plot: no box, no zoom.
+        await page.mouse.move(bar.x, bar.y);
+        await page.mouse.down();
+        await page.mouse.move(bar.x - box.width * 0.3, bar.y + box.height * 0.3, { steps: 5 });
+        const boxShown = await page.locator('.compare-zoom-box:visible, .entry-zoom-box:visible').count();
+        await page.mouse.up();
+        await settled(page);
+        const dragged = boxShown === 0 && (await plot.getAttribute('data-plot-window')) === FULL;
+        if (!wheeled || !doubled || !keyed || !dragged) colourBarFound.push(`over its colour bar: Ctrl+wheel ${barWheel ?? 'none'} (expected ${centredBy(0.85)}), double-click ${doubled ? 'ok' : 'neither its colour range nor the zoom reset'}, + ${barKey ?? 'none'} (expected ${centredBy(0.7)}), drag ${dragged ? 'ok' : 'zoomed into a box'}`);
+        else passed.add('colour bar');
+        if ((await plot.getAttribute('data-plot-window')) !== FULL) { await page.mouse.dblclick(middle.x, middle.y); await settled(page); }
+    } else colourBarFound.push(`names its colour ${JSON.stringify(colourName)} but not where its colour bar is (data-plot-colour-bar ${JSON.stringify(barText)})`);
     // A plain drag zooms into its box (R13): the window narrows on the horizontal axis and on the vertical one, but
     // for a vertical axis defined to show every count always (data-plot-y-axis "all-counts", plotInteraction.ts
     // VerticalAxis), which stays whole and must be the plot's count axis. A double-click gives the whole back.
@@ -715,9 +782,10 @@ async function expectContract(page: Page, name: string, plot: Locator): Promise<
     checkedPlots.add(await plot.evaluate(plotName));
     const passed = await contract(page, plot);
     const gaps = KNOWN_GAPS[name] ?? [];
-    const checks: Check[] = ['readout', 'step', 'zoom', 'reset', 'zoom keys', 'axis wheel', 'box zoom', 'lost release', 'axis range', 'x range', 'axes', 'names inside', 'tick places'];
+    const checks: Check[] = ['readout', 'step', 'zoom', 'reset', 'zoom keys', 'axis wheel', 'colour bar', 'box zoom', 'lost release', 'axis range', 'x range', 'axes', 'names inside', 'tick places'];
     expect.soft(checks.filter(check => !passed.has(check) && !gaps.includes(check)), `${name}: fails these checks of the plot contract (docs/display-rules.md R13; each is a block in contract() above whose comment states the rule it checks, e.g. 'lost release' is R7's drag whose release never reaches the page, 'names inside' is R4's axis names inside their canvas, 'tick places' is R9/R14's tick labelled v at the place its axis paints v)`).toEqual([]);
     expect.soft(tickPlacesFound.splice(0), `${name}: tick labels written where their axis does not paint their number, at the vertical zooms of 'tick places' (docs/display-rules.md R9, R14: place each tick by the transform the picture is painted with, stagePanes.placedTicks; a numbered row axis's ticks are rows, stagePanes.rowNumberTicks; never relabel a place with another number)`).toEqual([]);
+    expect.soft(colourBarFound.splice(0), `${name}: its colour bar does not answer the axis gestures as a value axis (docs/display-rules.md R13: hit-test it in stagePanes.stagePlotPoint, the one hit test every plot uses)`).toEqual([]);
     expect.soft(gaps.filter(check => passed.has(check)), `${name}: now passes; take it off KNOWN_GAPS`).toEqual([]);
 }
 

@@ -204,9 +204,3 @@ function sideAxisColors(canvas: HTMLCanvasElement): { muted: string; text: strin
     return { muted: style?.getPropertyValue('--muted').trim() || '#888', text: style?.getPropertyValue('--text').trim() || '#ddd' };
 }
 
-/** Whether (x, y), in the canvas's own pixels, is on the colour bar last painted there. */
-export function onColourBar(entry: Pick<SpectrogramRasterCacheEntry, 'colourBar'> | undefined, x: number, y: number): boolean {
-    const box = entry?.colourBar;
-    return !!box && x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height;
-}
-
