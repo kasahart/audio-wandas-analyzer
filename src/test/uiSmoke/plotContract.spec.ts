@@ -1024,15 +1024,17 @@ test('the entry\'s distribution answers the same gestures as every plot: each gr
     await expectEveryPlot(page);
 });
 
+/** How many recordings ← steps back over from the rug's last one, after → reached it. */
+const RUG_BACK = 8;
 /**
  * The distribution's ← / → walked end to end on a distribution the test knows to the count (knownData.ts
  * KNOWN_DISTRIBUTION, issue #771): each key reads exactly the next bar with recordings (an empty bin has no bar) or
  * the next recording on the rug, never two on and never none, and stays at either end. Each bar read is checked to
  * its centre, its index, and the range and count its readout writes; the rug's recordings of one value are each
- * read once, in the data's order (by value, then key). The same again zoomed in, where only what is on the plot is
- * stepped to. The expectation is the fixture's, never the chart's own binning or full source (R7).
+ * read once, in the data's order (by value, then key), → from the first to the last and ← back over the last few.
+ * The same again zoomed in, where only what is on the plot is stepped to. The expectation is the fixture's, never the chart's own binning or full source (R7).
  */
-test('the distribution\'s ← / → pass every bar and every recording of a known distribution once, in order, whole and zoomed: each bar\'s centre, range and count (R7)', async ({ page }) => {
+async function walkKnownDistribution(page: Page, zoomed: boolean): Promise<void> {
     await page.setViewportSize({ width: 1280, height: 900 });
     await openEntry(page, knownDistributionScans(), { language: 'en' });
     const plot = page.locator('[data-dist-canvas]').first();
@@ -1095,38 +1097,43 @@ test('the distribution\'s ← / → pass every bar and every recording of a know
         const place = members.findIndex(member => member.key === from);
         if (place < 0) return [{ key: 'ArrowRight', expected: { at: Number.NaN, row: null, index: null, identity: `${from} is not a known recording in view` } }];
         return [...members.slice(0, place).reverse().map(member => ({ key: 'ArrowLeft' as const, expected: memberAt(member) })), { key: 'ArrowLeft', expected: null },
-            ...members.slice(1).map(member => ({ key: 'ArrowRight' as const, expected: memberAt(member) })), { key: 'ArrowRight', expected: null }];
+            ...members.slice(1).map(member => ({ key: 'ArrowRight' as const, expected: memberAt(member) })), { key: 'ArrowRight', expected: null },
+            // ← back over the last few (shown whole, the three at 91.5 dB among them): each read once again, the other way.
+            ...members.slice(-RUG_BACK - 1, -1).reverse().map(member => ({ key: 'ArrowLeft' as const, expected: memberAt(member) }))];
     };
     const failed = (walked: Walked[]): Walked[] => walked.filter(step => step.read !== step.expected);
-    for (const zoomed of [false, true]) {
-        if (zoomed) {
-            // + over the plot zooms the value axis about its middle (R13): the bars and recordings off it are not stepped to.
-            await hover(60, 0.5);
-            await page.keyboard.press('=');
-            await settled(page);
-            expect((await shown())[1] - (await shown())[0], 'the value axis zoomed in by +').toBeLessThan(high - low);
-        }
-        const view = await shown();
-        const at = zoomed ? 'zoomed' : 'whole';
-        // A bar: over bin 24's bar (15 recordings) near its top, where no rug tick is near.
-        const bar = await hover(knownBin(24).centre, 0.9);
-        expect(bar && await kindRead() === 'bar' && isPoint(bar, barAt(24)) ? null : `${JSON.stringify(bar)} ${await readout.textContent()}`, `${at}: the pointer over bin 24 reads its bar`).toBeNull();
-        expect(await barWritten(barAt(24)), `${at}: bin 24's readout`).toBeNull();
-        const barWalk = await walk(bar!, barSteps(24, view), barWritten);
-        expect(failed(barWalk), `${at}: each ← / → reads the very next bar with recordings, its centre, range and count as the fixture has them (R7)`).toEqual([]);
-        // The rug: at the bottom of the row, over bin 28's five recordings of one value.
-        const tick = await hover(70.5, 0.02);
-        expect(tick && await kindRead() === 'line' && tick.identity !== null && Math.abs(tick.at - 70.5) < 1.5 ? null : `${JSON.stringify(tick)} ${await readout.textContent()}`, `${at}: the pointer at the row's foot reads a recording on the rug`).toBeNull();
-        const rugWalk = await walk(tick!, rugSteps(tick!.identity!, view));
-        expect(failed(rugWalk), `${at}: each ← / → reads the very next recording, those of one value each once, in the data's order (R7)`).toEqual([]);
-        // Every recording in view read once, none twice, none left out: from the first one (where ← stopped), → to the last.
-        const reads = rugWalk.map(step => step.got?.identity ?? null);
-        const turn = rugWalk.findIndex(step => step.key === 'ArrowRight');
-        const once = [reads[turn - 1], ...reads.slice(turn, -1)];
-        const inView = knownMembersInOrder().filter(member => member.value >= view[0] && member.value <= view[1]).map(member => member.key);
-        expect(once, `${at}: the keys read every recording in view once, in the data's order`).toEqual(inView);
+    if (zoomed) {
+        // + over the plot zooms the value axis about its middle (R13): the bars and recordings off it are not stepped to.
+        await hover(60, 0.5);
+        await page.keyboard.press('=');
+        await settled(page);
+        expect((await shown())[1] - (await shown())[0], 'the value axis zoomed in by +').toBeLessThan(high - low);
     }
-});
+    const view = await shown();
+    const at = zoomed ? 'zoomed' : 'whole';
+    // A bar: over bin 24's bar (15 recordings) near its top, where no rug tick is near.
+    const bar = await hover(knownBin(24).centre, 0.9);
+    expect(bar && await kindRead() === 'bar' && isPoint(bar, barAt(24)) ? null : `${JSON.stringify(bar)} ${await readout.textContent()}`, `${at}: the pointer over bin 24 reads its bar`).toBeNull();
+    expect(await barWritten(barAt(24)), `${at}: bin 24's readout`).toBeNull();
+    const barWalk = await walk(bar!, barSteps(24, view), barWritten);
+    expect(failed(barWalk), `${at}: each ← / → reads the very next bar with recordings, its centre, range and count as the fixture has them (R7)`).toEqual([]);
+    // The rug: at the bottom of the row, over the first recording in view (the keys walk from there to the last and back).
+    const first = knownMembersInOrder().find(member => member.value >= view[0])!;
+    const tick = await hover(first.value, 0.02);
+    expect(tick && await kindRead() === 'line' && tick.identity !== null && Math.abs(tick.at - first.value) < 1.5 ? null : `${JSON.stringify(tick)} ${await readout.textContent()}`, `${at}: the pointer at the row's foot reads a recording on the rug`).toBeNull();
+    const rugWalk = await walk(tick!, rugSteps(tick!.identity!, view));
+    expect(failed(rugWalk), `${at}: each ← / → reads the very next recording, those of one value each once, in the data's order (R7)`).toEqual([]);
+    // Every recording in view read once, none twice, none left out: from the first one (where ← stopped), → to the last.
+    const reads = rugWalk.map(step => step.got?.identity ?? null);
+    const turn = rugWalk.findIndex(step => step.key === 'ArrowRight');
+    const back = rugWalk.length - RUG_BACK;
+    const once = [reads[turn - 1], ...reads.slice(turn, back - 1)];
+    const inView = knownMembersInOrder().filter(member => member.value >= view[0] && member.value <= view[1]).map(member => member.key);
+    expect(once, `${at}: the keys read every recording in view once, in the data's order`).toEqual(inView);
+}
+// Whole and zoomed, each a test of its own: every key press is a read the page settles, a few hundred in all.
+test('the distribution\'s ← / → pass every bar and every recording of a known distribution once, in order, shown whole: each bar\'s centre, range and count (R7)', ({ page }) => walkKnownDistribution(page, false));
+test('the distribution\'s ← / → pass every bar and every recording of a known distribution once, in order, zoomed in: each bar\'s centre, range and count (R7)', ({ page }) => walkKnownDistribution(page, true));
 
 test('the cursor spectrum answers the same gestures as every plot (R13)', async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 900 });
