@@ -23,7 +23,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "--record-skips",
         metavar="PATH",
-        help="write the skipped tests ([{test, reason}] JSON) to PATH, for verify's skip gate (scripts/test-skips.mjs)",
+        help="write the skipped tests (runner, test, reason) as JSON to PATH (the skip gate, scripts/test-skips.mjs)",
     )
 
 
@@ -37,14 +37,28 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         items[:] = [item for item in items if item not in deselected]
 
 
-_SKIPPED: list[dict[str, str]] = []
+_SKIPPED: list[dict[str, str]] = []  # runner, test, reason
+
+
+def _record_skip(report: pytest.TestReport | pytest.CollectReport) -> None:
+    if report.skipped and not hasattr(report, "wasxfail"):
+        reason = report.longrepr[2] if isinstance(report.longrepr, tuple) else str(report.longrepr)
+        skip = {"runner": "pytest", "test": report.nodeid, "reason": reason.removeprefix("Skipped: ")}
+        if skip not in _SKIPPED:
+            _SKIPPED.append(skip)
 
 
 def pytest_runtest_logreport(report: pytest.TestReport) -> None:
-    # On the controller of a pytest-xdist run too: the workers' reports reach this hook there.
-    if report.skipped and not hasattr(report, "wasxfail"):
-        reason = report.longrepr[2] if isinstance(report.longrepr, tuple) else str(report.longrepr)
-        _SKIPPED.append({"test": report.nodeid, "reason": reason.removeprefix("Skipped: ")})
+    # A test that skips while it runs (pytest.skip, a skip or skipif mark). On the controller of a pytest-xdist run
+    # too: the workers' reports reach this hook there.
+    _record_skip(report)
+
+
+def pytest_collectreport(report: pytest.CollectReport) -> None:
+    # A whole module or class that skips while it is collected (pytest.skip(..., allow_module_level=True), a
+    # module-level pytest.importorskip): it is reported here, never to pytest_runtest_logreport. pytest-xdist hands
+    # the workers' skipped collection reports to the controller's hook, once each.
+    _record_skip(report)
 
 
 def pytest_sessionfinish(session: pytest.Session) -> None:

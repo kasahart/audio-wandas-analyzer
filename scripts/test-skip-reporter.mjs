@@ -1,4 +1,4 @@
-// A node:test reporter that writes the skipped (and todo) tests as JSON, [{ test, reason }], for the skip gate
+// A node:test reporter that writes the skipped (and todo) tests as JSON, [{ runner, test, reason }], for the skip gate
 // (scripts/test-skips.mjs). A test is named `<its source file> > <its name>`, the source file being the
 // src/test/*.ts a dist/test/*.js was compiled from.
 import { relative, sep } from 'node:path';
@@ -17,7 +17,7 @@ export default async function* testSkipReporter(events) {
         const { skip, todo, name, file } = event.data;
         const why = skip ?? todo;
         if (why !== undefined && why !== false) {
-            skipped.push({ test: `${source(file)} > ${name}`, reason: typeof why === 'string' ? why : '' });
+            skipped.push({ runner: 'node:test', test: `${source(file)} > ${name}`, reason: typeof why === 'string' ? why : '' });
         }
     }
     yield `${JSON.stringify(skipped, null, 1)}\n`;

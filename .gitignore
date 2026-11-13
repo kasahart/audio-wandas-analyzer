@@ -23,3 +23,4 @@ browser-dist/
 
 # Output of scripts/make-manual-check-files.py
 manual-check-files/
+.skip-gate-*/
