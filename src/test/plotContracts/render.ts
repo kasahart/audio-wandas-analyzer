@@ -1,10 +1,15 @@
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { CHARTS, GAP_CEILING, ROWS } from './index';
-import type { Source, ValueKind } from './model';
+import { CONTRACTS, GAP_CEILING } from './index';
+import type { ChartContract, ContractRow, Source, ValueKind } from './model';
 
-/** The table as a section of docs/plot-contracts.md: the charts, then each one's rows, then the gaps by severity. */
-export function renderContractDoc(): string {
+/**
+ * The table as a section of docs/plot-contracts.md: the charts, then each one's rows, then the gaps by severity.
+ * `contracts` is the table's charts' files (index.ts CONTRACTS), or another table in memory (guideExamples.test.ts).
+ */
+export function renderContractDoc(contracts: readonly ChartContract[] = CONTRACTS): string {
+    const CHARTS = contracts.map(contract => contract.chart);
+    const ROWS: ContractRow[] = contracts.flatMap(contract => contract.rows.map(row => ({ ...row, chart: contract.chart.id })));
     const fromText: Record<Source, string> = { full: '全データ', whole: '描く点が全部（間引かない）', extremes: '間引いた点（区間の最小・最大）', thinned: '間引いた点（平均・切り出し）', axis: '軸の範囲・窓', input: '利用者の値・メタデータ', words: '文字' };
     const kindText: Record<ValueKind, string> = { readout: '読み値', step: '← / →', delta: 'Δ', median: '中央値', headline: '見出し・最大', order: '重ねる順', range: '自動の範囲', ticks: '目盛り', axis: '軸の名前', export: '書き出し', count: '数', summary: '要約の値', label: '入力・設定の表示', identity: 'どのデータか', pending: '届くまでの表示', click: 'クリックが選ぶもの' };
     const cell = (text: string): string => text.replace(/\|/g, '\\|').replace(/\n/g, ' ');

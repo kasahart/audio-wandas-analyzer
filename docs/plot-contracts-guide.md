@@ -20,20 +20,62 @@ and `python scripts/check_decimation_flow.py`).
 | `src/test/provenanceBoundary.test.ts` | What the compiler cannot check of those types: who may mint, who may unwrap, casts and coercions. |
 | `python-backend/drawn_points_contract.json` | The backend functions that thin data, and those that compute with thinned points. Read by the Python checker and the TS table. |
 | `src/test/plotContracts/surfaces.ts` | `SURFACES`: every function outside the plot component that makes a canvas or SVG, and whose it is. |
-| `src/test/plotContracts.test.ts` | The checks. |
+| `src/test/plotContracts.test.ts` | The checks, run on the repository. They are written in `src/test/plotContracts/checks.ts` (and the figure layer's in `src/test/figureSites.ts`) as functions of the code and the table, so `src/test/guideExamples.test.ts` runs the same checks on this page's worked example in memory. |
 | `scripts/check_decimation_flow.py` | Follows thinned values through the backend and fails where one becomes a number. |
 | `scripts/check_test_proofs.py` | Checks a pytest named as proof (see "Proof tests"). |
 | `src/test/fullNotDrawn.ts`, `python-backend/conftest.py` | The shared proof helpers `assertNotDrawn` / `assert_not_drawn`. |
 | `docs/plot-contracts.md` | The table rendered. Regenerate with `npm run compile && node dist/test/plotContracts/render.js`. |
+
+## The checklist: every place a new chart or a new number goes
+
+Each line is a step, when it applies, what you add, and the check that fails (with a message naming the fix) when
+you leave it out. The worked examples below follow every step. `src/test/guideExamples.test.ts` builds them from this
+page's own code blocks (the ones marked `guide-example`), runs the checks of the first table on them in memory, and
+leaves out each step in turn: the example must pass with all of them, and fail naming the step without any one.
+A step added here without a case there, or a case there without its line here, fails that test.
+
+<!-- guide-checklist in-memory -->
+| Step | When | What you add | What fails without it |
+| --- | --- | --- | --- |
+| `painted-by` | a new chart | its file `src/test/plotContracts/charts/<id>.ts`, whose `paintedBy` names every function that calls the plot component (`paintOverlay`, `paintStage`, `paintSideAxis`, `paintTimeAxis`) | `plotContracts.test.ts` › every call of the plot component, and every plot plotRegistry.ts lists, is a chart of the table |
+| `index` | a new chart | the chart in `CONTRACTS` (`src/test/plotContracts/index.ts`) | `plotContracts.test.ts` › every chart's file in plotContracts/charts is gathered by index.ts |
+| `rows` | every value the chart shows; a new number too | a row of each kind in the chart's `requires` (a new number: `headline` in `requires`, and its row) | `plotContracts.test.ts` › every row has its own id, on a chart the table lists, and every chart has a row of each kind it shows |
+| `figure-rows` | a row of value `axis`, `range` or `count` | in its `computedIn`, the `figureModel.ts` function that makes it (`stageNames`, `dataRange`) | `figureModel.test.ts` › every chart's level axis, range and file count row says it is computed in figureModel.ts |
+| `functions` | every row | each `computedIn` entry spelled as the function is in its file (`src/…ts:function`, `python-backend/….py:def`) | `plotContracts.test.ts` › every function the table names exists |
+| `tests` | every row | each test a row names, under its title as written, asserting something | `plotContracts.test.ts` › every test the table names runs and asserts something |
+| `tt` | a row `from: 'full'` | one of its tests named with `tt(...)`: the test that tells the full data from the drawn points | `plotContracts.test.ts` › every gap is in its chart's knownGaps at its severity |
+| `not-drawn` | a `tt(...)` test | in it, the row's answer asserted outright and `assertNotDrawn(answer, drawnAnswer)` ("Proof tests") | `plotContracts.test.ts` › every test a row says tells full data from drawn points proves it |
+| `number-writer` | a function that writes a number a user reads | the function in its row's `computedIn` (or in `VALUE_HELPERS` / `NOT_CHART_VALUES`, `values.ts`) | `plotContracts.test.ts` › every function that writes a number in the webview is in the table |
+| `axis-namer` | a function that calls `stageNames` or `levelAxes` | `ALLOWED['<file under src/>']['axis-namer']` in `src/test/figureModel.test.ts`, with a comment saying why it names one picture by itself | `figureModel.test.ts` › outside figureModel.ts nothing builds an axis name … but the exact list |
+| `answer-writes` | a module's `let`, or an object's field, that keeps what the plot drew (a `StagePlot`) or another answer | its entry in `NOT_ANSWER_WRITES` (`src/test/answerBoundaryAllowlist.ts`), saying what it holds | `answerStoreBoundary.test.ts` › outside the answer store, no host answer is written into a field of an object or a lasting let |
+| `readers` | a backend function that thins a picture (calls a decimator) or computes with thinned points | its entry under `readers` in `python-backend/drawn_points_contract.json`, use `draws` ("Reading thinned points") | `plotContracts.test.ts` › every backend function that computes with thinned points says what it does with them |
+| `schema-fields` | a number the protocol sends | each of its fields in `SCHEMA_FIELDS` (`src/test/plotContracts/schema.ts`), mapped to the rows it is a value of | `plotContracts.test.ts` › every number the backend's protocol sends back is a value of a row |
+| `doc` | any change to the table | `docs/plot-contracts.md` regenerated (`npm run compile && node dist/test/plotContracts/render.js`) | `plotContracts.test.ts` › docs/plot-contracts.md is the table as plotContracts renders it |
+
+These apply too, each when its condition holds. They are checked by the tests named, not by the in-memory example:
+
+| When | What you add | What fails without it |
+| --- | --- | --- |
+| a number the backend sends | the field in `python-backend/protocol_schema.py`, then `node scripts/generate-protocol-types.mjs --write`; an array of numbers says `x-drawn`, `x-whole` or `x-place` | `npm run verify` › generated protocol types; `python-backend/test_protocol_schema.py` |
+| that number is shown | an adapter in `wholeAnswers.ts` that mints it (`mint.field`) | `provenanceBoundary.test.ts` (a mint anywhere else); the compiler where the text function takes `Whole` |
+| a new chart | a UI test that shows it, so the canvas audit sees what was drawn ("Adding a canvas or an SVG") | `npm run test:ui` |
+| a `ticks` row | a test of `TICK_PLACES` (`model.ts`) in it | `plotContracts.test.ts` › every chart with a level, value or row axis names in its ticks row a test … |
+| a plot with a `tap` | a `click` row (`CLICK_READ`, `CLICK_TEST`) and a case in `plotContract.spec.ts` `CLICK_CASES` | `plotContracts.test.ts` › every plot's click is a click row of the table … |
+| a canvas or SVG made outside the plot component | its function in `SURFACES` (`surfaces.ts`) | `plotContracts.test.ts` › every drawing surface of the webview … |
+| a module that unwraps `Drawn` to draw, or calls `layoutLine` | it in `DRAWING_MODULES` / `LAYOUT_MODULES` (`provenanceBoundary.test.ts`) | `provenanceBoundary.test.ts` |
+| a row that takes an exception or breaks a rule | `exception` / `breaks` quoting `docs/display-rules.md` word for word | `plotContracts.test.ts` › every exception a row takes is one docs/display-rules.md approves … |
+| a pytest named as a proof | the pytest written as "Proof tests" says | `scripts/check_test_proofs.py`, through the proof test above |
 
 ## Adding a chart
 
 1. Draw it with the plot component (`paintOverlay` in `src/webview/runtime/stagePanes.ts`). A new canvas or SVG
    made anywhere else is found by the surface scan and fails until it is listed.
 2. Add `src/test/plotContracts/charts/<id>.ts` (copy a small one such as `spectrum-csv.ts`) and add it to
-   `index.ts`. List the functions that call the plot component in `paintedBy`.
-3. Add a row for every value the chart shows: the kinds in `requires` must each have one.
-4. Regenerate `docs/plot-contracts.md`.
+   `index.ts`. List the functions that call the plot component in `paintedBy` (steps `painted-by`, `index`).
+3. Add a row for every value the chart shows: the kinds in `requires` must each have one (`rows`, and for each row
+   `functions`, `tests`, `tt`, `not-drawn`, `figure-rows`).
+4. Enter the registries your code reaches (`axis-namer`, `answer-writes`, `readers`): the checklist above.
+5. Regenerate `docs/plot-contracts.md` (`doc`).
 
 ### Worked example: a new chart
 
@@ -43,8 +85,7 @@ Drawing it is one call. Reading it with the pointer is not automatic: you wire i
 
 **1. Draw, and keep what was drawn.**
 
-<!-- guide-check file=src/webview/runtime/kurtosisPane.ts
--->
+<!-- guide-example file=src/webview/runtime/kurtosisPane.ts -->
 ```ts
 // src/webview/runtime/kurtosisPane.ts
 import type { UiStrings } from '../../shared/i18n/strings';
@@ -67,7 +108,22 @@ export function paintKurtosis(canvas: HTMLCanvasElement, view: StageView, reader
   data says so by name, `full: NO_FULL_DATA` (`fullRead.ts`): the plot marks such a layer and every UI test fails
   on it, so it is a placeholder, not a way out. `reader.of` answers `NO_FULL_DATA` itself for a picture the
   backend gave no key for.
-- `paintOverlay` returns the `StagePlot` (or null when nothing is drawn). Keep the latest one.
+- `paintOverlay` returns the `StagePlot` (or null when nothing is drawn). Keep the latest one. The answer
+  store's check finds a lasting `let` by its type, and a `StagePlot` holds the pictures the backend answered, so
+  the `let` that keeps it is listed with what it holds (step `answer-writes`, `src/test/answerBoundaryAllowlist.ts`):
+
+  <!-- guide-example entries=NOT_ANSWER_WRITES -->
+  ```ts
+  'src/webview/runtime/kurtosisPane.ts#let drawn': notAnswer('what the kurtosis plot drew last, for its pointer readout (made again on each paint)'),
+  ```
+- `stageNames(strings, view, undefined)` names the axes by this one picture. A plot of one picture may; the place
+  that does is listed (step `axis-namer`, `ALLOWED` in `src/test/figureModel.test.ts`):
+
+  <!-- guide-example entries=ALLOWED -->
+  ```ts
+  // The kurtosis plot draws one picture: its axes are named by it.
+  'webview/runtime/kurtosisPane.ts': { 'axis-namer': ['paintKurtosis'] },
+  ```
 
 **2. Give the pointer and the arrow keys to the shared interaction.** Nothing reads the plot until you do this.
 
@@ -114,25 +170,75 @@ Until the answer is in, the readout shows its marks and no number; that is the d
 What you did not write: a readout, a step rule, a range rule or an axis name. The hover layer reads the value
 under the pointer and the next real point for ← / → from the layer's `FullSource`.
 
-Then the table (`src/test/plotContracts/charts/kurtosis.ts`, added to `index.ts`):
+The backend makes the picture: it thins the line to draw it, so the function that does is a reader of thinned points
+and says it only draws (step `readers`). It also takes the headline's number before thinning, for the next worked
+example:
 
-<!-- guide-check file=src/test/plotContracts/charts/kurtosis.ts
--->
+<!-- guide-example file=python-backend/kurtosis_view.py -->
+```python
+"""The kurtosis-over-time picture."""
+
+from __future__ import annotations
+
+import numpy as np
+
+from stage_view import StageView, min_max_line
+
+
+def kurtosis_peak(times: np.ndarray, values: np.ndarray) -> dict[str, float] | None:
+    """The largest kurtosis and when, found among every frame before thinning."""
+    if not values.size:
+        return None
+    at = int(np.nanargmax(values))
+    return {"x": float(times[at]), "value": float(values[at])}
+
+
+def kurtosis_view(times: np.ndarray, values: np.ndarray, points: int) -> StageView:
+    """The picture: the line thinned to ``points`` buckets to draw, and its peak taken before."""
+    xs, drawn = min_max_line(times, values, points, False)
+    view: StageView = {"frame": "ChannelFrame", "kind": "line", "x": "time", "xs": xs.tolist(), "values": drawn.tolist()}
+    peak = kurtosis_peak(times, values)
+    if peak:
+        view["kurtosisPeak"] = peak
+    return view
+```
+
+<!-- guide-example entries=readers -->
+```json
+"python-backend/kurtosis_view.py:kurtosis_view": {
+  "use": "draws",
+  "why": "thins the kurtosis line to draw it (min_max_line); its headline is of every frame (kurtosis_peak)"
+}
+```
+
+Then the table (`src/test/plotContracts/charts/kurtosis.ts`, added to `CONTRACTS` in `index.ts`). The readout, the
+arrow keys, the range and the axis names are the plot component's and the figure model's, so their rows name that
+code and the tests that already prove it; the range and the axis name their `figureModel.ts` function (step
+`figure-rows`). The headline row is the next worked example's:
+
+<!-- guide-example file=src/test/plotContracts/charts/kurtosis.ts -->
 ```ts
-import { SP, tt, type ChartContract } from '../model';
+import { SP, t, tt, type ChartContract } from '../model';
 
 export const kurtosis: ChartContract = {
-    chart: { id: 'kurtosis', name: '尖度の時間変化', paintedBy: ['src/webview/runtime/kurtosisPane.ts:paintKurtosis'], requires: ['readout', 'step', 'range', 'axis'] },
+    chart: { id: 'kurtosis', name: '尖度の時間変化', paintedBy: ['src/webview/runtime/kurtosisPane.ts:paintKurtosis'], requires: ['readout', 'step', 'range', 'axis', 'headline'] },
     rows: [
         { id: 'kurtosis.readout', value: 'readout', what: '読み値', computedIn: [`${SP}:lineRead`, 'python-backend/full_read.py:read_line'],
-          from: 'full', trace: 'full_read が全サンプルから返す点を読む。', tests: [tt('src/test/kurtosisPane.test.ts', 'the kurtosis readout is a real frame\'s value, not a drawn point\'s')] },
-        // ... one row per kind in `requires`
+          from: 'full', trace: 'full_read が全サンプルから返す点を読む。', tests: [tt('python-backend/test_full_read.py', 'test_a_recordings_spectrum_is_read_at_its_own_bins_not_its_picture')] },
+        { id: 'kurtosis.step', value: 'step', what: '← / → で進む先', computedIn: [`${SP}:stageStep`],
+          from: 'full', trace: '読み値と同じ全データの次の点。', tests: [tt('src/test/entryHeldPlot.test.ts', '← / → on a held slot\'s Δ step to the next of every bin, not the next point drawn of the Δ thinned to the plot\'s width (R7)')] },
+        { id: 'kurtosis.range', value: 'range', what: '値の軸の範囲', computedIn: [`${SP}:stageRange`, 'src/webview/runtime/figureModel.ts:dataRange'],
+          from: 'full', trace: '全データの valueRange から決める。', tests: [tt('src/test/stagePanes.test.ts', 'every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)')] },
+        { id: 'kurtosis.axis', value: 'axis', what: '軸の名前', computedIn: ['src/webview/runtime/figureModel.ts:stageNames'],
+          from: 'words', trace: '量と単位を書く。', tests: [t('src/test/axisNames.test.ts', 'every axis a picture is drawn on names its quantity and unit, whatever it measures, with or without a unit, Δ or not (R4)')], names: { quantity: true, unit: true } },
+        { id: 'kurtosis.headline', value: 'headline', what: '尖度の最大とその時刻', computedIn: ['src/webview/runtime/kurtosisPane.ts:kurtosisHeadline', 'python-backend/kurtosis_view.py:kurtosis_peak'],
+          from: 'full', trace: 'バックエンドが間引く前の全フレームから最大を探して送る。', tests: [tt('src/test/kurtosisPane.test.ts', 'the kurtosis headline writes the backend\'s largest value, found before thinning, not the largest point drawn')] },
     ],
     knownGaps: {},
 };
 ```
 
-Run `npm run compile && node dist/test/plotContracts/render.js && node --test dist/test/plotContracts.test.js`.
+Then regenerate the document (step `doc`) and run the checks: `npm run compile && node dist/test/plotContracts/render.js && npm run verify`.
 
 ## Adding a number a user reads
 
@@ -167,30 +273,80 @@ That is the point of the type: the line was thinned to a few hundred points, and
 largest. Do it in three steps instead.
 
 1. **Backend**: take the number of every value and send it as a plain number, beside the picture
-   (`stage_combine.py` does this for `peak` and `valueRange`). Add the field to `python-backend/protocol_schema.py`
-   (here `kurtosisPeak: { x, value }` on `StageView`, each a `_NUMBER`), and regenerate the types
-   (`node scripts/generate-protocol-types.mjs --write`).
+   (`kurtosis_peak` above; `stage_combine.py` does this for `peak` and `valueRange`). Add the field to
+   `python-backend/protocol_schema.py`, on `StageView`:
+
+   ```python
+   "kurtosisPeak": {"type": "object", "required": ["x", "value"], "properties": {"x": _NUMBER, "value": _NUMBER}},
+   ```
+
+   and regenerate the types (`node scripts/generate-protocol-types.mjs --write`), which adds to
+   `backendProtocolSchema.ts`:
+
+   <!-- guide-example file=src/shared/protocol/generated/backendProtocolSchema.ts -->
+   ```ts
+   export interface StageView { kurtosisPeak?: { x: number; value: number } }
+   ```
+
+   Every number the protocol sends is a value of a row or says why it is not shown (step `schema-fields`,
+   `SCHEMA_FIELDS` in `src/test/plotContracts/schema.ts`):
+
+   <!-- guide-example entries=SCHEMA_FIELDS -->
+   ```ts
+   'StageView.kurtosisPeak.x': ['kurtosis.headline'],
+   'StageView.kurtosisPeak.value': ['kurtosis.headline'],
+   ```
 2. **`wholeAnswers.ts`**: add one function that names the field and why it is full data. `mint` is that module's
    own (`const mint = claimMint('wholeAnswers')`, at its top); `mint.field(answer, name)` takes the answer and the
    field's name, so the call shows which answer the number came from:
 
-   <!-- guide-check file=src/webview/runtime/kurtosisAnswer.ts
-   import type { StageView } from '../../shared/protocol/backendProtocol';
-   import type { Whole } from '../../shared/provenance';
-   import type { AnswerMint } from '../../shared/wholeMint';
-   // Step 1's new field, which the real schema does not have.
-   declare module '../../shared/protocol/generated/backendProtocolSchema' { interface StageView { kurtosisPeak?: { x: number; value: number } } }
-   declare const mint: AnswerMint;
-   -->
+   <!-- guide-example file=src/webview/runtime/wholeAnswers.ts -->
    ```ts
-   /** The largest kurtosis and where it is (stage_view.kurtosis_peak): found among every frame before thinning. */
+   /** The largest kurtosis and where it is (kurtosis_view.kurtosis_peak): found among every frame before thinning. */
    export function backendKurtosisPeak(view: StageView): { at: Whole; value: Whole } | undefined {
        const peak = view.kurtosisPeak;
        return peak ? { at: mint.field(peak, 'x'), value: mint.field(peak, 'value') } : undefined;
    }
    ```
-3. **The chart**: write it with the plot's own text functions, and add a `headline` row to the chart's table
-   naming the function that writes it and the Python function that computes it, with a proof test (next section).
+3. **The chart**: write it with the plot's own text functions, in the pane's module:
+
+   <!-- guide-example file=src/webview/runtime/kurtosisPane.ts -->
+   ```ts
+   import { amountText, secondsText } from '../plot/plotText';
+   import { backendKurtosisPeak } from './wholeAnswers';
+
+   /** "max 7.30 at 1.20 s": the backend's largest kurtosis, found before thinning. */
+   export function kurtosisHeadline(view: StageView): string {
+       const peak = backendKurtosisPeak(view);
+       return peak ? `max ${amountText(peak.value)} at ${secondsText(peak.at)}` : '';
+   }
+   ```
+
+   and give it its row: `headline` in the chart's `requires`, and a `headline` row naming the function that writes
+   it and the Python function that computes it (steps `rows`, `number-writer`, `functions`; the table above has
+   it). The row is `from: 'full'`, so it names a proof test with `tt(...)` (steps `tt`, `not-drawn`; next section):
+
+   <!-- guide-example file=src/test/kurtosisPane.test.ts -->
+   ```ts
+   import assert from 'node:assert/strict';
+   import test from 'node:test';
+   import type { StageView } from '../shared/protocol/backendProtocol';
+   import { drawableLine } from '../shared/drawnPoints';
+   import { kurtosisHeadline } from '../webview/runtime/kurtosisPane';
+   import { assertNotDrawn } from './fullNotDrawn';
+
+   test('the kurtosis headline writes the backend\'s largest value, found before thinning, not the largest point drawn', () => {
+       // The drawn points top out at 4.1; the full data's peak (kurtosis_peak) is 7.3 at 1.2 s.
+       const view: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xs: [0, 1, 2], values: [2.0, 4.1, 3.0], kurtosisPeak: { x: 1.2, value: 7.3 } };
+       const headline = kurtosisHeadline(view);
+       assert.equal(headline, 'max 7.30 at 1.20 s');
+       assertNotDrawn(headline, `max ${Math.max(...drawableLine(view.values ?? []).map(Number))}`);
+   });
+   ```
+
+   The text functions of `plotText.ts` take plain numbers, so nothing but this step makes the headline go through
+   `backendKurtosisPeak`: `amountText(view.kurtosisPeak.value)` compiles too. Read the field through the adapter
+   anyway; it is where a reviewer looks for what the number is taken of.
 
 For an **array** the backend takes of every value (every bin of a spectrum, every band), mark the field's items
 `x-whole` in the schema (`_WHOLE_LINE`); the generator then lists it in `WholeFields`, and an adapter reads it with
@@ -459,8 +615,11 @@ They close the routes we know. They do not make a wrong number impossible. Know 
   the helper with that answer and something that is not a constant. It cannot confirm that the second argument
   really is what the thinned points would give, or that the value asserted is the one the row describes. That is
   the reviewer's job: read the test a row names.
-- **The table lists functions, not values.** A function in a row's `computedIn` may write several numbers. The
-  types above guard each value; the table records where to look.
+- **The table lists functions, not values.** A function in a row's `computedIn` may write several numbers, so a new
+  number written inside a function a row already names (a second figure in `stageHeadline`) passes the number scan
+  without a row of its own. A number the backend sends is still found by its field (`schema-fields`), but one the
+  webview computes is not. When you add a number, add its row even where the function is already listed; the
+  types above guard each value, and the table records where to look.
 - **The number scan is a ledger, not the guarantee.** It finds a function that turns a number into text directly
   (`toFixed`, a template, `String(n)`, a value helper) and makes sure the table lists it. It does not follow text
   kept in a property and written later, so a function can write a number without being listed. What keeps that
@@ -484,7 +643,7 @@ They close the routes we know. They do not make a wrong number impossible. Know 
   answer "on its way" outside `fullRead.ts`; the boundary test reads the function's returns, so typing it
   `FullAnswer` does not hide it. A layer with no full data passes `NO_FULL_DATA`; a picture that must not be read at
   all (a lane whose file changed since it was analysed) is painted with `readout: false`; a stand-in whose real
-  picture is on its way passes `PENDING_FULL_DATA`. What is not found: a read that can answer points on some path but
+  picture is on its way passes a pending source tied to its request (`pendingSource`, #779). What is not found: a read that can answer points on some path but
   in practice never does (its condition never holds), or a fetch callback (`fetchedSource`) that always answers
   null.
 - **Drawn points are opaque by type, their places by name.** Outside the drawing modules, the boundary test refuses
