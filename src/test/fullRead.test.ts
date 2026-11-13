@@ -1,6 +1,6 @@
 import { Y } from './helpers/figure';
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import { assertNotDrawn, nearestOf } from './fullNotDrawn';
 import { FAILED_RETRY_MS as FAILED_HOLD_MS } from '../webview/runtime/answerStore';
 import { fetchedSource, mappedSource, NO_FULL_DATA, STEP_AHEAD, type FullSource, type LineQuery, fullSource, cannotRead, readsFullData, sourceWith } from '../webview/runtime/fullRead';
@@ -541,4 +541,93 @@ test('a read the backend failed is no line read: the readout reads nothing, neve
     clock = FAILED_HOLD_MS + 1;
     await new Promise(resolve => { setTimeout(resolve, 60); });
     assert.equal(woken, 1, 'told once its pause is over, to read again');
+});
+
+test('a failed full read is asked again exactly when the store\'s hold ends, not earlier and not twice, and a second reader shares the one retry (C2, R7)', () => {
+    mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
+    try {
+        const asked: FullReadRequest[] = [];
+        const held: Array<() => void> = [];
+        const source = fetchedSource((read, done) => {
+            asked.push(read);
+            // The first answer is a failure; the next is held, as a reply that comes later.
+            if (asked.length === 1) done(null);
+            else held.push(() => done({ xs: [1, 2, 3], values: [10, 20, 30], start: 1, end: 3, complete: true }));
+        });
+        const query: LineQuery = { x0: 2, x1: 2, beyond: 1 };
+        const told: string[] = [];
+        // Each reader reads again when told, as a plot draws again.
+        const reader = (name: string): (() => void) => {
+            const ready = (): void => { told.push(name); source.line(query, ready); };
+            return ready;
+        };
+        const first = reader('first'), second = reader('second');
+        assert.equal(source.line(query, first), undefined, 'asked');
+        assert.equal(asked.length, 1);
+        told.length = 0;
+        assert.equal(source.line(query, first), null, 'failed: no number');
+        assert.equal(source.line(query, second), null, 'a second reader of the same read');
+        mock.timers.tick(FAILED_HOLD_MS - 1);
+        assert.deepEqual([...told], [], 'not told before the hold ends');
+        assert.equal(asked.length, 1, 'not asked again before the hold ends');
+        mock.timers.tick(1);
+        assert.deepEqual([...told], ['first', 'second'], 'both readers told when the hold ends');
+        assert.equal(asked.length, 2, 'asked again once, for both readers');
+        mock.timers.tick(FAILED_HOLD_MS * 4);
+        assert.equal(asked.length, 2, 'never asked twice');
+        held.shift()?.();
+        assert.deepEqual(source.line(query, () => undefined)?.values, [10, 20, 30]);
+    } finally {
+        mock.timers.reset();
+    }
+});
+
+test('a read waiting in line that a newer one replaces hands its reader on to it: nobody waits on a read that will not be sent', () => {
+    const queue: Array<() => void> = [];
+    const asked: number[][] = [];
+    const whole = testLine([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    const source = fetchedSource((read, done) => {
+        asked.push(read.x);
+        queue.push(() => done(whole.line({ x0: Math.min(...read.x), x1: Math.max(...read.x), beyond: read.beyond ?? 1 }, () => undefined)));
+    });
+    const told: string[] = [];
+    assert.equal(source.line({ x0: 1, x1: 1, beyond: 0 }, () => told.push('on its way')), undefined);
+    assert.equal(source.line({ x0: 5, x1: 5, beyond: 0 }, () => told.push('replaced')), undefined, 'waits in line');
+    assert.equal(source.line({ x0: 8, x1: 8, beyond: 0 }, () => told.push('newest')), undefined, 'takes its place');
+    queue.shift()?.();
+    assert.deepEqual([...told], ['on its way'], 'the first read in');
+    assert.deepEqual(asked, [[1], [8]], 'the replaced read is never sent');
+    queue.shift()?.();
+    assert.deepEqual([...told], ['on its way', 'newest', 'replaced'], 'the replaced read\'s reader is told with the read that took its place');
+});
+
+test('a reader told of its answer that reads another window at once (an arrow key\'s next step) queues behind the level waiting in line: one request on its way at a time, and every answer reaches its reader', () => {
+    const replies: Array<() => void> = [];
+    const sent: string[] = [];
+    const whole = testLine([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    const source = fetchedSource((read, done) => {
+        sent.push(read.level ? 'level' : `line ${read.x.join('-')}`);
+        replies.push(() => done(read.level ? { xs: [], values: [], start: null, end: null, complete: true, level: { power: 1, count: 1 } }
+            : whole.line({ x0: Math.min(...read.x), x1: Math.max(...read.x), beyond: read.beyond ?? 1 }, () => undefined)));
+    });
+    const onTheWay = (): number => replies.length;
+    const told: string[] = [];
+    const next: LineQuery = { x0: 6, x1: 6, beyond: 0 };
+    // The pointer's read; when it is in, its reader steps on to another window at once.
+    assert.equal(source.line({ x0: 1, x1: 1, beyond: 0 }, () => { told.push('first'); source.line(next, () => told.push('step')); }), undefined);
+    // The level of the window on screen waits in line meanwhile.
+    assert.equal(source.level({ x0: 0, x1: 9, square: true }, () => told.push('level')), undefined);
+    assert.equal(onTheWay(), 1);
+    replies.shift()?.();
+    assert.deepEqual([...told], ['first']);
+    assert.equal(onTheWay(), 1, 'one request on its way: the step read queues behind the level, never beside it');
+    assert.deepEqual(sent, ['line 1', 'level']);
+    replies.shift()?.();
+    assert.deepEqual([...told], ['first', 'level']);
+    assert.equal(onTheWay(), 1, 'then the step read goes');
+    assert.deepEqual(sent, ['line 1', 'level', 'line 6']);
+    replies.shift()?.();
+    assert.deepEqual([...told], ['first', 'level', 'step'], 'every answer reached its reader');
+    assert.equal(onTheWay(), 0);
+    assert.notEqual(source.line(next, () => undefined), undefined);
 });

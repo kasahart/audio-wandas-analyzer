@@ -1,14 +1,13 @@
 /**
  * What the answer store's boundary test looks for in a source (answerStoreBoundary.test.ts): collections that outlive
- * a call, and names of a failure pause or retry of its own.
+ * a call, and timers in an answer source (a failure pause or retry of its own).
  */
+import path from 'node:path';
 import ts from 'typescript';
 
 const COLLECTIONS = new Set(['Map', 'WeakMap', 'Set', 'WeakSet']);
 /** Calls that put something in an array: an array they are called on keeps what it is given. */
 const ARRAY_PUTS = new Set(['push', 'unshift', 'splice']);
-/** A name for when a failure is asked again, or how long it stands: those are the store's (FAILED_RETRY_MS, UNANSWERED_RETRY_MS). */
-const RETRY_NAME = /RETRY_MS|FAILED_HOLD|[fF]ailedAt$|^retryAt$/;
 
 export interface HeldCollection {
     file: string;
@@ -145,18 +144,6 @@ export function findHeldCollections(file: string, source: ts.SourceFile): HeldCo
         seen.add(key);
         return true;
     });
-}
-
-/** Every declared name of a failure pause or retry (a `…RETRY_MS`, a `failedAt` map), as `file#name`. */
-export function findOwnRetryPolicies(file: string, source: ts.SourceFile): string[] {
-    const found = new Set<string>();
-    const visit = (node: ts.Node): void => {
-        const name = (ts.isVariableDeclaration(node) || ts.isPropertyDeclaration(node) || ts.isPropertySignature(node) || ts.isPropertyAssignment(node)) && (ts.isIdentifier(node.name) || ts.isPrivateIdentifier(node.name)) ? node.name.text : undefined;
-        if (name && RETRY_NAME.test(name)) found.add(`${file}#${name}`);
-        ts.forEachChild(node, visit);
-    };
-    visit(source);
-    return [...found];
 }
 
 /** The name a node goes by in its source: the variable, property or function it is in (for an entry of a list). */
@@ -331,6 +318,76 @@ export function findAnswerWrites(file: string, source: ts.SourceFile, checker: t
                 if (name) found.add(`${file}#let ${name}`);
             }
         }
+        ts.forEachChild(node, visit);
+    };
+    visit(source);
+    return [...found];
+}
+
+/** The page's and Node's ways to run something later: a timer, a frame, an idle callback. */
+const SCHEDULERS = new Set(['setTimeout', 'setInterval', 'requestAnimationFrame', 'setImmediate', 'requestIdleCallback']);
+/** The store's and the full-data layer's makers: a file that calls one keeps or reads answers (an answer source). */
+const ANSWER_MAKERS: Record<string, ReadonlySet<string>> = {
+    'answerStore.ts': new Set(['createAnswerStore', 'createFailureHold', 'createAnswerSlot', 'createRequestClock']),
+    'fullRead.ts': new Set(['fetchedSource', 'fullSource']),
+};
+
+/** The declaration a call or reference resolves to, through aliases (an import, `const later = setTimeout`). */
+function declarationsOf(node: ts.Node, checker: ts.TypeChecker): readonly ts.Declaration[] {
+    let symbol = checker.getSymbolAtLocation(node);
+    if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+    return symbol?.declarations ?? [];
+}
+
+/** Whether a declaration is one of the platform's schedulers (declared in a library's .d.ts, not in the project). */
+const isScheduler = (declaration: ts.Declaration): boolean => {
+    const name = ts.getNameOfDeclaration(declaration);
+    return !!name && ts.isIdentifier(name) && SCHEDULERS.has(name.text) && declaration.getSourceFile().isDeclarationFile;
+};
+
+/**
+ * Whether the file is an answer source: it calls a maker of answerStore.ts (createAnswerStore, createFailureHold,
+ * createAnswerSlot, createRequestClock) or of fullRead.ts (fetchedSource, and fullSource('fetched', …): full data
+ * the backend holds), known by what the call resolves to, not by how it is spelled here.
+ */
+export function isAnswerSource(source: ts.SourceFile, checker: ts.TypeChecker): boolean {
+    let found = false;
+    const visit = (node: ts.Node): void => {
+        if (found) return;
+        if (ts.isCallExpression(node)) {
+            const declaration = checker.getResolvedSignature(node)?.declaration;
+            const name = declaration && ts.getNameOfDeclaration(declaration);
+            const makers = declaration ? ANSWER_MAKERS[path.basename(declaration.getSourceFile().fileName)] : undefined;
+            if (makers && name && ts.isIdentifier(name) && makers.has(name.text)) {
+                const first = node.arguments[0];
+                const fetched = name.text !== 'fullSource' || (!!first && ts.isStringLiteralLike(first) && first.text === 'fetched');
+                if (fetched && declaration.getSourceFile() !== source) { found = true; return; }
+            }
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(source);
+    return found;
+}
+
+/**
+ * Every place in a file that schedules work for later with the platform's timers (setTimeout, setInterval,
+ * requestAnimationFrame, setImmediate, requestIdleCallback), as `file:line`, known by what the call or reference
+ * resolves to (the library's declaration), whatever it is called here: `setTimeout(…)`, `window.setTimeout(…)`,
+ * `const later = globalThis.setTimeout; later(…)`, a destructured or imported alias. In an answer source, such a call
+ * is a failure pause or wake of its own: when a failure is asked again is the store's (whenFailureEnds).
+ */
+export function findScheduling(file: string, source: ts.SourceFile, checker: ts.TypeChecker): string[] {
+    const found = new Set<string>();
+    const at = (node: ts.Node): string => `${file}:${source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1}`;
+    const visit = (node: ts.Node): void => {
+        if (ts.isCallExpression(node)) {
+            const declaration = checker.getResolvedSignature(node)?.declaration;
+            if (declaration && !ts.isJSDocSignature(declaration) && isScheduler(declaration)) found.add(at(node));
+        }
+        // A reference to a scheduler as a value (to call it later under another name, or hand it on).
+        if ((ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) && !(node.parent && ts.isTypeQueryNode(node.parent)) && !ts.isTypeReferenceNode(node.parent)
+            && !(ts.isQualifiedName(node.parent)) && declarationsOf(node, checker).some(isScheduler)) found.add(at(node));
         ts.forEachChild(node, visit);
     };
     visit(source);

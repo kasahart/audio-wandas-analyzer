@@ -2,8 +2,8 @@
  * The answer store's boundary (docs/plot-layers.md, layer 1): answers are kept in answerStore.ts alone. The webview and the
  * host's side (src/extension, src/shared) are both read: a host's cache of answers (a stored scan, a track's analysis)
  * is an answer kept too. Outside the store no code keeps a Map, WeakMap, Set or array that outlives a call (a closure's, a class's or a module's) unless it is listed
- * in NOT_ANSWERS with what it holds instead (a request's callbacks, a canvas's drawing, a gesture's state); and no code
- * names a failure's pause or retry of its own. The list only shrinks: an entry that no longer matches fails too, so a
+ * in NOT_ANSWERS with what it holds instead (a request's callbacks, a canvas's drawing, a gesture's state); and no
+ * answer source schedules with a timer (a failure's pause or wake of its own), known by the call, not by its names. The list only shrinks: an entry that no longer matches fails too, so a
  * cache moved onto the store is taken off it.
  */
 import assert from 'node:assert/strict';
@@ -11,8 +11,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import ts from 'typescript';
-import { ANSWER_DECLARATIONS, answerProgram, findAnswerWrites, findFileKeysWithoutVersion, findFilelessKeys, findHeldCollections, findLatestAnswers, findOwnRetryPolicies, type HeldCollection } from './answerBoundary';
-import { FILELESS_KEYS, LATEST_ANSWERS, NOT_ANSWER_WRITES, NOT_ANSWERS, UNMIGRATED_CEILING, type Listed } from './answerBoundaryAllowlist';
+import { ANSWER_DECLARATIONS, answerProgram, findAnswerWrites, findFileKeysWithoutVersion, findFilelessKeys, findHeldCollections, findLatestAnswers, findScheduling, isAnswerSource, type HeldCollection } from './answerBoundary';
+import { FILELESS_KEYS, LATEST_ANSWERS, NOT_ANSWER_WRITES, NOT_ANSWERS, SCHEDULING_OWNERS, UNMIGRATED_CEILING, type Listed } from './answerBoundaryAllowlist';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const STORE = new Set(['src/webview/runtime/answerStore.ts', 'src/webview/runtime/answerTypes.ts']);
@@ -48,11 +48,6 @@ test('outside the answer store, every collection that outlives a call is listed 
     for (const [entry, reason] of Object.entries(NOT_ANSWERS)) assert.ok(reason.why.trim().length >= 12, `${entry} says what it holds`);
 });
 
-test('outside the answer store, no code names a failure pause or retry of its own', () => {
-    const found = sources().flatMap(({ file, source }) => findOwnRetryPolicies(file, source));
-    assert.deepEqual(found, [], 'How long a failure stands and when an unanswered request is asked again are answerStore.ts\' (FAILED_RETRY_MS, UNANSWERED_RETRY_MS, createFailureHold, createRequestClock)');
-});
-
 test('the boundary check finds a cache of answers added outside the store (mutation)', () => {
     // A source as a cache would be written outside the store: a factory's Map of answers, and a failure time of its own.
     const text = `
@@ -60,10 +55,9 @@ test('the boundary check finds a cache of answers added outside the store (mutat
             const answers = new Map<string, number>();
             const kept: number[] = [];
             const failedAt = new Map<string, number>();
-            const PAUSE_RETRY_MS = 5000;
             return {
                 get(key: string) { kept.push(1); return answers.get(key); },
-                set(key: string, value: number) { answers.set(key, value); failedAt.delete(key); return PAUSE_RETRY_MS; },
+                set(key: string, value: number) { answers.set(key, value); failedAt.delete(key); },
             };
         }
         export function transient(xs: number[]) {
@@ -76,7 +70,6 @@ test('the boundary check finds a cache of answers added outside the store (mutat
     `;
     const source = ts.createSourceFile('mutant.ts', text, ts.ScriptTarget.Latest, true);
     assert.deepEqual(findHeldCollections('mutant.ts', source).map(held => held.name).sort(), ['answers', 'byKey', 'failedAt', 'kept', 'moduleCache']);
-    assert.deepEqual(findOwnRetryPolicies('mutant.ts', source).sort(), ['mutant.ts#PAUSE_RETRY_MS', 'mutant.ts#failedAt']);
 });
 
 test('an answer of a file names the file\'s own version and calibration in its key, never leaves them to the ask', () => {
@@ -129,6 +122,63 @@ test('the write check knows an answer by its type, whatever it is called: a fiel
     `;
     const checked = answerProgram(repoRoot, [], { [file]: text });
     assert.deepEqual(writesIn(checked, [file]).sort(), [`${file}#byPath[event.filePath]`, `${file}#let last`, `${file}#record.kept`, `${file}#target[index].spectrogram`]);
+});
+
+test('no answer source schedules with a timer of its own: when a failed answer is asked again is the store\'s (whenFailureEnds)', () => {
+    const checked = program();
+    const timed = new Map<string, string[]>();
+    for (const file of webviewSources()) {
+        const source = checked.getSourceFile(path.join(repoRoot, file));
+        assert.ok(source, file);
+        if (!isAnswerSource(source, checked.getTypeChecker())) continue;
+        const found = findScheduling(file, source, checked.getTypeChecker());
+        if (found.length) timed.set(file, found);
+    }
+    assert.deepEqual([...timed].filter(([file]) => !(file in SCHEDULING_OWNERS)).flatMap(([, found]) => found), [],
+        'An answer source (a maker of answerStore.ts, or a fetched full source) keeps no timer: a failed read resumes through the store\'s whenFailureEnds, a pending one through whenSettled');
+    assert.deepEqual(Object.keys(SCHEDULING_OWNERS).filter(file => !timed.has(file)), [], 'an entry that matches nothing any more is taken off SCHEDULING_OWNERS (the list only shrinks)');
+    for (const [entry, reason] of Object.entries(SCHEDULING_OWNERS)) assert.ok(reason.why.trim().length >= 12, `${entry} says what its timers are for`);
+    // The full-data layer and the lane reads are answer sources: the rule holds them.
+    for (const file of ['src/webview/runtime/fullRead.ts', 'src/webview/runtime/laneReads.ts']) {
+        const source = checked.getSourceFile(path.join(repoRoot, file));
+        assert.ok(source && isAnswerSource(source, checked.getTypeChecker()), `${file} is an answer source`);
+    }
+});
+
+test('the timer rule knows a wake of its own by the call, whatever it is named: the `wakeAt` the name check let through (mutation)', () => {
+    const file = 'src/webview/runtime/__wakeAtMutant.ts';
+    // fullRead.ts's former wake, under names no retry pattern matches, and through aliases.
+    const text = `
+        import { createAnswerStore, answerKey } from './answerStore';
+        export function createSource(now: () => number) {
+            const kept = createAnswerStore<number>({ capacity: 4, now });
+            let woken: ReturnType<typeof setTimeout> | null = null;
+            const wakeAt = (at: number, ready: () => void): void => {
+                if (woken !== null) return;
+                woken = setTimeout(() => { woken = null; ready(); }, Math.max(0, at - now()) + 1);
+            };
+            const later = globalThis.setTimeout;
+            const { requestAnimationFrame: frame } = window;
+            return {
+                read(ready: () => void) { kept.ask(answerKey({ ask: 'x', version: { by: 'source' } })); wakeAt(now() + 10, ready); },
+                soon(ready: () => void) { later(ready, 5); frame(ready); window.setInterval(ready, 100); },
+            };
+        }
+        export function notASource(ready: () => void) { setTimeout(ready, 1); }
+    `;
+    const checked = answerProgram(repoRoot, [], { [file]: text });
+    const source = checked.getSourceFile(path.join(repoRoot, file));
+    assert.ok(source);
+    assert.equal(isAnswerSource(source, checked.getTypeChecker()), true, 'it makes an answer store: an answer source');
+    const lines = findScheduling(file, source, checked.getTypeChecker()).map(at => Number(at.split(':').pop()));
+    // setTimeout in wakeAt (line 8), the alias taken (10), the destructured frame (11), the aliased calls (14).
+    for (const line of [8, 10, 11, 14]) assert.ok(lines.includes(line), `line ${line} schedules: found ${lines.join(', ')}`);
+    assert.ok(!lines.includes(5), 'a type of a timer schedules nothing');
+    const plainFile = 'src/webview/runtime/__plainTimer.ts';
+    const plainProgram = answerProgram(repoRoot, [], { [plainFile]: 'export const f = (r: () => void) => setTimeout(r, 1);' });
+    const plain = plainProgram.getSourceFile(path.join(repoRoot, plainFile));
+    assert.ok(plain);
+    assert.equal(isAnswerSource(plain, plainProgram.getTypeChecker()), false, 'a file that makes no answer is no answer source');
 });
 
 const listed = (found: readonly string[], list: Record<string, Listed>, what: string): void => {
