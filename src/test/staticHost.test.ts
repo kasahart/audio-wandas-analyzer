@@ -783,8 +783,8 @@ test('an entry scan loads each listed file only for its scan, reuses unchanged f
     // Without IndexedDB (here) the folder's index falls back to localStorage, under the folder's own key: its
     // name, and its file count and a tag of its first files' names, sizes and times (another folder of the same name has another).
     const stored = (prefix: string): string => app.storage.get([...app.storage.keys()].find(key => key.startsWith(prefix))!)!;
-    assert.ok([...app.storage.keys()].some(key => /^awa\.scanIndex\.v2:#2:[0-9a-f]{8}$/.test(key)));
-    assert.deepEqual(Object.keys(JSON.parse(stored('awa.scanIndex.v2:#'))), filePaths);
+    assert.ok([...app.storage.keys()].some(key => /^awa\.scanIndex\.v3:#2:[0-9a-f]{8}$/.test(key)));
+    assert.deepEqual(Object.keys(JSON.parse(stored('awa.scanIndex.v3:#'))), filePaths);
 
     const again = await scanFolder('e2');
     assert.equal(again.length, 2);

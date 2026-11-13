@@ -2124,6 +2124,16 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "uncalibrated",
                         "calibrated"
                     ]
+                },
+                "region": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/ScanRegion"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 }
             },
             "additionalProperties": false
@@ -2906,6 +2916,7 @@ export interface ScanInput {
     fullScale: boolean;
     channelCalibration?: ("uncalibrated" | "calibrated")[];
     baseCalibrationStatus?: "uncalibrated" | "calibrated";
+    region?: ScanRegion | null;
 }
 
 export interface ScanResult {

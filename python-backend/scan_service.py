@@ -67,6 +67,11 @@ class ScanReference(TypedDict):
     calibration: NotRequired[object]
 
 
+class ScanRegionEcho(TypedDict):
+    start: float
+    end: float
+
+
 class ScanInput(TypedDict):
     id: str
     fs: int
@@ -80,6 +85,9 @@ class ScanInput(TypedDict):
     fullScale: bool
     #: Each channel's own status (in ``channels``' order): a channel taken alone names its own calibration.
     channelCalibration: NotRequired[list[CalibrationStatus]]
+    #: The region the scan was asked for (seconds, exact as sent; null = the whole file), for display and for the
+    #: webview to tell requests apart. The condition itself is the analysed samples inside ``conditionId``.
+    region: NotRequired[ScanRegionEcho | None]
     #: Scanned against the base slot's recording: the status of the base channel the pair is made with.
     baseCalibrationStatus: NotRequired[CalibrationStatus]
 
@@ -134,10 +142,36 @@ def _sha256(text: str) -> str:
 
 
 def region_label(region: Mapping[str, float] | None) -> str:
-    """``"0.500-1.500"`` (seconds, three decimals) or ``"all"``, as condition IDs spell regions."""
+    """``"0.500-1.500"`` (seconds, three decimals) or ``"all"``: for reading only, never part of an identity.
+
+    Two regions under 1 ms apart read the same here but analyse other samples; what a scan is of is
+    ``analysed_samples`` (see ``condition_id``).
+    """
     if region is None:
         return "all"
     return f"{region['start']:.3f}-{region['end']:.3f}"
+
+
+def _sample_of(seconds: float, sampling_rate: float, version: int) -> int:
+    """The sample a ``wandas.frame.time_slice`` of ``version`` starts or ends at (unclipped).
+
+    Version 2 takes the nearest sample, halves up, after snapping away floating-point error (wandas'
+    ``_nearest_sample``); version 1, which saved Recipes may still name, truncates.
+    """
+    if version == 1:
+        return int(seconds * sampling_rate)
+    return math.floor(round(seconds * sampling_rate, 6) + 0.5)
+
+
+def analysed_samples(start: float, end: float, sampling_rate: float, version: int = 2) -> tuple[int, int]:
+    """The half-open sample range ``[first, end)`` the scan's time slice keeps of ``start``–``end`` seconds.
+
+    This is what a scan is of, and so the region's part of its ``condition_id``: equal ranges are the same
+    analysis however the seconds were spelled, and ranges a sample apart are not. ``start``/``end`` are the
+    region after the edge guard (``scan``); ``sampling_rate`` is the rate the slice cuts at.
+    ``test_analysed_samples_are_the_samples_the_time_slice_keeps`` holds this to wandas' own slice.
+    """
+    return _sample_of(start, sampling_rate, version), _sample_of(end, sampling_rate, version)
 
 
 def scan_spec() -> dict[str, object]:
@@ -148,7 +182,7 @@ def scan_spec() -> dict[str, object]:
 def condition_id(
     *,
     input_id: str,
-    region: Mapping[str, float] | None,
+    samples: tuple[int, int],
     channels: Sequence[int],
     sampling_rate: int,
     calibration: str | None,
@@ -156,12 +190,19 @@ def condition_id(
     ref: float,
     recipe_sha256: str,
 ) -> str:
-    """sha256 of everything that decides a scan's numbers, so equal IDs mean comparable values."""
+    """sha256 of everything that decides a scan's numbers, so equal IDs mean comparable values.
+
+    The region is the exact sample range analysed (``analysed_samples``), never its rounded ``region_label``:
+    starts of 0.5001 s and 0.5004 s at 48 kHz are 14 samples apart and are two conditions
+    (``test_condition_id_tells_regions_under_a_millisecond_apart``), while two spellings of one range are one
+    (``test_condition_id_is_the_same_for_the_same_analysed_samples``). The Recipe's hash is taken before the
+    region is set into its slice, so it does not tell regions apart on its own.
+    """
     return _sha256(
         _canonical_json(
             {
                 "input": input_id,
-                "region": region_label(region),
+                "analysedSamples": list(samples),
                 "channels": list(channels),
                 "fs": sampling_rate,
                 "calibration": calibration,
@@ -281,6 +322,8 @@ class ScanPlans(TypedDict):
     welch: RecipePlan
     noct: RecipePlan | None
     sha256: str
+    #: The version of the time slice the region is set into: it decides how seconds round to samples.
+    slice_version: int
 
 
 def _upstream(nodes: Sequence[Mapping[str, object]], target: str) -> set[str]:
@@ -412,6 +455,7 @@ def scan_plans(recipe: Mapping[str, object], start: float, end: float, sampling_
         "welch": _single_node_plan(welch_node, "region"),
         "noct": noct,
         "sha256": recipe_sha256,
+        "slice_version": int(slices[0].get("version", 2)) if slices else 2,  # type: ignore[call-overload]
     }
 
 
@@ -631,6 +675,8 @@ def scan_cached(
         "calibrationStatus": status,
         "fullScale": full_scale,
         "channelCalibration": [resolved.channels[index].status for index in selected],
+        # The region as it was asked for, its ends exact: the webview's sameCondition reads it through regionKey.
+        "region": None if region is None else {"start": float(region["start"]), "end": float(region["end"])},
     }
     if reference is not None:
         described["baseCalibrationStatus"] = _reference_status(reference)
@@ -751,7 +797,7 @@ def scan_cached(
         "ok": True,
         "conditionId": condition_id(
             input_id=cached.input_id,
-            region=region,
+            samples=analysed_samples(start, end, region_frame.sampling_rate, plans["slice_version"]),
             channels=selected,
             sampling_rate=int(round(sampling_rate)),
             calibration=None if resolved.is_identity else resolved.signature,
