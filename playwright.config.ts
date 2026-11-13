@@ -11,6 +11,8 @@ export default defineConfig({
     reporter: [
         ['list'],
         ['html', { open: 'never', outputFolder: 'playwright-report' }],
+        // In CI a test that does not run fails the run unless scripts/test-skip-allowlist.json lists it.
+        ['./scripts/playwright-skip-reporter.mjs'],
     ],
     use: {
         browserName: 'chromium',

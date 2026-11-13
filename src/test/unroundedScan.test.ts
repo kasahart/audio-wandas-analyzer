@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,12 +9,13 @@ import { getStrings } from '../shared/i18n/strings';
 import { diffHeadline } from '../webview/runtime/comparePanes';
 import { BAND_CENTERS_HZ, buildEntryModel } from '../webview/runtime/entryTable';
 import { compareOf } from './helpers/compareInput';
+import { backendRequired } from './helpers/python';
 import { backendPython } from './uiSmoke/realBackend';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const SCAN = path.join(repoRoot, 'src', 'test', 'fixtures', 'unroundedScan', 'scan.py');
 /** The backend is required where the repo has its .venv (or AWA_REQUIRE_BACKEND=1), as the UI tests require it. */
-const required = process.env.AWA_REQUIRE_BACKEND === '1' || (process.env.AWA_REQUIRE_BACKEND !== '0' && existsSync(path.join(repoRoot, '.venv', 'bin', 'python')));
+const required = backendRequired();
 
 /** The three recordings scan.py writes, each scanned by the backend's own scan command with every Welch bin. */
 function scanned(): Map<string, ScanResult> | null {

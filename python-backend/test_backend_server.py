@@ -1497,37 +1497,76 @@ def test_heartbeat_and_large_responses_are_serialized(monkeypatch):
 
     import backend_server
 
-    sleep = time.sleep
     output = io.StringIO()
-    barrier = threading.Barrier(2)
     writes = []
     flushes = []
+    # The two threads are made to meet, by events alone: the first response's write, after its first fragment, waits
+    # until the heartbeat thread has come to emit, so that heartbeat is due while the response holds the stream. With
+    # the lock in _emit it comes to the lock and waits there; without the lock its line lands inside the response.
+    # Nothing here waits on the clock or yields to the scheduler: the test once yielded (sleep(0)) between some 800
+    # fragments, and on a loaded Windows runner, where a yield can give up a whole scheduler quantum, that took longer
+    # than the join bound. The heartbeat thread, waiting at the lock behind the responses, was left running then.
+    response_started = threading.Event()
+    heartbeat_came = threading.Event()
+    stop = threading.Event()
+
+    class Stopped(Exception):
+        pass
 
     class FragmentingOutput:
         def write(self, value):
+            if stop.is_set():
+                raise Stopped
             writes.append(value)
+            if '"heartbeat"' in value:
+                heartbeat_came.set()
             for start in range(0, len(value), 127):
                 output.write(value[start : start + 127])
-                sleep(0.00001)
+                if '"requestId"' in value and start == 0 and not response_started.is_set():
+                    response_started.set()
+                    assert heartbeat_came.wait(timeout=10), "the heartbeat thread never came to emit"
 
         def flush(self):
             flushes.append(True)
 
+    class ReportingLock:
+        """_emit's lock, saying when the heartbeat thread comes to it."""
+
+        def __init__(self, lock):
+            self._lock = lock
+
+        def __enter__(self):
+            if threading.current_thread().name == "awa-test-heartbeat":
+                heartbeat_came.set()
+            return self._lock.__enter__()
+
+        def __exit__(self, *exc_info):
+            return self._lock.__exit__(*exc_info)
+
     heartbeats = 0
 
-    def heartbeat_sleep(_interval):
-        nonlocal heartbeats
-        if heartbeats == 12:
-            raise SystemExit
-        heartbeats += 1
-        sleep(0.00001)
+    class HeartbeatClock:
+        """backend_server's time, its sleep the heartbeat's beat: 12 beats, the first once the response holds the
+        stream. Only backend_server's own name is replaced: the time module stays as it is for every other thread."""
 
-    monkeypatch.setattr(sys, "stdout", FragmentingOutput())
-    monkeypatch.setattr(backend_server.time, "sleep", heartbeat_sleep)
+        def __getattr__(self, name):
+            return getattr(time, name)
+
+        def sleep(self, _interval):
+            nonlocal heartbeats
+            if heartbeats == 12 or stop.is_set():
+                raise SystemExit
+            heartbeats += 1
+            if heartbeats == 1:
+                assert response_started.wait(timeout=10), "the first response never started"
+
+    # _emit writes to the private reply stream the process takes at start (backend_server._reply_stream).
+    monkeypatch.setattr(backend_server, "_replies", FragmentingOutput())
+    monkeypatch.setattr(backend_server, "_REPLIES_LOCK", ReportingLock(backend_server._REPLIES_LOCK))
+    monkeypatch.setattr(backend_server, "time", HeartbeatClock())
     errors = []
 
     def heartbeat():
-        barrier.wait()
         try:
             backend_server._heartbeat_loop()
         except SystemExit:
@@ -1536,20 +1575,32 @@ def test_heartbeat_and_large_responses_are_serialized(monkeypatch):
             errors.append(error)
 
     def responses():
-        barrier.wait()
         try:
             for index in range(8):
                 backend_server._emit({"requestId": str(index), "samples": [index] * 4000, "label": "音声"})
         except Exception as error:
             errors.append(error)
 
-    threads = [threading.Thread(target=heartbeat), threading.Thread(target=responses)]
+    # Named as backend threads (conftest.py): none may outlive this test, nor write into another's stream.
+    threads = [
+        threading.Thread(target=heartbeat, name="awa-test-heartbeat"),
+        threading.Thread(target=responses, name="awa-test-responses"),
+    ]
     for thread in threads:
         thread.start()
-    for thread in threads:
-        thread.join(timeout=10)
-        assert not thread.is_alive()
+    try:
+        for thread in threads:
+            thread.join(timeout=10)
+        assert not [thread.name for thread in threads if thread.is_alive()]
+    finally:
+        # A thread still running when the test fails is told to stop, and is waited for: every wait above ends then.
+        stop.set()
+        response_started.set()
+        heartbeat_came.set()
+        for thread in threads:
+            thread.join(timeout=10)
     assert errors == []
+    assert heartbeat_came.is_set(), "a heartbeat came due while a response held the stream"
     messages = [json.loads(line) for line in output.getvalue().splitlines()]
     assert sum(message.get("type") == "heartbeat" for message in messages) == 12
     responses = [message for message in messages if "requestId" in message]
@@ -1974,10 +2025,15 @@ def test_stdin_eof_drops_queued_requests_instead_of_finishing_them(monkeypatch, 
     main(FakeService(), workers=1)  # type: ignore[arg-type]
     returned_after = time.perf_counter() - started
     release.set()
-    time.sleep(0.1)
+    # A request that had started still answers; its reply is this test's, so the test waits for its thread to end.
+    for thread in threading.enumerate():
+        if thread.name.startswith("awa-request-"):
+            thread.join(timeout=10)
 
     assert returned_after < 5, "main must not wait for the running request once the host is gone"
     assert "b.wav" not in calls
+    replies = [reply["requestId"] for reply in _replies(capsys.readouterr().out)]
+    assert replies == (["running"] if calls else []), "only a request that had started answers, and within its test"
 
 
 def test_a_path_that_cannot_be_resolved_fails_only_its_own_request(monkeypatch, capsys):
@@ -2132,6 +2188,70 @@ def test_the_backends_standard_input_is_not_its_request_pipe() -> None:
         deadline = time.monotonic() + 60
         read = [out.next(deadline, step).strip() for step in ("the request", "fd 0", "sys.stdin", "a child's stdin")]
         assert read == ['\'{"cmd": "ping"}\\n\'', "b''", "''", "''"]
+    finally:
+        process.kill()
+        process.wait()
+
+
+# --- The backend process and its standard output -------------------------------------------------------------------
+# The backend never leaves its reply pipe as the process's standard output (backend_server._reply_stream).
+
+
+def test_what_a_request_writes_to_the_standard_output_lands_in_the_log_and_never_in_the_reply_stream() -> None:
+    # The backend as the extension starts it (its __main__, pipes for stdin, stdout and stderr), with a service whose
+    # request writes to the standard output the ways a library can: print, a C-level write to fd 1, a child process
+    # that inherits it. Before the replies left the standard output, each of those became a line of the protocol.
+    probe = "\n".join(
+        [
+            "import os, runpy, subprocess, sys, types",
+            f"sys.path.insert(0, {str(_SERVER.parent)!r})",
+            "class Service:",
+            "    def analyze(self, file_path, **options):",
+            "        print('stray print')",
+            "        print('stray \\ud800 lone surrogate')",
+            "        sys.stdout.flush()",
+            "        os.write(1, b'stray fd 1 write\\n')",
+            "        subprocess.run([sys.executable, '-c', 'print(\"stray child output\")'], check=True)",
+            "        return {'answered': file_path}",
+            "sys.modules['analysis_engine'] = types.SimpleNamespace(AnalysisEngine=lambda: None)",
+            "sys.modules['analysis_service'] = types.SimpleNamespace(AnalysisService=lambda engine: Service())",
+            f"sys.argv = [{str(_SERVER)!r}]",
+            f"runpy.run_path({str(_SERVER)!r}, run_name='__main__')",
+        ]
+    )
+    process = subprocess.Popen(
+        [sys.executable, "-c", probe],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        env={**os.environ, "AWA_PERF_LOG": "0"},
+    )
+    assert process.stdin is not None and process.stdout is not None and process.stderr is not None
+    try:
+        out, err = _Lines(process.stdout), _Lines(process.stderr)
+        deadline = time.monotonic() + _REPLY_LIMIT_S
+        process.stdin.write(json.dumps({"cmd": "analyze", "requestId": "r1", "filePath": "tone.wav"}) + "\n")
+        process.stdin.flush()
+        replies = []
+        while not any(reply.get("requestId") == "r1" and reply.get("type") != "started" for reply in replies):
+            line = out.next(deadline, "the request's reply")
+            assert line, f"the backend closed its output; stderr: {''.join(err.seen)}"
+            replies.append(json.loads(line))
+        assert replies[-1] == {"answered": "tone.wav", "requestId": "r1"}
+        process.stdin.close()
+        while out.next(deadline, "the end of the reply stream") != "":
+            pass
+        assert process.wait(timeout=30) == 0
+        while err.next(deadline, "the backend's stderr") != "":
+            pass
+        log = "".join(err.seen)
+        # stderr writes what cannot be encoded as escapes (backslashreplace): a stray print can never raise there.
+        for stray in ("stray print", "stray \\ud800 lone surrogate", "stray fd 1 write", "stray child output"):
+            assert stray in log, f"{stray!r} is in the log"
+        for line in out.seen[:-1]:
+            assert isinstance(json.loads(line), dict), f"every line of the reply stream is a message: {line!r}"
     finally:
         process.kill()
         process.wait()

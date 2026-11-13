@@ -51,8 +51,16 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
-      - name: Install Python dev dependencies
-        run: pip install -c python-backend/constraints.txt -e ".[dev]"
+      # A workspace venv, as a user's checkout has: verify, and the tests that run the backend's Python, find it the way
+      # the extension does (.venv\Scripts\python.exe on Windows, .venv/bin/python elsewhere). In CI a test that skips
+      # for want of it fails verify (scripts/test-skips.mjs).
+      - name: Create workspace venv with the Python dev dependencies
+        shell: bash
+        run: |
+          python -m venv .venv
+          venv_python=.venv/${{ runner.os == 'Windows' && 'Scripts' || 'bin' }}/python
+          "$venv_python" -m pip install --upgrade pip
+          "$venv_python" -m pip install -c python-backend/constraints.txt -e ".[dev]"
 
       - name: Run verify
         run: npm run verify
