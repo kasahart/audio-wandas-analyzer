@@ -1017,10 +1017,19 @@ test('widened, the name takes the free width and keeps its end in sight; in a na
     }
     await page.locator('[data-entry-table]').evaluate(table => { (table as HTMLElement).style.width = ''; });
     // At 800 px the value column is in sight, not behind the distribution, which sits under the table.
-    const value = (await first.locator('.entry-col-value').boundingBox())!;
-    const side = (await page.locator('.entry-side').boundingBox())!;
-    expect(value.x + value.width).toBeLessThanOrEqual(800);
-    expect(side.y).toBeGreaterThanOrEqual(value.y + value.height);
+    // The table writes its rows anew on each render, and a resize renders it again, so the cell is measured until the
+    // layout has settled rather than once: boundingBox() does not wait, and reads null for a row while it is replaced.
+    const valueCell = first.locator('.entry-col-value');
+    const side = page.locator('.entry-side');
+    await expect(valueCell).toBeVisible();
+    await expect(side).toBeVisible();
+    await expect.poll(async () => {
+        const value = await valueCell.boundingBox();
+        const sideBox = await side.boundingBox();
+        if (!value || !sideBox) return 'not laid out yet';
+        return { valueInSight: value.x + value.width <= 800, distributionBelow: sideBox.y >= value.y + value.height };
+    }, { message: 'at 800 px the value column ends inside the window and the distribution sits under the table' })
+        .toEqual({ valueInSight: true, distributionBelow: true });
 });
 
 test('Open Compare looks unavailable while slots 1–3 are empty and says why; a filled slot enables it', async ({ page }) => {
