@@ -1,6 +1,7 @@
 import type { Drawn } from '../../shared/provenance';
 import type { SpectrogramData } from '../../shared/analysis/analysisTypes';
 import type { SpectrumStandIn } from '../runtime/types';
+import type { PendingRequest } from '../runtime/answerStore';
 import { spectrogramTimeBinAt, spectrogramTimeBinEdges } from './spectrogramTimeBins';
 
 export interface SpectrumSlice {
@@ -21,6 +22,8 @@ export interface SpectrumSlice {
     bandCentersHz?: number[];
     /** Drawn in place of the backend's slice, never read as one (types.ts SpectrumStandIn). */
     standIn?: SpectrumStandIn;
+    /** A 'pending' stand-in's request: what its reads wait on (fullRead.ts pendingSource). */
+    waitingOn?: PendingRequest;
 }
 
 export interface SpectrumSource {
@@ -44,7 +47,8 @@ export interface CursorSpectrumContext {
     cursorTolerance: number;
     /** Octave bands come only from the backend; the spectrogram column is an FFT and cannot stand in for them. */
     bands?: boolean;
-    requestSlice(trackIndex: number, cursorNorm: number): void;
+    /** Asks for the cursor's slice; the request it is on its way with, if one is (a new one, or the one already asked). */
+    requestSlice(trackIndex: number, cursorNorm: number): PendingRequest | undefined;
     applyDisplaySettings: (slice: SpectrumSlice) => SpectrumSlice;
 }
 
@@ -114,8 +118,9 @@ export function extractSpectrumAtCursor(
         }
         return makeSilentSpectrumSlice(result, spec ?? null, cached, applySpectrumDisplaySettings);
     }
+    let waitingOn: PendingRequest | undefined;
     if (idx >= 0) {
-        context?.requestSlice(idx, cursorNormValue);
+        waitingOn = context?.requestSlice(idx, cursorNormValue);
         if (cached && cachedIsCurrent) {
             return applySpectrumDisplaySettings(cached);
         }
@@ -147,5 +152,6 @@ export function extractSpectrumAtCursor(
         axisLabel: spec.axisLabel,
         // The display spectrogram's column, its cells power-averaged to draw: drawn until the slice comes, never read.
         standIn: 'pending',
+        ...(waitingOn ? { waitingOn } : {}),
     });
 }

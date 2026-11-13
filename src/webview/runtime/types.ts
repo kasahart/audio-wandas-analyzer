@@ -1,3 +1,4 @@
+import type { PendingRequest } from './answerStore';
 import type { Drawn } from '../../shared/provenance';
 import type { FullSource } from './fullRead';
 import type { UiStrings } from '../../shared/i18n/strings';
@@ -150,6 +151,8 @@ export interface SpectrumSlice {
     typedDb?: { min?: number; max?: number };
     /** Drawn in place of a slice the backend has not given (cursorSpectrum.ts): no number is read of it (R7). */
     standIn?: SpectrumStandIn;
+    /** A 'pending' stand-in's request: what its reads wait on (fullRead.ts pendingSource). */
+    waitingOn?: PendingRequest;
 }
 
 /**
