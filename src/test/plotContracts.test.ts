@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import ts from 'typescript';
-import { namedTest, testProblem } from './namedTest';
+import { pythonDefBodies, pythonDiscovery, pythonExecutable, testProblem } from './namedTest';
 import { CHARTS, CONTRACTS, GAP_CEILING, KNOWN_GAPS, ROWS } from './plotContracts/index';
 import { CLICK_READ, CLICK_TEST, TICK_PLACES, type ContractRow } from './plotContracts/model';
 import { CONTRACT_DOC, renderContractDoc } from './plotContracts/render';
@@ -124,7 +125,7 @@ function exists(entry: string): boolean {
     const file = entry.slice(0, at);
     const name = entry.slice(at + 1);
     if (!existsSync(path.join(repoRoot, file))) return false;
-    if (file.endsWith('.py')) return new RegExp(`^[ \\t]*(?:async\\s+)?def ${name}\\(`, 'm').test(read(file));
+    if (file.endsWith('.py')) return [...pythonDefBodies(read(file)).keys()].some(def => def.slice(def.lastIndexOf('.') + 1) === name);
     return functionsOf(file).has(name);
 }
 
@@ -677,12 +678,13 @@ const PYTHON = 'python-backend';
 /** Every def of the backend's modules (not its tests), with its body. */
 function pythonDefs(): Map<string, string> {
     const defs = new Map<string, string>();
-    for (const name of readdirSync(path.join(repoRoot, PYTHON)).filter(item => item.endsWith('.py') && !item.startsWith('test_') && item !== 'conftest.py').sort()) {
-        const file = `${PYTHON}/${name}`;
-        const text = read(file);
-        for (const match of text.matchAll(/^[ \t]*(?:async\s+)?def (\w+)\(/gm)) {
-            const body = namedTest(file, text.slice(match.index), match[1])?.body ?? '';
-            if (!defs.has(`${file}:${match[1]}`)) defs.set(`${file}:${match[1]}`, body);
+    const files = readdirSync(path.join(repoRoot, PYTHON)).filter(item => item.endsWith('.py') && !item.startsWith('test_') && item !== 'conftest.py').sort().map(name => `${PYTHON}/${name}`);
+    // Every def by the one Python discovery (namedTest.ts pythonDiscovery), a method by its own name as the table names it.
+    pythonDiscovery(files.map(read));
+    for (const file of files) {
+        for (const [name, body] of pythonDefBodies(read(file))) {
+            const own = name.slice(name.lastIndexOf('.') + 1);
+            if (!defs.has(`${file}:${own}`)) defs.set(`${file}:${own}`, body);
         }
     }
     return defs;
@@ -709,8 +711,7 @@ function pythonDrawn(readers: Readonly<Record<string, readonly string[]>> = pyth
 
 /** check_decimation_flow.py's readers: every backend def computing with drawn points, by the AST data flow. */
 function pythonFlowReaders(sources?: Readonly<Record<string, string>>): Record<string, string[]> {
-    const venv = path.join(repoRoot, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
-    const python = existsSync(venv) ? venv : process.platform === 'win32' ? 'python' : 'python3';
+    const python = pythonExecutable();
     const script = sources
         ? ['-c', 'import json,sys; sys.path.insert(0, "scripts"); import check_decimation_flow as c; print(json.dumps(c.find_readers(json.loads(sys.stdin.buffer.read().decode("utf-8")))))']
         : ['scripts/check_decimation_flow.py', '--readers'];
@@ -742,7 +743,7 @@ test('every backend function that computes with thinned points says what it does
     const python = pythonDrawn();
     assert.deepEqual(PY_DECIMATORS.filter(entry => !exists(entry)), [], 'Rule: every decimator in python-backend/drawn_points_contract.json is a def of the backend. Fix: remove or rename these.');
     const unclassified = [...python].filter(([where]) => !Object.hasOwn(BACKEND_READERS, where)).map(([where, reads]) => `${where} (${[...reads].sort().join(', ')})`).sort();
-    assert.deepEqual(unclassified, [], 'Rule: every backend function that computes with points thinned to draw (it calls a decimator, or is handed its result) says what it does with them. Fix: add each to "readers" in python-backend/drawn_points_contract.json as use "draws" (it only makes the picture; scripts/check_decimation_flow.py checks that by data flow) or "value" (a number is made of them: its row must then say from thinned or extremes, and is a gap). Prefer computing from the full data instead. See docs/plot-contracts-guide.md.');
+    assert.deepEqual(unclassified, [], 'Rule: every backend function that computes with points thinned to draw (it calls a decimator, or is handed its result) says what it does with them. Fix: add each to "readers" in python-backend/drawn_points_contract.json as use "draws" (it only makes the picture; scripts/check_decimation_flow.py checks that by data flow). If it makes a number of them, take that number from the full data it is given, before thinning, so it only draws: classifying it "value" makes its row a gap, which GAP_CEILING (0) does not allow. See docs/plot-contracts-guide.md.');
     assert.deepEqual(Object.keys(BACKEND_READERS).filter(where => !python.has(where)).sort(), [], 'Rule: "readers" in python-backend/drawn_points_contract.json lists only functions that compute with thinned points today. Fix: remove these entries.');
     for (const row of ROWS) {
         const values = row.computedIn.filter(where => BACKEND_READERS[where]?.use === 'value');
@@ -1039,8 +1040,7 @@ let pythonAnswers: Map<string, string | null> | undefined;
 function pythonProof(targets: readonly string[], proof: Proof): string | null {
     const key = (item: { targets: readonly string[]; proof: Proof }): string => JSON.stringify([item.targets, item.proof.file, item.proof.name]);
     const ask = (items: ReadonlyArray<{ targets: readonly string[]; proof: Proof }>): Array<string | null> => {
-        const venv = path.join(repoRoot, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
-        const python = existsSync(venv) ? venv : process.platform === 'win32' ? 'python' : 'python3';
+        const python = pythonExecutable();
         const input = JSON.stringify(items.map(item => ({ targets: item.targets, file: item.proof.file, name: item.proof.name })));
         const run = spawnSync(python, ['scripts/check_test_proofs.py'], { cwd: repoRoot, encoding: 'utf8', input });
         assert.equal(run.status, 0, `check_test_proofs.py: ${run.stderr}`);
@@ -1055,6 +1055,30 @@ function pythonProof(targets: readonly string[], proof: Proof): string | null {
     if (!pythonAnswers.has(key(asked))) pythonAnswers.set(key(asked), ask([asked])[0]);
     return pythonAnswers.get(key(asked)) ?? null;
 }
+
+test('a pytest proof moved into a test class is one test, named TestX::test_y, for both the name check and the proof check', () => {
+    // One discovery (scripts/check_test_proofs.py tests_of, which namedTest.ts asks): before #777 namedTest found the
+    // method by its bare name and the proof check did not find it at all, so one check passed what the other failed.
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'awa-proof-'));
+    try {
+        const file = path.join(dir, 'test_held.py');
+        const text = [
+            'import numpy as np', 'from conftest import assert_not_drawn', 'from decimator import decimated_waveform', '', '',
+            'class TestHeld:', '    def test_it(self):', '        samples = np.sin(np.arange(5000) * 0.3)', '        samples[3210] = -0.95',
+            '        result = decimated_waveform(samples, 50, 0, 5000)', '        assert result["absolutePeak"] == 0.95',
+            '        averaged = np.abs(samples.reshape(50, -1).mean(axis=1))', '        assert_not_drawn(result["absolutePeak"], float(averaged.max()))', '',
+        ].join('\n');
+        writeFileSync(file, text);
+        const targets = ['python-backend/decimator.py:decimated_waveform'];
+        assert.equal(testProblem('test_held.py', text, 'TestHeld::test_it'), null);
+        assert.equal(pythonProof(targets, { file, name: 'TestHeld::test_it' }), null);
+        // By its bare name it is a test of neither, and the proof check names the name that is.
+        assert.match(testProblem('test_held.py', text, 'test_it') ?? '', /is not a test/);
+        assert.equal(pythonProof(targets, { file, name: 'test_it' }), "is not a test of its file: name it 'TestHeld::test_it'");
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
 
 test('the proof check follows names to what they declare: only a use of the row\'s code, its answer asserted outright, and assertNotDrawn(answer, drawnAnswer) make a proof', () => {
     // Proofs written here for the injection, compiled over the real sources and never written to disk.

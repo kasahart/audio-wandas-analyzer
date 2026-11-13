@@ -62,8 +62,10 @@ test('a named test\'s body ends where its own call or def does, at any indent, s
     assert.doesNotMatch(namedTest('a.test.ts', ts, 'empty')!.body, /assert/);
     assert.match(namedTest('a.test.ts', ts, 'checks')!.body, /assert\.equal/);
     const py = ['class TestGroup:', '    async def test_empty(', '        self,', '    ) -> None:', '        x = 1', '', '    def test_checks(self) -> None:', '        assert 1 == 1', ''].join('\n');
-    assert.doesNotMatch(namedTest('test_a.py', py, 'test_empty')!.body, /assert/);
-    assert.match(namedTest('test_a.py', py, 'test_checks')!.body, /assert 1 == 1/);
+    // A method of a test class is named as pytest collects it, class first (check_test_proofs.py tests_of).
+    assert.doesNotMatch(namedTest('test_a.py', py, 'TestGroup::test_empty')!.body, /assert/);
+    assert.match(namedTest('test_a.py', py, 'TestGroup::test_checks')!.body, /assert 1 == 1/);
+    assert.equal(namedTest('test_a.py', py, 'test_checks'), null);
 });
 
 /** Every rule's screens and Frame kinds are reached by its tests: a rule is never left marked 未 (not yet checked). */
