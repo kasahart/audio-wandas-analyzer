@@ -24,6 +24,7 @@ export const entryDistribution: ChartContract = {
             from: 'whole', trace: '層が持つ全部の値（InlineFullSource）の次のビン・点。',
             tests: [
                 t('src/test/uiSmoke/plotContract.spec.ts', 'the entry\'s distribution answers the same gestures as every plot: each group\'s row, on the value axis below them (R13)'),
+                t('src/test/uiSmoke/plotContract.spec.ts', 'the distribution\'s ← / → pass every bar and every recording of a known distribution once, in order, whole and zoomed: each bar\'s centre, range and count (R7)'),
             ],
         },
         {

@@ -18,6 +18,8 @@ export type PointAt = { at: number; row: number | null; index: number | null; id
  */
 export type ReadOf = {
     id: string; stage: string | null; attrs: readonly string[]; label: string | null; frame: string | null; image: boolean; filePath: string | null;
+    /** The line's kind as drawn ('bar' for a histogram's bars), where the read says. */
+    kind?: string | null;
     ends: readonly [number, number] | null; trackIndex: number | null; channelIndex: number | null;
 };
 
@@ -224,4 +226,81 @@ export function differenceFromMedian(compare: ReadonlyArray<number | null | unde
 function extentFits(xs: readonly number[] | undefined, ends: readonly [number, number] | null): boolean {
     if (!ends || !xs?.length) return !ends;
     return samePlace(xs[0], ends[0]) && samePlace(xs[xs.length - 1], ends[1]);
+}
+
+/**
+ * A distribution the test knows to the count (issue #771): one channel's Leq per recording, laid out by the bins and
+ * counts below, so the bins, their counts and the recordings of equal value are known from the fixture alone, apart
+ * from the chart's binning (entryDistribution.ts, distribution.ts). The value axis is 0–120 dB, worked by hand from
+ * the lowest and highest value (5.5 and 110.5 dB) by R9's rule (padded by 4 % of the span, widened to round ends):
+ * 1.3…114.7 dB, and the coarsest step that moves neither end by more than 8 % of that span is 20, so 0…120. Its 48 bins
+ * (the distribution's bins across its axis) are then 2.5 dB wide. A bin's members are 0.5 dB into it and 0.1 dB apart,
+ * or all at that one value where it says `equal`: the arrow keys must visit each of those once. 100 recordings, as many
+ * rows as the entry100 fixture the entry's other plots are checked on (the overview strip's typed window cuts a row).
+ */
+export const KNOWN_DISTRIBUTION = {
+    low: 0, high: 120, bins: 48,
+    /** Bin → how many recordings are in it, and whether they all share one value. */
+    counts: {
+        2: { n: 1 }, 12: { n: 2, equal: true }, 20: { n: 6 }, 21: { n: 9 }, 22: { n: 12 }, 23: { n: 14 }, 24: { n: 15 }, 25: { n: 12 },
+        26: { n: 10 }, 27: { n: 7 }, 28: { n: 5, equal: true }, 29: { n: 3 }, 36: { n: 3, equal: true }, 44: { n: 1 },
+    } as Readonly<Record<number, { n: number; equal?: boolean }>>,
+} as const;
+
+/** The known distribution's recordings (each a file of one channel: its row's key is the file) and their Leq, bin by bin. */
+export function knownMembers(): Array<{ key: string; value: number }> {
+    const { low, high, bins, counts } = KNOWN_DISTRIBUTION;
+    const width = (high - low) / bins;
+    let file = 0;
+    return Object.entries(counts).flatMap(([bin, { n, equal }]) => Array.from({ length: n }, (_, index) => {
+        file += 1;
+        // Rounded to 0.1 dB as written (61.5, not 61.50000000000001): the value is the fixture's, exactly.
+        return { key: `/known/r${String(file).padStart(3, '0')}.wav`, value: Math.round((low + Number(bin) * width + 0.5 + (equal ? 0 : index * 0.1)) * 10) / 10 };
+    }));
+}
+
+/** The known distribution's recordings as scan results the entry is opened with: one channel each, its Leq the value drawn. */
+export function knownDistributionScans(): Array<{ filePath: string; result: Record<string, unknown> }> {
+    return knownMembers().map(({ key, value }) => ({
+        filePath: key,
+        result: {
+            ok: true,
+            input: { id: key, fs: 16000, channels: [0], durationS: 1, unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: true },
+            leqDbA: [value], peakHz: [1000], spectrumDb: [Array(192).fill(-40)], thirdOctDb: [Array(27).fill(40)], crest: [3],
+            specVersion: 5, conditionId: 'test', wandasVersion: 'test', elapsedMs: 1,
+        },
+    }));
+}
+
+/** A bin of the known distribution: its centre, its ends and how many recordings it holds. */
+export function knownBin(bin: number): { centre: number; low: number; high: number; count: number } {
+    const { low, high, bins, counts } = KNOWN_DISTRIBUTION;
+    const width = (high - low) / bins;
+    return { centre: low + (bin + 0.5) * width, low: low + bin * width, high: low + (bin + 1) * width, count: counts[bin]?.n ?? 0 };
+}
+
+/** The bins with recordings, left to right: the bars ← / → pass, one a key. */
+export const knownBars = (): number[] => Object.keys(KNOWN_DISTRIBUTION.counts).map(Number).sort((a, b) => a - b);
+
+/** The known distribution's recordings in the data's order: by value, then by key (R7: those of one value always pass in one order). */
+export function knownMembersInOrder(): Array<{ key: string; value: number }> {
+    return knownMembers().sort((a, b) => a.value - b.value || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+}
+
+/**
+ * The known distribution's row (data-dist-canvas), as the test knows it: its bars every bin (one with no recording has
+ * no bar to read, as a gap), its rug each recording at its value, told apart by its key.
+ */
+export function knownDistribution(): KnownData {
+    return read => {
+        if (!read.attrs.includes('data-dist-canvas')) return null;
+        if (read.kind === 'bar') {
+            const bins = Array.from({ length: KNOWN_DISTRIBUTION.bins }, (_, bin) => knownBin(bin));
+            return { kind: 'line', xs: bins.map(bin => bin.centre), values: bins.map(bin => bin.count || null) };
+        }
+        const members = knownMembersInOrder();
+        // The rug's ticks are at the recordings' values: a line of other ends is not theirs (a slot's tick).
+        if (!extentFits(members.map(member => member.value), read.ends)) return null;
+        return { kind: 'line', xs: members.map(member => member.value), keys: members.map(member => member.key) };
+    };
 }
