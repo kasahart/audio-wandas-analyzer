@@ -1098,7 +1098,7 @@ async function walkKnownDistribution(page: Page, zoomed: boolean): Promise<void>
         if (place < 0) return [{ key: 'ArrowRight', expected: { at: Number.NaN, row: null, index: null, identity: `${from} is not a known recording in view` } }];
         return [...members.slice(0, place).reverse().map(member => ({ key: 'ArrowLeft' as const, expected: memberAt(member) })), { key: 'ArrowLeft', expected: null },
             ...members.slice(1).map(member => ({ key: 'ArrowRight' as const, expected: memberAt(member) })), { key: 'ArrowRight', expected: null },
-            // ← back over the last few (shown whole, the three at 91.5 dB among them): each read once again, the other way.
+            // ← back over the last few (shown whole, the three at 90.5 dB in bin 36 among them): each read once again, the other way.
             ...members.slice(-RUG_BACK - 1, -1).reverse().map(member => ({ key: 'ArrowLeft' as const, expected: memberAt(member) }))];
     };
     const failed = (walked: Walked[]): Walked[] => walked.filter(step => step.read !== step.expected);
