@@ -1,9 +1,15 @@
 """Persistent newline-delimited JSON backend for Audio Wandas Analyzer.
 
-The backend never leaves its request pipe as the process's standard input (fd 0 and the Win32 standard input
-handle are the null device; requests come through a private fd): on Windows a thread loading a DLL queries the
-standard input and would wait for the main thread's pending read on the pipe, that is for the host's next request
-(``_request_stream``).
+The backend never leaves its request or reply pipe as a standard handle of the process. Requests come through a
+private fd and fd 0 (with the Win32 standard input handle) is the null device: on Windows a thread loading a DLL
+queries the standard input and would wait for the main thread's pending read on the pipe, that is for the host's next
+request (``_request_stream``). Replies leave through a private fd too, and fd 1 (with the Win32 standard output handle
+and ``sys.stdout``) writes where stderr does: whatever else writes to the standard output, a library's ``print``, C
+code or a child process, lands in the log and never inside the JSON-lines protocol (``_reply_stream``).
+
+stderr stays the pipe the host reads: it is the log, which the host reads continuously, so no thread waits on it for
+more than a moment, and a stray line there cannot corrupt a reply. The hang above needed a read that waits for the
+host; nothing here does.
 """
 
 from __future__ import annotations
@@ -28,15 +34,19 @@ if TYPE_CHECKING:
     from analysis_service import AnalysisService
 
 _PROCESS_STARTED = time.perf_counter()
-_STDOUT_LOCK = threading.Lock()
+_REPLIES_LOCK = threading.Lock()
 _HEARTBEAT_INTERVAL: float = 5.0
+#: Where replies and notifications go: the private reply stream once ``main`` has one, else ``sys.stdout`` (a test
+#: that runs ``main`` in its own process and captures the standard output).
+_replies: TextIO | None = None
 
 
 def _emit(message: dict[str, object], *, ensure_ascii: bool = False) -> None:
     line = json.dumps(message, ensure_ascii=ensure_ascii, allow_nan=False)
-    with _STDOUT_LOCK:
-        sys.stdout.write(line + "\n")
-        sys.stdout.flush()
+    with _REPLIES_LOCK:
+        out = _replies or sys.stdout
+        out.write(line + "\n")
+        out.flush()
 
 
 def _load_default_service() -> AnalysisService:
@@ -245,14 +255,41 @@ def _request_stream() -> TextIO:
     return requests
 
 
+def _reply_stream() -> TextIO:
+    """Takes the host's reply pipe off the process's standard output and returns it, written as UTF-8 lines.
+
+    Called once at start, before any thread, like ``_request_stream``. Replies are written through a private fd
+    (``os.dup``); fd 1, and on Windows the Win32 standard output handle, then point where stderr does, and
+    ``sys.stdout`` writes there too. Why: the protocol is one JSON object per line, and anything else on the pipe (a
+    library's ``print``, a C extension's ``printf``, a child process that inherits the standard output) would break
+    the line it lands in, or be taken for a reply. Now it lands in the log. The same on every OS.
+    """
+    sys.stdout.flush()
+    replies = os.fdopen(os.dup(1), "w", encoding="utf-8")
+    os.dup2(2, 1)
+    if sys.platform == "win32":
+        # As for the standard input: what a child process, or a DLL's C runtime, takes for the standard output.
+        import ctypes
+        import msvcrt
+
+        std_output_handle = -11  # STD_OUTPUT_HANDLE
+        ctypes.windll.kernel32.SetStdHandle(std_output_handle, msvcrt.get_osfhandle(1))
+    sys.stdout = sys.stderr
+    return replies
+
+
 def main(
     service: AnalysisService | None = None,
     workers: int | None = None,
     *,
     drain: bool = False,
     requests: TextIO | None = None,
+    replies: TextIO | None = None,
 ) -> None:
-    """Serves ``requests`` (stdin) until EOF; the host is gone then, so queued requests are dropped unless ``drain``."""
+    """Serves ``requests`` (stdin) until EOF, answering on ``replies`` (stdout); the host is gone at EOF, so queued
+    requests are dropped unless ``drain``."""
+    global _replies
+    _replies = replies
     perf_log("startup_begin", _PROCESS_STARTED, pid=os.getpid(), python=sys.executable)
     active_service = service or _load_default_service()
     _start_heartbeat()
@@ -295,4 +332,4 @@ if __name__ == "__main__":
     # The extension speaks UTF-8; the locale encoding (cp932 on Japanese Windows) would garble non-ASCII paths.
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
-    main(requests=_request_stream())
+    main(requests=_request_stream(), replies=_reply_stream())

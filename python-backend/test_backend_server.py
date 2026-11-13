@@ -2135,3 +2135,65 @@ def test_the_backends_standard_input_is_not_its_request_pipe() -> None:
     finally:
         process.kill()
         process.wait()
+
+
+# --- The backend process and its standard output -------------------------------------------------------------------
+# The backend never leaves its reply pipe as the process's standard output (backend_server._reply_stream).
+
+
+def test_what_a_request_writes_to_the_standard_output_lands_in_the_log_and_never_in_the_reply_stream() -> None:
+    # The backend as the extension starts it (its __main__, pipes for stdin, stdout and stderr), with a service whose
+    # request writes to the standard output the ways a library can: print, a C-level write to fd 1, a child process
+    # that inherits it. Before the replies left the standard output, each of those became a line of the protocol.
+    probe = "\n".join(
+        [
+            "import os, runpy, subprocess, sys, types",
+            f"sys.path.insert(0, {str(_SERVER.parent)!r})",
+            "class Service:",
+            "    def analyze(self, file_path, **options):",
+            "        print('stray print')",
+            "        sys.stdout.flush()",
+            "        os.write(1, b'stray fd 1 write\\n')",
+            "        subprocess.run([sys.executable, '-c', 'print(\"stray child output\")'], check=True)",
+            "        return {'answered': file_path}",
+            "sys.modules['analysis_engine'] = types.SimpleNamespace(AnalysisEngine=lambda: None)",
+            "sys.modules['analysis_service'] = types.SimpleNamespace(AnalysisService=lambda engine: Service())",
+            f"sys.argv = [{str(_SERVER)!r}]",
+            f"runpy.run_path({str(_SERVER)!r}, run_name='__main__')",
+        ]
+    )
+    process = subprocess.Popen(
+        [sys.executable, "-c", probe],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        env={**os.environ, "AWA_PERF_LOG": "0"},
+    )
+    assert process.stdin is not None and process.stdout is not None and process.stderr is not None
+    try:
+        out, err = _Lines(process.stdout), _Lines(process.stderr)
+        deadline = time.monotonic() + _REPLY_LIMIT_S
+        process.stdin.write(json.dumps({"cmd": "analyze", "requestId": "r1", "filePath": "tone.wav"}) + "\n")
+        process.stdin.flush()
+        replies = []
+        while not any(reply.get("requestId") == "r1" and reply.get("type") != "started" for reply in replies):
+            line = out.next(deadline, "the request's reply")
+            assert line, f"the backend closed its output; stderr: {''.join(err.seen)}"
+            replies.append(json.loads(line))
+        assert replies[-1] == {"answered": "tone.wav", "requestId": "r1"}
+        process.stdin.close()
+        while out.next(deadline, "the end of the reply stream") != "":
+            pass
+        assert process.wait(timeout=30) == 0
+        while err.next(deadline, "the backend's stderr") != "":
+            pass
+        log = "".join(err.seen)
+        for stray in ("stray print", "stray fd 1 write", "stray child output"):
+            assert stray in log, f"{stray!r} is in the log"
+        for line in out.seen[:-1]:
+            assert isinstance(json.loads(line), dict), f"every line of the reply stream is a message: {line!r}"
+    finally:
+        process.kill()
+        process.wait()
