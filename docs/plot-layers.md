@@ -48,7 +48,11 @@ answer on its way subscribes with `whenSettled`; an ask replaced before it was s
 `setTimeout`, `setInterval`, `requestAnimationFrame`, `setImmediate` or `requestIdleCallback` in an answer source by
 what the call resolves to (an alias or `window.setTimeout` too), not by its name, and fails. A screen that is also an
 answer source and times its own drawing or gathering (not a failure) is listed in `SCHEDULING_OWNERS` with what its
-timers are for; that list only shrinks. The behaviour is held by `answerStore.test.ts` › "a failed answer's readers
+timers are for; that list only shrinks. A stand-in drawn while a picture is asked for (the cursor spectrum's
+spectrogram column before its slice comes) reads through `pendingSource(request)`: its reads stay pending, tied to the
+request it waits on (`createPendingRequests` in `answerStore.ts`, one per slot). Its readers are told when that request
+is answered and let go when a newer request in the slot supersedes it; there is no separate stand-in source
+(`overlaySpectrumPainter.test.ts` › "the cursor spectrum's stand-in waits on the slice request it was drawn for…"). The behaviour is held by `answerStore.test.ts` › "a failed answer's readers
 are told exactly when its hold ends…" and `fullRead.test.ts` › "a failed full read is asked again exactly when the
 store's hold ends…". If the test
 names your new collection and it holds no answers (a gesture's state, a canvas's drawing), list it in

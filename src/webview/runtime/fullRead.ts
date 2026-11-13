@@ -13,7 +13,7 @@
  * localCells); one the backend holds (fetchedSource) asks for the window around the pointer, or the next steps, once,
  * keeps what came, and says when it is in (`ready`): until then the plot shows its marks and no number.
  */
-import { answerKey, createAnswerStore, type AnswerKey } from './answerStore';
+import { answerKey, createAnswerStore, type AnswerKey, type PendingRequest } from './answerStore';
 import type { StagePoints, StageRead } from '../../shared/protocol/backendProtocol';
 import type { Derived, Whole, WholeCells, WholeLine } from '../../shared/provenance';
 import { claimMint } from '../../shared/wholeMint';
@@ -224,7 +224,7 @@ type Held = 'inline' | 'fetched' | 'none';
  * A full-data source. Only this module makes one (`fullSource`, `NO_FULL_DATA`): the class is not exported and
  * `made` is protected, so an object literal, or a spread of another source (`{ ...source, line }`), is not a source
  * to the compiler. That is what keeps "a source that reads nothing" to the named values (NO_FULL_DATA, and
- * PENDING_FULL_DATA for a stand-in's wait).
+ * pendingSource for a stand-in's wait on its request).
  */
 class Source<H extends Held> implements FullSourceReads {
     protected readonly made = true;
@@ -266,14 +266,19 @@ export type FullRead = FullSource;
 export const NO_FULL_DATA: NoFullSource = new Source('none', {});
 
 /**
- * "Its full data is on its way", by name: the source of a stand-in drawn while the real picture is being made (the
- * cursor spectrum before its slice is in). Every read stays pending (the cursor's marks, no number, R7) and its level
- * is judged once it is in (R6); the real picture, drawn when it comes, brings its own source. It reads nothing, as
- * NO_FULL_DATA does, but says so as "not yet" where the plot shows a wait. It is the only other source whose reads
- * answer nothing: a read that can only fail (null) is no read anywhere, and a read that can only wait is made here
- * alone (provenanceBoundary.test.ts, empty-read).
+ * "Its full data is on its way": the source of a stand-in drawn while the real picture is asked for (the cursor
+ * spectrum's spectrogram column before its slice is in), tied to the request it waits on (answerStore.ts
+ * PendingRequest). Every read stays pending (the cursor's marks, no number, R7) and its level is judged once the real
+ * picture is in (R6). Its readers are told when the request is answered, so a still pointer reads the real picture
+ * drawn then, which brings its own source; when the request is superseded (the cursor moved on) they are let go
+ * untold, as the stand-in is drawn again for the newer one. With no request (none was asked: it is not shown for
+ * reading), nobody is told. It reads nothing, as NO_FULL_DATA does, but says so as "not yet" where the plot shows a
+ * wait; a read that can only wait is made here alone (provenanceBoundary.test.ts, empty-read).
  */
-export const PENDING_FULL_DATA: FetchedFullSource = new Source('fetched', { line: () => undefined, level: () => undefined });
+export function pendingSource(request: PendingRequest | undefined): FetchedFullSource {
+    const wait = (ready: () => void): undefined => { if (request?.waiting) request.whenAnswered(ready); return undefined; };
+    return new Source('fetched', { line: (_query, ready) => wait(ready), level: (_query, ready) => wait(ready) });
+}
 
 /** Whether a source has any read: false of `NO_FULL_DATA` only. */
 export const readsFullData = (source: FullSource): source is InlineFullSource | FetchedFullSource => source.held !== 'none';

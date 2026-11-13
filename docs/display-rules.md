@@ -186,6 +186,8 @@
 - テスト: `src/test/answerStore.test.ts` › a failed answer's readers are told exactly when its hold ends, together and once; a dropped one never is (whenFailureEnds)
 - テスト: `src/test/fullRead.test.ts` › a failed full read is asked again exactly when the store's hold ends, not earlier and not twice, and a second reader shares the one retry (C2, R7)
 - テスト: `src/test/answerStoreBoundary.test.ts` › no answer source schedules with a timer of its own: when a failed answer is asked again is the store's (whenFailureEnds)
+- **届くまでの代わりの絵**（カーソルスペクトルのスライスが届くまで描くスペクトログラムの列）は、待っている要求に結び付けて読みます（`fullRead.ts` の `pendingSource`、要求は `answerStore.ts` の `createPendingRequests` でトラックごとに 1 つ）。読み値は届くまで空で、その要求に答えが来たら読み手に知らせ、止まったマウスでも届いた絵を読みます。カーソルが動いて新しい要求に代わったら、古い要求の読み手は知らせずに手放します（新しい要求で描き直すからです）。要求と切り離した「ずっと待つだけ」の出どころは作りません。
+- テスト: `src/test/overlaySpectrumPainter.test.ts` › the cursor spectrum's stand-in waits on the slice request it was drawn for: its readers are told when that request is answered, and let go when a newer request supersedes it (R7)
 - 同じ実際の録音で、狭い音の上に拡大すると、図はその範囲のビンを取り寄せ（`detail` 付きの要求）、範囲の中のビンを 1 つ残らず、ビンの間隔（16000/8192 Hz）で描き直します。点の数は範囲のビンの数とほぼ同じで、全体を間引いた線がその範囲に持っていた点の 2 倍より多くなります。一番高い点はその音で、全体のときと同じ高さです。範囲の外のもっと大きい音は図に出ません。差の欄も同じで、差は範囲のビンから取り直します（`detail` 付きの `compare-combine`）。
 - テスト: `src/test/uiSmoke/narrowFeatures.spec.ts` › a narrow tone in real recordings is drawn at its full level on the thinned whole spectrum, and zoomed onto it the window is drawn again from every one of its own bins (R2, R3)
 

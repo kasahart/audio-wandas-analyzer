@@ -630,3 +630,76 @@ export function createAnswerSlot<T>(now: () => number = () => Date.now(), retrie
         clear() { value = null; failed = null; },
     };
 }
+
+/**
+ * A request on its way, as the answer layer waits on it: what a stand-in drawn until its answer comes is tied to (the
+ * cursor spectrum's spectrogram column while its slice is asked for, fullRead.ts pendingSource).
+ */
+export interface PendingRequest {
+    readonly requestId: string;
+    /** Whether it is still waited on: neither answered nor superseded. */
+    readonly waiting: boolean;
+    /** Calls `then` once the request is answered (one function given again is told once); never if it is superseded. */
+    whenAnswered(then: () => void): void;
+}
+
+/**
+ * The requests on their way, one per slot (a track's cursor slice): a request asked in a slot supersedes the one there,
+ * whose readers are let go untold (the picture they read is drawn again with the newer one). An answer to the slot's
+ * current request tells its readers once.
+ */
+export interface PendingRequests {
+    /** Asks `requestId` in `slot`: the request there before is superseded. */
+    ask(slot: string, requestId: string): PendingRequest;
+    /** The slot's request still waited on, if any. */
+    current(slot: string): PendingRequest | undefined;
+    /** The request was answered (a result or a failure): its readers are told, if it is still its slot's. */
+    answered(requestId: string): void;
+    /** The slot's request is no longer wanted: its readers are let go untold. */
+    drop(slot: string): void;
+    clear(): void;
+}
+
+export function createPendingRequests(): PendingRequests {
+    type Waited = { requestId: string; calls: Set<() => void>; done: boolean };
+    const bySlot = new Map<string, Waited>();
+    const handle = (waited: Waited): PendingRequest => ({
+        requestId: waited.requestId,
+        get waiting() { return !waited.done; },
+        whenAnswered(then) { if (!waited.done) waited.calls.add(then); },
+    });
+    const letGo = (slot: string): void => {
+        const waited = bySlot.get(slot);
+        if (!waited) return;
+        bySlot.delete(slot);
+        waited.done = true;
+        waited.calls.clear();
+    };
+    return {
+        ask(slot, requestId) {
+            const there = bySlot.get(slot);
+            if (there?.requestId === requestId) return handle(there);
+            letGo(slot);
+            const waited: Waited = { requestId, calls: new Set(), done: false };
+            bySlot.set(slot, waited);
+            return handle(waited);
+        },
+        current(slot) {
+            const waited = bySlot.get(slot);
+            return waited ? handle(waited) : undefined;
+        },
+        answered(requestId) {
+            for (const [slot, waited] of bySlot) {
+                if (waited.requestId !== requestId) continue;
+                bySlot.delete(slot);
+                waited.done = true;
+                const calls = [...waited.calls];
+                waited.calls.clear();
+                for (const call of calls) call();
+                return;
+            }
+        },
+        drop: letGo,
+        clear() { for (const slot of [...bySlot.keys()]) letGo(slot); },
+    };
+}
