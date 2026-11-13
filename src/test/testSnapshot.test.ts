@@ -30,6 +30,8 @@ test('domSnapshotBase counts the rendered toolbar, rows, audio elements and canv
         audioElementCount: 1,
         hasRulerCanvas: true,
         spectrumOverlayPresent: false,
+        intlLocale: new Intl.NumberFormat().resolvedOptions().locale,
+        navigatorLanguage: dom.window.navigator.language,
     });
 });
 

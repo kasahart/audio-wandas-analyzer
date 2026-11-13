@@ -31,6 +31,8 @@ interface TestSnapshot {
         entry?: { open: boolean; docked: boolean; rows: number; scanned: number; slots: (string | null)[] };
         comparison?: { open: boolean; stage: string | null; frame: string | null; kind: string | null; stageValues: number; stageMedian: number | null; invalidSteps: number };
         hasToolbar: boolean;
+        intlLocale: string;
+        navigatorLanguage: string | null;
         toolbarActions: string[];
         trackRowCount: number;
         audioElementCount: number;
@@ -247,6 +249,9 @@ export async function run(): Promise<void> {
                 assert.match(snapshot.html, /id="app"/u);
                 assert.ok(snapshot.renderedUi, 'Rendered UI snapshot should be captured');
                 assert.equal(snapshot.renderedUi.hasToolbar, true);
+                // The webview runs in the pinned locale, not the machine's (runnerHelpers.E2E_LOCALE).
+                assert.equal(snapshot.renderedUi.intlLocale, 'en-US', 'the webview\'s Intl locale is pinned, not the machine\'s');
+                assert.equal(snapshot.renderedUi.navigatorLanguage, 'en-US', 'the webview\'s navigator.language is pinned, not the machine\'s');
                 assert.equal(snapshot.renderedUi.trackRowCount, 1);
                 assert.equal(snapshot.renderedUi.audioElementCount, 1);
                 assert.equal(snapshot.renderedUi.hasRulerCanvas, true);

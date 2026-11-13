@@ -1,4 +1,5 @@
 import type { SpectrogramData, SpectrogramSettings } from '../../shared/analysis/analysisTypes';
+import { runtimeIntlLocale } from '../../shared/utils/format';
 import type { WaveformCoverage } from './types';
 
 export interface LatestSpectrogramSnapshot {
@@ -20,6 +21,9 @@ export function domSnapshotBase(document: Document) {
         audioElementCount: document.querySelectorAll('#audio-host audio').length,
         hasRulerCanvas: !!document.getElementById('ruler-canvas'),
         spectrumOverlayPresent: !!document.getElementById('spectrum-overlay-canvas'),
+        // The locale the page's Intl falls back to and its navigator.language: the E2E checks both are pinned (en-US).
+        intlLocale: runtimeIntlLocale(),
+        navigatorLanguage: document.defaultView?.navigator.language ?? null,
     };
 }
 
