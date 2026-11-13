@@ -14,7 +14,7 @@ import { SP } from './model';
 export const VALUE_HELPERS: readonly string[] = [
     ...['withMinus', 'frequencyText', 'secondsText', 'amountText', 'quefrencyText', 'lagText', 'barkText', 'levelText', 'signedNumberText', 'signedText', 'significant', 'stepText', 'spacingDecimals', 'fieldDecimals', 'colourDecimals', 'exactDecimals', 'exactFieldText'].map(name => `src/webview/plot/plotText.ts:${name}`),
     ...['formatMeasurementNumber', 'formatMeasuredLevel', 'formatClockTime', 'formatReportDuration'].map(name => `src/shared/utils/format.ts:${name}`),
-    ...['niceStep', 'niceTicks', 'niceRange', 'widened', 'round'].map(name => `src/shared/utils/ticks.ts:${name}`),
+    ...['niceStep', 'niceTicks', 'niceRange', 'niceRangeOnStep', 'widened', 'roundOff'].map(name => `src/shared/utils/ticks.ts:${name}`),
     'src/shared/utils/levels.ts:powerMeanDb', 'src/shared/utils/levels.ts:powerMeanOrNull',
     'src/shared/dataset/distribution.ts:median', 'src/shared/dataset/distribution.ts:binCounts',
     'src/webview/runtime/entryTable.ts:csvNumber', 'src/webview/runtime/entryTable.ts:quantile',

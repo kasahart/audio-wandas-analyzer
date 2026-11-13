@@ -489,7 +489,7 @@
 
 カラースケールや dB 軸を自動で決めるときは、端を切りのよい値に広げます。dB でない量（ラフネス、ケプストラム、係数など）の色と値の範囲も、入口の分布図の値軸も同じです。手で入れた値はそのままです。
 
-自動の範囲の端は、描くために間引いた点や平均したマスではなく、全データ（間引く前のすべての点・すべてのマス）の最小と最大から決めます。dB の熱図（トラックのスペクトログラム、比較の熱図、入口の一覧の帯）の色は、上を全データの最大、下を max(全データの最小, 上 − 100 dB) とします。デジタル無音（−240 dB や −300 dB）があっても、下の端はそこまで下がりません。dB の線の軸も同じく、上を全データの最大、下を max(全データの最小, 上 − 100 dB) として、両端をそれぞれ外へ切りのよい刻みに丸めます（刻みの上にある端はそのまま）。刻みは 5・10・20・25 dB のうち 6 目盛り以下になる一番細かいもので、両端の余りは 1 刻みまでです。ただし幅は 100 dB を超えません。丸めた上の端から下へちょうど 100 dB で止めます（−149.5〜−9.5 dB は −100〜0 dB、−100〜0 dB はそのまま）。100 dB の中の全データの値が軸の外に出ることはなく、余白で図の半分を使うこともありません（−49.5〜−9.5 dB は −50〜0 dB）。
+自動の範囲の端は、描くために間引いた点や平均したマスではなく、全データ（間引く前のすべての点・すべてのマス）の最小と最大から決めます。dB の熱図（トラックのスペクトログラム、比較の熱図、入口の一覧の帯）の自動の色の範囲は、丸めたあとの幅が 100 dB を超えません。上は全データの最大を切りのよい刻みへ上に丸めた値、下は全データの最小を同じ刻みへ下に丸めた値ですが、丸めた上の端から 100 dB より下にはしません（`ticks.heatmapDbRange`）。−240〜−0.4 dB は −100〜0 dB で、−105〜0 dB ではありません。デジタル無音（−240 dB や −300 dB）があっても、下の端はそこまで下がりません。上を先に丸めてから 100 dB で止めるのは、丸める前に 100 dB で止めると、丸めで両端が広がって 100 dB を超える（−100.4〜−0.4 が −105〜0）からです。dB の線の軸も同じく、上を全データの最大、下を max(全データの最小, 上 − 100 dB) として、両端をそれぞれ外へ切りのよい刻みに丸めます（刻みの上にある端はそのまま）。刻みは 5・10・20・25 dB のうち 6 目盛り以下になる一番細かいもので、両端の余りは 1 刻みまでです。ただし幅は 100 dB を超えません。丸めた上の端から下へちょうど 100 dB で止めます（−149.5〜−9.5 dB は −100〜0 dB、−100〜0 dB はそのまま）。100 dB の中の全データの値が軸の外に出ることはなく、余白で図の半分を使うこともありません（−49.5〜−9.5 dB は −50〜0 dB）。
 - テスト: `src/test/stagePanes.test.ts` › a dB line's automatic range encloses every value of its full data down to 100 dB under its loudest, rounded out to round steps with at most a step of slack on each side (R9)
 - 右の第 2 のレベル軸（カーソルスペクトル）は、自分の範囲の切りのよい目盛りを、その値の位置に書きます。左の軸の目盛りの位置に右の範囲の値を丸めて書くと、数がその位置の値と違うからです。
 - テスト: `src/test/stagePanes.test.ts` › the right-hand level axis writes its own round ticks, each at the place of its own value, never the left axis's places relabelled (R4, R9)
@@ -497,7 +497,7 @@
 
 - テスト: `src/test/stagePanes.test.ts` › every range is set from the full data's lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)
 - テスト: `src/test/stagePanes.test.ts` › a heatmap's colours reach no more than 100 dB under its loudest value: digital silence (−240 dB) does not set the bottom (R9)
-- テスト: `src/test/spectrogramDisplayBounds.test.ts` › a track spectrogram's auto colours reach no more than 100 dB under its loudest STFT cell: digital silence (−240 dB) does not set the bottom (R9)
+- テスト: `src/test/spectrogramDisplayBounds.test.ts` › a heatmap's auto colour range spans at most 100 dB after rounding: the top rounded up to a tick, the bottom on a tick no more than 100 dB under it (R9)
 - テスト: `src/test/entrySidePlots.test.ts` › the strip's colours reach no more than 100 dB under its loudest level: a digitally silent recording (−300 dB) does not set the bottom (R9)
 - テスト: `src/test/comparePanes.test.ts` › a spectrum drawn from its bins carries every bin's lowest and highest value in its span as its range, the silent floor left out (R1)
 - テスト: `python-backend/test_stage_view.py` › test_every_pictures_value_range_is_its_full_datas_not_the_points_or_cells_drawn

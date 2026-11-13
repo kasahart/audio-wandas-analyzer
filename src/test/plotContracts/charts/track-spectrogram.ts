@@ -27,13 +27,13 @@ export const trackSpectrogram: ChartContract = {
         },
         {
             id: 'track-spectrogram.range', value: 'range', what: '色の自動の範囲（カラーバーの両端の数）',
-            computedIn: ['src/webview/runtime/spectrogramRaster.ts:spectrogramDisplayBounds', 'python-backend/analyzer.py:_build_spectrogram', 'src/webview/runtime/figureModel.ts:roundedRange'],
-            from: 'full', trace: 'spec.minDb / maxDb は _build_spectrogram が表示用に平均する前の全 STFT のマスの最小と最大（-inf のマスだけ除く。無音の -240 dB も数える）。上は全マスの最大、下は max(全マスの最小, 上 − 100 dB)（R9：デジタル無音が下端を決めない）を niceRange で丸めてカラーバーの両端に出す。',
+            computedIn: ['src/webview/runtime/spectrogramRaster.ts:spectrogramDisplayBounds', 'python-backend/analyzer.py:_build_spectrogram', 'src/webview/runtime/figureModel.ts:heatmapRange', 'src/shared/utils/ticks.ts:heatmapDbRange', 'src/webview/runtime/figureModel.ts:roundedRange'],
+            from: 'full', trace: 'spec.minDb / maxDb は _build_spectrogram が表示用に平均する前の全 STFT のマスの最小と最大（-inf のマスだけ除く。無音の -240 dB も数える）。両端とも自動なら、上は全マスの最大を切りのよい刻みへ上に丸め、下は全マスの最小を下に丸めるが、丸めた上から 100 dB より下にはしない（heatmapDbRange。R9：丸めたあとの幅が 100 dB を超えない、デジタル無音が下端を決めない）。片方の端を入れたときは、もう片方を表示する範囲の幅で丸める（roundedRange）。それをカラーバーの両端に出す。',
             tests: [
                 tt('python-backend/test_analyzer.py', 'test_spectrogram_colour_range_is_every_full_cells_not_the_cells_averaged_to_draw'),
                 t('python-backend/test_analyzer.py', 'test_spectrogram_colour_range_counts_digital_silence_as_its_own_level'),
                 t('src/test/uiSmoke/colourRangeRounding.spec.ts', 'the auto colour scale opens with round dB ends, and typed ends are kept as typed'),
-                t('src/test/spectrogramDisplayBounds.test.ts', 'a track spectrogram\'s auto colours reach no more than 100 dB under its loudest STFT cell: digital silence (−240 dB) does not set the bottom (R9)'),
+                t('src/test/spectrogramDisplayBounds.test.ts', 'a heatmap\'s auto colour range spans at most 100 dB after rounding: the top rounded up to a tick, the bottom on a tick no more than 100 dB under it (R9)'),
             ],
         },
         {

@@ -95,8 +95,8 @@ test('every range is set from the full data\'s lowest and highest value (valueRa
 });
 
 test('a heatmap\'s colours reach no more than 100 dB under its loudest value: digital silence (−240 dB) does not set the bottom (R9)', () => {
-    assert.deepEqual(heatmapDbRange(-240, -3), { min: niceRange(-103, -3).low, max: niceRange(-103, -3).high });
-    assert.ok(heatmapDbRange(-240, -3).min >= -120 && heatmapDbRange(-240, -3).min <= -103);
+    // At most 100 dB after rounding: the top rounded up to 0, the bottom 100 dB under it (not −110, R9).
+    assert.deepEqual(heatmapDbRange(-240, -3), { min: -100, max: 0 });
     // A range under 100 dB keeps its own lowest value.
     assert.deepEqual(heatmapDbRange(-64, -3), { min: niceRange(-64, -3).low, max: niceRange(-64, -3).high });
     const heat: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0, 1], ys: [100, 1000], matrix: [[-240, -10]], valueRange: { min: -240, max: -3 } };
