@@ -645,9 +645,9 @@ They close the routes we know. They do not make a wrong number impossible. Know 
   answer "on its way" outside `fullRead.ts`; the boundary test reads the function's returns, so typing it
   `FullAnswer` does not hide it. A layer with no full data passes `NO_FULL_DATA`; a picture that must not be read at
   all (a lane whose file changed since it was analysed) is painted with `readout: false`; a stand-in whose real
-  picture is on its way passes a pending source tied to its request (`pendingSource`, #779). What is not found: a read that can answer points on some path but
-  in practice never does (its condition never holds), or a fetch callback (`fetchedSource`) that always answers
-  null.
+  picture is on its way passes a pending source tied to the request it waits on (`pendingSource(request)`,
+  `fullRead.ts`). What is not found: a read that can answer points on some path but in practice never does (its
+  condition never holds), or a fetch callback (`fetchedSource`) that always answers null.
 - **Drawn points are opaque by type, their places by name.** Outside the drawing modules, the boundary test refuses
   `.length`, an index, `.at`, `for … of`, destructuring and spread of any array of `Drawn` wherever it goes (the type
   follows it), and of a picture's `xs` / `ys` (`PICTURE_PLACES`) read off the picture or through a local `const`.
