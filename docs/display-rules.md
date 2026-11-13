@@ -542,10 +542,11 @@
 - テスト: `src/test/uiSmoke/visibility.spec.ts` › track canvas width follows layout changes without a window resize event
 - テスト: `src/test/uiSmoke/trackCompare.spec.ts` › a trigger added from ＋ fires at half the tracks' peak, draws each event of each recording over the time from its trigger, and is followed only by what takes events
 
-値が届いても、入口の表の行は動きません（#781）。フォルダを読み込む間、ポインタの下の行が別の行に変わらないようにするためです。行の高さは中身によらず一つ（`ENTRY_ROW_HEIGHT`、行のボタンもこれより低い）で、見えている行だけを描く計算も同じ数を使います。列の幅は列の定義（`col`）が決め、値の文字では変わりません。見出しは広げた表で最初から `ENTRY_HEAD_LINES` 行の高さです。値の名前はフォルダの基準が分かると長くなる（「Leq A特性」が「Leq A特性 未校正 [dBFS]」になる）ためで、値の列はふつうの名前がこの行数に収まる幅にし、収まらない名前は切ってヒントで全体を見せます。▾ はまだ計算していない値には出しませんが、その場所は同じ幅で空けておきます。トラックの横で表の上にたたんだ分布も、値が届く前から同じ高さです（選択欄は選択肢によらない幅、件数と「計算」はそれぞれ 1 行、群の帯はプールの群の数で決まる高さ）。表は行を書き直さず、まだ描いている行とそのセルをそのまま使って中身だけを替えます（`keptRows.writeKeptRows`）。値はそのセルの文字として届きます。
+値が届いても、入口の表の行は動きません（#781）。フォルダを読み込む間、ポインタの下の行が別の行に変わらないようにするためです。行の高さは中身によらず一つ（`ENTRY_ROW_HEIGHT`、行のボタンもこれより低い）で、見えている行だけを描く計算も同じ数を使います。列の幅は列の定義（`col`）が決め、値の文字では変わりません。見出しは広げた表で最初から `ENTRY_HEAD_LINES` 行の高さです。値の名前はフォルダの基準が分かると長くなる（「Leq A特性」が「Leq A特性 未校正 [dBFS]」になる）ためで、値の列はふつうの名前がこの行数に収まる幅にし、収まらない名前は切ってヒントで全体を見せます。▾ はまだ計算していない値には出しませんが、その場所は同じ幅で空けておきます。トラックの横で表の上にたたんだ分布も、値が届く前から同じ高さです（選択欄は選択肢によらない幅、件数と「計算」はそれぞれ 1 行、群の帯はプールの群の数で決まる高さ）。表は行を書き直さず、まだ描いている行とそのセルをそのまま使って中身だけを替えます（`keptRows.writeKeptRows`）。値はそのセルの文字として届きます。残したボタンのヒントが変わったときは、ポインタがその上にあればフッタも新しいヒントにします（`HINT_CHANGED_EVENT`。書き直していたときは新しい要素への mouseover がこれをしていました）。▾ とその場所は ▾ の字と余白の幅だけを取ります。固定の幅にすると、字の広いフォントで「ch」が 2 行に折れます。
 
 - テスト: `src/test/uiSmoke/entry.spec.ts` › while a folder's recordings are scanned, no row moves and no column changes width as their values arrive (#781)
 - テスト: `src/test/uiSmoke/entry.spec.ts` › beside the tracks, no row moves while a folder's values arrive, though the distribution above the table fills in (#781)
+- テスト: `src/test/uiSmoke/entry.spec.ts` › a row's ✎ under a resting pointer: the footer says its new hint, the memo, once it is written; the button is the same one (#781)
 - テスト: `src/test/keptRows.test.ts` › a value that arrives goes into the cell that was drawn while it was pending: no row or cell is drawn anew (#781)
 
 ## R11 凡例が名指すチャンネルを描く
