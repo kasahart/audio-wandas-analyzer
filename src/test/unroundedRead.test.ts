@@ -1,19 +1,19 @@
 import { Y } from './helpers/figure';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fetchedSource } from '../webview/runtime/fullRead';
 import { stageDiffRange, stageHover, stageStep, strokeStageLine, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
 import type { StagePoints, StageView } from '../shared/protocol/backendProtocol';
 import { ranged } from './helpers/heldSource';
+import { backendRequired } from './helpers/python';
 import { backendPython } from './uiSmoke/realBackend';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const ANSWER = path.join(repoRoot, 'src', 'test', 'fixtures', 'unroundedRead', 'answer.py');
 /** The backend is required where the repo has its .venv (or AWA_REQUIRE_BACKEND=1), as the UI tests require it. */
-const required = process.env.AWA_REQUIRE_BACKEND === '1' || (process.env.AWA_REQUIRE_BACKEND !== '0' && existsSync(path.join(repoRoot, '.venv', 'bin', 'python')));
+const required = backendRequired();
 
 /** Each read the plot sends, answered by the backend's own read path (answer.py: stage_combine.read_points). */
 function backendAnswer(read: unknown): StagePoints | null | undefined {

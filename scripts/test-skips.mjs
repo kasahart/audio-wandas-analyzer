@@ -1,0 +1,103 @@
+// The skip gate: in CI (CI=true, as GitHub Actions sets it) a node:test, pytest or Playwright test that skips fails
+// its run (`npm run verify` for the first two, `npm run test:ui` for Playwright), unless
+// scripts/test-skip-allowlist.json lists it, for its runner and OS, with its reason.
+//
+// Why: a test that skips for want of something on the machine (no Python found, no rights for a symlink) passes
+// unseen, and the run looks green. Some did, in CI, on every OS: they looked for `.venv/bin/python` only. On a
+// developer's machine a skip is reported but allowed (a contributor may have no Python); CI is where every test must
+// run. The allowlist only shrinks: an entry whose test runs now on its OS fails too (remove it), and
+// src/test/testSkipGate.test.ts holds the number of entries to a ceiling that only goes down.
+//
+// How: node:test reports through scripts/test-skip-reporter.mjs as well as spec, pytest through the --record-skips
+// option of python-backend/conftest.py (tests that skip while they run, and modules that skip while collected); each
+// writes the skipped tests (runner, id, reason) as JSON, and `check` compares them with the allowlist. Playwright's
+// reporter scripts/playwright-skip-reporter.mjs checks its own run the same way. Every form of skip counts: a skip
+// mark or option, a skip called inside a test, a skipped suite or file, todo (node:test) and fixme (Playwright).
+// pytest's opt-in markers (slow, perf) deselect rather than skip: they are not part of a run unless their variable
+// asks for them, which is a choice, not a missing tool.
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
+export const ALLOWLIST = join(here, 'test-skip-allowlist.json');
+
+/** node --test arguments that keep the spec output and also record the skipped tests to `recordFile`. */
+export function nodeTestSkipArgs(recordFile) {
+    return [
+        '--test-reporter=spec', '--test-reporter-destination=stdout',
+        `--test-reporter=${pathToFileURL(join(here, 'test-skip-reporter.mjs')).href}`, `--test-reporter-destination=${recordFile}`,
+    ];
+}
+
+/** pytest arguments that record the skipped tests to `recordFile` (python-backend/conftest.py). */
+export function pytestSkipArgs(recordFile) {
+    return ['--record-skips', recordFile];
+}
+
+/** The allowlist's entries: { runner, test, platform, reason }. */
+export function readAllowlist(file = ALLOWLIST) {
+    return JSON.parse(readFileSync(file, 'utf8')).skips;
+}
+
+/**
+ * What the skips in `records` ([{ runner, test, reason }], from the runs of `runners`) break: in CI, every skip the
+ * allowlist does not list for its runner and `platform`, and every entry for one of `runners` and `platform` whose
+ * test did not skip. Outside CI only malformed entries.
+ */
+export function skipProblems(records, allowlist, { ci, platform, runners }) {
+    const problems = [];
+    for (const entry of allowlist) {
+        if (!entry.runner || !entry.test || !entry.platform || !entry.reason) {
+            problems.push(`allowlist entry ${JSON.stringify(entry)} needs a runner, a test, a platform and a reason`);
+        }
+    }
+    if (!ci) {
+        return problems;
+    }
+    const listed = allowlist.filter(entry => entry.platform === platform && runners.includes(entry.runner));
+    const same = (entry, record) => entry.runner === record.runner && entry.test === record.test;
+    for (const record of records) {
+        if (!listed.some(entry => same(entry, record))) {
+            problems.push(`${record.runner}: ${record.test} skipped (${record.reason || 'no reason given'}): in CI every test must run. Give the test what it needs, or list it in scripts/test-skip-allowlist.json with why it cannot run on ${platform}`);
+        }
+    }
+    for (const entry of listed) {
+        if (!records.some(record => same(entry, record))) {
+            problems.push(`${entry.runner}: ${entry.test} runs on ${platform} now: remove its entry from scripts/test-skip-allowlist.json (the allowlist only shrinks)`);
+        }
+    }
+    return problems;
+}
+
+/** Prints the skips and the problems; the exit code of a run that had them. */
+export function reportSkips(records, problems, { ci, log = console.log, error = console.error }) {
+    for (const record of records) {
+        log(`skipped: ${record.runner}: ${record.test} (${record.reason || 'no reason given'})`);
+    }
+    if (problems.length > 0) {
+        error(problems.map(problem => `test skips: ${problem}`).join('\n'));
+        return 1;
+    }
+    log(`test skips: ${records.length} skipped${ci ? ', each listed for this OS' : ' (allowed outside CI; CI=true fails on any not listed)'}`);
+    return 0;
+}
+
+async function main([command, ...args]) {
+    const at = args.indexOf('--allowlist');
+    const allowlistFile = at >= 0 ? args.splice(at, 2)[1] : ALLOWLIST;
+    const runs = args.map(arg => arg.split(/=(.*)/su)).filter(([runner, file]) => runner && file);
+    if (command !== 'check' || runs.length === 0 || runs.length !== args.length) {
+        console.error('usage: node scripts/test-skips.mjs check <runner>=<records.json>... [--allowlist <file>]');
+        return 2;
+    }
+    // A record that is missing means its test run did not finish, which the gate must not take for "nothing skipped".
+    const records = runs.flatMap(([, file]) => JSON.parse(readFileSync(file, 'utf8')));
+    const ci = process.env.CI === 'true';
+    const problems = skipProblems(records, readAllowlist(allowlistFile), { ci, platform: process.platform, runners: runs.map(([runner]) => runner) });
+    return reportSkips(records, problems, { ci });
+}
+
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+    process.exitCode = await main(process.argv.slice(2));
+}

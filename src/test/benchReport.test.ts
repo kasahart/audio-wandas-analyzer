@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { getStrings } from '../shared/i18n/strings';
@@ -11,6 +11,7 @@ import { recipeSteps } from '../shared/recipe/recipeSteps';
 import { BAND_CENTERS_HZ, buildEntryModel } from '../webview/runtime/entryTable';
 import { paintDeltaFigure, paintOverlayFigure, reportCsv, reportDefinitions, reportLevelAxes, reportFiles, reportFolderName, reportOctaveRecipe, reportRecipe, summaryRegionText } from '../webview/runtime/compareReport';
 import { compareOf } from './helpers/compareInput';
+import { testPython } from './helpers/python';
 import { misplacedTicks, placeRecordingCanvas } from './helpers/tickPlaces';
 import { withChannel } from '../shared/recipe/channelSelection';
 import type { BaseDefinition, DerivedRow, EntryModel } from '../webview/runtime/entryTable';
@@ -91,7 +92,7 @@ test('the report Recipe carries the region as its time slice and still loads in 
     const slice = recipeSteps(withRegion).find(step => step.name === 'time_slice')!;
     assert.deepEqual(slice.params, { end: 1.5, start: 0.5 });
     assert.deepEqual(recipeSteps(reportRecipe(entry, null)).find(step => step.name === 'time_slice')!.params, { end: null, start: 0 });
-    const python = [path.join(repoRoot, '.venv', 'bin', 'python'), process.env.WANDAS_PYTHON].find(candidate => candidate && existsSync(candidate));
+    const python = testPython();
     if (!python) { t.skip('no Python'); return; }
     const run = spawnSync(python, ['-c', 'import json,sys; from wandas.pipeline import RecipePlan; print(len(RecipePlan.from_dict(json.load(sys.stdin)).to_dict()["nodes"]))'], { input: JSON.stringify(withRegion), encoding: 'utf8' });
     if (/No module named 'wandas'/.test(run.stderr)) { t.skip('wandas is not installed'); return; }
@@ -112,7 +113,7 @@ test('定義.json says what each number is, with the steps\' parameters in decim
 });
 
 test('the report\'s two Recipes replay in wandas to the frames behind the scan\'s numbers', (t) => {
-    const python = [path.join(repoRoot, '.venv', 'bin', 'python'), process.env.WANDAS_PYTHON].find(candidate => candidate && existsSync(candidate));
+    const python = testPython();
     if (!python) { t.skip('no Python'); return; }
     const region = { start: 0.5, end: 1.5 };
     const spectrumRecipe = reportRecipe(entry, region, 2);
@@ -193,7 +194,7 @@ test('a compared channel is a get_channel step in the exported Recipe, and wanda
     const steps = recipeSteps(recipe);
     assert.equal(steps[0].operation, 'wandas.frame.get_channel');
     assert.deepEqual(steps[0].params, { channel_idx: 1 });
-    const python = [path.join(repoRoot, '.venv', 'bin', 'python'), process.env.WANDAS_PYTHON].find(candidate => candidate && existsSync(candidate));
+    const python = testPython();
     if (!python) { t.skip('no Python'); return; }
     const run = spawnSync(python, ['-c', 'import json,sys; from wandas.pipeline import RecipePlan; print(len(RecipePlan.from_dict(json.load(sys.stdin)).to_dict()["nodes"]))'], { input: JSON.stringify(recipe), encoding: 'utf8' });
     if (/No module named 'wandas'/.test(run.stderr)) { t.skip('wandas is not installed'); return; }
