@@ -379,7 +379,9 @@ function withDerived(rows: EntryRow[], derived: readonly DerivedRow[], band: num
                 // The name says what the Δ is against, so two fixed against different bases read apart.
                 filePath: derivedKey(item), name: [item.region === 'all' ? '└ Δ' : `└ Δ ${item.region} s`, ...(item.base.label ? [item.base.label] : [])].join(' · '),
                 // Fixed under an earlier Recipe: kept (only a click removes it), but no longer a number to read.
-                status: item.stale ? 'mismatch' : item.result.ok ? 'ok' : 'failed', ...(item.stale ? { mismatch: '≠' } : {}),
+                // Its stale flag goes with it: a stale derived row is ≠, has no values, writes no base n nor left-out
+                // files (entryCsv), and its status column says ≠, not the file-stale word.
+                status: item.stale ? 'mismatch' : item.result.ok ? 'ok' : 'failed', ...(item.stale ? { mismatch: '≠', stale: true } : {}),
                 conditions: row.conditions, cells: row.cells, values, durationS: row.durationS, ...levelOfRow(item.result),
                 delta: {
                     leq: values.leq === null ? null : levelDelta(values.leq, item.base.leq),

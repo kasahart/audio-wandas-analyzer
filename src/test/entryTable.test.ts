@@ -9,6 +9,7 @@ import {
     BAND_CENTERS_HZ, buildEntryModel, csvNumber, entryCsv, filenameConditions, levelDelta, type DerivedRow, type EntryFile, type EntryMeasure, type EntryModel,
 } from '../webview/runtime/entryTable';
 import { compareOf } from './helpers/compareInput';
+import { derivedIsStale } from '../webview/runtime/entryRuntime';
 import { entryMeasure } from '../webview/runtime/compareReport';
 import { getStrings } from '../shared/i18n/strings';
 import { bandLevelColumns, levelColumns } from '../webview/runtime/figureModel';
@@ -193,6 +194,32 @@ test('a derived row sits under its parent with the parent\'s condition and Δ ag
     assert.deepEqual(model.rows.filter(row => !row.derived).map(row => row.values), plain.rows.map(row => row.values));
     const csv = entryCsv(model, LABELS, byCondition(plain, files)).slice(1).split('\r\n');
     assert.equal(csv[parent + 2].split(',').slice(0, 5).join(','), 'L1_900rpm_run1.wav,L1,900rpm,0.50,1.50');
+});
+
+test('a fixed difference made stale by a recipe change shows ≠ and writes no Δ, no base n and no left-out files (R4)', () => {
+    const files: EntryFile[] = [-30, -31, -29].map((band, i) => ({ filePath: `/f/L1_900rpm_run${i}.wav`, result: scan(-20, band) }));
+    const fixed: DerivedRow = {
+        parentPath: '/f/L1_900rpm_run1.wav', region: '0.50–1.50', result: scan(-15, -20), recipeKey: 'chain-1',
+        base: { leq: -20, bands: BAND_CENTERS_HZ.map(() => -26), paths: ['/f/L1_900rpm_run0.wav', '/f/L1_900rpm_run2.wav'],
+            definition: { kind: 'group', count: 2, channel: null, filters: [], fewerChannels: 0, left: { failed: 1 } } },
+    };
+    const header = entryCsv(buildEntryModel([], null), LABELS, () => null).slice(1).split('\r\n')[0].split(',');
+    const column = (line: string, name: string): string => line.split(',')[header.indexOf(name)];
+    const rowOf = (model: EntryModel) => model.rows.find(row => row.derived)!;
+    const csvOf = (model: EntryModel): string => entryCsv(model, LABELS, () => null).slice(1).split('\r\n')[model.rows.indexOf(rowOf(model)) + 1];
+    // Current, its saved base n and left-out files are written.
+    const current = buildEntryModel(files, null, { band: BAND_3150, derived: [fixed] });
+    assert.deepEqual([column(csvOf(current), 'Δ Leq'), column(csvOf(current), 'n'), column(csvOf(current), 'Left out')], ['5.0', '2', '-1 (failed)']);
+    // The Recipe changes: the difference is of the chain before (derivedIsStale), so it is ≠.
+    const stale = derivedIsStale(fixed, { recipeKey: 'chain-2', stale: () => false, conditionOf: () => '' });
+    assert.equal(stale, true);
+    const model = buildEntryModel(files, null, { band: BAND_3150, derived: [{ ...fixed, stale }] });
+    const row = rowOf(model);
+    assert.deepEqual([row.status, row.mismatch, row.stale], ['mismatch', '≠', true], 'the table row shows ≠ and is stale');
+    assert.deepEqual(row.values, { leq: null, peak: null, band: null });
+    const line = csvOf(model);
+    for (const name of ['Δ Leq', 'Δ band', 'n', 'Left out', 'Leq dB(A)']) assert.equal(column(line, name), '', `${name} is empty`);
+    assert.equal(column(line, 'Reason'), '≠', 'the status column says ≠, not the file-stale word');
 });
 
 test('an uncalibrated row says what its level is relative to (full scale for audio, raw input units for CSV), from its calibration status', () => {
