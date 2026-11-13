@@ -43,6 +43,9 @@ quote-style = "double"
 testpaths = ["python-backend"]
 python_files = "test_*.py"
 addopts = "-q"
+# A test still running after 5 minutes prints every thread's stack to stderr (it is not failed or stopped): a test
+# that hangs on one OS names itself and where it waits in the CI log, instead of only running out the job's time.
+faulthandler_timeout = 300
 markers = [
     "slow: runs every wandas operation (minutes); skipped unless AWA_SLOW=1, which CI sets",
     "perf: wall-clock budget on the developer's PC; skipped unless AWA_PERF=1, the timing is reported either way",
