@@ -48,7 +48,7 @@ export function stepMenuListHtml(menu: StepMenuState, context: StepMenuContext):
     const { recipe, state, strings, expanded, lacks } = context;
     const limits = stepLimits(state);
     const needle = menu.filter.trim().toLowerCase();
-    const locale = strings.stepHintLocale;
+    const locale = strings.uiLocale;
     const matches = (name: string, id: string, extra = ''): boolean => !needle || name.toLowerCase().includes(needle) || operationHint(id, locale).toLowerCase().includes(needle) || extra.toLowerCase().includes(needle);
     const byFrame = new Map<string, AddableOperation[]>();
     const placed = menu.after ? recipeSteps(recipe, limits).find(step => step.id === menu.after) : undefined;

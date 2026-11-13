@@ -31,6 +31,9 @@ interface ComparisonPanelRenderedUi {
     entry?: { open: boolean; docked: boolean; rows: number; scanned: number; slots: (string | null)[] };
     comparison?: { open: boolean; stage: string | null; frame: string | null; kind: string | null; stageValues: number; stageMedian: number | null; invalidSteps: number };
     hasToolbar: boolean;
+    /** The locale the webview's Intl falls back to, and its navigator.language (the E2E pins both: runnerHelpers.E2E_LOCALE). */
+    intlLocale: string;
+    navigatorLanguage: string | null;
     toolbarActions: string[];
     trackRowCount: number;
     audioElementCount: number;
