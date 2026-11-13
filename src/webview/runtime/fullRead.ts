@@ -542,13 +542,16 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
                 next = null; nextLevel = null;
                 return;
             }
-            // Kept, and every reader waiting on it is told by the store (whenSettled).
-            keep(key, read, points ? fullPointsOf(points) : null);
-            // The pointer's read first, then the level: the first not answered meanwhile is asked.
+            // The pointer's read first, then the level: the first not answered meanwhile goes next. It takes the one
+            // place on the way BEFORE the readers of this answer are told: a reader told below may read again at once
+            // (an arrow key's next step), and that read must queue behind it, never be sent beside it.
             const unanswered = (item: { key: string } | null): boolean => !!item && kept.state(keyOf(item.key)) === 'pending';
             const queued = unanswered(next) ? next : unanswered(nextLevel) ? nextLevel : null;
             if (queued === next || !unanswered(next)) next = null;
             if (queued === nextLevel || !unanswered(nextLevel)) nextLevel = null;
+            if (queued) busy = queued.key;
+            // Kept, and every reader waiting on it is told by the store (whenSettled).
+            keep(key, read, points ? fullPointsOf(points) : null);
             if (queued) ask(queued.key, queued.read);
         });
     };

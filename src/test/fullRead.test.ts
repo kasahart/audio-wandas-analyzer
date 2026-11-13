@@ -600,3 +600,34 @@ test('a read waiting in line that a newer one replaces hands its reader on to it
     queue.shift()?.();
     assert.deepEqual([...told], ['on its way', 'newest', 'replaced'], 'the replaced read\'s reader is told with the read that took its place');
 });
+
+test('a reader told of its answer that reads another window at once (an arrow key\'s next step) queues behind the level waiting in line: one request on its way at a time, and every answer reaches its reader', () => {
+    const replies: Array<() => void> = [];
+    const sent: string[] = [];
+    const whole = testLine([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    const source = fetchedSource((read, done) => {
+        sent.push(read.level ? 'level' : `line ${read.x.join('-')}`);
+        replies.push(() => done(read.level ? { xs: [], values: [], start: null, end: null, complete: true, level: { power: 1, count: 1 } }
+            : whole.line({ x0: Math.min(...read.x), x1: Math.max(...read.x), beyond: read.beyond ?? 1 }, () => undefined)));
+    });
+    const onTheWay = (): number => replies.length;
+    const told: string[] = [];
+    const next: LineQuery = { x0: 6, x1: 6, beyond: 0 };
+    // The pointer's read; when it is in, its reader steps on to another window at once.
+    assert.equal(source.line({ x0: 1, x1: 1, beyond: 0 }, () => { told.push('first'); source.line(next, () => told.push('step')); }), undefined);
+    // The level of the window on screen waits in line meanwhile.
+    assert.equal(source.level({ x0: 0, x1: 9, square: true }, () => told.push('level')), undefined);
+    assert.equal(onTheWay(), 1);
+    replies.shift()?.();
+    assert.deepEqual([...told], ['first']);
+    assert.equal(onTheWay(), 1, 'one request on its way: the step read queues behind the level, never beside it');
+    assert.deepEqual(sent, ['line 1', 'level']);
+    replies.shift()?.();
+    assert.deepEqual([...told], ['first', 'level']);
+    assert.equal(onTheWay(), 1, 'then the step read goes');
+    assert.deepEqual(sent, ['line 1', 'level', 'line 6']);
+    replies.shift()?.();
+    assert.deepEqual([...told], ['first', 'level', 'step'], 'every answer reached its reader');
+    assert.equal(onTheWay(), 0);
+    assert.notEqual(source.line(next, () => undefined), undefined);
+});
