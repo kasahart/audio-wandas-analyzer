@@ -53,7 +53,7 @@ markers = [
 
 [tool.pyright]
 # The backend modules import each other as top-level scripts, as backend_server.py and Pyodide load them.
-include = ["python-backend"]
+include = ["python-backend", "scripts/check_decimation_flow.py", "scripts/check_test_proofs.py"]
 exclude = ["python-backend/test_*.py", "python-backend/conftest.py", "**/__pycache__"]
 extraPaths = ["python-backend"]
 pythonVersion = "3.11"

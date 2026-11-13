@@ -76,8 +76,8 @@ const lanes = [
         ['eslint', ...npm(['run', 'lint'])],
     ]],
     ['Python', [
-        ['ruff check', python, ['-m', 'ruff', 'check', 'python-backend', 'scripts/check_decimation_flow.py']],
-        ['ruff format --check', python, ['-m', 'ruff', 'format', '--check', 'python-backend', 'scripts/check_decimation_flow.py']],
+        ['ruff check', python, ['-m', 'ruff', 'check', 'python-backend', 'scripts/check_decimation_flow.py', 'scripts/check_test_proofs.py']],
+        ['ruff format --check', python, ['-m', 'ruff', 'format', '--check', 'python-backend', 'scripts/check_decimation_flow.py', 'scripts/check_test_proofs.py']],
         // Configured in pyproject.toml ([tool.pyright]); --pythonpath points it at the interpreter verify runs. pyright
         // needs that interpreter's absolute path: given a bare command (`python3`) it finds no site-packages.
         ['pyright', python, ['-m', 'pyright', '--pythonpath', () => pythonExecutable()]],
