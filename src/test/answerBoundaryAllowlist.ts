@@ -7,7 +7,7 @@
  */
 export type ListedKind = 'not-answer' | 'in-layer' | 'unmigrated';
 export interface Listed { readonly kind: ListedKind; readonly why: string }
-const notAnswer = (why: string): Listed => ({ kind: 'not-answer', why });
+export const notAnswer = (why: string): Listed => ({ kind: 'not-answer', why });
 const inLayer = (why: string): Listed => ({ kind: 'in-layer', why });
 const unmigrated = (why: string): Listed => ({ kind: 'unmigrated', why });
 

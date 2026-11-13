@@ -19,10 +19,28 @@
  * after you edited the guide: read the compiler's message under the block's line.
  */
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { runInThisContext } from 'node:vm';
 import ts from 'typescript';
+import { ANSWER_DECLARATIONS, answerProgram, findAnswerWrites } from './answerBoundary';
+import { NOT_ANSWER_WRITES, type Listed } from './answerBoundaryAllowlist';
+import { functionSites, rowsOutsideFigureModel, siteProblems, type Sites } from './figureSites';
+import {
+    checkBackendReaders, checkChartFilesGathered, checkContractDoc, checkGaps, checkNamedFunctionsExist, checkNamedTestsRun, checkNumberWriters, checkPlotCallers, checkProofs,
+    checkProtocolFields, checkRowsAndKinds, checkRuleQuotes, codeWith, protocolFields, pythonFlowReaders, pythonSources, rowsOf, TABLE, withProofs, type Code, type Table,
+} from './plotContracts/checks';
+import type { ChartContract } from './plotContracts/model';
+import { renderContractDoc } from './plotContracts/render';
+import { pythonExecutable } from './namedTest';
+import type { StageView } from '../shared/protocol/backendProtocol';
+import { stageRange } from '../webview/runtime/stagePanes';
+import { SCHEMA_FIELDS } from './plotContracts/schema';
+import { BACKEND_READERS, type BackendReader } from './plotContracts/values';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const GUIDE = 'docs/plot-contracts-guide.md';
@@ -34,6 +52,8 @@ interface Block {
     file?: string;
     hidden: string[];
     code: string[];
+    /** A block of the worked example (`<!-- guide-example … -->`): built and checked by the example's test below. */
+    example?: boolean;
 }
 
 /** Every ```ts block of `markdown`, with the guide-check comment above it. */
@@ -49,13 +69,17 @@ export function tsBlocks(markdown: string): Block[] {
             check = { file: opened[1], hidden };
             continue;
         }
+        if (/^\s*<!-- guide-example .*-->\s*$/u.test(lines[index])) {
+            check = { file: '', hidden: [] };
+            continue;
+        }
         const fence = /^(\s*)```ts\s*$/u.exec(lines[index]);
         if (fence) {
             const code: string[] = [];
             const first = index + 2;
             // A block inside a list is indented: its indent is the fence's.
             for (index++; index < lines.length && !/^\s*```\s*$/u.test(lines[index]); index++) code.push(lines[index].slice(Math.min(fence[1].length, lines[index].length - lines[index].trimStart().length)));
-            blocks.push({ line: first, ...(check ? { file: check.file, hidden: check.hidden } : { hidden: [] }), code });
+            blocks.push({ line: first, ...(check?.file === '' ? { hidden: [], example: true } : check ? { file: check.file, hidden: check.hidden } : { hidden: [] }), code });
             check = undefined;
         } else if (lines[index].trim()) {
             // The comment belongs to the block right under it.
@@ -73,7 +97,7 @@ export function blockProblems(blocks: readonly Block[]): string[] {
     const options: ts.CompilerOptions = { ...config.options, noEmit: true };
     const checked = blocks.filter((block): block is Block & { file: string } => block.file !== undefined);
     for (const block of blocks) {
-        if (block.file === undefined) problems.push(`${GUIDE}:${block.line}: this \`\`\`ts block has no "<!-- guide-check file=… -->" comment right above it, so nothing compiles it. Add one (see the top of src/test/guideExamples.test.ts).`);
+        if (block.file === undefined && !block.example) problems.push(`${GUIDE}:${block.line}: this \`\`\`ts block has no "<!-- guide-check file=… -->" comment right above it, so nothing compiles it. Add one (see the top of src/test/guideExamples.test.ts).`);
     }
     // Two blocks may say the same file (two parts of one module): each is compiled by itself.
     const virtual = new Map(checked.map((block, index) => [path.join(repoRoot, block.file.replace(/\.ts$/u, `.guide${index}.ts`)), block]));
@@ -123,4 +147,306 @@ test('the guide check fails on a block that names a function that does not exist
     assert.match(problems(guide('', 'export const made = 1;', false)).join('\n'), /has no "<!-- guide-check/u);
     assert.match(problems(guide('', 'export const made: number = 1;   // error: not refused at all')).join('\n'), /but it compiles/u);
     assert.match(problems(guide('const hidden: string = 1;', 'export const made = 1;')).join('\n'), /hidden lines .* do not compile/u);
+});
+
+// ── The worked example, run through the structural checks in memory ──
+//
+// The guide's checklist names every registry a new chart and a new number enter, and its worked example (a kurtosis
+// chart and its headline) follows every step in code blocks marked `<!-- guide-example file=… -->` (a file, or code
+// added to an existing one) or `<!-- guide-example entries=… -->` (entries of a registry). Here those blocks become
+// files and table entries in memory, never on disk, and the structural checks of plotContracts.test.ts,
+// figureModel.test.ts and answerStoreBoundary.test.ts run on them (plotContracts/checks.ts, figureSites.ts,
+// answerBoundary.ts). With every step the example passes; with any one step left out it fails, naming that step's
+// fix. Each step of the checklist's first table has its omission here and each omission its step there, so neither
+// can change alone.
+
+/** Every block marked `guide-example`, any language: a file's code, or a registry's entries. */
+export function exampleBlocks(markdown: string): Array<{ line: number; file?: string; entries?: string; patch?: string; code: string }> {
+    const lines = markdown.split('\n');
+    const found: Array<{ line: number; file?: string; entries?: string; patch?: string; code: string }> = [];
+    for (let index = 0; index < lines.length; index++) {
+        const marked = /^\s*<!-- guide-example (file|entries|patch)=(\S+) -->\s*$/u.exec(lines[index]);
+        if (!marked) continue;
+        const fence = /^(\s*)```\w+\s*$/u.exec(lines[index + 1] ?? '');
+        assert.ok(fence, `${GUIDE}:${index + 1}: a guide-example comment is right above a code block`);
+        const code: string[] = [];
+        for (index += 2; index < lines.length && !/^\s*```\s*$/u.test(lines[index]); index++) code.push(lines[index].slice(Math.min(fence[1].length, lines[index].length - lines[index].trimStart().length)));
+        found.push({ line: index - code.length + 1, [marked[1]]: marked[2], code: code.join('\n') });
+    }
+    return found;
+}
+
+/** The ids of the checklist's first table (the steps the example is checked for in memory), in its order. */
+export function checklistSteps(markdown: string): string[] {
+    const lines = markdown.split('\n');
+    const at = lines.findIndex(line => line.trim() === '<!-- guide-checklist in-memory -->');
+    assert.ok(at >= 0, `${GUIDE} has its checklist (<!-- guide-checklist in-memory -->)`);
+    const steps: string[] = [];
+    for (let index = at + 3; index < lines.length && lines[index].startsWith('|'); index++) {
+        const step = /^\|\s*`([\w-]+)`\s*\|/u.exec(lines[index]);
+        assert.ok(step, `${GUIDE}:${index + 1}: a checklist line starts with its step's id in backticks`);
+        steps.push(step[1]);
+    }
+    return steps;
+}
+
+/** A `guide-example` ts block run as a CommonJS module, its relative imports resolved from where `file` would be. */
+function evaluated(code: string, file: string, prelude = ''): Record<string, unknown> {
+    const js = ts.transpileModule(`${prelude}${code}`, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+    const from = path.join(repoRoot, 'dist', path.dirname(file).replace(/^src\//u, ''));
+    const load = createRequire(__filename);
+    const module = { exports: {} as Record<string, unknown> };
+    // In this realm, so its arrays and objects are this realm's (node:assert compares prototypes).
+    const run = runInThisContext(`(function (require, module, exports) {\n${js}\n})`) as (require: (specifier: string) => unknown, module: { exports: Record<string, unknown> }, exports: Record<string, unknown>) => void;
+    run(specifier => load(specifier.startsWith('.') ? path.join(from, specifier) : specifier), module, module.exports);
+    return module.exports;
+}
+
+const KURTOSIS_TEST = 'src/test/kurtosisPane.test.ts';
+
+/** The example as code and tables: everything one omission changes. */
+interface Example {
+    files: Map<string, string>;
+    contract: ChartContract;
+    schemaFields: Record<string, readonly string[] | string>;
+    readers: Record<string, BackendReader>;
+    allowed: Sites;
+    answerWrites: Record<string, Listed>;
+    /** Whether the chart is in CONTRACTS (index.ts); its file is in charts/ either way. */
+    indexed: boolean;
+    /** Whether docs/plot-contracts.md is regenerated with the example's chart. */
+    doc: boolean;
+}
+
+/** The example as the guide writes it, every step followed. */
+function guideExample(markdown: string): Example {
+    const blocks = exampleBlocks(markdown);
+    const files = new Map<string, string>();
+    for (const block of blocks.filter(item => item.file)) {
+        const file = block.file ?? '';
+        files.set(file, `${files.get(file) ?? (existsSync(path.join(repoRoot, file)) ? readFileSync(path.join(repoRoot, file), 'utf8') : '')}\n${block.code}\n`);
+    }
+    const entries = (name: string): string => {
+        const found = blocks.filter(item => item.entries === name);
+        assert.equal(found.length, 1, `${GUIDE} has one guide-example block of ${name}'s entries`);
+        return found[0].code;
+    };
+    const chart = files.get('src/test/plotContracts/charts/kurtosis.ts');
+    assert.ok(chart, `${GUIDE} has the example's chart file`);
+    const contract = evaluated(chart, 'src/test/plotContracts/charts/kurtosis.ts').kurtosis as ChartContract;
+    return {
+        files,
+        contract,
+        schemaFields: { ...SCHEMA_FIELDS, ...(evaluated(`module.exports = {\n${entries('SCHEMA_FIELDS')}\n};`, 'src/test/plotContracts/schema.ts') as Record<string, readonly string[] | string>) },
+        readers: { ...BACKEND_READERS, ...(JSON.parse(`{${entries('readers')}}`) as Record<string, BackendReader>) },
+        allowed: evaluated(`module.exports = {\n${entries('ALLOWED')}\n};`, 'src/test/figureModel.test.ts') as Sites,
+        answerWrites: { ...NOT_ANSWER_WRITES, ...evaluated(`module.exports = {\n${entries('NOT_ANSWER_WRITES')}\n};`, 'src/test/answerBoundaryAllowlist.ts', "const { notAnswer } = require('./answerBoundaryAllowlist');\n") as Record<string, Listed> },
+        indexed: true,
+        doc: true,
+    };
+}
+
+const codes = new Map<string, Code>();
+const flows = new Map<string, Record<string, string[]>>();
+const answerPrograms = new Map<string, ts.Program>();
+const siteCache = new Map<Code, Sites>();
+const keyOf = (files: ReadonlyMap<string, string>): string => JSON.stringify([...files]);
+
+/** What fails of the example, check by check: `check: message`. Empty when every step is followed. */
+function exampleProblems(example: Example): string[] {
+    const table: Table = { ...TABLE, contracts: example.indexed ? [...TABLE.contracts, example.contract] : TABLE.contracts, chartFiles: [...TABLE.chartFiles, 'kurtosis'], schemaFields: example.schemaFields, backendReaders: example.readers };
+    const own: Table = { ...table, contracts: table.contracts.filter(contract => contract.chart.id === 'kurtosis') };
+    const key = keyOf(example.files);
+    // One program for the example's files and the tests its rows give as proof (the example's rows, whether or not
+    // index.ts lists them, so that leaving the index out builds no other program).
+    const code = codes.get(key) ?? withProofs(example.contract.rows.map(row => ({ ...row, chart: 'kurtosis' })), codeWith(example.files));
+    codes.set(key, code);
+    // docs/plot-contracts.md as committed: regenerated with the example's chart, or as it is.
+    const doc = example.doc ? renderContractDoc(table.contracts) : readFileSync(path.join(repoRoot, 'docs/plot-contracts.md'), 'utf8');
+    const withDoc: Code = { ...code, read: file => (file === 'docs/plot-contracts.md' ? doc : code.read(file)) };
+    const written = [...example.files.keys()].filter(file => /^src\/.*\.ts$/u.test(file));
+    const problems: string[] = [];
+    const run = (check: string, body: () => void): void => {
+        try { body(); } catch (error) { problems.push(`${check}: ${error instanceof Error ? error.message : String(error)}`); }
+    };
+    run('compile', () => {
+        const program = code.program();
+        const failed = written.flatMap(file => ts.getPreEmitDiagnostics(program, program.getSourceFile(path.join(repoRoot, file))).map(item => `${file}: ${ts.flattenDiagnosticMessageText(item.messageText, ' ')}`));
+        assert.deepEqual(failed, [], 'the example does not compile');
+    });
+    run('painted-by', () => checkPlotCallers(code, table));
+    run('index', () => checkChartFilesGathered(table));
+    run('rows', () => checkRowsAndKinds(table));
+    run('figure-rows', () => assert.deepEqual(rowsOutsideFigureModel(rowsOf(own)), [], 'Rule: a row of a level axis, a range or a file count names the figureModel.ts function that makes it (docs/plot-layers.md). These name none. Fix: add it to the row\'s computedIn (figureModel.ts stageNames, dataRange, …).'));
+    run('functions', () => checkNamedFunctionsExist(code, table));
+    run('tests', () => checkNamedTestsRun(code, own));
+    run('tt', () => checkGaps(own));
+    run('not-drawn', () => checkProofs(rowsOf(own), code));
+    run('number-writer', () => checkNumberWriters(code, table));
+    run('axis-namer', () => {
+        const sites = siteCache.get(code) ?? functionSites(code.program());
+        siteCache.set(code, sites);
+        const mine = Object.fromEntries(Object.entries(sites).filter(([rel]) => written.includes(`src/${rel}`)));
+        assert.deepEqual(siteProblems(mine, example.allowed), []);
+    });
+    run('answer-writes', () => {
+        const program = answerPrograms.get(key) ?? answerProgram(repoRoot, [], Object.fromEntries(example.files));
+        answerPrograms.set(key, program);
+        const answerFiles = new Set(ANSWER_DECLARATIONS.map(file => ts.sys.resolvePath(path.join(repoRoot, file))));
+        const found = written.filter(file => file.startsWith('src/webview/')).flatMap(file => findAnswerWrites(file, program.getSourceFile(path.join(repoRoot, file)) as ts.SourceFile, program.getTypeChecker(), answerFiles));
+        assert.deepEqual(found.filter(entry => !(entry in example.answerWrites)), [], 'An answer is kept in answerStore.ts (createAnswerSlot for one per track), not in an object\'s field or a let: one that holds no answer goes in NOT_ANSWER_WRITES (src/test/answerBoundaryAllowlist.ts) with what it holds');
+    });
+    run('readers', () => {
+        const flow = flows.get(key) ?? pythonFlowReaders(pythonSources(code));
+        flows.set(key, flow);
+        checkBackendReaders(flow, code, table);
+    });
+    run('schema-fields', () => checkProtocolFields(protocolFields(code), table));
+    run('doc', () => checkContractDoc(withDoc, table));
+    run('rule-quotes', () => checkRuleQuotes(code, own));
+    return problems;
+}
+
+/**
+ * Each step of the checklist, left out of the example: how the example is without it, and the message the checks
+ * must fail with. A step's omission is what a newcomer would forget, and nothing else.
+ */
+const OMISSIONS: Readonly<Record<string, { without: (example: Example) => Example; fails: RegExp }>> = {
+    'painted-by': {
+        without: example => ({ ...example, contract: { ...example.contract, chart: { ...example.contract.chart, paintedBy: [] } } }),
+        fails: /^painted-by: Rule: every call of the plot component .*kurtosisPane\.ts:paintKurtosis/msu,
+    },
+    index: {
+        without: example => ({ ...example, indexed: false }),
+        fails: /^index: Rule: a chart's file in src\/test\/plotContracts\/charts is named by its chart's id, and index\.ts lists every one/mu,
+    },
+    rows: {
+        without: example => ({ ...example, contract: { ...example.contract, rows: example.contract.rows.filter(row => row.value !== 'headline') } }),
+        fails: /^rows: kurtosis has no row for these values it shows.*headline/msu,
+    },
+    'figure-rows': {
+        without: example => ({ ...example, contract: { ...example.contract, rows: example.contract.rows.map(row => (row.value === 'range' ? { ...row, computedIn: row.computedIn.filter(at => !at.includes('figureModel.ts')) } : row)) } }),
+        fails: /^figure-rows: Rule: a row of a level axis, a range or a file count names the figureModel\.ts function.*kurtosis\.range/msu,
+    },
+    functions: {
+        without: example => ({ ...example, contract: { ...example.contract, rows: example.contract.rows.map(row => ({ ...row, computedIn: row.computedIn.map(at => at.replace(':kurtosis_peak', ':peak')) })) } }),
+        fails: /^functions: Rule: every function the contract table names .*kurtosis_view\.py:peak/msu,
+    },
+    tests: {
+        without: example => ({ ...example, files: new Map([...example.files].filter(([file]) => file !== KURTOSIS_TEST)) }),
+        fails: /^tests: kurtosis\.headline: names a test in src\/test\/kurtosisPane\.test\.ts, which does not exist/mu,
+    },
+    tt: {
+        without: example => ({ ...example, contract: { ...example.contract, rows: example.contract.rows.map(row => (row.value === 'headline' ? { ...row, tests: row.tests.map(item => ({ file: item.file, name: item.name })) } : row)) } }),
+        fails: /^tt: kurtosis\.headline .* is not marked a gap, but these say it is one/mu,
+    },
+    'not-drawn': {
+        without: example => ({ ...example, files: new Map([...example.files].map(([file, text]) => [file, file === KURTOSIS_TEST ? text.replace(/^\s*assertNotDrawn\(.*$/mu, '') : text])) }),
+        fails: /^not-drawn: .*kurtosis\.headline: "the kurtosis headline .*" asserts no case where the full data and the drawn points give different answers/msu,
+    },
+    'number-writer': {
+        without: example => ({ ...example, contract: { ...example.contract, rows: example.contract.rows.map(row => ({ ...row, computedIn: row.computedIn.filter(at => !at.endsWith(':kurtosisHeadline')) })) } }),
+        fails: /^number-writer: Rule: every function that writes a number a user can read belongs to the contract table.*kurtosisPane\.ts:kurtosisHeadline/msu,
+    },
+    'axis-namer': {
+        without: example => ({ ...example, allowed: {} }),
+        fails: /^axis-namer: .*src\/webview\/runtime\/kurtosisPane\.ts: paintKurtosis names an axis by a picture .*add 'paintKurtosis' to ALLOWED\['webview\/runtime\/kurtosisPane\.ts'\]\['axis-namer'\]/msu,
+    },
+    'answer-writes': {
+        without: example => ({ ...example, answerWrites: NOT_ANSWER_WRITES }),
+        fails: /^answer-writes: An answer is kept in answerStore\.ts .*NOT_ANSWER_WRITES.*kurtosisPane\.ts#let drawn/msu,
+    },
+    readers: {
+        without: example => ({ ...example, readers: BACKEND_READERS }),
+        fails: /^readers: Rule: every backend function that computes with points thinned to draw .*kurtosis_view\.py:kurtosis_view/msu,
+    },
+    'schema-fields': {
+        without: example => ({ ...example, schemaFields: SCHEMA_FIELDS }),
+        fails: /^schema-fields: Rule: every number the backend's protocol sends back is a value of a row.*StageView\.kurtosisPeak\.value/msu,
+    },
+    doc: {
+        without: example => ({ ...example, doc: false }),
+        fails: /^doc: docs[/\\]plot-contracts\.md is generated from src\/test\/plotContracts\/ and is not the table it renders/mu,
+    },
+};
+
+test('the guide\'s worked example, a new chart and its new number, passes every structural check in memory with the checklist followed', () => {
+    assert.deepEqual(exampleProblems(guideExample(readFileSync(path.join(repoRoot, GUIDE), 'utf8'))), []);
+});
+
+test('the guide\'s checklist names every step the example is checked for, and the example fails naming the step whenever one is left out', () => {
+    const markdown = readFileSync(path.join(repoRoot, GUIDE), 'utf8');
+    assert.deepEqual(checklistSteps(markdown), Object.keys(OMISSIONS), `the checklist's first table in ${GUIDE} and OMISSIONS (src/test/guideExamples.test.ts) list the same steps in the same order: a step added to one is added to the other`);
+    const example = guideExample(markdown);
+    for (const [step, { without, fails }] of Object.entries(OMISSIONS)) {
+        const problems = exampleProblems(without(example));
+        assert.match(problems.join('\n'), fails, `without step ${step}, the checks fail naming it. They said:\n${problems.join('\n') || '(nothing)'}`);
+    }
+});
+
+/**
+ * The guide's backend: its kurtosis_view.py, and stage_view.py with the guide's patch (the field added to the
+ * `StageView` class, the classes after it added at the end), in a directory of their own that is removed after `use`.
+ */
+function withGuideBackend<T>(use: (dir: string) => T): T {
+    const blocks = exampleBlocks(readFileSync(path.join(repoRoot, GUIDE), 'utf8'));
+    const module = blocks.find(block => block.file === 'python-backend/kurtosis_view.py')?.code;
+    const patch = blocks.find(block => block.patch === 'python-backend/stage_view.py')?.code;
+    assert.ok(module && patch, `${GUIDE} has the example's backend module and its patch of stage_view.py`);
+    const header = 'class StageView(TypedDict):';
+    const [inClass, ...after] = patch.split(/\n(?=class )/u);
+    assert.ok(inClass.startsWith(header), `the patch of stage_view.py starts with "${header}"`);
+    const fields = inClass.split('\n').slice(1).filter(line => line.trim() && !line.trim().startsWith('#'));
+    const own = readFileSync(path.join(repoRoot, 'python-backend/stage_view.py'), 'utf8');
+    assert.ok(own.includes(`\n${header}\n`), `python-backend/stage_view.py has "${header}"`);
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'awa-guide-'));
+    try {
+        writeFileSync(path.join(dir, 'stage_view.py'), `${own.replace(`\n${header}\n`, `\n${header}\n${fields.join('\n')}\n`).trimEnd()}\n\n\n${after.join('\n').trimEnd()}\n`);
+        writeFileSync(path.join(dir, 'kurtosis_view.py'), `${module.trimEnd()}\n`);
+        return use(dir);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+}
+
+/** The guide's `kurtosis_view` of a kurtosis line, run by Python, as JSON. */
+function guideKurtosisView(times: readonly number[], values: readonly number[], points: number): StageView {
+    return withGuideBackend(dir => {
+        const script = [
+            'import json, sys',
+            'import numpy as np',
+            'given = json.loads(sys.stdin.read())',
+            'sys.path[0:0] = [given["dir"], "python-backend"]',
+            'from kurtosis_view import kurtosis_view',
+            'print(json.dumps(kurtosis_view(np.array(given["times"]), np.array(given["values"]), given["points"])))',
+        ].join('\n');
+        const run = spawnSync(pythonExecutable(), ['-c', script], { cwd: repoRoot, encoding: 'utf8', input: JSON.stringify({ dir, times, values, points }) });
+        assert.equal(run.status, 0, `the guide's kurtosis_view.py runs: ${run.stderr}`);
+        return JSON.parse(run.stdout) as StageView;
+    });
+}
+
+test('the guide\'s backend example type-checks as the repository\'s backend does (pyright, pyproject.toml\'s settings)', () => {
+    const problems = withGuideBackend(dir => {
+        writeFileSync(path.join(dir, 'pyrightconfig.json'), JSON.stringify({ include: ['kurtosis_view.py', 'stage_view.py'], extraPaths: [path.join(repoRoot, 'python-backend')], pythonVersion: '3.11', typeCheckingMode: 'basic' }));
+        const run = spawnSync(pythonExecutable(), ['-m', 'pyright', '--outputjson', '-p', path.join(dir, 'pyrightconfig.json')], { cwd: dir, encoding: 'utf8' });
+        const report = JSON.parse(run.stdout || '{}') as { generalDiagnostics?: Array<{ file: string; range: { start: { line: number } }; message: string; severity: string }> };
+        assert.ok(report.generalDiagnostics, `pyright ran: ${run.stderr || run.stdout}`);
+        return report.generalDiagnostics.filter(item => item.severity === 'error').map(item => `${path.basename(item.file)}:${item.range.start.line + 1}: ${item.message}`);
+    });
+    assert.deepEqual(problems, [], `the guide's kurtosis_view.py and its patch of stage_view.py (${GUIDE}) must pass pyright as the backend's modules do`);
+});
+
+test('the guide\'s backend example sends the full data\'s value range, so the plot\'s range encloses every value, not only the points drawn (R9)', () => {
+    // 400 frames of kurtosis near 3, one burst to 9.5 and one dip to 1.2, thinned to 8 buckets to draw.
+    const times = Array.from({ length: 400 }, (_, index) => index * 0.01);
+    const values = times.map((_, index) => (index === 123 ? 9.5 : index === 301 ? 1.2 : 3 + 0.2 * Math.sin(index)));
+    const view = guideKurtosisView(times, values, 8);
+    assert.deepEqual(view.valueRange, { min: 1.2, max: 9.5 });
+    const range = stageRange([view]);
+    assert.ok(range.min <= 1.2 && range.max >= 9.5, `the plot's range ${JSON.stringify(range)} encloses every value (1.2 to 9.5)`);
+    // Without the full data's range the plot keeps its default and the line is off it: why the example sends one.
+    const { valueRange: _, ...without } = view;
+    assert.ok(!(stageRange([without]).max >= 9.5), 'a view with no valueRange is not ranged to its data');
+    assert.deepEqual((view as StageView & { kurtosisPeak?: unknown }).kurtosisPeak, { x: 1.23, value: 9.5 });
 });
