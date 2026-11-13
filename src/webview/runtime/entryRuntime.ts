@@ -48,14 +48,15 @@ import {
 } from '../../shared/dataset/datasetTable';
 import {
     closesEntryDialog, filterChipText, rowWindow, tableLines, type DerivedItem, datasetColsHtml, datasetHeadHtml, datasetRowsHtml, entryScreenHtml, filterChipsHtml, formatValue, plotValueText,
-    baseOptionsHtml, batchPopHtml, groupOptionsHtml, memoPopHtml, slotMenuHtml, unmatchedRowsHtml, valueOptionsHtml,
+    baseOptionsHtml, batchPopHtml, groupOptionsHtml, memoPopHtml, slotMenuHtml, unmatchedRowsHtml, valueOptionsHtml, ENTRY_ROW_HEIGHT,
     type DatasetScreenView, type EntryStrings,
 } from './entryTableHtml';
+import { writeKeptRows } from './keptRows';
 
 /** Scan results are redrawn at most this often (entryRedraw.ts' createThrottle). */
 const REDRAW_MS = 250;
-/** The table's rows are this tall (CSS: .entry-table tr), so only the rows on screen are drawn. */
-const ROW_HEIGHT = 24;
+/** The table's rows are this tall, exactly (CSS: .entry-table tr.entry-row), so only the rows on screen are drawn. */
+const ROW_HEIGHT = ENTRY_ROW_HEIGHT;
 /** A CSV larger than this is read but not kept for the next session (the webview's state would grow too large). */
 const KEEP_CSV_BYTES = 2 * 1024 ** 2;
 /** The session is saved this long after the last change, so typing or dragging saves once. */
@@ -708,14 +709,15 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** Only the rows on screen are drawn (rowWindow): the rest are spacers. */
     function renderRows(view = rowsView ?? datasetView()): void {
         rowsView = view;
-        if (chosen.mode === 'unmatched') { body.innerHTML = unmatchedRowsHtml(unmatchedItems(), unreadable(), text); return; }
+        if (chosen.mode === 'unmatched') { writeKeptRows(body, unmatchedRowsHtml(unmatchedItems(), unreadable(), text)); return; }
         const { first, last } = rowWindow(tableWrap.scrollTop, tableWrap.clientHeight, tableLines(view).length, ROW_HEIGHT);
         // The rows are drawn again: a focus on a row's ☐/☑ stays on a mark, so a second Space toggles it back
         // instead of falling to the body (and, docked, to the lanes' playback). It follows the focused row, so after
         // ↑/↓ the next Space or Enter takes the row that is lit, not the one the keys left.
         const focusedMark = document.activeElement?.closest?.('[data-action="entry-row-track"]');
         const markKey = focusedMark && body.contains(focusedMark) ? focusedMark.getAttribute('data-key') : null;
-        body.innerHTML = datasetRowsHtml(view, first, last, ROW_HEIGHT, text);
+        // The rows still drawn keep their cells: a value that arrives changes its cell's text only (#781).
+        writeKeptRows(body, datasetRowsHtml(view, first, last, ROW_HEIGHT, text));
         if (markKey !== null) body.querySelector<HTMLElement>(`[data-action="entry-row-track"][data-key="${CSS.escape(focus.key ?? markKey)}"]`)?.focus({ preventScroll: true });
         // A 0–3 button still lighting up (openSlotted) goes on with its light where it was: the rows are drawn again on
         // any change of size (a footer line, a scan landing), which would put it out at once.
