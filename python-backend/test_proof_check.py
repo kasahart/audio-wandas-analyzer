@@ -117,3 +117,62 @@ def test_reach_follows_a_function_re_exported_from_another_module() -> None:
     backend.exports = {"facade": {"compute": "core:compute"}, "core": {}}
     assert backend.canonical("facade:compute") == "core:compute"
     assert "facade:run" in backend.reachers({"core:compute"})
+
+
+# ── One discovery of pytests, class-qualified, for this check and src/test/namedTest.ts (#777) ──
+
+PROVEN = (
+    '    assert result["absolutePeak"] == 0.95\n'
+    "    averaged = np.abs(samples.reshape(50, -1).mean(axis=1))\n"
+    '    assert_not_drawn(result["absolutePeak"], float(averaged.max()))\n'
+)
+
+
+def _held_in_a_class(tmp_path: Path) -> Path:
+    """The passing proof moved into a pytest class, as a method."""
+    lines = (SETUP + PROVEN).replace("(", "(self", 1).split("\n")
+    method = "\n".join(f"    {line}" if line else line for line in lines)
+    file = tmp_path / "test_held.py"
+    file.write_text(HEAD + "class TestHeld:\n" + method, encoding="utf-8")
+    return file
+
+
+def test_a_proof_moved_into_a_pytest_class_is_named_by_its_class_and_accepted(tmp_path: Path) -> None:
+    file = _held_in_a_class(tmp_path)
+    assert proofs.Proof(proofs.backend_index(), file, "TestHeld::test_it", TARGET).check() is None
+    # Named without its class, it is not a test of the file, and the problem names the name that is (the fix passes).
+    problem = proofs.Proof(proofs.backend_index(), file, "test_it", TARGET).check()
+    assert problem == "is not a test of its file: name it 'TestHeld::test_it'"
+
+
+def test_the_discovery_names_tests_as_pytest_collects_them() -> None:
+    import ast
+
+    source = (
+        "def test_a():\n    pass\n\ndef helper():\n    pass\n\n"
+        "class TestGroup:\n    def test_b(self):\n        pass\n\n    class TestInner:\n        def test_c(self):\n"
+        "            pass\n\n"
+        "class TestWithInit:\n    def __init__(self):\n        pass\n\n    def test_d(self):\n        pass\n\n"
+        "class Helper:\n    def test_e(self):\n        pass\n\n"
+        "def outer():\n    def test_f():\n        pass\n"
+    )
+    assert sorted(proofs.tests_of(ast.parse(source))) == ["TestGroup::TestInner::test_c", "TestGroup::test_b", "test_a"]
+    found = proofs.discovery(source)
+    assert found["tests"]["TestGroup::test_b"] == {"line": 8, "end": 9, "declared": []}
+    assert "Helper.test_e" in found["defs"] and "outer" in found["defs"] and "test_f" not in found["defs"]
+
+
+def test_every_checker_script_is_under_the_same_ruff_and_pyright_commands() -> None:
+    # Ruff runs on the paths verify.mjs gives it; pyright on pyproject.toml's include. check_test_proofs.py was in
+    # neither, check_decimation_flow.py only in Ruff's.
+    import tomllib
+
+    root = SCRIPT.parents[1]
+    verify = (root / "scripts" / "verify.mjs").read_text(encoding="utf-8")
+    ruff = [line for line in verify.splitlines() if "'-m', 'ruff'" in line]
+    include = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["pyright"]["include"]
+    checkers = sorted(f"scripts/{path.name}" for path in (root / "scripts").glob("check_*.py"))
+    assert checkers == ["scripts/check_decimation_flow.py", "scripts/check_test_proofs.py"]
+    for script in checkers:
+        assert len(ruff) == 2 and all(f"'{script}'" in line for line in ruff), script
+        assert script in include, script

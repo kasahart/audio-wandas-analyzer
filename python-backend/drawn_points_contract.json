@@ -156,19 +156,17 @@
       "use": "draws",
       "why": "power-averages the cells per time block to draw them; the colour range is every full cell's (valueRange, compare-overlay.range-image)"
     },
+    "python-backend/full_read.py:uniform_axis": {
+      "use": "draws",
+      "why": "its x_at gives the x of the indices it is asked (start + n * step), the drawn points' own places too; places, not a value"
+    },
     "python-backend/scan_service.py:measure": {
       "use": "draws",
       "why": "a scan's 192-point spectrum, to draw (log_spectrum); every level, median and Δ is of every Welch bin (spectrumBinsDb) or the scan's own band levels"
     }
   },
-  "unthinned//": "Places where a value that came from no decimator above is put in a field the protocol names as an array of drawn points (x-drawn), each with why nothing there is thinned. scripts/check_decimation_flow.py fails on a place not listed here: register a new thinning function under decimators instead of listing its caller.",
+  "unthinned//": "Places (module.py:function#field, a method as Class.method) where a value that came from no decimator above is put in an array of drawn points (x-drawn), each with why nothing there is thinned. Whether a field is one is decided by module, function and field: in the dict a function returns, the answer its return annotation names (a schema definition such as StagePoints, whose values are x-whole; a TypedDict whose field is a float), and in every other dict by the field's name; a number written out is no array. scripts/check_decimation_flow.py fails on a place not listed here: register a new thinning function under decimators instead of listing its caller.",
   "unthinned": {
-    "python-backend/full_read.py:read_line#values": "a full read's points (StagePoints.values, x-whole): every value around the pointer, none thinned",
-    "python-backend/full_read.py:_seek_line#values": "a full read's points found by seeking to the next value (StagePoints.values, x-whole): none thinned",
-    "python-backend/full_read.py:read_cells#matrix": "a full read's cells (StagePoints.matrix, x-whole): every cell around the pointer, none thinned",
-    "python-backend/stage_view.py:_noct_view#values": "a band table: every band of the NOctFrame is sent, none thinned; still x-drawn (StageView.values is a picture), so the webview reads the bars through the full read of the step (stageReader), never from these values",
-    "python-backend/stage_combine.py:value_range#min": "one number, the lowest of every value before thinning (valueRange.min): not the envelope's array of the same name",
-    "python-backend/stage_combine.py:value_range#max": "one number, the highest of every value before thinning (valueRange.max): not the envelope's array of the same name",
-    "python-backend/stage_combine.py:_line_buckets#events": "a table of how many points each kind of picture draws, keyed by the picture's mode: not a picture's events"
+    "python-backend/stage_view.py:_noct_view#values": "a band table: every band of the NOctFrame is sent, none thinned; still x-drawn (StageView.values is a picture), so the webview reads the bars through the full read of the step (stageReader), never from these values"
   }
 }
