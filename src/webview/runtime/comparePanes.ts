@@ -10,7 +10,7 @@ import type { Drawn, Whole, WholeLine } from '../../shared/provenance';
 import type { ChannelSummary } from '../../shared/analysis/analysisTypes';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { uncalibratedUnits } from '../../shared/utils/format';
-import { BAND_CENTERS_HZ, bandLabel, HEADLINE_WITHIN_DB, quantile, levelDelta } from './entryTable';
+import { BAND_CENTERS_HZ, bandLabel, HEADLINE_WITHIN_DB, quantile, levelDelta, regionKey } from './entryTable';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { median } from '../../shared/dataset/distribution';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
@@ -309,11 +309,15 @@ function binsOf(compared: ScanOk | undefined, baseValues: readonly ScanOk[], bas
 }
 
 /**
- * Whether two scans measured the same thing: the same version of the file, region, channels, calibration, unit and
- * Recipe (the backend's conditionId). Never judged from drawn values: equal 192 points say nothing of the bins.
+ * Whether two scans measured the same thing: the same version of the file, analysed samples, channels, calibration,
+ * unit and Recipe (the backend's conditionId), asked for over the same region (regionKey of the region each scan
+ * echoes in `input.region`). Defined through regionKey, so two scans the webview keys apart are never one condition,
+ * and two of one key are one when the backend's conditionId says so (docs/display-rules.md R15). Never judged from
+ * drawn values: equal 192 points say nothing of the bins.
  */
 export function sameCondition(a: ScanResult | undefined, b: ScanResult | undefined): boolean {
-    return !!a?.ok && !!b?.ok && typeof a.conditionId === 'string' && a.conditionId === b.conditionId;
+    return !!a?.ok && !!b?.ok && typeof a.conditionId === 'string' && a.conditionId === b.conditionId
+        && regionKey(a.input?.region ?? null) === regionKey(b.input?.region ?? null);
 }
 
 

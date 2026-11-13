@@ -10,14 +10,14 @@ test('a folder\'s index and session are JSON files in the extension\'s storage, 
     try {
         const store = createFolderStore(path.join(directory, 'entry'));
         await store.write('awa.session.v1:/data/motor', { version: 1, value: 'leq' });
-        await store.write('awa.scanIndex.v2:/data/motor', { '/data/motor/a.wav': [] });
+        await store.write('awa.scanIndex.v3:/data/motor', { '/data/motor/a.wav': [] });
         assert.equal(readdirSync(path.join(directory, 'entry')).filter(name => name.endsWith('.json')).length, 2);
         const again = createFolderStore(path.join(directory, 'entry'));
         assert.deepEqual(await again.read('awa.session.v1:/data/motor'), { version: 1, value: 'leq' });
         assert.equal(await again.read('awa.session.v1:/data/other'), undefined);
         await again.write('awa.session.v1:/data/motor', null);
         assert.equal(await createFolderStore(path.join(directory, 'entry')).read('awa.session.v1:/data/motor'), undefined);
-        assert.ok(isFolderKey('awa.sessionCsv.v1:/x') && isFolderKey('awa.scanIndex.v2:') && !isFolderKey('awa.conditions.v1'));
+        assert.ok(isFolderKey('awa.sessionCsv.v1:/x') && isFolderKey('awa.scanIndex.v3:') && !isFolderKey('awa.conditions.v1'));
     } finally {
         rmSync(directory, { recursive: true, force: true });
     }

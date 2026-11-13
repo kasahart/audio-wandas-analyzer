@@ -136,7 +136,12 @@ export type EntryPublication =
     | { type: 'entry-source-changed'; filePath: string };
 
 /** Storage keys; a new layout gets a new suffix and the old key is simply never read again. */
-export const ENTRY_SCAN_INDEX_KEY = 'awa.scanIndex.v2';
+/**
+ * v3: conditionId hashes the analysed sample range, not the region's rounded label (#768), and a result echoes the
+ * region it was asked for (input.region). A v2 result holds an ID of the old form, which a new scan of the same
+ * condition would never equal, so v2 is not read: every file is scanned once again.
+ */
+export const ENTRY_SCAN_INDEX_KEY = 'awa.scanIndex.v3';
 export const ENTRY_CONDITIONS_KEY = 'awa.conditions.v1';
 export const ENTRY_SESSION_KEY = 'awa.session.v1';
 export const ENTRY_SESSION_CSV_KEY = 'awa.sessionCsv.v1';
