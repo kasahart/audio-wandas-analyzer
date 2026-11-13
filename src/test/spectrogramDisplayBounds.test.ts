@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { heatmapDbRange, niceRange } from '../shared/utils/ticks';
 import { linkedSpectrogramBounds, spectrogramDisplayBounds } from '../webview/runtime/spectrogramRaster';
 
 const spec = { minDb: -90, maxDb: -10, maxFrequencyHz: 22050 };
@@ -75,11 +76,46 @@ test('spectrogramDisplayBounds: 片方の端を入力したときは、表示す
     assert.equal(spectrogramDisplayBounds(raw, { dbMin: -40, dbMax: null, maxFrequencyHz: null }).dbHi, -29);
 });
 
-test('a track spectrogram\'s auto colours reach no more than 100 dB under its loudest STFT cell: digital silence (−240 dB) does not set the bottom (R9)', () => {
-    const silent = { minDb: -240, maxDb: -3.2, maxFrequencyHz: 8000 };
-    const bounds = spectrogramDisplayBounds(silent, { dbMin: null, dbMax: null, maxFrequencyHz: null });
-    assert.ok(bounds.dbLo <= -103.2 && bounds.dbLo >= -120, `bottom ${bounds.dbLo}`);
-    assert.ok(bounds.dbHi >= -3.2 && bounds.dbHi <= 0, `top ${bounds.dbHi}`);
-    // A typed bottom stays as typed.
+/** Whether `value` is a whole number of `step`s, to the 12 digits ticks rounds to. */
+const onStep = (value: number, step: number): boolean => Math.abs(value / step - Math.round(value / step)) < 1e-9;
+
+/** The round steps (1, 2 or 5 times a power of ten) both ends are on, coarse enough to tick a colour bar (span / 40). */
+function sharedSteps(min: number, max: number): number[] {
+    const steps: number[] = [];
+    for (let power = -6; power <= 3; power++) for (const size of [1, 2, 5]) steps.push(size * 10 ** power);
+    return steps.filter(step => step >= (max - min) / 40 && onStep(min, step) && onStep(max, step));
+}
+
+test('a heatmap\'s auto colour range spans at most 100 dB after rounding: the top rounded up to a tick, the bottom on a tick no more than 100 dB under it (R9)', () => {
+    // The issue's example: −240…−0.4 dB was limited to −100.4…−0.4 and then widened to −105…0 (105 dB).
+    assert.deepEqual(heatmapDbRange(-240, -0.4), { min: -100, max: 0 });
+    // A track spectrogram with both ends auto is the same rule (and digital silence does not set the bottom).
+    const silent = { minDb: -240, maxDb: -0.4, maxFrequencyHz: 8000 };
+    const track = spectrogramDisplayBounds(silent, { dbMin: null, dbMax: null, maxFrequencyHz: null });
+    assert.deepEqual({ min: track.dbLo, max: track.dbHi }, { min: -100, max: 0 });
+    // Under 100 dB the range is rounded out as any range is (niceRange).
+    assert.deepEqual(heatmapDbRange(-64, -3), { min: niceRange(-64, -3).low, max: niceRange(-64, -3).high });
+    // A typed end stays as typed.
     assert.equal(spectrogramDisplayBounds(silent, { dbMin: -200, dbMax: null, maxFrequencyHz: null }).dbLo, -200);
+
+    const pairs: Array<[number, number]> = [[-240, -0.4], [-240, -3], [-240, -3.2], [-300, -20], [-149.5, -9.5], [-109.5, -9.5], [-64, -3], [-20, -20], [0, 0], [42.5, 42.5], [3, 47], [10, 130], [-12.3, -12.1], [-0.004, 0.003]];
+    // Spans just under, at and just over 100 dB, at many offsets, positive and negative.
+    for (let index = 0; index <= 75; index++) {
+        // Each top and bottom written to a tenth, as a level is, not a sum carrying floating-point drift.
+        const top = (-1373 + 37 * index) / 10;
+        for (const span of [0.5, 7.3, 40, 92, 95.1, 99, 99.9, 100, 100.1, 100.4, 101, 104.9, 108, 150, 240]) pairs.push([Math.round((top - span) * 10) / 10, top]);
+    }
+    for (const [low, high] of pairs) {
+        const got = heatmapDbRange(low, high);
+        const label = `${low}…${high} dB → ${got.min}…${got.max}`;
+        assert.ok(got.max - got.min <= 100, `${label} spans at most 100 dB`);
+        assert.ok(got.max >= high, `${label} keeps the loudest value`);
+        assert.ok(got.min <= high && got.min < got.max, `${label} starts below the loudest value`);
+        // Within 100 dB of the shown top, every value is shown.
+        assert.ok(got.min <= Math.max(low, got.max - 100), `${label} shows every value up to 100 dB under its top`);
+        assert.ok(sharedSteps(got.min, got.max).length > 0, `${label} has both ends on one tick grid`);
+        // A track spectrogram's auto colours are the same.
+        const bounds = spectrogramDisplayBounds({ minDb: low, maxDb: high, maxFrequencyHz: 8000 }, { dbMin: null, dbMax: null, maxFrequencyHz: null });
+        assert.deepEqual({ min: bounds.dbLo, max: bounds.dbHi }, got, `${label}: the track spectrogram agrees`);
+    }
 });

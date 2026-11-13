@@ -1,7 +1,7 @@
 import type { SpectrogramData, SpectrogramDisplaySettings } from '../../shared/analysis/analysisTypes';
 import { middleEllipsis } from '../../shared/dataset/datasetTable';
 import { HEATMAP_DB_SPAN } from '../../shared/utils/ticks';
-import { roundedRange } from './figureModel';
+import { heatmapRange, roundedRange } from './figureModel';
 import type { UiStrings } from '../../shared/i18n/strings';
 export interface SpectrogramRasterView {
     zoomStart: number;
@@ -49,10 +49,13 @@ export function spectrogramDisplayBounds(
     const top = Math.max(display.maxFrequencyHz != null ? display.maxFrequencyHz : auto.maxFrequencyHz, min);
     // A band starting above the lane's own data keeps its range, so the lane shows it blank rather than other frequencies.
     const clamp = auto === spec && min < spec.maxFrequencyHz;
-    // Typed ends stay as typed; auto ends are widened to round values for the range actually shown. The auto bottom
-    // is the STFT's lowest cell but no more than HEATMAP_DB_SPAN under its loudest (as every heatmap's, heatmapDbRange):
-    // digital silence's −240 dB would leave the sound in a few colours.
-    const rounded = roundedRange(display.dbMin ?? Math.max(auto.minDb, auto.maxDb - HEATMAP_DB_SPAN), display.dbMax ?? auto.maxDb);
+    // Typed ends stay as typed; auto ends are widened to round values for the range actually shown. Both ends auto are
+    // every heatmap's colour range (heatmapDbRange, R9): at most HEATMAP_DB_SPAN after rounding, from the rounded top;
+    // digital silence's −240 dB would leave the sound in a few colours. With one end typed, the auto bottom is still no
+    // more than HEATMAP_DB_SPAN under the loudest cell, and the auto end is rounded over the range shown.
+    const rounded = display.dbMin == null && display.dbMax == null
+        ? heatmapRange(auto.minDb, auto.maxDb)
+        : roundedRange(display.dbMin ?? Math.max(auto.minDb, auto.maxDb - HEATMAP_DB_SPAN), display.dbMax ?? auto.maxDb);
     return {
         dbLo: display.dbMin != null ? display.dbMin : rounded.min,
         dbHi: display.dbMax != null ? display.dbMax : rounded.max,
