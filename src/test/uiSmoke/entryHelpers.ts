@@ -1,8 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { expect, type Page } from '@playwright/test';
+import { backendRequired, testPython } from '../helpers/python';
 import { buildUiSmokeEntryHtml } from './buildHtml';
 
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
@@ -16,16 +17,7 @@ export function entry100Metadata(): string {
     return metadataText;
 }
 
-/**
- * Whether a test that needs the Python backend must fail rather than skip without it: where it is required (CI,
- * AWA_REQUIRE_BACKEND=1), and wherever the repo's own environment is set up (.venv), so a local run cannot pass a
- * real-backend contract unseen either (C6). AWA_REQUIRE_BACKEND=0 lets such a run skip on purpose.
- */
-export function backendRequired(): boolean {
-    if (process.env.AWA_REQUIRE_BACKEND === '1') return true;
-    if (process.env.AWA_REQUIRE_BACKEND === '0') return false;
-    return existsSync(path.join(repoRoot, '.venv', 'bin', 'python')) || existsSync(path.join(repoRoot, '.venv', 'Scripts', 'python.exe'));
-}
+export { backendRequired };
 
 /** Real scan results for the entry100 fixture, from the Python backend (generated once per worker, never committed). */
 export function entry100Results(): ScannedFile[] | undefined {
@@ -37,8 +29,7 @@ export function entry100Results(): ScannedFile[] | undefined {
 
 let scanError = '';
 function scanEntry100(): ScannedFile[] | undefined {
-    const python = [path.join(repoRoot, '.venv', 'bin', 'python'), process.env.WANDAS_PYTHON, 'python3']
-        .find(candidate => candidate && (candidate === 'python3' || existsSync(candidate)));
+    const python = testPython();
     if (!python) { scanError = 'no Python found'; return undefined; }
     const out = mkdtempSync(path.join(tmpdir(), 'entry100-ui-'));
     try {

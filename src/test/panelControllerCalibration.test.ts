@@ -344,18 +344,17 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     controller.dispose();
 });
 
-test('a calibration change refreshes every lane that shows the file, under each of its paths', { timeout: AWAIT_LIMIT_MS }, async (testContext) => {
-    if (process.platform === 'win32') {
-        testContext.skip('Symlink creation requires elevated privileges on Windows.');
-        return;
-    }
+test('a calibration change refreshes every lane that shows the file, under each of its paths', { timeout: AWAIT_LIMIT_MS }, async () => {
     const { PanelController, calibrationFileKey } = loadModules();
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'controller-symlink-'));
     try {
-        const targetPath = path.join(directory, 'target.wav');
-        const linkPath = path.join(directory, 'link.wav');
+        // The second path goes through a linked folder: a junction on Windows, which needs no extra rights there (a
+        // file symlink would need developer mode or an administrator), and a symlink elsewhere ('junction' is ignored).
+        fs.mkdirSync(path.join(directory, 'real'));
+        fs.symlinkSync(path.join(directory, 'real'), path.join(directory, 'linked'), 'junction');
+        const targetPath = path.join(directory, 'real', 'target.wav');
+        const linkPath = path.join(directory, 'linked', 'target.wav');
         fs.writeFileSync(targetPath, '');
-        fs.symlinkSync(targetPath, linkPath);
 
         let revision = 0;
         let calibrationListener: ((event: { filePath: string; analysisRevision: number }) => void) | undefined;

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -478,16 +478,15 @@ test('stale persisted calibration is discarded and advances the analysis revisio
 });
 
 test('calibration profile lookup uses the same real filesystem path as the backend', (context) => {
-    if (process.platform === 'win32') {
-        context.skip('Symlink creation requires elevated privileges on Windows.');
-        return;
-    }
     const directory = mkdtempSync(path.join(os.tmpdir(), 'awa-calibration-'));
     context.after(() => { rmSync(directory, { recursive: true, force: true }); });
-    const targetPath = path.join(directory, 'target.wav');
-    const symlinkPath = path.join(directory, 'alias.wav');
+    // The alias goes through a linked folder: a junction on Windows, which needs no extra rights there (a file
+    // symlink would need developer mode or an administrator), and a symlink elsewhere ('junction' is ignored).
+    mkdirSync(path.join(directory, 'real'));
+    symlinkSync(path.join(directory, 'real'), path.join(directory, 'alias'), 'junction');
+    const targetPath = path.join(directory, 'real', 'target.wav');
+    const symlinkPath = path.join(directory, 'alias', 'target.wav');
     writeFileSync(targetPath, 'fixture');
-    symlinkSync(targetPath, symlinkPath);
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const calibrationStore = require('../extension/calibrationStore') as typeof import('../extension/calibrationStore');

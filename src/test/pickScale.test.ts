@@ -11,11 +11,11 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { N, R, T } from './helpers/figure';
 import { testLine } from './helpers/whole';
+import { backendRequired } from './helpers/python';
 import { backendPython } from './uiSmoke/realBackend';
 import { fetchedSource } from '../webview/runtime/fullRead';
 import { HOVER_PICK_RADIUS_PX } from '../webview/runtime/plotHover';
@@ -25,7 +25,7 @@ import type { StagePoints, StageRead as BackendRead, StageView } from '../shared
 const repoRoot = path.resolve(__dirname, '..', '..');
 const ANSWER = path.join(repoRoot, 'src', 'test', 'fixtures', 'pickScale', 'answer.py');
 /** The backend is required where the repo has its .venv (or AWA_REQUIRE_BACKEND=1), as the UI tests require it. */
-const required = process.env.AWA_REQUIRE_BACKEND === '1' || (process.env.AWA_REQUIRE_BACKEND !== '0' && existsSync(path.join(repoRoot, '.venv', 'bin', 'python')));
+const required = backendRequired();
 
 const FIX = 'R14 (docs/display-rules.md): scale for decisions is exact; holding is only for painting. Take the axis\'s '
     + 'pixelsPerUnit and yOf (stagePanes.ts axisTransform) for the pick, the scale sent to full_read.py and the read mark; '
