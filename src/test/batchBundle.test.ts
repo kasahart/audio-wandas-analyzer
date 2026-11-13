@@ -30,7 +30,7 @@ test('a recording whose channels are all targets runs whole; one with only some 
     assert.equal(folder, 'Standard_batch_20261026-010203');
     assert.deepEqual(files.map(file => file.name), ['Standard.recipe.json', 'Standard.ch2.recipe.json', 'targets.csv', 'run_recipe.py', 'README.txt']);
     assert.equal(JSON.parse(files[1].text).nodes[0].operation, 'wandas.frame.get_channel');
-    assert.equal(files[2].text, 'path,channel,recipe,sample_id\r\nL1/a.wav,,Standard.recipe.json,S1\r\nL2/b.wav,2,Standard.ch2.recipe.json,S2\r\nm.wav,,Standard.recipe.json,S3\r\n');
+    assert.equal(files[2].text, '\uFEFFpath,channel,recipe,sample_id\r\nL1/a.wav,,Standard.recipe.json,S1\r\nL2/b.wav,2,Standard.ch2.recipe.json,S2\r\nm.wav,,Standard.recipe.json,S3\r\n');
     const readme = files[4].text;
     assert.ok(readme.indexOf('実行') < readme.indexOf('Run (wandas'), 'Japanese first, English under it');
     assert.match(readme, /--root "\/d"/);
@@ -40,7 +40,7 @@ test('a CSV id column called path, channel or recipe is written as id_<name>, so
     const attributes = new Map([['/d/a.wav', { path: '/archive/a_original.wav' }]]);
     const all = datasetRows(['/d/a.wav'], '/d', attributes, new Map(), new Map([['/d/a.wav', 1]]));
     const { files } = batchBundle({ recipe, recipeName: 'Standard', rows: all, allRows: all, rootPath: '/d', idColumn: 'path', now: new Date(2026, 9, 26) });
-    assert.equal(files.find(file => file.name === 'targets.csv')?.text, 'path,channel,recipe,id_path\r\na.wav,,Standard.recipe.json,/archive/a_original.wav\r\n');
+    assert.equal(files.find(file => file.name === 'targets.csv')?.text, '\uFEFFpath,channel,recipe,id_path\r\na.wav,,Standard.recipe.json,/archive/a_original.wav\r\n');
 });
 
 test('a Recipe that compares two channels of a recording runs on whole recordings: one Recipe, no channel targets', () => {
@@ -51,5 +51,5 @@ test('a Recipe that compares two channels of a recording runs on whole recording
     const rows = all.filter(row => row.filePath !== '/d/a.wav' || row.ch === 2);
     const { files } = batchBundle({ recipe: cross, recipeName: 'Pair', rows, allRows: all, rootPath: '/d', idColumn: '', now: new Date(2026, 9, 26) });
     assert.deepEqual(files.map(file => file.name), ['Pair.recipe.json', 'targets.csv', 'run_recipe.py', 'README.txt']);
-    assert.equal(files[1].text, 'path,channel,recipe\r\na.wav,,Pair.recipe.json\r\nb.wav,,Pair.recipe.json\r\n');
+    assert.equal(files[1].text, '\uFEFFpath,channel,recipe\r\na.wav,,Pair.recipe.json\r\nb.wav,,Pair.recipe.json\r\n');
 });

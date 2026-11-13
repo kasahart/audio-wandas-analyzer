@@ -1,3 +1,4 @@
+import type { SupportedLocale } from '../i18n/strings';
 import { levelText, withMinus } from '../../webview/plot/plotText';
 // Display formatters shared by the comparison runtime and the report builders.
 
@@ -85,4 +86,22 @@ export function channelLabel(result: ChannelLabelSource | null | undefined, chan
     const base = 'Channel ' + channelNumber + (count > 1 ? ' / ' + count : '');
     const channel = channels[channelIndex];
     return channel && channel.label && channel.label !== 'Channel ' + channelNumber ? base + ' (' + channel.label + ')' : base;
+}
+
+/** The tag a UI language's numbers are formatted in: its own country's grouping ("1,234" in both). */
+const NUMBER_LOCALE: Record<SupportedLocale, string> = { en: 'en-US', ja: 'ja-JP' };
+
+/**
+ * A count or other number in a sentence of the UI ("1,234 rows"), grouped as the UI's language groups digits, never as
+ * the machine's or the browser's locale: a bare `toLocaleString()` wrote "1.234" in an English UI on a German machine.
+ * `locale` is the UI's language as the strings carry it (`UiStrings.uiLocale`). The only place the webview and the
+ * shared code call `toLocaleString` / `Intl.NumberFormat` / `Intl.DateTimeFormat` (src/test/uiLocale.test.ts holds it).
+ */
+export function uiNumber(value: number, locale: SupportedLocale): string {
+    return value.toLocaleString(NUMBER_LOCALE[locale]);
+}
+
+/** The locale the runtime's `Intl` takes when a call names none: the VS Code E2E reads it back to check it is pinned (en-US). */
+export function runtimeIntlLocale(): string {
+    return new Intl.NumberFormat().resolvedOptions().locale;
 }

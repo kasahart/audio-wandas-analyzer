@@ -10,6 +10,7 @@ import { createLatestAnswers, createScanAnswers, type CurrentAnswers, type ScanA
 import { redrawWhenResized } from './canvasResize';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import type { UiStrings } from '../../shared/i18n/strings';
+import { uiNumber } from '../../shared/utils/format';
 import { compareScanId } from '../../shared/analysis/entryScan';
 import type { CompareCombineMessage, ComparePublication, CompareScanMessage, EntryConditionTable, EntryProbeCancelMessage, EntryProbeMessage, EntryProbePublication, EntryPublication, EntryScanCancelMessage, EntryScanMessage, EntrySaveSessionMessage } from '../../shared/analysis/entryScan';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
@@ -289,7 +290,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             const back = tableNow();
             focus.picked = false;
             choose({ filters: [...chosen.filters.filter(filter => filter.column !== chosen.value), { column: chosen.value, kind: 'range', low, high }], mode: 'all' }, true);
-            deps.announce(strings.dsDistPicked.replace('{n}', shownRows.length.toLocaleString()));
+            deps.announce(strings.dsDistPicked.replace('{n}', uiNumber(shownRows.length, strings.uiLocale)));
             return back;
         },
         dot(key) {

@@ -6,6 +6,7 @@
  * actions are `data-action` attributes handled by entryRuntime.ts.
  */
 import type { UiStrings } from '../../shared/i18n/strings';
+import { uiNumber } from '../../shared/utils/format';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { titledHintAttr as hintAttr } from './hintFooter';
 import { amountText, frequencyText, withMinus } from '../plot/plotText';
@@ -172,7 +173,7 @@ export function filterChipsHtml(filters: readonly DatasetFilter[], label: (colum
         : '';
     // Many files at once are analysed only once the count is confirmed.
     const confirm = tracks?.confirm
-        ? `<span class="entry-tracks-confirm" role="alert">${escapeHtml(strings.dsTracksConfirm.replace('{n}', tracks.confirm.toLocaleString()))}`
+        ? `<span class="entry-tracks-confirm" role="alert">${escapeHtml(strings.dsTracksConfirm.replace('{n}', uiNumber(tracks.confirm, strings.uiLocale)))}`
             + `<button type="button" class="is-primary" data-action="entry-tracks-all-go">${escapeHtml(strings.dsTracksConfirmGo)}</button>`
             + `<button type="button" data-action="entry-tracks-all-cancel">${escapeHtml(strings.dsCancel)}</button></span>`
         : '';
@@ -199,7 +200,7 @@ export function datasetHeadHtml(view: DatasetScreenView, strings: EntryStrings):
             // A value not computed yet has nothing to sort or filter by: no ▾, and its header says why.
             + (disabled ? '' : `<button type="button" class="entry-fbtn${on ? ' is-on' : ''}" data-action="entry-fhead" data-column="${escapeHtml(column.id)}" data-sort="${sortKey}" aria-label="${escapeHtml(`${column.label} ${strings.dsFilterHead}`)}"${hintAttr(hint)}>${on ? '▼' : '▾'}</button>`) + '</span></th>';
     };
-    const count = ` <span class="entry-th-count">${escapeHtml(strings.dsRows.replace('{n}', view.rows.length.toLocaleString()))}</span>`;
+    const count = ` <span class="entry-th-count">${escapeHtml(strings.dsRows.replace('{n}', uiNumber(view.rows.length, strings.uiLocale)))}</span>`;
     return `<tr>${trackHeadHtml(view, strings)}${head('name', view.columns.name, count)}${head('ch', view.columns.ch)}${view.columns.group ? head('group', view.columns.group) : ''}${head('value', view.columns.value, '', !view.valueReady)}<th></th></tr>`;
 }
 
@@ -209,9 +210,9 @@ function trackHeadHtml(view: DatasetScreenView, strings: EntryStrings): string {
     if (view.mode !== 'all' || !files.size) return '<th class="entry-mark"></th>';
     const on = [...files].filter(filePath => view.shown?.has(filePath)).length;
     const state = on === 0 ? 'none' : on === files.size ? 'all' : 'some';
-    const label = state === 'all' || (state === 'some' && view.tracksAllOff) ? strings.dsTracksNone.replace('{n}', files.size.toLocaleString())
-        : state === 'some' ? strings.dsTracksRest.replace('{n}', (files.size - on).toLocaleString())
-            : strings.dsTracksAll.replace('{n}', files.size.toLocaleString());
+    const label = state === 'all' || (state === 'some' && view.tracksAllOff) ? strings.dsTracksNone.replace('{n}', uiNumber(files.size, strings.uiLocale))
+        : state === 'some' ? strings.dsTracksRest.replace('{n}', uiNumber(files.size - on, strings.uiLocale))
+            : strings.dsTracksAll.replace('{n}', uiNumber(files.size, strings.uiLocale));
     return `<th class="entry-mark is-${state}"><button type="button" class="entry-mark-all" data-action="entry-tracks-all" aria-pressed="${state === 'all' ? 'true' : state === 'some' ? 'mixed' : 'false'}" aria-label="${escapeHtml(label)}"${hintAttr(label)}>${state === 'all' ? '☑' : state === 'some' ? '⊟' : '☐'}</button></th>`;
 }
 
@@ -336,8 +337,8 @@ export function checkListHtml(values: ReadonlyArray<[string, number]>, checked: 
     const on = hit.filter(([value]) => checked.has(value)).length;
     const all = on === 0 ? 'false' : on === hit.length ? 'true' : 'mixed';
     return `<label class="entry-ck"><input type="checkbox" data-entry-fall${all === 'true' ? ' checked' : ''} aria-checked="${all}">${escapeHtml(needle ? strings.dsFilterAllFound : strings.dsFilterAll)}</label>`
-        + hit.slice(0, LIST_MAX).map(([value, count]) => `<label class="entry-ck" title="${escapeHtml(value)}"><input type="checkbox" data-entry-fvalue="${escapeHtml(value)}"${checked.has(value) ? ' checked' : ''}><span class="entry-ck-v">${escapeHtml(value ? middleEllipsis(value, 28) : strings.dsFilterBlank)}</span><span class="entry-ck-n">${count.toLocaleString()}</span></label>`).join('')
-        + (hit.length > LIST_MAX ? `<div class="entry-ck-more">${escapeHtml(strings.dsFilterMore.replace('{n}', (hit.length - LIST_MAX).toLocaleString()))}</div>` : '')
+        + hit.slice(0, LIST_MAX).map(([value, count]) => `<label class="entry-ck" title="${escapeHtml(value)}"><input type="checkbox" data-entry-fvalue="${escapeHtml(value)}"${checked.has(value) ? ' checked' : ''}><span class="entry-ck-v">${escapeHtml(value ? middleEllipsis(value, 28) : strings.dsFilterBlank)}</span><span class="entry-ck-n">${uiNumber(count, strings.uiLocale)}</span></label>`).join('')
+        + (hit.length > LIST_MAX ? `<div class="entry-ck-more">${escapeHtml(strings.dsFilterMore.replace('{n}', uiNumber(hit.length - LIST_MAX, strings.uiLocale)))}</div>` : '')
         + (hit.length ? '' : `<div class="entry-ck-more">${escapeHtml(strings.dsFilterNone)}</div>`);
 }
 
@@ -352,7 +353,7 @@ export function slotMenuHtml(key: string, slots: readonly (string | null)[], str
 /** 「レシピをまとめて書き出す」: the rows it is for (the filtered ones, or all), then 書き出す. */
 export function batchPopHtml(filtered: { recordings: number; channels: number }, all: { recordings: number; channels: number }, choice: 'filtered' | 'all', strings: EntryStrings): string {
     const option = (value: 'filtered' | 'all', text: string): string => `<label class="entry-batch-opt"><input type="radio" name="entry-batch-scope" value="${value}" data-entry-batch-scope${choice === value ? ' checked' : ''}> ${escapeHtml(text)}</label>`;
-    const say = (text: string, count: { recordings: number; channels: number }): string => text.replace('{n}', count.recordings.toLocaleString()).replace('{m}', count.channels.toLocaleString());
+    const say = (text: string, count: { recordings: number; channels: number }): string => text.replace('{n}', uiNumber(count.recordings, strings.uiLocale)).replace('{m}', uiNumber(count.channels, strings.uiLocale));
     return `<div class="entry-batch" role="dialog" aria-label="${escapeHtml(strings.dsBatch)}" data-entry-batch><b>${escapeHtml(strings.dsBatch)}</b>`
         + option('filtered', say(strings.dsBatchFiltered, filtered)) + option('all', say(strings.dsBatchAll, all))
         + `<div class="entry-fpop-label">${escapeHtml(strings.dsBatchNote)}</div>`
