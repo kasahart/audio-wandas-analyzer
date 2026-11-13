@@ -1,6 +1,6 @@
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
 import { linkedSpectrogramBounds, spectrogramDisplayBounds, spectrogramFailureText } from './spectrogramRaster';
-import { laneWaveformOverlay, onColourBar, paintTrackSpectrogram, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
+import { laneWaveformOverlay, paintTrackSpectrogram, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
 import { laneClickNorm, laneReadoutText, spectrogramReadoutText } from './trackLaneHover';
 import { createLaneReads, type LaneTrack } from './laneReads';
 import type { FullSource } from './fullRead';
@@ -62,7 +62,7 @@ import { syncPanelToggle, syncSpectrumMaximize } from './panelCollapse';
 import { SpectrumView } from './spectrumView';
 import { WaveformView } from './waveformView';
 import { OVERLAY_LEVEL_AXES, paintOverlaySpectrum, renderSpectrumAxisLegend } from './overlaySpectrumPainter';
-import { clearSideAxis, linearWindowEnds, paintOverlay, paintTimeAxis, type StagePlot, type StageRead } from './stagePanes';
+import { clearSideAxis, linearWindowEnds, paintOverlay, paintTimeAxis, stagePlotPoint, type StagePlot, type StageRead } from './stagePanes';
 import { referenceButtonHtml } from './pairSpectrum';
 import { noteCursorHz, PAIR_SPLIT_MAX, PAIR_SPLIT_MIN, PairSpectrumPanel } from './pairSpectrumPanel';
 import { collectSpectrumSeries, type CollectedSpectrumSeries, type SpectrumSeriesSource } from './spectrumSeriesCollector';
@@ -2292,6 +2292,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 : lane === 'answered' ? STR.spectrogramNone : STR.spectrogramLoading;
             // An empty plot with its message, drawn by the plot component as an empty pane is: no axes named yet.
             paintOverlay(canvas, { layers: [] }, plainRange(0, 1), plainNames(plainTitle(STR, 'axisTime'), plainTitle(STR, 'axisFrequency')), { axisCanvas: null, empty: message });
+            // No picture, no colour bar: the pointer finds none where the last one was.
+            spectrogramPlots.delete(canvas);
             delete canvas.dataset.plotAxis;
             delete canvas.dataset.plotWindow;
             return;
@@ -2329,7 +2331,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         canvas.dataset.spectrogramBand = spec.bandLowHz !== undefined && spec.bandHighHz !== undefined ? `${spec.bandLowHz} ${spec.bandHighHz}` : '';
         // Which time window the picture was drawn from: the whole file, or the zoom window asked again (R3).
         canvas.dataset.spectrogramWindow = shown && shown.window ? `${shown.window.startNorm} ${shown.window.endNorm}` : '0 1';
-        canvas.dataset.colourBar = [painted.colourBar.x, painted.colourBar.y, painted.colourBar.width, painted.colourBar.height].map(value => Math.round(value)).join(' ');
         if (spectrogramHover && spectrogramHover.canvas === canvas) showSpectrogramReadout(canvas, spectrogramHover.clientX, spectrogramHover.clientY);
         if (overlayCtx) {
             drawSpectrogramOverlayLines(overlayCtx, W, H, trackIndex);
@@ -2352,15 +2353,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (clientY !== undefined && onSpectrogramColourBar(canvas, clientX, clientY)) return null;
         return canvasTimeHit(canvas.getBoundingClientRect().left, clientX, canvas.width, waveformView.timeRange());
     }
-    /** Whether the pointer is on a spectrogram lane's colour bar, as last painted there. */
+    /**
+     * Whether the pointer is on a spectrogram lane's colour bar, as last painted there: the one hit test of a colour
+     * bar (stagePanes.stagePlotPoint), the same as the comparison's heatmaps and the entry's strip use (R13).
+     */
     function onSpectrogramColourBar(canvas: CanvasHitTarget, clientX: number, clientY: number): boolean {
         if (!canvas.classList?.contains('track-spec-canvas')) return false;
-        const box = (canvas as HTMLCanvasElement).dataset?.colourBar?.split(' ').map(Number);
-        if (!box || box.length !== 4) return false;
-        const rect = canvas.getBoundingClientRect();
-        const [x, y, width, height] = box;
-        const sx = canvas.width / Math.max(rect.width, 1), sy = (canvas as HTMLCanvasElement).height / Math.max(rect.height, 1);
-        return onColourBar({ colourBar: { x, y, width, height } }, (clientX - rect.left) * sx, (clientY - rect.top) * sy);
+        const plot = spectrogramPlots.get(canvas as HTMLCanvasElement);
+        return !!plot && !!stagePlotPoint(canvas, clientX, clientY, plot).colour;
     }
     function clampedTrackCanvasNorm(canvas: Pick<Element, 'getBoundingClientRect'>, clientX: number, timeWidth: number) {
         return clampedCanvasNorm(canvas.getBoundingClientRect().left, clientX, timeWidth, waveformView.timeRange());

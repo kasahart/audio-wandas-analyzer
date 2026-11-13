@@ -108,6 +108,12 @@ export interface PlotHit {
     axis: 'x' | 'y' | null;
     /** On a plot with two level axes, the right-hand one: its own range is opened there (R13). */
     right?: boolean;
+    /**
+     * On a heatmap's colour bar (stagePanes.stagePlotPoint, the one hit test of it): a value axis (`axis` 'y'), so the
+     * axis gestures answer there as on every axis; a double-click opens the colour range where the plot declares one
+     * (colourRange 'typed'), else resets the zoom, never the rows' range (R13).
+     */
+    colour?: boolean;
 }
 
 export interface PlotInteractionDeps {

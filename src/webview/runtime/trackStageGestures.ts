@@ -127,8 +127,9 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
         locate(target, clientX, clientY): PlotHit | null {
             const plot = (target as HTMLElement | null)?.closest?.<HTMLElement>(selector);
             if (!state.on || !plot || !deps.painted() || plot.closest('[hidden]')) return null;
-            const { fx, fy, axis } = stagePlotPoint(plot, clientX, clientY, drawnPlot(plot));
-            return { plot, point: { fx, fy }, axis };
+            // The one hit test of every plot (stagePlotPoint): its margins as drawn, a heatmap's colour bar a value axis (R13).
+            const { fx, fy, axis, colour } = stagePlotPoint(plot, clientX, clientY, drawnPlot(plot));
+            return { plot, point: { fx, fy }, axis, ...(colour ? { colour } : {}) };
         },
         pointOn(plot, clientX, clientY) { const { fx, fy } = stagePlotPoint(plot, clientX, clientY, drawnPlot(plot)); return { fx, fy }; },
         window: windowOf,
@@ -160,7 +161,8 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
         hideBox() { box.hidden = true; },
         openAxisRange(hit, clientX, clientY) {
             const drawn = drawnOn.get(hit.plot);
-            if (!drawn?.picture) return false;
+            // A heatmap's colours here follow its levels, typed nowhere: a double-click on its colour bar resets the zoom (R13).
+            if (!drawn?.picture || hit.colour) return false;
             const picture = drawn.picture;
             const heat = picture.kind === 'heatmap';
             // The right-hand level axis of a plot with two answers a double-click too (R13): its own levels.

@@ -7,7 +7,7 @@ import { colourBarAt } from './colourBar';
 async function rangeAt(page: Page, selector: string, trackIndex: number, colourBar = false): Promise<{ min: string; max: string }> {
     const target = page.locator('#track-row-' + trackIndex + ' ' + selector).first();
     if (colourBar) {
-        await expect(target).toHaveAttribute('data-colour-bar', /\d/);
+        await expect(target).toHaveAttribute('data-plot-colour-bar', /\d/);
         await target.dblclick({ position: await colourBarAt(target) });
     }
     else {
@@ -83,7 +83,7 @@ test('the colour bar says it sets the colour scale when the pointer is on it', a
     const canvas = page.locator('#track-row-0 .track-spec-canvas').first();
     const box = await canvas.boundingBox();
     if (!box) throw new Error('no spectrogram box');
-    await expect(canvas).toHaveAttribute('data-colour-bar', /\d/);
+    await expect(canvas).toHaveAttribute('data-plot-colour-bar', /\d/);
     // The colour bar is the one every coloured picture draws, in the plot's top right (R13).
     const bar = await colourBarAt(canvas);
     expect(bar.x).toBeGreaterThan(box.width / 2);

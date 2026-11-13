@@ -740,7 +740,7 @@ test('a theme switched while open repaints the lanes: the colour bar\'s strip ta
     await expect(spec).toBeVisible();
     // A pixel of the colour bar's backing, before its name: the lane's background, over the picture.
     const strip = () => spec.evaluate((canvas: HTMLCanvasElement) => {
-        const [x, y] = (canvas.dataset.colourBar ?? '0 0').split(' ').map(Number);
+        const [x, y] = (canvas.dataset.plotColourBar ?? '0 0').split(' ').map(Number);
         return Array.from(canvas.getContext('2d')!.getImageData(x + 1, y + 1, 1, 1).data.slice(0, 3));
     });
     await expect.poll(async () => (await strip())[0]).toBeLessThan(60);
