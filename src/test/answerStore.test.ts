@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import { answerKey, createAnswerStore, createFailureHold, createLatestAnswers, createRequestClock, FAILED_RETRY_MS, UNANSWERED_RETRY_MS, type AnswerKeyParts } from '../webview/runtime/answerStore';
 import type { AnswerIdentity } from '../webview/runtime/answerTypes';
 
@@ -146,4 +146,73 @@ test('a failure hold stands for FAILED_RETRY_MS under its condition; the request
     assert.equal(clock.waiting('r1'), false);
     assert.equal(clock.landed('r1'), FAILED_RETRY_MS);
     assert.equal(clock.landed('r1'), -Infinity);
+});
+
+test('a failed answer\'s readers are told exactly when its hold ends, together and once; a dropped one never is (whenFailureEnds)', () => {
+    mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
+    try {
+        const store = createAnswerStore<number>({ capacity: 8 });
+        const key = answerKey(parts);
+        const told: string[] = [];
+        store.ask(key);
+        store.fail(key);
+        const first = (): void => { told.push('first'); };
+        store.whenFailureEnds(key, first);
+        store.whenFailureEnds(key, first);
+        store.whenFailureEnds(key, () => told.push('second'));
+        const drop = store.whenFailureEnds(key, () => told.push('dropped'));
+        drop();
+        assert.deepEqual([...told], [], 'not at once');
+        mock.timers.tick(FAILED_RETRY_MS - 1);
+        assert.deepEqual([...told], [], 'not before the hold ends');
+        assert.equal(store.state(key), 'failed');
+        mock.timers.tick(1);
+        assert.deepEqual([...told], ['first', 'second'], 'at the hold\'s end, each reader once (one function given twice is one reader)');
+        assert.equal(store.state(key), 'missing', 'and the answer is to be asked again');
+        mock.timers.tick(FAILED_RETRY_MS * 4);
+        assert.deepEqual([...told], ['first', 'second'], 'never twice');
+        // A key not failed is never told; a failure again moves the moment to the new hold's end.
+        const other = answerKey({ ...parts, region: '[0,1]' });
+        store.whenFailureEnds(other, () => told.push('not failed'));
+        store.ask(key);
+        store.fail(key);
+        store.whenFailureEnds(key, () => told.push('again'));
+        mock.timers.tick(FAILED_RETRY_MS / 2);
+        store.fail(key);
+        mock.timers.tick(FAILED_RETRY_MS / 2);
+        assert.deepEqual(told.slice(2), [], 'failed again: the first hold\'s end is not the answer\'s');
+        mock.timers.tick(FAILED_RETRY_MS / 2);
+        assert.deepEqual(told.slice(2), ['again']);
+        // A failure let go early (its key forgotten: a setting touched) tells its readers then.
+        store.ask(key);
+        store.fail(key);
+        store.whenFailureEnds(key, () => told.push('forgotten'));
+        store.forget(key);
+        assert.deepEqual(told.slice(3), ['forgotten']);
+        // A lasting failure has no end: told only once it is let go.
+        store.ask(key);
+        store.fail(key, 'changed', true);
+        store.whenFailureEnds(key, () => told.push('lasting'));
+        mock.timers.tick(FAILED_RETRY_MS * 10);
+        assert.deepEqual(told.slice(4), []);
+        store.clear();
+        assert.deepEqual(told.slice(4), ['lasting']);
+    } finally {
+        mock.timers.reset();
+    }
+});
+
+test('a reader of an ask superseded before it was sent waits on the ask that took its place', () => {
+    const store = createAnswerStore<number>({ capacity: 8 });
+    const old = answerKey(parts), by = answerKey({ ...parts, region: '[0,1]' });
+    let told = 0;
+    store.ask(old);
+    store.whenSettled(old, () => told++);
+    store.ask(by);
+    store.supersede(old, by);
+    assert.equal(store.state(old), 'missing', 'the superseded ask is let go');
+    store.ready(old, 1);
+    assert.equal(told, 0, 'its own answer, if it came, tells no one: they wait on the newer one');
+    store.ready(by, 2);
+    assert.equal(told, 1);
 });
