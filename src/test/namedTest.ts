@@ -1,23 +1,59 @@
 /** Finds a test by its title in its file, for the lists of tests docs and contract tables name (displayRules, plotContracts). */
 
+import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+
+const repoRoot = path.resolve(__dirname, '..', '..');
+
+/** The Python the repository's checks run: the project's .venv when there is one. */
+export function pythonExecutable(): string {
+    const venv = path.join(repoRoot, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+    return existsSync(venv) ? venv : process.platform === 'win32' ? 'python' : 'python3';
+}
+
+/** A test or def of a Python file as scripts/check_test_proofs.py --tests finds it: its lines, from 1. */
+interface PythonDef { line: number; end: number; declared?: string[] }
+interface PythonDiscovery { tests: Record<string, PythonDef>; defs: Record<string, PythonDef> }
+const discovered = new Map<string, PythonDiscovery>();
+
+/**
+ * The tests and defs of Python sources, by scripts/check_test_proofs.py's AST discovery (`tests_of`, `defs_of`):
+ * there is one discovery of pytests, and both the TypeScript checks and the proof check name a test by it
+ * (`test_y`, `TestX::test_y`). Asked once per source text, many texts in one run.
+ */
+export function pythonDiscovery(texts: readonly string[]): PythonDiscovery[] {
+    const asked = [...new Set(texts.filter(text => !discovered.has(text)))];
+    if (asked.length) {
+        const run = spawnSync(pythonExecutable(), ['scripts/check_test_proofs.py', '--tests'], { cwd: repoRoot, encoding: 'utf8', input: JSON.stringify(asked), maxBuffer: 1 << 28 });
+        if (run.status !== 0) throw new Error(`scripts/check_test_proofs.py --tests: ${run.stderr || run.error}`);
+        const found = JSON.parse(run.stdout) as PythonDiscovery[];
+        asked.forEach((text, index) => discovered.set(text, found[index]));
+    }
+    return texts.map(text => discovered.get(text)!);
+}
+
+/** Lines `first` to `last` (from 1) of `text`. */
+const linesOf = (text: string, first: number, last: number): string => text.split('\n').slice(first - 1, last).join('\n');
+
+/** Every def of a Python module (`function`, `Class.method`) with its body, from the same discovery. */
+export function pythonDefBodies(text: string): Map<string, string> {
+    const [found] = pythonDiscovery([text]);
+    return new Map(Object.entries(found.defs).map(([name, at]) => [name, linesOf(text, at.line, at.end)]));
+}
+
 const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * Where the test a rule names is in its file, with its body: a node:test or Playwright test from its title to the
- * close of its call (the next line that starts with `})`), a pytest from its def to the next line at the margin; and
- * how it is declared (`test.skip(...)`, a pytest skip mark above it). Null when no test has that name.
+ * close of its call (the next line that starts with `})`), a pytest as pytest collects it (`test_y`, or
+ * `TestX::test_y` for a method of a test class: pythonDiscovery) from its def to its last line; and how it is
+ * declared (`test.skip(...)`, the pytest marks on it and on its classes). Null when no test has that name.
  */
 export function namedTest(file: string, text: string, name: string): { body: string; declared: string } | null {
     if (file.endsWith('.py')) {
-        // A def at any indent (a method of a test class), async or not; its body is the lines indented deeper than it.
-        const at = new RegExp(`^([ \\t]*)(?:async\\s+)?def ${escape(name)}\\(`, 'm').exec(text);
-        if (!at) return null;
-        const indent = at[1].length;
-        const rest = text.slice(at.index);
-        // A signature over several lines closes at the def's own indent (`) -> None:`).
-        const end = new RegExp(`\\n(?=[ \\t]{0,${indent}}[^\\s)])`).exec(rest.slice(1));
-        const before = text.slice(0, at.index).split('\n').slice(-4).join('\n');
-        return { body: end ? rest.slice(0, end.index + 1) : rest, declared: before };
+        const at = pythonDiscovery([text])[0].tests[name];
+        return at ? { body: linesOf(text, at.line, at.end), declared: (at.declared ?? []).map(mark => `@${mark}`).join('\n') } : null;
     }
     const plain = text.replace(/\\'/g, "'");
     const at = new RegExp(`^([ \\t]*)test((?:\\.\\w+)?)\\(\\s*(['"\`])${escape(name)}\\3`, 'm').exec(plain)

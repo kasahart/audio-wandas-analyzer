@@ -24,20 +24,34 @@ Values carry what they are:
 
 The analysis follows values through assignments, tuples, containers (a dict's fields one by one), calls into the
 backend's own functions (with what each argument carries), ``dataclasses.replace``, attributes set on ``self`` and
-module-level stores. A comparison is not a value: it is a decision (``C``), followed as one. Flows the backend has
-today are in KNOWN_FLOWS, each with its gap in the contract table (src/test/plotContracts): the list only shrinks.
-A flow not listed fails, and so does a listed one no longer found.
+module-level stores. A comparison is not a value: it is a decision (``C``), followed as one. A name bound to a
+function (``reduce = np.max``, ``from numpy import max as top``, a module-level ``REDUCE = np.median``, a lambda) is
+that function where it is called, and a function handed to another (``map(np.max, rows)``, ``key=``) is called on
+the other arguments. Where the analysis cannot finish, it fails naming the file:line it stopped at, never passes
+(Unfinished): a call of a value it cannot resolve to a function (a parameter, ``getattr``, ``partial``) given drawn
+points, a statement it does not follow, a loop or a recursion that does not settle, a chain of calls too deep.
+
+Flows the backend has today are in KNOWN_FLOWS, each with its gap in the contract table (src/test/plotContracts):
+the list only shrinks. A flow not listed fails, and so does a listed one no longer found.
 
 Which fields are drawn points is read from the protocol's schema (python-backend/protocol_schema.py: the arrays
-marked ``x-drawn``), not listed here. And the other way round: every value put in such a field must have come from a
-registered thinning function (SOURCES), or its place is listed in drawn_points_contract.json ('unthinned') with why
-it sends every value. So a new function that thins data and sends it (whatever way it thins: a stepped slice, a
-reshape and a min/max, a resample) fails here until it is registered, and once registered its result is followed.
+marked ``x-drawn``), not listed here, and decided where each field is written: by module, function and field. A
+function's return annotation says which answer it builds (``-> StagePoints``: a definition of the schema, whose
+``values`` are ``x-whole``; ``-> StageValueRange``: a TypedDict whose ``min`` is a ``float``; ``-> int``: no
+answer at all), and the field is what that answer says it is. Only where the function does not say (no annotation,
+or one the schema does not know, or a field that answer has not) is a field taken by its name.
+
+And the other way round: every value put in an array of drawn points must have come from a registered thinning
+function (SOURCES), or its place is listed in drawn_points_contract.json ('unthinned') with why it sends every
+value. So a new function that thins data and sends it (whatever way it thins: a stepped slice, a reshape and a
+min/max, a resample) fails here until it is registered, and once registered its result is followed.
 
 What this cannot see, stated plainly: thinning added inside a function already listed under 'unthinned' (the list is
-the review point: keep each entry to one field of one function); a value that mixes a registered function's result
-with data thinned some other way (it counts as registered); and thinned data sent in a field the schema does not
-mark ``x-drawn`` at all (test_protocol_schema.py makes every array of numbers say x-drawn, x-whole or x-place, but
+the review point: keep each entry to one field of one function); a field of a dict nested inside an answer (a
+channel of a slice), which is taken by its name; a wrong return annotation (pyright checks it against the code); a
+value that mixes a registered function's result with data thinned some other way (it counts as registered); and
+thinned data sent in a field the schema does not mark ``x-drawn`` at all (test_protocol_schema.py makes every array
+of numbers say x-drawn, x-whole or x-place, but
 a wrong mark is a reviewer's to catch).
 
 The backend readers classified 'draws' in python-backend/drawn_points_contract.json are checked too: what each
@@ -51,11 +65,13 @@ from __future__ import annotations
 
 import argparse
 import ast
+import builtins
+import hashlib
 import importlib.util
 import json
 import re
 import sys
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -67,6 +83,11 @@ WHOLE = "*"
 #: The source of a 'draws' reader's result in a flow (``draws=module:function``).
 TAG = "draws="
 DRAWN, POSITIONS, BUCKET, THINNED, DECIDED = "D", "P", "B", "T", "C"
+#: A function as a value (``reduce = np.max``, a lambda, a def handed on): its origin is ``fn=<what>|F``, ``<what>``
+#: one of ``np.max``, ``builtins.max``, ``module:function`` (the backend's) or ``closure:<where>`` (a lambda or a local
+#: def, kept in Program.closures). Called, it is that function called.
+FUNCTION = "F"
+FN = "fn="
 
 #: The backend's functions that thin data to draw it: what kind their result is and which of its fields are thinned
 #: (WHOLE: all of it). Every one but the bucket rule's (BUCKET_RULE) is a decimator of drawn_points_contract.json too.
@@ -147,7 +168,8 @@ def schema_fields(schema: object, mark: str) -> tuple[frozenset[str], frozenset[
 #: The protocol's arrays of points thinned to be drawn (``x-drawn``), and the fields that hold such arrays: read from
 #: the schema, never listed here. Marking a new array ``x-drawn`` in protocol_schema.py is all it takes to put it
 #: under this check.
-DRAWN_ARRAYS, DRAWN_HOLDERS = schema_fields(protocol_definitions(), "x-drawn")
+DEFINITIONS = protocol_definitions()
+DRAWN_ARRAYS, DRAWN_HOLDERS = schema_fields(DEFINITIONS, "x-drawn")
 #: Where a picture's drawn points sit on its axes. The schema marks these ``x-place`` (a place is not a value a user
 #: reads as a level), so they are named here; main() fails if one is not an ``x-place`` array of the schema.
 DRAWN_PLACES = frozenset({"xs", "ys", "frequenciesHz", "timeCentersSec"})
@@ -182,6 +204,19 @@ ARRANGING = frozenset(
 SHAPE_ATTRIBUTES = frozenset({"size", "shape", "ndim", "dtype", "nbytes", "itemsize"})
 #: Methods that put their argument into their receiver (a list, a cache, a store), by how their names start.
 STORING_METHODS = ("append", "extend", "insert", "add", "put", "set", "store", "cache", "remember", "__setitem__")
+#: Return annotations that are no answer of the protocol: a function annotated so builds no picture, and no field of a
+#: dict it makes is a picture's drawn field.
+SCALAR_TYPES = frozenset({"int", "float", "bool", "str", "bytes", "None"})
+#: How far the analysis goes before it stops (and fails, naming where): calls inside calls, rounds of a loop's body,
+#: of a recursion and of the stores, until what they carry settles.
+CALL_DEPTH = 40
+LOOP_ROUNDS = 12
+RECURSION_ROUNDS = 8
+STORE_ROUNDS = 10
+#: Statements that carry no value: nothing to follow.
+INERT_STATEMENTS = (ast.Pass, ast.Break, ast.Continue, ast.Global, ast.Nonlocal, ast.Import, ast.ImportFrom)
+#: Python's builtin functions, by name: a value of one is that function.
+BUILTIN_NAMES = frozenset(name for name in dir(builtins) if callable(getattr(builtins, name)))
 #: Calls whose result carries nothing of their arguments' values.
 CLEAN_BUILTINS = frozenset({"len", "isinstance", "callable", "type", "id", "hash", "range", "str", "repr", "getattr"})
 
@@ -207,8 +242,9 @@ def with_kind(origin: str, kind: str) -> str:
 
 
 def flat(taint: Taint) -> Taint:
-    """``taint`` as one value: every origin, as the whole."""
-    return frozenset((WHOLE, origin) for _, origin in taint)
+    """``taint`` as one value: every origin, as the whole. A function in it is not part of a value computed of it
+    (``np.asarray(x, dtype=np.float64)`` is no function): only a function itself, or a container of one, is one."""
+    return frozenset((WHOLE, origin) for _, origin in taint if kind_of(origin) != FUNCTION)
 
 
 def rekind(taint: Taint, change: Callable[[str], str]) -> Taint:
@@ -299,6 +335,23 @@ class Flow:
         return sorted({source_of(origin)[len(TAG) :] for origin in self.origins if source_of(origin).startswith(TAG)})
 
 
+class Unfinished(Exception):
+    """The analysis could not follow the code to its end: each line names the file:line it stopped at, why, and how
+    to write it so it can (UNFINISHED_FIX). A check that cannot finish fails; it never passes what it did not see."""
+
+    def __init__(self, stops: list[str]) -> None:
+        super().__init__("\n".join(stops))
+        self.stops = stops
+
+
+UNFINISHED_FIX = (
+    "Fix: write it so the analysis follows it: call a function by its name, or by a name bound to one "
+    "(``reduce = np.max``), not through a value it cannot resolve (a parameter, getattr, partial); no class or "
+    "statement it does not follow inside a function (move a class to the module); a loop or a recursion whose "
+    "values settle. If what it then follows makes a number of drawn points, take that number from the full data."
+)
+
+
 @dataclass
 class Function:
     name: str  # module:Qual.name
@@ -315,6 +368,10 @@ class Module:
     aliases: dict[str, str] = field(default_factory=dict)  # local name -> module
     imported: dict[str, str] = field(default_factory=dict)  # local name -> module:function
     globals: set[str] = field(default_factory=set)
+    #: Names bound at the module's top to a function (``REDUCE = np.max``, ``from numpy import max as top``).
+    callables: dict[str, ast.expr] = field(default_factory=dict)
+    #: Names this module gives NumPy (``import numpy as xp``), beside ``np`` and ``numpy``.
+    numpy: set[str] = field(default_factory=lambda: {"np", "numpy"})
 
 
 def _short(node: ast.AST) -> str:
@@ -338,6 +395,17 @@ class Summary:
 EMPTY = Summary(frozenset(), [], [])
 
 
+@dataclass
+class Closure:
+    """A lambda or a local def as a value: where it was made, and what the names it can see held there (only what
+    came from outside the function that made it: its parameters' values are that function's caller's to say)."""
+
+    node: ast.Lambda | ast.FunctionDef | ast.AsyncFunctionDef
+    function: Function
+    env: dict[str, Taint]
+    local_defs: dict[str, ast.FunctionDef | ast.AsyncFunctionDef]
+
+
 class Program:
     """The backend's modules, functions and what flows between them."""
 
@@ -348,6 +416,23 @@ class Program:
         self.functions: dict[str, Function] = {}
         #: The backend's classes (dataclasses, NamedTuples, TypedDicts) by ``module:Class``: their fields in order.
         self.classes: dict[str, list[str]] = {}
+        #: Each class's fields' annotations (``min: float``), by ``module:Class``.
+        self.annotations: dict[str, dict[str, ast.expr]] = {}
+        #: The protocol's definitions (protocol_schema.py), by name: what an answer annotated with one is.
+        self.definitions: dict[str, dict[str, object]] = {
+            name: value for name, value in DEFINITIONS.items() if isinstance(value, dict)
+        }
+        #: Where the analysis stopped, by place: why (see Unfinished).
+        self.stops: dict[str, str] = {}
+        #: A recursion's summary so far, by (function, context), while it is followed again until it settles.
+        self.assumed: dict[tuple[str, Context], Summary] = {}
+        self.recursed: set[tuple[str, Context]] = set()
+        #: Where each store was last added to (``python-backend/module.py:line function``), to name one not settling.
+        self.store_sites: dict[str, str] = {}
+        self.changed_stores: set[str] = set()
+        #: The lambdas and local defs made into values, by ``closure:<where>`` (see FUNCTION); and those being called.
+        self.closures: dict[str, Closure] = {}
+        self.calling: set[str] = set()
         for module in self.modules.values():
             self._index(module)
         self.memo: dict[tuple[str, Context], Summary] = {}
@@ -368,24 +453,111 @@ class Program:
                 for alias in node.names:
                     if alias.name in self.modules:
                         module.aliases[alias.asname or alias.name] = alias.name
+                    elif alias.name == "numpy":
+                        module.numpy.add(alias.asname or alias.name)
             elif isinstance(node, ast.ImportFrom) and node.module in self.modules and node.level == 0:
                 for alias in node.names:
                     module.imported[alias.asname or alias.name] = f"{node.module}:{alias.name}"
+            elif isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "numpy":
+                # ``from numpy import max as top``: ``top`` is ``np.max`` wherever it is called.
+                for alias in node.names:
+                    path: ast.expr = ast.Name("np", ast.Load())
+                    for part in [*(node.module or "").split(".")[1:], alias.name]:
+                        path = ast.Attribute(path, part, ast.Load())
+                    module.callables[alias.asname or alias.name] = path
         for node in module.tree.body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 self._add(module.name, node, None)
             elif isinstance(node, ast.ClassDef):
-                self.classes[f"{module.name}:{node.name}"] = [
-                    item.target.id
-                    for item in node.body
-                    if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name)
+                fields = [
+                    item for item in node.body if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name)
                 ]
+                self.classes[f"{module.name}:{node.name}"] = [item.target.id for item in fields]  # type: ignore[attr-defined]
+                self.annotations[f"{module.name}:{node.name}"] = {
+                    item.target.id: item.annotation  # type: ignore[attr-defined]
+                    for item in fields
+                }
                 for item in node.body:
                     if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         self._add(module.name, item, node.name)
             elif isinstance(node, (ast.Assign, ast.AnnAssign)):
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
                 module.globals.update(target.id for target in targets if isinstance(target, ast.Name))
+        # A module-level name bound to a function (``REDUCE = np.max``) is that function, not a store.
+        for node in module.tree.body:
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                bound = self.callable_at(module, node.value)
+                if bound is not None:
+                    module.callables[node.targets[0].id] = bound
+                    module.globals.discard(node.targets[0].id)
+
+    def is_numpy(self, module: str, node: ast.expr) -> bool:
+        """Whether ``node`` is NumPy or an attribute of it (``np.linalg``), by the names ``module`` gives NumPy."""
+        while isinstance(node, ast.Attribute):
+            node = node.value
+        return isinstance(node, ast.Name) and node.id in self.modules[module].numpy
+
+    def named_function(self, module: str, cls: str | None, node: ast.expr, depth: int = 0) -> str | None:
+        """The function ``node`` names in ``module`` with no local in the way, as an origin (FUNCTION), if it names
+        one: a NumPy function, a backend function or class, a module-level name bound to one, a builtin."""
+        mod = self.modules[module]
+        if isinstance(node, ast.Attribute) and self.is_numpy(module, node):
+            parts: list[str] = []
+            inner: ast.expr = node
+            while isinstance(inner, ast.Attribute):
+                parts.insert(0, inner.attr)
+                inner = inner.value
+            return f"{FN}np.{'.'.join(parts)}|{FUNCTION}"
+        if isinstance(node, ast.Name) and node.id in mod.callables and depth < 8:
+            return self.named_function(module, cls, mod.callables[node.id], depth + 1)
+        if not isinstance(node, (ast.Name, ast.Attribute)):
+            return None
+        target = self.resolve(module, cls, node)
+        if target is not None and (target in self.functions or target in SOURCES or target in self.classes):
+            return f"{FN}{target}|{FUNCTION}"
+        if isinstance(node, ast.Name) and node.id in BUILTIN_NAMES and node.id not in mod.globals:
+            return f"{FN}builtins.{node.id}|{FUNCTION}"
+        return None
+
+    def callable_at(self, module: Module, node: ast.expr) -> ast.expr | None:
+        """The function ``node`` names at a module's top, if it names one: a NumPy function, a builtin reducer, a
+        backend function, or another such name."""
+        if isinstance(node, ast.Attribute) and self.is_numpy(module.name, node):
+            return node
+        if isinstance(node, ast.Name):
+            if node.id in module.callables:
+                return module.callables[node.id]
+            if node.id in BUILTIN_REDUCERS and node.id not in module.globals:
+                return node
+        if isinstance(node, (ast.Name, ast.Attribute)) and self.resolve(module.name, None, node) is not None:
+            return node
+        return None
+
+    def stop(self, module: str, line: int, function: str, why: str) -> None:
+        """The analysis stopped at ``module``:``line`` in ``function`` (see Unfinished)."""
+        where = f"python-backend/{module}.py:{line} {function.split(':', 1)[-1]}"
+        self.stops.setdefault(where, why)
+
+    def answer(self, function: Function) -> tuple[str, str] | None:
+        """What answer ``function`` builds, by its return annotation (``X | None`` is ``X``): ``("schema", name)`` for
+        a definition of the protocol, ``("record", module:Class)`` for another class of the backend, ``("none", "")``
+        for a scalar (no answer at all); None when it does not say."""
+        node = function.node.returns
+        while isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+            node = node.right if isinstance(node.left, ast.Constant) and node.left.value is None else node.left
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "Optional":
+            node = node.slice
+        if isinstance(node, ast.Constant) and node.value is None:
+            return ("none", "")
+        if not isinstance(node, ast.Name):
+            return None
+        if node.id in SCALAR_TYPES:
+            return ("none", "")
+        if node.id in self.definitions:
+            return ("schema", node.id)
+        mine = f"{function.module}:{node.id}"
+        record = mine if mine in self.annotations else self.modules[function.module].imported.get(node.id)
+        return ("record", record) if record in self.annotations else None
 
     def _add(self, module: str, node: ast.FunctionDef | ast.AsyncFunctionDef, cls: str | None) -> None:
         qual = f"{cls}.{node.name}" if cls else node.name
@@ -414,31 +586,60 @@ class Program:
         key = (name, context)
         if key in self.memo:
             return self.memo[key]
-        if key in self.active or len(self.active) > 40:
-            return EMPTY
+        if key in self.active:
+            # A recursion: what the call gives so far, followed again below until that settles.
+            self.recursed.add(key)
+            return self.assumed.get(key, EMPTY)
         self.active.add(key)
+        function = self.functions[name]
         try:
-            function = self.functions[name]
-            walker = Walker(self, function)
-            for index, (param, carried) in enumerate(zip(function.params, context, strict=False)):
-                walker.env[param] = frozenset((f, f"@{index}:{k}|{k}") for f, k in carried)
-            walker.block(function.node.body)
-            result = Summary(walker.returned, walker.flows, walker.pending)
+            for _ in range(RECURSION_ROUNDS):
+                before = set(self.memo)
+                walker = Walker(self, function)
+                for index, (param, carried) in enumerate(zip(function.params, context, strict=False)):
+                    # A function given is itself (its origin), not the caller's to say: it is called as it is.
+                    walker.env[param] = frozenset(
+                        (f, k if kind_of(k) == FUNCTION and len(k) > 1 else f"@{index}:{k}|{k}") for f, k in carried
+                    )
+                walker.block(function.node.body)
+                result = Summary(walker.returned, walker.flows, walker.pending)
+                assumed = self.assumed.get(key, EMPTY)
+                if key not in self.recursed or (result.returned, result.stores) == (assumed.returned, assumed.stores):
+                    break
+                # What the recursive call was taken to give was short of what it gives: again, with this.
+                self.assumed[key] = result
+                for stale in set(self.memo) - before:
+                    del self.memo[stale]
+            else:
+                self.stop(
+                    function.module,
+                    function.node.lineno,
+                    name,
+                    f"what its recursive calls give did not settle in {RECURSION_ROUNDS} rounds",
+                )
         finally:
             self.active.discard(key)
+            self.recursed.discard(key)
+            self.assumed.pop(key, None)
         self.memo[key] = result
         return result
 
-    def store(self, where: str, taint: Taint) -> None:
+    def store(self, where: str, taint: Taint, site: str = "") -> None:
         if taint and not taint <= self.stores.get(where, CLEAN):
             self.stores[where] = self.stores.get(where, CLEAN) | taint
             self.stores_changed = True
+            self.changed_stores.add(where)
+            if site:
+                self.store_sites[where] = site
 
     def run(self) -> list[Flow]:
         """Every flow, from every function analysed as an entry (its parameters carrying nothing drawn), until what
-        the stores hold settles."""
-        for _ in range(10):
+        the stores hold settles. Unfinished if the analysis stopped anywhere (``stops``) or the stores did not
+        settle."""
+        for _ in range(STORE_ROUNDS):
             self.stores_changed = False
+            self.changed_stores.clear()
+            self.stops.clear()
             self.memo.clear()
             flows: dict[tuple[str, int, str], Flow] = {}
             for name, function in self.functions.items():
@@ -453,8 +654,62 @@ class Program:
                             known.where, known.line, known.what, known.origins | flow.origins, known.path or flow.path
                         )
             if not self.stores_changed:
+                if self.stops:
+                    raise Unfinished([f"{where}: {why}. {UNFINISHED_FIX}" for where, why in sorted(self.stops.items())])
                 return sorted(flows.values(), key=lambda flow: (flow.where, flow.line, flow.what))
-        raise RuntimeError("check_decimation_flow: what the stores hold did not settle")
+        raise Unfinished(
+            [
+                f"{self.store_sites.get(where, 'python-backend')}: what the store {where} holds did not settle in "
+                f"{STORE_ROUNDS} rounds. {UNFINISHED_FIX}"
+                for where in sorted(self.changed_stores)
+            ]
+            or [f"python-backend: what the stores hold did not settle in {STORE_ROUNDS} rounds. {UNFINISHED_FIX}"]
+        )
+
+
+#: What a field written in a function is (Walker.field_kind): an array of drawn points (a drawn value may go in it, and
+#: what goes in it must come from a thinning function), another field of a picture's drawn points (a holder of such
+#: arrays, or their places), or any other field (no drawn value may go in it).
+ARRAY_FIELD, DRAWN_FIELD, OTHER_FIELD = "array", "drawn", "other"
+
+
+def _dereferenced(node: object, definitions: Mapping[str, object], depth: int = 4) -> object:
+    """``node`` with each ``{"$ref": "#/$defs/X"}`` in it replaced by the definition X (``depth`` levels deep)."""
+    if isinstance(node, dict):
+        ref = node.get("$ref")
+        if isinstance(ref, str) and depth > 0:
+            return _dereferenced(definitions.get(ref.rsplit("/", 1)[-1], {}), definitions, depth - 1)
+        return {key: _dereferenced(value, definitions, depth) for key, value in node.items()}
+    if isinstance(node, list):
+        return [_dereferenced(value, definitions, depth) for value in node]
+    return node
+
+
+def property_kind(key: str, prop: object, definitions: Mapping[str, object]) -> str:
+    """What the schema's property ``key`` (``prop``) of a definition is: ARRAY_FIELD, DRAWN_FIELD or OTHER_FIELD."""
+    one = {"properties": {key: _dereferenced(prop, definitions)}}
+    arrays, holders = schema_fields(one, "x-drawn")
+    if key in arrays:
+        return ARRAY_FIELD
+    places, _ = schema_fields(one, "x-place")
+    return DRAWN_FIELD if key in holders or (key in places and key in DRAWN_PLACES) else OTHER_FIELD
+
+
+def scalar_annotation(node: ast.expr) -> bool:
+    """Whether an annotation is of one scalar (``float``, ``int | None``, ``NotRequired[float]``): no array."""
+    if isinstance(node, ast.Constant):
+        return node.value is None
+    if isinstance(node, ast.Name):
+        return node.id in SCALAR_TYPES
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return scalar_annotation(node.left) and scalar_annotation(node.right)
+    if (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Name)
+        and node.value.id in ("NotRequired", "Required", "Optional")
+    ):
+        return scalar_annotation(node.slice)
+    return False
 
 
 class Walker:
@@ -470,13 +725,27 @@ class Walker:
         #: Names bound to a literal of field names (``same = ("kind", "x")``) and the loop names over one
         #: (``for key in same``): ``view.get(key)`` is those fields, not the whole view.
         self.names: dict[str, tuple[str, ...]] = {}
+        #: The closures (see FUNCTION) this walk made: called here, they see the names as they are now.
+        self.own: set[str] = set()
+        #: A local def's result so far while a recursive call of it is followed again (``local_call``).
+        self.local_assumed: dict[str, Taint] = {}
+        self.local_recursed: set[str] = set()
+        #: The line of the statement being followed (where a store is added to, where the analysis stops).
+        self.line = function.node.lineno
+        #: What answer this function builds, by its return annotation (Program.answer).
+        self.answer = program.answer(function)
         self.returned: Taint = CLEAN
         self.flows: list[Flow] = []
         #: What this function puts in a store of its parameters' values, for its caller to store as its own.
         self.pending: list[tuple[str, Taint]] = []
 
+    def stop(self, node: ast.AST | None, why: str) -> None:
+        """The analysis cannot follow ``node`` (see Unfinished): it fails here, naming the place."""
+        self.program.stop(self.module, getattr(node, "lineno", self.line), self.function.name, why)
+
     def store(self, where: str, taint: Taint) -> None:
-        self.program.store(where, frozenset(pair for pair in taint if not pair[1].startswith("@")))
+        site = f"python-backend/{self.module}.py:{self.line} {self.function.name.split(':', 1)[-1]}"
+        self.program.store(where, frozenset(pair for pair in taint if not pair[1].startswith("@")), site)
         mine = frozenset(pair for pair in taint if pair[1].startswith("@"))
         if mine:
             self.pending.append((where, mine))
@@ -507,8 +776,8 @@ class Walker:
                 merged[name] = merged.get(name, CLEAN) | taint
         self.env = merged
 
-    def loop(self, body: list[ast.stmt], bind: ast.expr | None = None, taint: Taint = CLEAN) -> None:
-        for _ in range(3):
+    def loop(self, node: ast.stmt, body: list[ast.stmt], bind: ast.expr | None = None, taint: Taint = CLEAN) -> None:
+        for _ in range(LOOP_ROUNDS):
             before = dict(self.env)
             if bind is not None:
                 names = self.names.get(bind.id) if isinstance(bind, ast.Name) else None
@@ -517,9 +786,11 @@ class Walker:
                     self.names[bind.id] = names
             self.branches(body, [])
             if self.env == before:
-                break
+                return
+        self.stop(node, f"what this loop's names carry did not settle in {LOOP_ROUNDS} rounds")
 
     def statement(self, node: ast.stmt) -> None:
+        self.line = node.lineno
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             self.local_defs[node.name] = node
             self.env.pop(node.name, None)
@@ -545,11 +816,11 @@ class Walker:
             self.branches(node.body, node.orelse)
         elif isinstance(node, (ast.For, ast.AsyncFor)):
             self.key_of(node.target, node.iter)
-            self.loop(node.body, node.target, self.expr(node.iter))
+            self.loop(node, node.body, node.target, self.expr(node.iter))
             self.block(node.orelse)
         elif isinstance(node, ast.While):
             self.expr(node.test)
-            self.loop(node.body)
+            self.loop(node, node.body)
             self.block(node.orelse)
         elif isinstance(node, (ast.With, ast.AsyncWith)):
             for item in node.items:
@@ -557,17 +828,38 @@ class Walker:
                 if item.optional_vars is not None:
                     self.assign(item.optional_vars, value, None)
             self.block(node.body)
-        elif isinstance(node, ast.Try):
+        elif isinstance(node, (ast.Try, ast.TryStar)):
             self.block(node.body)
             self.branches(*[handler.body for handler in node.handlers], node.orelse, [])
             self.block(node.finalbody)
         elif isinstance(node, ast.Match):
-            self.expr(node.subject)
-            self.branches(*[case.body for case in node.cases], [])
+            subject = flat(self.expr(node.subject))
+            bodies = []
+            for case in node.cases:
+                # Every name a pattern captures holds what the subject holds (or part of it).
+                captured = [
+                    pattern.name
+                    for pattern in ast.walk(case.pattern)
+                    if isinstance(pattern, (ast.MatchAs, ast.MatchStar)) and pattern.name
+                ] + [
+                    pattern.rest
+                    for pattern in ast.walk(case.pattern)
+                    if isinstance(pattern, ast.MatchMapping) and pattern.rest
+                ]
+                for name in captured:
+                    self.env[name] = self.env.get(name, CLEAN) | subject
+                if case.guard is not None:
+                    self.expr(case.guard)
+                bodies.append(case.body)
+            self.branches(*bodies, [])
         elif isinstance(node, (ast.Raise, ast.Assert, ast.Delete)):
             for child in ast.iter_child_nodes(node):
                 if isinstance(child, ast.expr):
                     self.expr(child)
+        elif isinstance(node, INERT_STATEMENTS):
+            pass
+        else:
+            self.stop(node, f"a {type(node).__name__} statement inside a function is not followed")
 
     def field_names(self, node: ast.expr | None) -> tuple[str, ...] | None:
         """The field names ``node`` is a literal of (or a name bound to one), if it is."""
@@ -663,17 +955,40 @@ class Walker:
             return self.store_of(node.id) is not None
         return isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "self"
 
+    def field_kind(self, key: str) -> str:
+        """What the field ``key`` written here is, by module, function and field: the answer this function's return
+        annotation names says (a schema definition's property, a backend class's field, no answer at all); only
+        where it does not say is the field taken by its name (DRAWN_ARRAYS, DRAWN_KEYS)."""
+        if self.answer is not None:
+            kind, name = self.answer
+            if kind == "none":
+                return OTHER_FIELD
+            if kind == "schema":
+                properties = self.program.definitions[name].get("properties")
+                prop = properties.get(key) if isinstance(properties, dict) else None
+                if prop is not None:
+                    return property_kind(key, prop, self.program.definitions)
+            if kind == "record":
+                annotation = self.program.annotations[name].get(key)
+                if annotation is not None and scalar_annotation(annotation):
+                    return OTHER_FIELD
+        return ARRAY_FIELD if key in DRAWN_ARRAYS else DRAWN_FIELD if key in DRAWN_KEYS else OTHER_FIELD
+
     def check_field(self, node: ast.AST, key: object, taint: Taint) -> None:
-        """A drawn value itself (not a picture holding drawn fields) put under a field that is not a drawn one."""
-        if isinstance(key, str) and key in DRAWN_ARRAYS and not values_of(taint) and not self.nothing(node):
+        """A drawn value itself (not a picture holding drawn fields) put under a field that is not a drawn one; a
+        value no thinning function gave put under a field that is an array of drawn points."""
+        if not isinstance(key, str):
+            return
+        kind = self.field_kind(key)
+        if kind == ARRAY_FIELD and not values_of(taint) and not self.nothing(node):
             where = f"{self.function.name}#{key}"
             line = getattr(node, "lineno", 0)
             self.program.unthinned[where] = min(self.program.unthinned.get(where, line), line)
         drawn = bare(values_of(taint))
-        if isinstance(key, str) and key not in DRAWN_KEYS and drawn:
+        if kind == OTHER_FIELD and drawn:
             self.flow(node, f"field {key!r} = drawn points", drawn)
         decided = bare(decisions_of(taint))
-        if isinstance(key, str) and key not in DRAWN_KEYS and decided:
+        if kind == OTHER_FIELD and decided:
             self.flow(node, f"field {key!r} = decided by drawn points", decided)
 
     @staticmethod
@@ -703,6 +1018,145 @@ class Walker:
     def constant(node: ast.expr) -> object:
         return node.value if isinstance(node, ast.Constant) else None
 
+    # --- functions as values ---------------------------------------------------------------------------
+
+    def function_value(self, node: ast.expr) -> str | None:
+        """The function ``node`` names here, as an origin (FUNCTION), if it names one and no local is in the way."""
+        if isinstance(node, ast.Name) and node.id in self.env:
+            return None
+        if isinstance(node, ast.Name) and node.id in self.local_defs:
+            return self.closure(self.local_defs[node.id])
+        return self.program.named_function(self.module, self.function.cls, node)
+
+    def closure(self, node: ast.Lambda | ast.FunctionDef | ast.AsyncFunctionDef) -> str:
+        """A lambda or local def made a value here: its origin, with what the names it sees hold (Closure). One made
+        where its names hold other values is another closure: what it carries never mixes with the other's."""
+        used = {inner.id for inner in ast.walk(node) if isinstance(inner, ast.Name)}
+        seen = {
+            name: frozenset(pair for pair in taint if not pair[1].startswith("@"))
+            for name, taint in self.env.items()
+            if name in used
+        }
+        held = repr(sorted((name, sorted(taint)) for name, taint in seen.items()))
+        digest = hashlib.sha1(held.encode()).hexdigest()[:12]
+        ident = f"closure:{self.function.name}:{node.lineno}:{node.col_offset}:{digest}"
+        if ident not in self.program.closures:
+            self.program.closures[ident] = Closure(node, self.function, seen, dict(self.local_defs))
+        self.own.add(ident)
+        return f"{FN}{ident}|{FUNCTION}"
+
+    @staticmethod
+    def functions_in(taint: Taint) -> list[str]:
+        """The functions a value is (its FUNCTION origins as the whole value)."""
+        return sorted({origin for name, origin in taint if name == WHOLE and kind_of(origin) == FUNCTION})
+
+    def given(self, node: ast.AST, taint: Taint, what: str) -> None:
+        """A call of something the analysis cannot resolve to a function (``what``): drawn points or a decision of
+        them given to it stop the analysis here (Unfinished), as it cannot say what is made of them."""
+        if values_of(taint) or decisions_of(taint):
+            self.stop(node, f"drawn points are given to {what}, which the analysis cannot resolve to a function")
+
+    def call_value(
+        self, node: ast.Call, value: Taint, what: str, args: list[Taint], keywords: dict[str | None, Taint]
+    ) -> Taint:
+        """A call of a value (a local, a parameter, an item of a tuple): each function it is, called; none, and it
+        is a value the analysis cannot resolve (given)."""
+        every = frozenset().union(*args, *keywords.values())
+        functions = self.functions_in(value)
+        if not functions:
+            self.given(node, every, what)
+            return flat(value | every)
+        out = CLEAN
+        for origin in functions:
+            out |= self.invoke(node, origin, args, keywords)
+        return out
+
+    def invoke(self, node: ast.Call, origin: str, args: list[Taint], keywords: dict[str | None, Taint]) -> Taint:
+        """The function ``origin`` (FUNCTION) called at ``node`` with ``args``: as a call of it by its name."""
+        what = source_of(origin)[len(FN) :]
+        every = frozenset().union(*args, *keywords.values())
+        if what.startswith("closure:"):
+            return self.closure_call(node, what, args, keywords)
+        if what.startswith("np."):
+            func: ast.expr = ast.Name("np", ast.Load())
+            for part in what.split(".")[1:]:
+                func = ast.Attribute(func, part, ast.Load())
+            called = ast.copy_location(ast.Call(func, node.args, node.keywords), node)
+            return self.method(called, func, args, keywords, every)  # type: ignore[arg-type]
+        if what.startswith("builtins."):
+            return self.builtin(node, what.split(".", 1)[1], args, keywords, every, local=False)
+        made = self.backend_call(node, what, args, keywords, method=False)
+        return flat(every) if made is None else made
+
+    def closure_call(self, node: ast.Call, ident: str, args: list[Taint], keywords: dict[str | None, Taint]) -> Taint:
+        """A lambda or local def called through a value: here as it is now if this walk made it, else in the function
+        that made it, seeing what its names held there."""
+        closure = self.program.closures.get(ident)
+        every = frozenset().union(*args, *keywords.values())
+        if closure is None or ident in self.program.calling:
+            self.given(node, every, "a function value that calls itself")
+            return flat(every)
+        if ident in self.own:
+            if isinstance(closure.node, ast.Lambda):
+                return self.lambda_call(closure.node, args, keywords)
+            if self.local_defs.get(closure.node.name) is closure.node:
+                return self.local_call(closure.node.name, args, keywords)
+        self.program.calling.add(ident)
+        try:
+            walker = Walker(self.program, closure.function)
+            walker.env, walker.local_defs = dict(closure.env), dict(closure.local_defs)
+            if isinstance(closure.node, ast.Lambda):
+                taint = walker.lambda_call(closure.node, args, keywords)
+            else:
+                walker.local_defs[closure.node.name] = closure.node
+                taint = walker.local_call(closure.node.name, args, keywords)
+        finally:
+            self.program.calling.discard(ident)
+        self.flows.extend(walker.flows)
+        self.pending.extend(walker.pending)
+        return taint
+
+    def lambda_call(self, lam: ast.Lambda, args: list[Taint], keywords: dict[str | None, Taint]) -> Taint:
+        """A lambda called with ``args``: its body followed here, with the closure as it is now."""
+        saved = dict(self.env)
+        params = [a.arg for a in [*lam.args.posonlyargs, *lam.args.args, *lam.args.kwonlyargs]]
+        for index, param in enumerate(params):
+            self.env[param] = args[index] if index < len(args) else keywords.get(param, CLEAN)
+        if lam.args.vararg is not None:
+            self.env[lam.args.vararg.arg] = flat(frozenset().union(*args[len(params) :]))
+        taint = self.expr(lam.body)
+        self.env = saved
+        return taint
+
+    def handed(self, node: ast.Call, args: list[Taint], keywords: dict[str | None, Taint]) -> Taint:
+        """A function handed to a call that is not the backend's (``map(np.max, rows)``, ``key=np.abs``,
+        ``np.apply_along_axis(np.median, 0, drawn)``): called on the call's other arguments, what it gives."""
+        handed = [*node.args, *(keyword.value for keyword in node.keywords)]
+        taints = [*args, *keywords.values()]
+        out = CLEAN
+        for index, taint in enumerate(taints):
+            # A NumPy function handed on matters where it makes a number (a reduction, a Δ); a NumPy type
+            # (``dtype=np.float64``) or another function only converts what it is given.
+            functions = [
+                origin
+                for origin in self.functions_in(taint)
+                if not source_of(origin).startswith(f"{FN}np.")
+                or source_of(origin).rsplit(".", 1)[-1] in REDUCERS | {"subtract"}
+            ]
+            if not functions:
+                continue
+            others = [other for at, other in enumerate(handed) if at != index]
+            given = frozenset().union(*(other for at, other in enumerate(taints) if at != index))
+            if not values_of(given) and not decisions_of(given):
+                # Given nothing drawn, only a lambda or a local def can give drawn points (what it holds).
+                functions = [origin for origin in functions if source_of(origin).startswith(f"{FN}closure:")]
+            # The other arguments as one, spelled as they are written (a flow names them so).
+            spelled = ast.Name(", ".join(_short(other) for other in others), ast.Load())
+            called = ast.copy_location(ast.Call(handed[index], [spelled], []), node)
+            for origin in functions:
+                out |= self.invoke(called, origin, [given], {})
+        return out
+
     # --- expressions -------------------------------------------------------------------------------------
 
     def expr(self, node: ast.expr | None) -> Taint:
@@ -721,7 +1175,8 @@ class Walker:
         return CLEAN
 
     def _Lambda(self, node: ast.Lambda) -> Taint:
-        return CLEAN
+        # A function value (FUNCTION): followed where it is called (``key=lambda i: drawn[i]``, handed).
+        return frozenset({(WHOLE, self.closure(node))})
 
     def _Compare(self, node: ast.Compare) -> Taint:
         # Not a value but a decision: of drawn points, it is followed as one (C) to where it is sent or counted. A
@@ -753,6 +1208,9 @@ class Walker:
     def _Name(self, node: ast.Name) -> Taint:
         if node.id in self.env:
             return self.env[node.id]
+        function = self.function_value(node)
+        if function is not None:
+            return frozenset({(WHOLE, function)})
         store = self.store_of(node.id)
         return self.program.stores.get(store, CLEAN) if store else CLEAN
 
@@ -760,6 +1218,9 @@ class Walker:
         if node.attr in SHAPE_ATTRIBUTES:
             self.expr(node.value)
             return CLEAN
+        function = self.function_value(node)
+        if function is not None:
+            return frozenset({(WHOLE, function)})
         if isinstance(node.value, ast.Name) and node.value.id == "self" and self.function.cls:
             return self.program.stores.get(f"{self.module}:{self.function.cls}.{node.attr}", CLEAN)
         return element(self.expr(node.value), node.attr)
@@ -888,10 +1349,33 @@ class Walker:
         func = node.func
         args = [self.expr(arg) for arg in node.args]
         keywords = {keyword.arg: self.expr(keyword.value) for keyword in node.keywords}
-        every = CLEAN
-        for taint in [*args, *keywords.values()]:
-            every |= taint
+        every = frozenset().union(*args, *keywords.values())
+        if isinstance(func, ast.Name) and func.id in self.env:
+            # A local or a parameter called: each function it holds (``reduce = np.max``), else not resolved.
+            return self.call_value(node, self.env[func.id], func.id, args, keywords)
+        if isinstance(func, ast.Name) and func.id not in self.local_defs:
+            bound = self.program.modules[self.module].callables.get(func.id)
+            function = self.function_value(func) if bound is not None else None
+            if function is not None:
+                # A module-level name bound to a function (``REDUCE = np.max``, ``from numpy import max as top``).
+                return self.invoke(node, function, args, keywords)
         target = self.program.resolve(self.module, self.function.cls, func)
+        if target is None or target not in self.program.functions:
+            every |= self.handed(node, args, keywords)
+        made = self.backend_call(node, target, args, keywords, method=isinstance(func, ast.Attribute))
+        if made is not None:
+            return made
+        if isinstance(func, ast.Name):
+            return self.builtin(node, func.id, args, keywords, every)
+        if isinstance(func, ast.Attribute):
+            return self.method(node, func, args, keywords, every)
+        # A call of a value made here (``table[key](x)``, ``partial(f, a)(x)``, ``(lambda v: v)(x)``).
+        return self.call_value(node, self.expr(func), _short(func), args, keywords)
+
+    def backend_call(
+        self, node: ast.Call, target: str | None, args: list[Taint], keywords: dict[str | None, Taint], method: bool
+    ) -> Taint | None:
+        """A call of the backend's ``target`` (a thinning function, a record, a function), or None if it is none."""
         if target in SOURCES:
             kind, fields = SOURCES[target]
             return frozenset((name, f"{target}|{kind}") for name in fields)
@@ -905,17 +1389,19 @@ class Walker:
                 made |= nested(taint, key) if key else taint
             return made
         if target is not None and target in self.program.functions:
-            return self.call(node, target, args, keywords, method=isinstance(func, ast.Attribute))
-        if isinstance(func, ast.Name):
-            return self.builtin(node, func.id, args, keywords, every)
-        if isinstance(func, ast.Attribute):
-            return self.method(node, func, args, keywords, every)
-        return flat(self.expr(func) | every)
+            return self.call(node, target, args, keywords, method=method)
+        return None
 
     def builtin(
-        self, node: ast.Call, name: str, args: list[Taint], keywords: dict[str | None, Taint], every: Taint
+        self,
+        node: ast.Call,
+        name: str,
+        args: list[Taint],
+        keywords: dict[str | None, Taint],
+        every: Taint,
+        local: bool = True,
     ) -> Taint:
-        if name in self.local_defs:
+        if local and name in self.local_defs:
             return self.local_call(name, args, keywords)
         if name in BUILTIN_REDUCERS:
             return self.reduction(node, f"{name}({', '.join(_short(a) for a in node.args)})", every, False)
@@ -948,7 +1434,7 @@ class Walker:
         every: Taint,
     ) -> Taint:
         name = func.attr
-        if self.is_numpy(func.value):
+        if self.program.is_numpy(self.module, func.value):
             if name in REDUCERS:
                 what = f"np.{name}({', '.join(_short(a) for a in node.args)})"
                 return self.reduction(node, what, every, self.along_axis(node, name))
@@ -986,17 +1472,14 @@ class Walker:
             return CLEAN
         return flat(receiver | every)
 
-    @staticmethod
-    def is_numpy(node: ast.expr) -> bool:
-        while isinstance(node, ast.Attribute):
-            node = node.value
-        return isinstance(node, ast.Name) and node.id in ("np", "numpy")
-
     def call(
         self, node: ast.Call, target: str, args: list[Taint], keywords: dict[str | None, Taint], method: bool
     ) -> Taint:
         """A call of a backend function: followed into it with what each argument carries."""
         function = self.program.functions[target]
+        if len(self.program.active) >= CALL_DEPTH:
+            self.stop(node, f"the call of {target} is {CALL_DEPTH} calls deep, deeper than the analysis follows")
+            return flat(frozenset().union(*args, *keywords.values()))
         offset = 1 if method and function.params[:1] in (["self"], ["cls"]) else 0
         bound: list[Taint] = [CLEAN] * len(function.params)
         spill = CLEAN
@@ -1012,7 +1495,9 @@ class Walker:
                 spill |= flat(taint)
         if spill:
             bound = [taint | spill for taint in bound]
-        context = tuple(frozenset((f, kind_of(o)) for f, o in taint) for taint in bound)
+        context = tuple(
+            frozenset((f, o if kind_of(o) == FUNCTION else kind_of(o)) for f, o in taint) for taint in bound
+        )
         summary = self.program.analyse(target, context)
 
         def callers(origin: str) -> list[Pair]:
@@ -1049,20 +1534,33 @@ class Walker:
         return returned
 
     def local_call(self, name: str, args: list[Taint], keywords: dict[str | None, Taint]) -> Taint:
-        """A def inside this function: its body followed here, with the closure as it is now."""
+        """A def inside this function: its body followed here, with the closure as it is now. A recursive call of it
+        gives what it gives so far, and the body is followed again until that settles."""
         if name in self.inside:
-            return CLEAN
+            self.local_recursed.add(name)
+            return self.local_assumed.get(name, CLEAN)
         definition = self.local_defs[name]
-        saved_env, saved_returned = dict(self.env), self.returned
         params = [a.arg for a in [*definition.args.posonlyargs, *definition.args.args, *definition.args.kwonlyargs]]
-        for index, param in enumerate(params):
-            self.env[param] = args[index] if index < len(args) else keywords.get(param, CLEAN)
-        self.returned = CLEAN
-        self.inside.add(name)
-        self.block(definition.body)
-        self.inside.discard(name)
-        returned = self.returned
-        self.env, self.returned = saved_env, saved_returned
+        returned = CLEAN
+        for _ in range(RECURSION_ROUNDS):
+            saved_env, saved_returned = dict(self.env), self.returned
+            for index, param in enumerate(params):
+                self.env[param] = args[index] if index < len(args) else keywords.get(param, CLEAN)
+            self.returned = CLEAN
+            self.inside.add(name)
+            self.block(definition.body)
+            self.inside.discard(name)
+            returned = self.returned
+            self.env, self.returned = saved_env, saved_returned
+            if name not in self.local_recursed or returned == self.local_assumed.get(name, CLEAN):
+                break
+            self.local_assumed[name] = returned
+        else:
+            self.stop(
+                definition, f"what the recursive calls of {name} give did not settle in {RECURSION_ROUNDS} rounds"
+            )
+        self.local_recursed.discard(name)
+        self.local_assumed.pop(name, None)
         return returned
 
 
@@ -1166,7 +1664,7 @@ def find_unthinned(sources: dict[str, str]) -> dict[str, int]:
     for where, line in program.unthinned.items():
         name, key = where.rsplit("#", 1)
         module, function = name.split(":")
-        out[f"python-backend/{module}.py:{function.split('.')[-1]}#{key}"] = line
+        out[f"python-backend/{module}.py:{function}#{key}"] = line  # a method as Class.method: one place each
     return dict(sorted(out.items()))
 
 
@@ -1191,9 +1689,12 @@ def unthinned_problems(found: dict[str, int], listed: dict[str, str]) -> Iterato
                 "x-drawn field is the result of a function listed in SOURCES (scripts/check_decimation_flow.py) and "
                 f"'decimators' ({CONTRACT.name}), so that this check follows it. Fix: if the code that made it thins "
                 "data to draw it (a slice with a step, a reshape and a min/max, a resample, picked indices), add "
-                "that function to both lists. If every value is sent, none thinned (a band table, a full read), or "
-                f"the field is another answer's of the same name, add \"{entry}\" to 'unthinned' in {CONTRACT.name} "
-                "with one sentence saying why."
+                "that function to both lists. If the field is not a picture's (an answer whose field of this name is "
+                "no array of drawn points: a full read's, a range's number), annotate the function's return type with "
+                "that answer (its definition in python-backend/protocol_schema.py, or a TypedDict that types the "
+                "field), so the field is taken as that answer's. If it is a picture's field and every value is sent, "
+                f"none thinned (a band table), add \"{entry}\" to 'unthinned' in {CONTRACT.name} with one sentence "
+                "saying why."
             )
     for entry, why in listed.items():
         if entry not in found:
@@ -1201,7 +1702,7 @@ def unthinned_problems(found: dict[str, int], listed: dict[str, str]) -> Iterato
         elif not why.strip():
             yield (
                 f"'unthinned' in {CONTRACT.name}: {entry} says no why. Fix: write one sentence there saying why every "
-                "value is sent in that field (none thinned), or why the field is another answer's of the same name."
+                "value is sent in that field (none thinned)."
             )
 
 
@@ -1231,6 +1732,21 @@ def problems(flows: list[Flow], known: dict[str, str] = KNOWN_FLOWS) -> Iterator
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:
+        return _main(argv)
+    except Unfinished as unfinished:
+        for stop in unfinished.stops:
+            print(stop, file=sys.stderr)
+        print(
+            f"check_decimation_flow: the analysis stopped at {len(unfinished.stops)} place(s) and checks nothing it "
+            "did not follow. Rule: a check that cannot finish fails; it never passes what it did not see. Each line "
+            "above names its file:line, why it stopped and the fix. See docs/plot-contracts-guide.md.",
+            file=sys.stderr,
+        )
+        return 1
+
+
+def _main(argv: list[str] | None) -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     parser.add_argument("--list", action="store_true", help="print every flow found")
     parser.add_argument(
@@ -1275,8 +1791,10 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"check_decimation_flow: {len(misclassified)} 'draws' reader(s) do more than draw. Rule: a backend "
             "function classified use: 'draws' in python-backend/drawn_points_contract.json may put its thinned "
-            "points only into a picture's drawn fields (DRAWN_KEYS in this script). Fix: compute the number from the "
-            "full data, or reclassify the function as 'value'. See docs/plot-contracts-guide.md.",
+            "points only into a picture's drawn fields. Fix: take the number from the full data the function is "
+            "given, before thinning (as value_range and difference_peak do), so the function only draws. (Classifying "
+            "it 'value' instead makes its row a gap, which GAP_CEILING, 0, does not allow.) "
+            "See docs/plot-contracts-guide.md.",
             file=sys.stderr,
         )
         return 1
