@@ -18,7 +18,7 @@ import { OVERVIEW_MARGINS, overviewRowKey, paintOverview } from './entryPlots';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, plotPointIn, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { positionPopover } from './settingsPopover';
 import { BAND_CENTERS_HZ } from './entryTable';
-import { STAGE_MARGINS, type StagePlot } from './stagePanes';
+import { STAGE_MARGINS, stagePlotPoint, type StagePlot } from './stagePanes';
 import { clickOnRead, createPlotHoverLayer } from './plotHoverLayer';
 
 export interface SidePlotsDeps {
@@ -189,15 +189,23 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         const rangePopover = installRangePopover(document, { rootId: 'entry-range-popover', badgeId: 'entry-range-axis-badge', idPrefix: 'entry-range', strings: rangePopoverStrings(strings), position: positionPopover });
         const plotName = (plot: HTMLElement): string => (plot === overview ? 'overview' : 'held');
         const marginsOf = (plot: HTMLElement): PlotMargins => (plot === overview ? OVERVIEW_MARGINS : deps.heldPicture()?.margins ?? STAGE_MARGINS);
+        /**
+         * The pointer on a plot as it was drawn, by the one hit test of every plot component's plot (stagePlotPoint),
+         * so the strip's colour bar is a value axis as on every heatmap (R13); its margins while nothing is drawn.
+         */
+        const pointAt = (plot: HTMLElement, clientX: number, clientY: number): { fx: number; fy: number; axis: 'x' | 'y' | null; colour?: boolean } => {
+            const drawn = plot === overview ? overviewDrawn : deps.heldPicture()?.drawn ?? null;
+            return drawn ? stagePlotPoint(plot, clientX, clientY, drawn) : plotPointIn(plot, marginsOf(plot), clientX, clientY);
+        };
         attachPlotInteraction(side, document, '[data-entry-held-canvas], [data-entry-overview]', {
             locate(target, clientX, clientY) {
                 const plot = (target as HTMLElement | null)?.closest?.<HTMLElement>('[data-entry-held-canvas], [data-entry-overview]');
                 if (!plot || plot.closest('[hidden]')) return null;
-                const { fx, fy, axis } = plotPointIn(plot, marginsOf(plot), clientX, clientY);
-                return { plot, point: { fx, fy }, axis };
+                const { fx, fy, axis, colour } = pointAt(plot, clientX, clientY);
+                return { plot, point: { fx, fy }, axis, ...(colour ? { colour } : {}) };
             },
             pointOn(plot, clientX, clientY) {
-                const { fx, fy } = plotPointIn(plot, marginsOf(plot), clientX, clientY);
+                const { fx, fy } = pointAt(plot, clientX, clientY);
                 return { fx, fy };
             },
             window: plot => plotWindow(plotName(plot)),
@@ -236,6 +244,8 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
             },
             hideBox() { zoomBox.hidden = true; },
             openAxisRange(hit, clientX, clientY) {
+                // The strip's colours are its levels' whole range, typed nowhere: a double-click on its colour bar resets the zoom (R13).
+                if (hit.colour) return false;
                 const name = plotName(hit.plot);
                 const zoom = plotWindow(name);
                 if (name === 'overview' && hit.axis === 'y') {

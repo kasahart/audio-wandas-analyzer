@@ -1911,15 +1911,15 @@ test('axes: スペクトログラム画像はレーンの幅いっぱいに描�
     assert.ok(spectrogramImage, 'スペクトログラム画像の putImageData が記録されること');
     assert.equal(spectrogramImage.x, 0);
     assert.equal(spectrogramImage.width, canvas.width, '波形のレーンと同じ時間軸: 画像は canvas の幅いっぱい');
-    const [x, y, width] = (canvas.dataset.colourBar ?? '').split(' ').map(Number);
-    assert.ok(x > canvas.width / 2 && x + width <= canvas.width && y < canvas.height / 2, 'カラーバーは図の右上: ' + canvas.dataset.colourBar);
+    const [x, y, width] = (canvas.dataset.plotColourBar ?? '').split(' ').map(Number);
+    assert.ok(x > canvas.width / 2 && x + width <= canvas.width && y < canvas.height / 2, 'カラーバーは図の右上: ' + canvas.dataset.plotColourBar);
     env.dom.window.close();
 });
 
 /** The middle of a spectrogram lane's colour bar, in client pixels, on a canvas laid out 1:1 from `left`. */
 function colourBarClientPoint(canvas: HTMLCanvasElement, left: number): { clientX: number; clientY: number } {
-    const [x, y, width, height] = (canvas.dataset.colourBar ?? '').split(' ').map(Number);
-    assert.ok(width > 0 && height > 0, 'colour bar painted: ' + canvas.dataset.colourBar);
+    const [x, y, width, height] = (canvas.dataset.plotColourBar ?? '').split(' ').map(Number);
+    assert.ok(width > 0 && height > 0, 'colour bar painted: ' + canvas.dataset.plotColourBar);
     return { clientX: left + x + width / 2, clientY: y + height / 2 };
 }
 

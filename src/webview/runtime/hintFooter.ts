@@ -50,6 +50,13 @@ export function createHintFooter(doc: Document): HintFooter {
     };
 }
 
+/**
+ * Sent (bubbling) from an element whose hint changed while it stayed on screen (keptRows.ts keeps the entry table's
+ * buttons and changes their data-hint in place, where a rewrite made new ones and the browser sent a mouseover). When
+ * the pointer rests on it, the footer follows the new hint as it would follow a mouseover at a resting pointer.
+ */
+export const HINT_CHANGED_EVENT = 'awa-hint-changed';
+
 export function attachHoverHints(doc: Document, footer: HintFooter): void {
     // Where the pointer was last seen, and the hint this handler last put in the footer. A mouseover at that same place
     // comes from the page changing under a pointer at rest (a bar drawn again after a click, or a scroll): when a message
@@ -57,14 +64,10 @@ export function attachHoverHints(doc: Document, footer: HintFooter): void {
     // on; otherwise the hint follows what is under the pointer now.
     let at: { x: number; y: number } | null = null;
     let shown = '';
-    doc.addEventListener('mousemove', function (e) { at = { x: e.clientX, y: e.clientY }; });
-    doc.addEventListener('mouseover', function (e) {
-        const still = at !== null && at.x === e.clientX && at.y === e.clientY;
-        at = { x: e.clientX, y: e.clientY };
+    function follow(node: Element | null, still: boolean): void {
         if (still && (doc.getElementById('hint-footer')?.textContent ?? '') !== shown) {
             return;
         }
-        const node = e.target as Element | null;
         const target = node && typeof node.closest === 'function' ? node.closest<HTMLElement>('[data-hint]') : null;
         shown = target?.dataset.hint ?? '';
         if (shown) {
@@ -72,6 +75,22 @@ export function attachHoverHints(doc: Document, footer: HintFooter): void {
         }
         else {
             footer.clear();
+        }
+    }
+    doc.addEventListener('mousemove', function (e) { at = { x: e.clientX, y: e.clientY }; });
+    doc.addEventListener('mouseover', function (e) {
+        const still = at !== null && at.x === e.clientX && at.y === e.clientY;
+        at = { x: e.clientX, y: e.clientY };
+        follow(e.target as Element | null, still);
+    });
+    doc.addEventListener(HINT_CHANGED_EVENT, function (e) {
+        if (at === null) {
+            return;
+        }
+        // Only the hint of what the pointer is on: the innermost hovered element's.
+        const hovered = [...doc.querySelectorAll(':hover')].at(-1) ?? null;
+        if (hovered?.closest('[data-hint]') === e.target) {
+            follow(hovered, true);
         }
     });
     doc.addEventListener('mouseout', function (e) {

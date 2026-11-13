@@ -1034,6 +1034,13 @@ export interface StagePaintOptions {
     xAxisCanvas?: HTMLCanvasElement | null;
     /** A heatmap's level colours (the track spectrogram lanes' viridis); grey levels when not given. */
     heatmapPalette?: Palette;
+    /**
+     * Where a heatmap's colour range comes from (R13): 'typed', a range the user can type (the track view's
+     * spectrogram lanes: a double-click on the colour bar opens it), or 'data' (the default: the colours follow the
+     * data, and a double-click on the bar resets the zoom). Named on the canvas (data-plot-colour-range), so the plot
+     * contract expects exactly the declared double-click.
+     */
+    colourRange?: 'typed' | 'data';
     /** Each point of a signal's line (CSS pixels on the canvas, its value and time, whether seen), for a pointer that reads them. */
     onSignalPoint?: SignalPointSink;
     /** false for a figure no pointer reads (a report's): its pictures need no full data, and nothing is read on it. */
@@ -1230,6 +1237,8 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         canvas.dataset.plotColour = '';
         delete canvas.dataset.plotColourScale;
         delete canvas.dataset.plotColourEnds;
+        delete canvas.dataset.plotColourBar;
+        delete canvas.dataset.plotColourRange;
         delete canvas.dataset.plotEnds;
     }
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -1423,6 +1432,12 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
             const [r, g, b] = unpackRgb(colourOfCell(low + fraction * (high - low)));
             return `rgb(${r}, ${g}, ${b})`;
         }, { text, back: pendingColors.back, line });
+        // Where the bar is (CSS pixels on the canvas): the box the one hit test reads (stagePlotPoint), named on the
+        // canvas so the plot contract presses the bar of every heatmap for each axis gesture (R13).
+        if (canvas.dataset) {
+            canvas.dataset.plotColourBar = [plot.colourBar.x, plot.colourBar.y, plot.colourBar.width, plot.colourBar.height].map(value => value.toFixed(1)).join(' ');
+            canvas.dataset.plotColourRange = options.colourRange ?? 'data';
+        }
     } else {
         context.strokeStyle = line;
         context.lineWidth = 1;
@@ -2442,13 +2457,27 @@ export function drawnMargins(canvas: Pick<HTMLCanvasElement, 'getBoundingClientR
     return { left: frame.left, top: frame.top, right: Math.max(0, rect.width - frame.left - frame.width), bottom: Math.max(0, rect.height - frame.top - frame.height) };
 }
 
+/** Whether the pointer is on the colour bar `drawn` painted on `canvas` (its box in CSS pixels on the canvas). */
+function onDrawnColourBar(canvas: Pick<HTMLCanvasElement, 'getBoundingClientRect'>, clientX: number, clientY: number, drawn: Pick<StagePlot, 'colourBar'> | null | undefined): boolean {
+    const bar = drawn?.colourBar;
+    if (!bar || !(bar.width > 0) || !(bar.height > 0)) return false;
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX - rect.left, y = clientY - rect.top;
+    return x >= bar.x && x <= bar.x + bar.width && y >= bar.y && y <= bar.y + bar.height;
+}
+
 /**
  * The pointer on a pane: its place on the plot as `drawn` (the frame it was painted in, its right-hand level axis
- * too), or which axis it is over; the right-hand axis of a plot with two answers as a value axis ('y').
+ * too), or which axis it is over; the right-hand axis of a plot with two answers as a value axis ('y'). A heatmap's
+ * colour bar is a value axis too (`colour`): the one hit test of it, for every plot that draws one (the track view's
+ * spectrogram lanes, the comparison's heatmaps, the entry's strip), so every axis gesture over it answers the same
+ * everywhere (R13): Ctrl+wheel zooms the horizontal axis about its middle, a press does not start a box, a hover reads
+ * no cell under it, and a double-click opens its colour range where the plot has one, else resets the zoom.
  */
-export function stagePlotPoint(canvas: Pick<HTMLCanvasElement, 'getBoundingClientRect'>, clientX: number, clientY: number, drawn?: Pick<StagePlot, 'frame' | 'secondary'> | null): { fx: number; fy: number; axis: 'x' | 'y' | null; right?: boolean } {
+export function stagePlotPoint(canvas: Pick<HTMLCanvasElement, 'getBoundingClientRect'>, clientX: number, clientY: number, drawn?: Pick<StagePlot, 'frame' | 'secondary' | 'colourBar'> | null): { fx: number; fy: number; axis: 'x' | 'y' | null; right?: boolean; colour?: boolean } {
     const margins = drawnMargins(canvas, drawn);
     const point = plotPointIn(canvas, margins, clientX, clientY);
+    if (onDrawnColourBar(canvas, clientX, clientY, drawn)) return { ...point, axis: 'y', colour: true };
     const rect = canvas.getBoundingClientRect();
     const right = !!drawn?.secondary && margins.right > 0 && clientX - rect.left > rect.width - margins.right;
     return right && !point.axis ? { ...point, axis: 'y', right: true } : point;

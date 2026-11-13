@@ -72,6 +72,104 @@ test('a folder opens with only what is stored; nothing is computed until 計算,
     await expect(page.locator('[data-entry-dist-count]')).toHaveText(new RegExp(`^6 ch(?:${leftOut})\\d+`, 'u'));
 });
 
+/** Each row's box (by row key), each head cell's width and its ▾'s, as the table lays them out now. */
+const tableLayout = (page: Page) => page.evaluate(() => ({
+    rows: Object.fromEntries([...document.querySelectorAll<HTMLElement>('[data-entry-rows] tr.entry-row')].map(row => {
+        const box = row.getBoundingClientRect();
+        return [row.dataset.key!, { y: box.y, height: box.height }];
+    })),
+    columns: [...document.querySelectorAll<HTMLElement>('[data-entry-head] th')].map(cell => cell.getBoundingClientRect().width),
+    // The ▾ of each head, or the place it keeps while its value is not computed: one width either way.
+    filters: [...document.querySelectorAll<HTMLElement>('[data-entry-head] th')].map(cell => cell.querySelector('.entry-fbtn, .entry-fbtn-slot')?.getBoundingClientRect().width ?? null),
+}));
+
+type TableLayout = Awaited<ReturnType<typeof tableLayout>>;
+/**
+ * Opens the folder with its headers read and no value yet, then answers half of its recordings and then the rest; the
+ * table's layout at each of the three moments, and whether every cell drawn while pending is the one the value came
+ * into (#781).
+ */
+async function scanFolder(page: Page, docked: boolean, language: string): Promise<{ pending: TableLayout; half: TableLayout; ready: TableLayout; sameCells: boolean }> {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    // The headers are read first, as a host does, so each file has its rows (one per channel) before its values come.
+    const headers = Object.fromEntries(scanned!.map(file => {
+        const result = file.result as { ok?: boolean; input?: { channels: number[] } };
+        return [file.filePath, result.ok ? result.input!.channels.length : 'not a WAV header'];
+    }));
+    await openEntry(page, scanned!, { answered: 0, headers, docked, language });
+    await settled(page);
+    const pending = await tableLayout(page);
+    expect(Object.keys(pending.rows).length).toBeGreaterThan(10);
+    // The cells as they are drawn while their values are pending.
+    await page.evaluate(() => {
+        (window as unknown as { pendingCells: Element[] }).pendingCells = [...document.querySelectorAll('[data-entry-rows] tr.entry-row td')];
+    });
+    if (!docked) await expect(page.locator('[data-entry-rows] tr.entry-row').first().locator('.entry-col-value')).toHaveText('—');
+    const requestId = (await entryScans(page)).at(-1)!.requestId;
+    const answer = (files: readonly ScannedFile[], done: boolean) => page.evaluate(({ requestId, files, done }) => {
+        for (const file of files) window.postMessage({ type: 'entry-scan-result', requestId, filePath: file.filePath, result: file.result }, '*');
+        if (done) window.postMessage({ type: 'entry-scan-done', requestId }, '*');
+    }, { requestId, files, done });
+    await answer(scanned!.slice(0, 50), false);
+    await settled(page);
+    const half = await tableLayout(page);
+    await answer(scanned!.slice(50), true);
+    await settled(page);
+    const ready = await tableLayout(page);
+    if (!docked) await expect(page.locator('[data-entry-rows] tr.entry-row').first().locator('.entry-col-value')).not.toHaveText('—');
+    await expect(page.locator('th[data-column="leq"] [data-action="entry-fhead"]')).toHaveCount(1);
+    const sameCells = await page.evaluate(() => {
+        const before = (window as unknown as { pendingCells: Element[] }).pendingCells;
+        const now = [...document.querySelectorAll('[data-entry-rows] tr.entry-row td')];
+        return now.length === before.length && now.every((cell, index) => cell === before[index]);
+    });
+    return { pending, half, ready, sameCells };
+}
+
+/**
+ * Half of the folder answered, then the rest: the rows stand where they stood and the columns keep their widths, to the
+ * subpixel. No rounding is allowed for: the same boxes laid out the same way give the same numbers, and a row that
+ * moved by a fraction of a pixel moved. The values come into the cells drawn while pending: no cell is drawn anew.
+ */
+function expectNothingMoved(seen: Awaited<ReturnType<typeof scanFolder>>): void {
+    expect(seen.half).toEqual(seen.pending);
+    expect(seen.ready).toEqual(seen.pending);
+    expect(seen.sameCells, 'every cell drawn while pending is the one that shows the value').toBe(true);
+}
+
+test('while a folder\'s recordings are scanned, no row moves and no column changes width as their values arrive (#781)', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    expectNothingMoved(await scanFolder(page, false, 'en'));
+});
+
+// Beside the tracks the distribution is folded above the table: its head and its strip of groups must not grow
+// either. In Japanese its words are the widest.
+test('beside the tracks, no row moves while a folder\'s values arrive, though the distribution above the table fills in (#781)', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    expectNothingMoved(await scanFolder(page, true, 'ja'));
+});
+
+
+test('a row\'s ✎ under a resting pointer: the footer says its new hint, the memo, once it is written; the button is the same one (#781)', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    await openEntry(page, scanned!);
+    await settled(page);
+    const row = rows(page).nth(1);
+    await row.click();
+    const memo = row.locator('[data-action="entry-row-memo"]');
+    await memo.hover();
+    await expect(page.locator('#hint-footer')).toHaveText(STR.dsRowMemo);
+    await memo.evaluate(button => { (window as unknown as { memoButton: Element }).memoButton = button; });
+    // Written from the keyboard, the pointer resting where it was: the button stays and only its hint changes.
+    await page.keyboard.press('m');
+    await page.locator('[data-entry-memo-text]').fill('bearing noise');
+    await page.keyboard.press('Escape');
+    await expect(memo).toHaveAttribute('data-hint', 'bearing noise');
+    expect(await memo.evaluate(button => button === (window as unknown as { memoButton: Element }).memoButton)).toBe(true);
+    await expect(page.locator('#hint-footer')).toHaveText('bearing noise');
+});
+
 test('a file written over on disk while the folder is open is greyed until 計算 measures it again; the others keep their values (V1)', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('en');
@@ -622,7 +720,9 @@ test('the overview strip has a row per channel, as the table does: its readout n
     const strip = page.locator('[data-entry-overview]');
     await expect.poll(() => strip.getAttribute('data-plot-axes')).not.toBe(null);
     const box = (await strip.boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + OVERVIEW_MARGINS.top + 3);
+    // Just under the colour bar: the bar is a value axis (R13), so a hover on it reads no row.
+    const [, barY, , barHeight] = ((await strip.getAttribute('data-plot-colour-bar')) ?? '0 0 0 0').split(' ').map(Number);
+    await page.mouse.move(box.x + box.width / 2, box.y + Math.max(OVERVIEW_MARGINS.top + 3, barY + barHeight + 2));
     const readout = page.locator('.entry-overview-box [data-plot-readout]');
     await expect(readout).toContainText(/\.wav ch[12]\b/);
 });
@@ -681,6 +781,14 @@ for (const language of ['ja', 'en'] as const) {
         await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
         await expect(page.locator('th[data-column="leq"]')).toBeHidden();
         await expect(page.locator('[data-entry-rows] tr.entry-row .entry-col-value').first()).toBeHidden();
+        // The ▾ takes only its glyph and padding, whatever the font: a ▾ of a fixed width took "ch"'s room in its 3.8em
+        // column and broke it where the font's glyphs are wider (#781's first fix, seen in CI only).
+        const chButton = await page.locator('th[data-column="ch"] [data-action="entry-fhead"]').evaluate(button => {
+            const range = document.createRange();
+            range.selectNodeContents(button);
+            return { width: button.getBoundingClientRect().width, glyph: range.getBoundingClientRect().width, padding: parseFloat(getComputedStyle(button).paddingLeft) + parseFloat(getComputedStyle(button).paddingRight) };
+        });
+        expect(chButton.width, 'the ▾ is as wide as its glyph and padding').toBeLessThanOrEqual(chButton.glyph + chButton.padding + 0.5);
         expect((await headerFit(page, 'ch')).lines, 'ch docked').toBe(1);
         await page.locator('.entry-size').click();
         await expect(page.locator('#entry-screen')).toHaveClass(/is-max/);
@@ -1016,20 +1124,13 @@ test('widened, the name takes the free width and keeps its end in sight; in a na
         expect(base(filePath).endsWith((await tail.textContent())!)).toBe(true);
     }
     await page.locator('[data-entry-table]').evaluate(table => { (table as HTMLElement).style.width = ''; });
-    // At 800 px the value column is in sight, not behind the distribution, which sits under the table.
-    // The table writes its rows anew on each render, and a resize renders it again, so the cell is measured until the
-    // layout has settled rather than once: boundingBox() does not wait, and reads null for a row while it is replaced.
-    const valueCell = first.locator('.entry-col-value');
-    const side = page.locator('.entry-side');
-    await expect(valueCell).toBeVisible();
-    await expect(side).toBeVisible();
-    await expect.poll(async () => {
-        const value = await valueCell.boundingBox();
-        const sideBox = await side.boundingBox();
-        if (!value || !sideBox) return 'not laid out yet';
-        return { valueInSight: value.x + value.width <= 800, distributionBelow: sideBox.y >= value.y + value.height };
-    }, { message: 'at 800 px the value column ends inside the window and the distribution sits under the table' })
-        .toEqual({ valueInSight: true, distributionBelow: true });
+    // At 800 px the value column is in sight, not behind the distribution, which sits under the table. The rows keep
+    // their cells when the resize draws them again (#781), so the cell is measured once the page has answered the resize.
+    await settled(page);
+    const value = (await first.locator('.entry-col-value').boundingBox())!;
+    const side = (await page.locator('.entry-side').boundingBox())!;
+    expect(value.x + value.width).toBeLessThanOrEqual(800);
+    expect(side.y).toBeGreaterThanOrEqual(value.y + value.height);
 });
 
 test('Open Compare looks unavailable while slots 1–3 are empty and says why; a filled slot enables it', async ({ page }) => {
