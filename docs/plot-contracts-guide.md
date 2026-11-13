@@ -412,11 +412,13 @@ return type with the answer it builds when that answer's field of this name is n
 picture's field and every value is sent, none thinned (a band table), list the place under `unthinned` in
 `drawn_points_contract.json` with one sentence saying why.
 
-Which fields are drawn points is decided by module, function and field, never by the field's name alone: the
-function's return annotation names the answer it builds (`-> StagePoints` is a definition of the schema, whose
-`values` are `x-whole`; `-> StageValueRange` is a TypedDict whose `min` is a `float`; `-> int` builds no answer), and
-the field is what that answer says. Only where the function says nothing (no annotation, one the schema does not
-know, or a field that answer lacks) is the field taken by its name. So keep the backend's return annotations exact:
+Which fields are drawn points is decided by module, function and field, never by the field's name alone: the dict
+a function returns is the answer its return annotation names (`-> StagePoints` is a definition of the schema, whose
+`values` are `x-whole`; `-> StageValueRange` is a TypedDict whose `min` is a `float`), and so is a local annotated
+with such a type; their own fields are what that answer says. Every other dict (nested in an answer, sent through a
+callback, a store or `json.dumps`, made in a function whose return annotation is a scalar or says nothing), and a
+field that answer lacks, is taken by its field's name; a number written out (`EVENT_POINTS = 2048`) is no array
+(`test_a_picture_made_inside_a_function_that_returns_no_answer_is_still_checked`). So keep the backend's return annotations exact:
 they are what the check reads (`test_a_field_is_classified_by_the_answer_its_function_returns_not_by_its_name_alone`,
 `test_drawn_points_put_in_a_field_of_the_same_name_in_another_answer_are_a_flow`).
 
@@ -501,7 +503,7 @@ They close the routes we know. They do not make a wrong number impossible. Know 
 - **The backend has no types for this.** Its check follows data flow through the Python source and can miss a flow
   through code it does not model (dynamic attribute access, a method of a library object, a new library call). A
   lambda or local def called away from where it was made sees what its names held there, except what came from
-  that function's own parameters; a field of a dict nested inside an answer is taken by its name. Its unit tests
+  that function's own parameters. Its unit tests
   (`python-backend/test_decimation_flow_check.py`) show the forms it does catch.
 - **`unthinned` is a list of claims.** A place listed there is not checked further: thinning added later inside a
   listed function, in the listed field, passes. Keep each entry to one field of one function and read the list when

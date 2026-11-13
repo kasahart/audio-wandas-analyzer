@@ -456,8 +456,9 @@ def test_the_real_backend_is_followed_to_its_end(backend: dict[str, str]) -> Non
 def test_a_field_is_classified_by_the_answer_its_function_returns_not_by_its_name_alone(
     backend: dict[str, str],
 ) -> None:
-    # A full read's values (StagePoints, x-whole), a range's min (a float), a table of a function that returns an
-    # int: none is an array of drawn points, so none needs a permanent exception in drawn_points_contract.json.
+    # A full read's values (StagePoints, x-whole), a range's min (a float), a table of numbers written out (point
+    # counts by mode): none is an array of drawn points, so none needs a permanent exception in
+    # drawn_points_contract.json.
     found = check.find_unthinned(backend)
     for gone in (
         "python-backend/full_read.py:read_line#values",
@@ -474,10 +475,10 @@ def test_a_field_is_classified_by_the_answer_its_function_returns_not_by_its_nam
 
 @pytest.mark.parametrize(
     ("answer", "field"),
-    [("StagePoints", "values"), ("StagePoints", "xs"), ("Range", "min"), ("int", "events")],
+    [("StagePoints", "values"), ("StagePoints", "xs"), ("Range", "min")],
 )
 def test_drawn_points_put_in_a_field_of_the_same_name_in_another_answer_are_a_flow(answer: str, field: str) -> None:
-    # On origin/main each passed: the name ('values', 'min', 'events') is a drawn one in some picture.
+    # On origin/main each passed: the name ('values', 'xs', 'min') is a drawn one in some picture.
     body = (
         "from typing import TypedDict\n\nclass Range(TypedDict):\n    min: float\n\n"
         f"def read(xs, values) -> {answer}:\n{LINE}    table = {{{field!r}: line[1]}}\n    return table\n"
@@ -513,3 +514,28 @@ def test_the_fix_each_diagnostic_names_passes(backend: dict[str, str]) -> None:
     )
     assert check.find_unthinned({"new_view": typed}) == {}
     assert listed  # the contract's own claims stay readable
+
+
+# Claude review of #793 (blocking): a scalar return annotation says the function returns no answer, not that no dict
+# inside it is a picture. One sent through a callback, a store or json.dumps, or nested in a typed answer, is
+# classified by its fields' names, so thinning it by a way no registered function does fails as before.
+@pytest.mark.parametrize(
+    "source",
+    [
+        "def emit(frame, send) -> None:\n    send({'values': frame[::10]})\n",
+        "import json\n\ndef encode(frame) -> str:\n    return json.dumps({'values': frame[::10]})\n",
+        "CACHE = {}\n\ndef emit(frame) -> None:\n    CACHE['x'] = {'values': frame[::10]}\n",
+        "def emit(frame) -> bool:\n    picture = {}\n    picture['values'] = frame[::10]\n    print(picture)\n"
+        "    return True\n",
+        "def read(frame) -> StagePoints:\n    return {'xs': [], 'overview': {'values': frame[::10]}}\n",
+    ],
+)
+def test_a_picture_made_inside_a_function_that_returns_no_answer_is_still_checked(source: str) -> None:
+    found = check.find_unthinned({"new_view": source})
+    assert [entry.rsplit(":", 1)[1] for entry in found] in (["emit#values"], ["encode#values"], ["read#values"]), found
+
+
+def test_a_number_written_out_is_no_array_of_drawn_points() -> None:
+    # A table of point counts keyed by mode (stage_combine._line_buckets): numbers, not a picture's field.
+    source = "EVENTS = 2048\n\ndef buckets(mode) -> int:\n    return {'events': EVENTS, 'values': 12}.get(mode, 1)\n"
+    assert check.find_unthinned({"new_view": source}) == {}

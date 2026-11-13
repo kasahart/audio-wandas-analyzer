@@ -372,9 +372,14 @@ class Proof:
                 mine, drawn = node.args[0], node.args[1]
                 if answer(mine) and not constant(drawn) and ast.dump(mine) != ast.dump(drawn):
                     told.append(ast.dump(mine))
-            elif isinstance(node, ast.Call) and callee_name(node) in POSITIVE_CALLS and callee_name(node) != "approx":
-                if callee_name(node).startswith("assert_") and not self.inside_raises(test, node):
-                    state(*node.args[:2])
+            elif (
+                isinstance(node, ast.Call)
+                and callee_name(node) in POSITIVE_CALLS
+                and callee_name(node) != "approx"
+                and callee_name(node).startswith("assert_")
+                and not self.inside_raises(test, node)
+            ):
+                state(*node.args[:2])
         if not stated or not told:
             return f'"{self.name}" asserts no case where the full data and the drawn points give different answers'
         if not any(value in stated for value in told):

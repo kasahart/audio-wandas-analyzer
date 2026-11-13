@@ -35,11 +35,13 @@ Flows the backend has today are in KNOWN_FLOWS, each with its gap in the contrac
 the list only shrinks. A flow not listed fails, and so does a listed one no longer found.
 
 Which fields are drawn points is read from the protocol's schema (python-backend/protocol_schema.py: the arrays
-marked ``x-drawn``), not listed here, and decided where each field is written: by module, function and field. A
-function's return annotation says which answer it builds (``-> StagePoints``: a definition of the schema, whose
-``values`` are ``x-whole``; ``-> StageValueRange``: a TypedDict whose ``min`` is a ``float``; ``-> int``: no
-answer at all), and the field is what that answer says it is. Only where the function does not say (no annotation,
-or one the schema does not know, or a field that answer has not) is a field taken by its name.
+marked ``x-drawn``), not listed here, and decided where each field is written: by module, function and field. The
+dict a function returns is the answer its return annotation names (``-> StagePoints``: a definition of the schema,
+whose ``values`` are ``x-whole``; ``-> StageValueRange``: a TypedDict whose ``min`` is a ``float``), and so is a
+local annotated with such a type; their own fields are what that answer says they are. Every other dict (one
+nested in an answer, one sent through a callback, a store or ``json.dumps``, any dict of a function whose return
+annotation is a scalar or says nothing), and a field that answer has not, is taken by its field's name. A number
+written out (``2048``, a module-level ``EVENT_POINTS = 2048``) is never an array of drawn points.
 
 And the other way round: every value put in an array of drawn points must have come from a registered thinning
 function (SOURCES), or its place is listed in drawn_points_contract.json ('unthinned') with why it sends every
@@ -47,12 +49,10 @@ value. So a new function that thins data and sends it (whatever way it thins: a 
 min/max, a resample) fails here until it is registered, and once registered its result is followed.
 
 What this cannot see, stated plainly: thinning added inside a function already listed under 'unthinned' (the list is
-the review point: keep each entry to one field of one function); a field of a dict nested inside an answer (a
-channel of a slice), which is taken by its name; a wrong return annotation (pyright checks it against the code); a
-value that mixes a registered function's result with data thinned some other way (it counts as registered); and
-thinned data sent in a field the schema does not mark ``x-drawn`` at all (test_protocol_schema.py makes every array
-of numbers say x-drawn, x-whole or x-place, but
-a wrong mark is a reviewer's to catch).
+the review point: keep each entry to one field of one function); a wrong return annotation (pyright checks it
+against the code); a value that mixes a registered function's result with data thinned some other way (it counts
+as registered); and thinned data sent in a field the schema does not mark ``x-drawn`` at all (test_protocol_schema.py
+makes every array of numbers say x-drawn, x-whole or x-place, but a wrong mark is a reviewer's to catch).
 
 The backend readers classified 'draws' in python-backend/drawn_points_contract.json are checked too: what each
 returns of drawn points carries its name wherever it goes, and the reader fails if its own code, or any code its
@@ -204,8 +204,8 @@ ARRANGING = frozenset(
 SHAPE_ATTRIBUTES = frozenset({"size", "shape", "ndim", "dtype", "nbytes", "itemsize"})
 #: Methods that put their argument into their receiver (a list, a cache, a store), by how their names start.
 STORING_METHODS = ("append", "extend", "insert", "add", "put", "set", "store", "cache", "remember", "__setitem__")
-#: Return annotations that are no answer of the protocol: a function annotated so builds no picture, and no field of a
-#: dict it makes is a picture's drawn field.
+#: Return annotations of a scalar: the function returns no answer of the protocol. This says nothing of the dicts it
+#: makes inside (it may still send a picture through a callback or a store): those are taken by their fields' names.
 SCALAR_TYPES = frozenset({"int", "float", "bool", "str", "bytes", "None"})
 #: How far the analysis goes before it stops (and fails, naming where): calls inside calls, rounds of a loop's body,
 #: of a recursion and of the stores, until what they carry settles.
@@ -418,6 +418,8 @@ class Program:
         self.classes: dict[str, list[str]] = {}
         #: Each class's fields' annotations (``min: float``), by ``module:Class``.
         self.annotations: dict[str, dict[str, ast.expr]] = {}
+        #: Module-level names bound to a number written out, by ``module:NAME``.
+        self.numbers: set[str] = set()
         #: The protocol's definitions (protocol_schema.py), by name: what an answer annotated with one is.
         self.definitions: dict[str, dict[str, object]] = {
             name: value for name, value in DEFINITIONS.items() if isinstance(value, dict)
@@ -483,6 +485,17 @@ class Program:
             elif isinstance(node, (ast.Assign, ast.AnnAssign)):
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
                 module.globals.update(target.id for target in targets if isinstance(target, ast.Name))
+        # A module-level name bound to a number written out (``EVENT_POINTS = 2048``): a number, never an array.
+        for node in module.tree.body:
+            if isinstance(node, ast.Assign) and _number_literal(node.value):
+                self.numbers.update(f"{module.name}:{t.id}" for t in node.targets if isinstance(t, ast.Name))
+            elif (
+                isinstance(node, ast.AnnAssign)
+                and isinstance(node.target, ast.Name)
+                and node.value is not None
+                and _number_literal(node.value)
+            ):
+                self.numbers.add(f"{module.name}:{node.target.id}")
         # A module-level name bound to a function (``REDUCE = np.max``) is that function, not a store.
         for node in module.tree.body:
             if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
@@ -539,10 +552,13 @@ class Program:
         self.stops.setdefault(where, why)
 
     def answer(self, function: Function) -> tuple[str, str] | None:
-        """What answer ``function`` builds, by its return annotation (``X | None`` is ``X``): ``("schema", name)`` for
-        a definition of the protocol, ``("record", module:Class)`` for another class of the backend, ``("none", "")``
-        for a scalar (no answer at all); None when it does not say."""
-        node = function.node.returns
+        """What answer ``function`` returns, by its return annotation (see ``typed``)."""
+        return self.typed(function.module, function.node.returns)
+
+    def typed(self, module: str, node: ast.expr | None) -> tuple[str, str] | None:
+        """What an annotation (``X | None`` is ``X``) says a value is: ``("schema", name)`` for a definition of the
+        protocol, ``("record", module:Class)`` for another class of the backend, ``("none", "")`` for a scalar;
+        None when it does not say."""
         while isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
             node = node.right if isinstance(node.left, ast.Constant) and node.left.value is None else node.left
         if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "Optional":
@@ -555,8 +571,8 @@ class Program:
             return ("none", "")
         if node.id in self.definitions:
             return ("schema", node.id)
-        mine = f"{function.module}:{node.id}"
-        record = mine if mine in self.annotations else self.modules[function.module].imported.get(node.id)
+        mine = f"{module}:{node.id}"
+        record = mine if mine in self.annotations else self.modules[module].imported.get(node.id)
         return ("record", record) if record in self.annotations else None
 
     def _add(self, module: str, node: ast.FunctionDef | ast.AsyncFunctionDef, cls: str | None) -> None:
@@ -695,6 +711,13 @@ def property_kind(key: str, prop: object, definitions: Mapping[str, object]) -> 
     return DRAWN_FIELD if key in holders or (key in places and key in DRAWN_PLACES) else OTHER_FIELD
 
 
+def _number_literal(node: ast.expr) -> bool:
+    """A number written out (``2048``, ``-1.5``), not a bool."""
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
+        node = node.operand
+    return isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool)
+
+
 def scalar_annotation(node: ast.expr) -> bool:
     """Whether an annotation is of one scalar (``float``, ``int | None``, ``NotRequired[float]``): no array."""
     if isinstance(node, ast.Constant):
@@ -734,6 +757,11 @@ class Walker:
         self.line = function.node.lineno
         #: What answer this function builds, by its return annotation (Program.answer).
         self.answer = program.answer(function)
+        #: The dicts that are an answer of a known type (the dict returned, or a local annotated with one), and the
+        #: locals holding one: only their own fields are classified by that type (field_kind).
+        self.typed_dicts: dict[int, tuple[str, str]] = {}
+        self.typed_names: dict[str, tuple[str, str]] = {}
+        self._type_answers(function.node)
         self.returned: Taint = CLEAN
         self.flows: list[Flow] = []
         #: What this function puts in a store of its parameters' values, for its caller to store as its own.
@@ -912,7 +940,7 @@ class Walker:
             key = self.constant(target.slice)
             self.expr(target.slice)
             if not self.is_store(target.value):
-                self.check_field(target, key, taint)
+                self.check_field(target, key, taint, self.typed_holder(target.value))
             self.put(target.value, nested(taint, key))
         elif isinstance(target, ast.Attribute):
             self.put(target, flat(taint))
@@ -955,14 +983,69 @@ class Walker:
             return self.store_of(node.id) is not None
         return isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "self"
 
-    def field_kind(self, key: str) -> str:
-        """What the field ``key`` written here is, by module, function and field: the answer this function's return
-        annotation names says (a schema definition's property, a backend class's field, no answer at all); only
-        where it does not say is the field taken by its name (DRAWN_ARRAYS, DRAWN_KEYS)."""
-        if self.answer is not None:
-            kind, name = self.answer
-            if kind == "none":
-                return OTHER_FIELD
+    def _type_answers(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        """Which dicts of this function are an answer of a known type: a dict returned (the return annotation's
+        type), a local annotated with a type (``view: StageView = {...}``), and a local returned. A scalar type says
+        nothing of the dicts inside (a function that returns None or a string may still send a picture)."""
+        statements: list[ast.AST] = []
+        todo: list[ast.AST] = list(node.body)
+        while todo:
+            item = todo.pop()
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+                continue
+            statements.append(item)
+            todo.extend(ast.iter_child_nodes(item))
+        answer = self.answer if self.answer is not None and self.answer[0] != "none" else None
+        assigned: list[tuple[str, ast.expr]] = []
+        for item in statements:
+            if isinstance(item, ast.Return) and answer is not None:
+                # What is returned, through ``a if c else b`` and ``a or b``: each side is the answer.
+                returned = [item.value] if item.value is not None else []
+                while returned:
+                    value = returned.pop()
+                    if isinstance(value, ast.Dict):
+                        self.typed_dicts[id(value)] = answer
+                    elif isinstance(value, ast.Name):
+                        self.typed_names[value.id] = answer
+                    elif isinstance(value, ast.IfExp):
+                        returned.extend((value.body, value.orelse))
+                    elif isinstance(value, ast.BoolOp):
+                        returned.extend(value.values)
+            elif isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+                typed = self.program.typed(self.module, item.annotation)
+                if typed is not None and typed[0] != "none":
+                    self.typed_names[item.target.id] = typed
+                if item.value is not None:
+                    assigned.append((item.target.id, item.value))
+            elif isinstance(item, ast.Assign):
+                assigned.extend((t.id, item.value) for t in item.targets if isinstance(t, ast.Name))
+        for name, value in assigned:
+            if name in self.typed_names and isinstance(value, ast.Dict):
+                self.typed_dicts[id(value)] = self.typed_names[name]
+
+    def typed_holder(self, node: ast.expr) -> tuple[str, str] | None:
+        """The type of the answer ``node`` (the dict written into) is, if a local of a known type."""
+        return self.typed_names.get(node.id) if isinstance(node, ast.Name) else None
+
+    def number(self, node: ast.AST) -> bool:
+        """A number written out, or a module-level name bound to one (``sv.EVENT_POINTS``): never an array."""
+        if isinstance(node, ast.expr) and _number_literal(node):
+            return True
+        module = self.program.modules[self.module]
+        if isinstance(node, ast.Name) and node.id not in self.env:
+            found = module.imported.get(node.id, f"{self.module}:{node.id}")
+            return found in self.program.numbers
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id in module.aliases:
+            return f"{module.aliases[node.value.id]}:{node.attr}" in self.program.numbers
+        return False
+
+    def field_kind(self, key: str, answer: tuple[str, str] | None = None) -> str:
+        """What the field ``key`` written here is, by module, function and field: in an answer of a known type (the
+        dict this function returns, by its return annotation, or a local annotated with a type: ``answer``), what
+        that type says (a schema definition's property, a backend class's field); anywhere else, and for a field the
+        type does not have, the field taken by its name (DRAWN_ARRAYS, DRAWN_KEYS)."""
+        if answer is not None:
+            kind, name = answer
             if kind == "schema":
                 properties = self.program.definitions[name].get("properties")
                 prop = properties.get(key) if isinstance(properties, dict) else None
@@ -974,13 +1057,14 @@ class Walker:
                     return OTHER_FIELD
         return ARRAY_FIELD if key in DRAWN_ARRAYS else DRAWN_FIELD if key in DRAWN_KEYS else OTHER_FIELD
 
-    def check_field(self, node: ast.AST, key: object, taint: Taint) -> None:
+    def check_field(self, node: ast.AST, key: object, taint: Taint, answer: tuple[str, str] | None = None) -> None:
         """A drawn value itself (not a picture holding drawn fields) put under a field that is not a drawn one; a
-        value no thinning function gave put under a field that is an array of drawn points."""
+        value no thinning function gave put under a field that is an array of drawn points (a number written out is
+        no array). ``answer``: the type of the answer the field is written into, if known (field_kind)."""
         if not isinstance(key, str):
             return
-        kind = self.field_kind(key)
-        if kind == ARRAY_FIELD and not values_of(taint) and not self.nothing(node):
+        kind = self.field_kind(key, answer)
+        if kind == ARRAY_FIELD and not values_of(taint) and not self.nothing(node) and not self.number(node):
             where = f"{self.function.name}#{key}"
             line = getattr(node, "lineno", 0)
             self.program.unthinned[where] = min(self.program.unthinned.get(where, line), line)
@@ -1254,7 +1338,7 @@ class Walker:
                 continue
             name = self.constant(key)
             self.expr(key)
-            self.check_field(value, name, carried)
+            self.check_field(value, name, carried, self.typed_dicts.get(id(node)))
             taint |= nested(carried, name)
         return taint
 
@@ -1455,13 +1539,13 @@ class Walker:
                 stored |= taint
             for key, taint in keywords.items():
                 if key is not None:
-                    self.check_field(node, key, taint)
+                    self.check_field(node, key, taint, self.typed_holder(func.value))
                 stored |= nested(taint, key) if key else taint
             self.put(func.value, stored)
             return CLEAN
         if name.startswith(STORING_METHODS):
             if name == "__setitem__" and len(node.args) == 2:
-                self.check_field(node, self.constant(node.args[0]), args[1])
+                self.check_field(node, self.constant(node.args[0]), args[1], self.typed_holder(func.value))
             self.put(func.value, every)
             return CLEAN
         if name in ("copy", "values"):
