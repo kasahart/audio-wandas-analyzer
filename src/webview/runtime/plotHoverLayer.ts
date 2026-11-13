@@ -75,16 +75,19 @@ export interface PlotHoverLayer {
  * A plot's click that acts on the point its readout reads (R7, R13): `act` is given what `marks` reads on `plot` as
  * the click is made (PlotHoverLayer.clicked) and makes the edit, returning how to take it back. The click returned is done at once by
  * plotInteraction.ts; a read still waiting for its data is acted on once it is in, while the click stands
- * (`current`), and the take-back puts back what was done by then.
+ * (`current`), and the take-back puts back what was done by then. Where the readout reads nothing at all (it is not
+ * on `plot`, or its read failed), the click does nothing, unless the plot acts on a place rather than a point
+ * (`unread`: a lane's click seeks to the pointer's time, R13), which is then done instead.
  */
-export function clickOnRead(marks: PlotHoverLayer, plot: HTMLElement, current: () => boolean, act: (got: PlotClickRead) => (() => void) | undefined): PlotClick {
+export function clickOnRead(marks: PlotHoverLayer, plot: HTMLElement, current: () => boolean, act: (got: PlotClickRead) => (() => void) | undefined,
+    unread?: () => (() => void) | undefined): PlotClick {
     // Taken now, at the click: what the plot's owner does after it (a redraw, the readout let go) does not change it.
     let got: PlotClickRead | null | undefined;
     let when: (() => void) | null = null;
     marks.clicked(plot, current, told => { got = told; when?.(); });
     return () => {
         let takeBack: (() => void) | undefined;
-        const go = (): void => { when = null; if (got && current()) takeBack = act(got); };
+        const go = (): void => { when = null; if (current()) takeBack = got ? act(got) : unread?.(); };
         if (got === undefined) when = go; else go();
         return () => { when = null; takeBack?.(); takeBack = undefined; };
     };

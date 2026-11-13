@@ -1,10 +1,23 @@
 /**
  * How a track lane's readout is written (R7): a waveform lane's sample, read by the plot component from the file's
  * samples (stagePanes.stageHover over laneReads.waveform), names the recording, its time and amplitude; a
- * spectrogram lane's real STFT cell its time, frequency bin and level.
+ * spectrogram lane's real STFT cell its time, frequency bin and level; and where a click on a lane seeks to.
  */
 import { readoutText } from '../../shared/gui-core/index';
 import { amountText, frequencyText, levelText, secondsText, spacingDecimals } from '../plot/plotText';
+import type { PlotClickRead } from './plotHoverLayer';
+import type { StageRead } from './stagePanes';
+
+/**
+ * Where a click on a lane seeks to on the lanes' time axis (R7, R13): seeking is an act on a time, not on a point.
+ * A reading: the time of the point read (`timeOf`: the sample's, the cell's frame's). No reading at all (`got` null:
+ * no readout on the lane, its read failed; or no point read: a lane with no readout, a file changed since it was
+ * analysed, no value there; or a read with no time of its own): the pointer's time (`pointer`), as nothing is claimed
+ * there. A read still on its way is never given here: clickOnRead waits for it.
+ */
+export function laneClickNorm(got: PlotClickRead | null, timeOf: (read: StageRead) => number | null, pointer: number): number {
+    return (got?.read ? timeOf(got.read) : null) ?? pointer;
+}
 
 /**
  * "name / 1.234 s / 0.123 FS": the time to the digits that tell the points read apart (`step`, the samples' spacing:

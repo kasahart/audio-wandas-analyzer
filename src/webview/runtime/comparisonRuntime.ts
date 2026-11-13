@@ -1,7 +1,7 @@
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
 import { linkedSpectrogramBounds, spectrogramDisplayBounds, spectrogramFailureText } from './spectrogramRaster';
 import { laneWaveformOverlay, onColourBar, paintTrackSpectrogram, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
-import { laneReadoutText, spectrogramReadoutText } from './trackLaneHover';
+import { laneClickNorm, laneReadoutText, spectrogramReadoutText } from './trackLaneHover';
 import { createLaneReads, type LaneTrack } from './laneReads';
 import type { FullSource } from './fullRead';
 import { NO_FULL_DATA } from './fullRead';
@@ -4122,17 +4122,19 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             // The time the lane's readout read at the press (R7, R13: clickOnRead, the point read and its time as the
             // other lanes' time line shows it), never the pixel's own time: a plain click's is returned for
             // plotInteraction.ts to do at once, with how to put the cursor and the loop back for a double click's second
-            // press. Where the readout reads nothing (no value, a file changed since it was analysed), nothing moves.
+            // press. Seeking is an act on a time, not on a point: where the readout reads nothing at all (no value, a
+            // file changed since it was analysed, no readout on the lane), nothing is claimed, so the click seeks to the
+            // pointer's time at the press (laneClickNorm); a read still on its way is waited for (R13).
             const canvas = trackStore.protocolIndexForId(press.trackId) === null ? null : canvasById(document, press.canvasId);
             if (canvas) {
                 showLaneReadout(canvas);
-                click = clickOnRead(laneMarks, canvas, current, got => {
-                    const norm = got.read ? laneReadNorm(got.read) : null;
-                    if (norm === null) return undefined;
+                const seek = (norm: number): (() => void) => {
                     const cursorBefore = viewState.cursor, loopBefore = viewState.loop;
                     moveCursor(norm); setLoopRegion(null); scheduleSpectrumRefresh('immediate');
                     return () => { moveCursor(cursorBefore); setLoopRegion(loopBefore); scheduleSpectrumRefresh('immediate'); };
-                });
+                };
+                click = clickOnRead(laneMarks, canvas, current, got => seek(laneClickNorm(got, laneReadNorm, press.startNorm)),
+                    () => seek(laneClickNorm(null, laneReadNorm, press.startNorm)));
             }
         }
         // A click asks for the spectra at the cursor it moves to (its own refresh), not first at the one it leaves.

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { stubStage } from './stubStage';
 import path from 'node:path';
 import { expect, settled, test, type Locator, type Page } from './canvasAudit';
-import { buildExtensionHostPathManyTracksHtml, buildExtensionHostPathUiSmokeHtml, buildUiSmokeHtml } from './buildHtml';
+import { buildExtensionHostPathManyTracksHtml, buildExtensionHostPathUiSmokeHtml, buildUiSmokeHtml, buildUiSmokeManyTracksHtml } from './buildHtml';
 import { backendRequired, entry100Metadata, entry100Results, openEntry, pickCsv, type ScannedFile } from './entryHelpers';
 import { getStrings } from '../../shared/i18n/strings';
 import { waveformRange } from '../../webview/plot/waveformLayer';
@@ -658,6 +658,38 @@ const ROWS: Row[] = [
         },
     },
     {
+        chart: 'track waveform lane', event: 'a click on a lane that reads nothing (its file changed since it was analysed): the time cursor goes to the pointer\'s time (R13)',
+        async run(page) {
+            // Seeking is an act on a time, not on a point: where the readout reads nothing at all, nothing is claimed, so
+            // the click seeks to the pointer's time (R13, "a click acts on the point the readout reads": no reading).
+            await page.setViewportSize({ width: 1200, height: 900 });
+            await page.setContent(buildUiSmokeManyTracksHtml(2, true), { waitUntil: 'domcontentloaded' });
+            const lane = page.locator('#track-canvas-0');
+            await expect.poll(() => lane.getAttribute('data-plot')).toBe('');
+            await page.evaluate(filePath => window.postMessage({ type: 'entry-source-changed', filePath }, '*'), '/preview/take00.wav');
+            await expect(lane, 'the lane of the file changed gives no readout (R7)').toHaveAttribute('data-plot-full', 'none');
+            const cursor = (): Promise<number> => page.evaluate(() => {
+                window.dispatchEvent(new MessageEvent('message', { data: { type: 'comparison-panel-test-action', actionId: `cursor-${Date.now()}`, actions: [] } }));
+                const messages = (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; renderedUi?: { cursorNorm?: number } }> }).__uiSmokePostedMessages;
+                return messages.filter(message => message.type === 'comparison-panel-test-snapshot').at(-1)?.renderedUi?.cursorNorm ?? NaN;
+            });
+            const before = await cursor();
+            const box = (await lane.boundingBox())!;
+            for (const across of [0.43, 0.71]) {
+                const at = { x: box.x + box.width * across, y: box.y + box.height * 0.3 };
+                await page.mouse.move(at.x, at.y);
+                await settled(page);
+                expect((await noted(lane)).read, 'nothing is read on the lane').toBe('');
+                await page.mouse.click(at.x, at.y);
+                await settled(page);
+                // The full time window: the pointer's place across the lane is its time on the lanes' axis, to a pixel.
+                const now = await cursor();
+                expect(now, 'the click moves the time cursor').not.toBe(before);
+                expect(Math.abs(now - across), `the time cursor is at the pointer's time (${across}), not left where it was (${before}): ${now}`).toBeLessThanOrEqual(1 / box.width);
+            }
+        },
+    },
+    {
         chart: 'cursor spectrum', event: 'a box drag carried over the pair plots: no hover and no keys on that surface while it drags; let go there, read without a move',
         async run(page) {
             await page.setViewportSize({ width: 1200, height: 900 });
@@ -1206,5 +1238,5 @@ test('the browser table holds a row for each chart the readout runs on, by its f
     // Each chart is stepped (→) or zoomed (+) under a still pointer in at least one of its rows.
     for (const chart of CHARTS) expect(ROWS.some(row => row.chart === chart && /→|\+/u.test(row.event)), `${chart}: a step or a zoom`).toBe(true);
     const events = ROWS.map(row => row.event).join(' | ');
-    for (const path of ['scroll', 'Tab', 'then +', 'pending', 'failed', '(a redraw)', 'add up', 'off the window', 'seek', 'double click', 'drag', 'the surface from under', 'double-click wait', 'event-line click', 'header', 'resize', 'no slice drawn yet', 'drag threshold', 'picture is made anew', 'on a dot', 'let go there', 'recordings of the same value', 'a redraw without another recording', 'with a range picked']) expect(events, path).toContain(path);
+    for (const path of ['scroll', 'Tab', 'then +', 'pending', 'failed', '(a redraw)', 'add up', 'off the window', 'seek', 'double click', 'drag', 'the surface from under', 'double-click wait', 'event-line click', 'header', 'resize', 'no slice drawn yet', 'drag threshold', 'a lane that reads nothing', 'picture is made anew', 'on a dot', 'let go there', 'recordings of the same value', 'a redraw without another recording', 'with a range picked']) expect(events, path).toContain(path);
 });

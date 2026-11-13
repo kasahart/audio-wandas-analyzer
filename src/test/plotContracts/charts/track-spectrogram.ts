@@ -58,10 +58,11 @@ export const trackSpectrogram: ChartContract = {
         },
         {
             id: 'track-spectrogram.click', value: 'click', what: 'クリックで動く時刻のカーソル',
-            computedIn: [...CLICK_READ, `${RT}:endLaneDrag`, `${RT}:laneReadNorm`, `${RT}:showLaneReadout`],
-            from: 'full', trace: '押した所でレーンの読み値が読んだマス（PlotHoverLayer.clicked）のフレームの時刻へカーソルを動かす。マスを読まない所では動かない。',
+            computedIn: [...CLICK_READ, `${RT}:endLaneDrag`, `${RT}:laneReadNorm`, `${RT}:showLaneReadout`, 'src/webview/runtime/trackLaneHover.ts:laneClickNorm'],
+            from: 'full', trace: '押した所でレーンの読み値が読んだマス（PlotHoverLayer.clicked）のフレームの時刻へカーソルを動かす。マスを何も読まない所（解析後に変わったファイル、読み値がレーンにない、読みの失敗、全データのないマス）では、シークは時刻への操作なので、押したときのマウスの時刻へ動かす（clickOnRead の unread、laneClickNorm）。取り寄せ中は届いてから決める。',
             tests: [
                 tt('src/test/trackLaneHover.test.ts', 'a click on a spectrogram lane moves the cursor to the frame of the cell its readout reads, not the column averaged to draw it (R7, R13)'),
+                t('src/test/trackLaneHover.test.ts', 'a click on a track lane whose readout reads nothing at all (no readout: a file changed since it was analysed) seeks to the pointer\'s time; on a lane that reads, to the time of the sample read (R7, R13)'),
                 t('src/test/plotInteraction.test.ts', PRESS_READ_TEST),
                 t('src/test/uiSmoke/plotContract.spec.ts', CLICK_TEST),
             ],

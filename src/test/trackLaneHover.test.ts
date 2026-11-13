@@ -7,7 +7,7 @@ import type { SpectrogramData } from '../shared/analysis/analysisTypes';
 
 import { paintOverlay, stageHover, stageStep, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
 import { laneWaveformOverlay, paintTrackSpectrogram } from '../webview/runtime/trackCanvasPainter';
-import { laneReadoutText, spectrogramReadoutText } from '../webview/runtime/trackLaneHover';
+import { laneClickNorm, laneReadoutText, spectrogramReadoutText } from '../webview/runtime/trackLaneHover';
 import { clickOnRead, createPlotHoverLayer } from '../webview/runtime/plotHoverLayer';
 import { JSDOM } from 'jsdom';
 
@@ -191,4 +191,58 @@ test('a click on a spectrogram lane moves the cursor to the frame of the cell it
     close(acted?.at ?? undefined, laneSeconds(frames[frame]), 'the frame of the cell read');
     // The column drawn holds eight frames: its middle is no frame's time.
     assertNotDrawn(acted?.at, laneSeconds((frames[Math.floor(frame / 8) * 8] + frames[Math.floor(frame / 8) * 8 + 7]) / 2), 'not the time of the column drawn');
+});
+
+/**
+ * Where a click on `plot` (drawn on a lane `width` × `height` at the page's top left) at (x, y) seeks to on the lanes'
+ * time axis, as the lanes' click is made (comparisonRuntime endLaneDrag, R7, R13): through clickOnRead, the point read
+ * at its time (`timeOf`), and where the readout reads nothing at all, the pointer's time (`pointer`). `shown` false:
+ * the lane's readout is not on it at all (laneMarks never shown there).
+ */
+function laneSeek(plot: StagePlot, width: number, height: number, x: number, y: number, timeOf: (read: StageRead) => number | null, pointer: number, shown = true): number | null {
+    const { window } = new JSDOM('<!doctype html><body><canvas id="lane"></canvas></body>');
+    const context = new Proxy({}, { get: () => () => undefined, set: () => true });
+    window.HTMLCanvasElement.prototype.getContext = (() => context) as unknown as HTMLCanvasElement['getContext'];
+    const lane = window.document.getElementById('lane') as HTMLElement;
+    lane.getBoundingClientRect = () => ({ left: 0, top: 0, width, height, right: width, bottom: height, x: 0, y: 0, toJSON: () => ({}) });
+    const marks = createPlotHoverLayer(window.document, { noValue: 'no value' });
+    if (shown) marks.show(lane, plot, x, y, null);
+    let sought: number | null = null;
+    const seek = (norm: number) => { sought = norm; return undefined; };
+    clickOnRead(marks, lane, () => true, got => seek(laneClickNorm(got, timeOf, pointer)), () => seek(laneClickNorm(null, timeOf, pointer)))();
+    return sought;
+}
+
+test('a click on a track lane whose readout reads nothing at all (no readout: a file changed since it was analysed) seeks to the pointer\'s time; on a lane that reads, to the time of the sample read (R7, R13)', () => {
+    const count = 4000;
+    const samples = Array.from({ length: count }, (_, index) => 0.8 * Math.sin(index * 1.37));
+    const norms = samples.map((_, index) => index / (count - 1));
+    const min: number[] = [], max: number[] = [], minT: number[] = [], maxT: number[] = [];
+    for (let start = 0; start < count; start += 10) {
+        const block = samples.slice(start, start + 10);
+        min.push(Math.min(...block)); max.push(Math.max(...block)); minT.push(norms[start]); maxT.push(norms[start + 9]);
+    }
+    const paint = (readable: boolean): StagePlot => {
+        const lane = laneWaveformOverlay({ waveform: { min, max, minT, maxT, samples: [], absolutePeak: 1 }, dataStart: 0, dataEnd: 1, amplitudeScale: 1 },
+            place, '#00ff00', 'Pa', testLine(norms, samples));
+        return paintOverlay(laneCanvas(400, 100), lane.overlay, R({ min: -1, max: 1 }), N({ x: 'Time [s]', y: 'Amplitude [Pa]' }),
+            { axisCanvas: null, axisView: lane.axisView, window: { x: { start: 0, end: 1 } }, ...(readable ? {} : { readout: false as const }) }) as StagePlot;
+    };
+    // The lanes' time axis (0–1 of the 4 s span from 10 s), as comparisonRuntime laneReadNorm puts a point read.
+    const timeOf = (read: StageRead): number | null => (read.at === undefined ? null : (read.at - place.startSec) / place.spanSec);
+    const fix = 'R13 (docs/display-rules.md, "a click acts on the point the readout reads": no reading → the pointer\'s time): comparisonRuntime endLaneDrag seeks through clickOnRead\'s `unread` and trackLaneHover laneClickNorm, which fall back on the press\'s time when nothing is read.';
+    const changed = paint(false);
+    const x = 173.4, y = 30;
+    // The pointer's time at the press, a little off the time of any sample (the click's own time, as the ruler's).
+    const pointer = 0.4123;
+    assert.equal(stageHover(changed, x, y), null, 'the lane of a file changed since it was analysed reads nothing (R7)');
+    close(laneSeek(changed, 400, 100, x, y, timeOf, pointer) ?? undefined, pointer, `a click on a lane that reads nothing seeks to the pointer's time. ${fix}`);
+    close(laneSeek(changed, 400, 100, x, y, timeOf, pointer, false) ?? undefined, pointer, `a click on a lane with no readout on it at all seeks to the pointer's time. ${fix}`);
+    // The same place on a lane that reads: the time of the sample read, not the pointer's.
+    const readable = paint(true);
+    const read = stageHover(readable, x, y);
+    assert.ok(read?.at !== undefined, 'the readable lane reads a sample there');
+    const sought = laneSeek(readable, 400, 100, x, y, timeOf, pointer);
+    close(sought ?? undefined, timeOf(read)!, 'a click on a lane that reads seeks to the time of the sample read');
+    assert.ok(Math.abs((sought ?? pointer) - pointer) > 1e-6, 'the sample read is not at the pointer\'s own time, so the two cases differ');
 });
