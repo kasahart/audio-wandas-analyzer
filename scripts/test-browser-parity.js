@@ -279,6 +279,10 @@ const server = http.createServer((req,res) => {
         const csv = fs.readFileSync(await csvDownload.path(),'utf8');
         const artifact = await page.evaluate(()=>window.__csvArtifact);
         assert.equal(csv,artifact.content);assert.equal(artifact.mimeType,'text/csv;charset=utf-8');
+        // The bytes saved: UTF-8 with a BOM, CRLF after every record, as every CSV the Analyzer writes (src/shared/utils/csv.ts).
+        const csvBytes = fs.readFileSync(await csvDownload.path());
+        assert.deepEqual([...csvBytes.subarray(0,3)],[0xEF,0xBB,0xBF],'the spectrum CSV starts with the UTF-8 BOM');
+        assert.ok(csv.endsWith('\r\n') && !/\r(?!\n)|(?<!\r)\n/u.test(csv),'the spectrum CSV ends every record with CRLF');
         const csvRows = csvRecords(csv);
         assert.equal(csvRows[0].length,4,'stereo exports frequency/level for both channels');
         // Each column named as its axis is: the frequency, and the level with its quantity, unit and reference (C5).

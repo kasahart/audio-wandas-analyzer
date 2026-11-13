@@ -20,7 +20,7 @@ import type { ScanResult, StageView } from '../../shared/protocol/backendProtoco
 import type { ScanAnswer } from './answerStore';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
-import { csvField } from '../../shared/utils/csv';
+import { csvFile } from '../../shared/utils/csv';
 import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
 
 export interface ReportFile {
@@ -213,7 +213,7 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
         strings.entryCsvGroupSize, strings.reportGroupFiles, strings.reportSpecVersion, strings.reportChain,
         strings.dsCh, ...(input.selection ? [strings.reportShownValue.replace('{value}', () => input.selection?.value ?? '')] : []), strings.reportMemo, strings.reportBaseDefinition,
     ];
-    const lines = [header.map(csvField).join(',')];
+    const lines: string[][] = [];
     for (const { path, comparison } of comparisons) {
         const row = input.model.rows.find(item => item.filePath === path);
         const result = input.results.get(path);
@@ -229,7 +229,7 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
             // Which chain the row's numbers are of: the Recipe written beside it, or the one before.
             [path, ...(comparison.base?.filePaths ?? [])].some(file => input.stale?.has(file)) ? strings.reportChainPrevious : strings.reportChainCurrent,
             ...infoCells(input, path, strings),
-        ].map(csvField).join(','));
+        ]);
     }
     // The differences fixed with D: each against the base it was fixed with, as that base was defined then.
     for (const item of input.derived ?? []) {
@@ -251,9 +251,9 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
             definition && numbers ? String(definition.count) : '', numbers ? (item.base.paths ?? []).map(baseName).join(';') : '', String(item.result.specVersion ?? ''),
             item.stale ? strings.reportChainPrevious : strings.reportChainCurrent,
             item.ch ? String(item.ch) : '', ...(input.selection ? [''] : []), '', definition ? baseDefinitionText(definition, strings) : item.base.label ?? '',
-        ].map(csvField).join(','));
+        ]);
     }
-    return '﻿' + lines.join('\r\n') + '\r\n';
+    return csvFile(header, lines);
 }
 
 /** "0.50–1.50" back to its seconds. */

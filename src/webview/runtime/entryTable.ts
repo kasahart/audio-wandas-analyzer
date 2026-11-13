@@ -11,7 +11,7 @@ import type { EntryConditionTable } from '../../shared/analysis/entryScan';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { median } from '../../shared/dataset/distribution';
 import { powerMeanOrNull } from '../../shared/utils/levels';
-import { csvField } from '../../shared/utils/csv';
+import { csvFile } from '../../shared/utils/csv';
 import { spacingDecimals } from '../plot/plotText';
 import { folderReference, type ExclusionReason, scanLevelKey, type FigureColumns, type FolderReference } from './figureModel';
 import { scanAnswer } from './answerStore';
@@ -413,11 +413,10 @@ export function bandLabel(band: number): string {
     return center >= 1000 ? `${center / 1000} kHz` : `${center} Hz`;
 }
 
-/** One CSV cell: text quoted when it must be, numbers already formatted by `csvNumber`. */
+/** One CSV cell's text (`csvFile` quotes it when it must be): empty for none, a number formatted by `csvNumber`. */
 export function csvCell(value: string | number | null): string {
     if (value === null) return '';
-    const text = typeof value === 'number' ? csvNumber(value, 2) : value;
-    return csvField(text);
+    return typeof value === 'number' ? csvNumber(value, 2) : value;
 }
 
 /**
@@ -495,7 +494,7 @@ export function entryCsv(model: EntryModel, labels: { file: string; condition: (
     // Every metadata column goes out, checked ones first, so the CSV keeps what the table was read from.
     const header = [labels.file, ...model.columns.map((column, index) => column.name || labels.condition(index + 1)), labels.regionStart, labels.regionEnd, labels.level.level, labels.level.reference, `${labels.peak} Hz`, `${labels.peak} dB`, labels.bandLevel.level, labels.bandLevel.reference, labels.deltaLeq, labels.deltaBand, labels.groupSize, labels.groupLeft, labels.status];
     const dB = (value: number | null): string => csvNumber(value, 1);
-    const lines = [header.map(csvCell).join(',')];
+    const lines: string[][] = [];
     for (const row of model.rows) {
         // A row of an earlier recipe, version or calibration writes none of its numbers, and says so.
         const ok = row.status === 'ok' && !row.stale;
@@ -513,7 +512,7 @@ export function entryCsv(model: EntryModel, labels: { file: string; condition: (
             // n is the set's, 0 too (a base whose every recording was left out says so, with why), never blank or 1.
             dB(delta.leq), dB(delta.band), delta.count === null ? null : String(delta.count), delta.left || null,
             row.stale && !row.derived ? labels.stale : row.status === 'failed' ? '✕' : row.status === 'mismatch' ? row.mismatch ?? '' : '',
-        ].map(csvCell).join(','));
+        ].map(csvCell));
     }
-    return '﻿' + lines.join('\r\n') + '\r\n';
+    return csvFile(header.map(csvCell), lines);
 }

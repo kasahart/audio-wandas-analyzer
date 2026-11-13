@@ -8,6 +8,7 @@
  */
 import type { UiStrings } from '../../shared/i18n/strings';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
+import { uiNumber } from '../../shared/utils/format';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { distribution, groupLabels, type Distribution } from '../../shared/dataset/distribution';
 import { groupOf, isComputed, valueOf, type DatasetRow, type GroupId, type ValueId } from '../../shared/dataset/datasetTable';
@@ -149,8 +150,8 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         // Of the set's recordings alone, in the unit drawn (a level's channels: the drawn channels of its recordings).
         const drawnMembers = dist.groups.flatMap(item => item.members);
         count.textContent = members
-            ? `${(set ? setDrawnCount(set, drawnMembers, dist.unit === 'ch') : members).toLocaleString()} ${unit}${dist.groups.length > 4 ? ` · ${strings.dsDistGroups.replace('{n}', String(dist.groups.length))}` : ''}`
-            : strings.dsRows.replace('{n}', pool.length.toLocaleString());
+            ? `${uiNumber(set ? setDrawnCount(set, drawnMembers, dist.unit === 'ch') : members, strings.uiLocale)} ${unit}${dist.groups.length > 4 ? ` · ${strings.dsDistGroups.replace('{n}', String(dist.groups.length))}` : ''}`
+            : strings.dsRows.replace('{n}', uiNumber(pool.length, strings.uiLocale));
         // (A level of another reference is only ever drawn apart with its set given, which says it with the rest.)
         if (set) count.textContent += setExclusionText(set, strings);
         const legendHtml = members ? distributionLegendHtml(slots, baseGroup !== null ? `${prefix}${labels.get(baseGroup) ?? baseGroup}` : null, strings) : '';

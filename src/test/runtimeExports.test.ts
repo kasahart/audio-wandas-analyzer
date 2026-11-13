@@ -15,17 +15,19 @@ test('spectrum CSV pairs a frequency and a level column per track, each named as
         { name: 'a.wav ch1', slice: slice([-10, -20, -30], { axisLabel: 'Level [dB SPL]' }), levelTitle: T('Level [dB SPL re 20 µPa]') },
         { name: 'b,"x".wav', slice: slice([-1.5], { originalMaxFrequencyHz: 500 }), levelTitle: T('Level, uncalibrated [dBFS]') },
     ], P('Frequency [Hz]'));
-    assert.deepEqual(csv.split('\n'), [
+    // The exact file: UTF-8 with a BOM, CRLF after every record, as every CSV the Analyzer writes (csv.ts csvFile).
+    assert.equal(csv, '\uFEFF' + [
         'a.wav ch1 Frequency [Hz],a.wav ch1 Level [dB SPL re 20 µPa],"b,""x"".wav Frequency [Hz]","b,""x"".wav Level, uncalibrated [dBFS]"',
         '0.0000,-10.000000,0.0000,-1.500000',
         '500.0000,-20.000000,,',
         '1000.0000,-30.000000,,',
-    ]);
+    ].map(record => record + '\r\n').join(''));
+    assert.deepEqual([...Buffer.from(csv, 'utf8').subarray(0, 3)], [0xEF, 0xBB, 0xBF]);
 });
 
 test('spectrum CSV lists the band centres of an octave-band slice', () => {
     const csv = buildSpectrumCsv([{ name: 'a', slice: slice([-10, -20], { bandsPerOctave: 3, bandCentersHz: [31.5, 40], axisLabel: 'Band level [dBFS]' }), levelTitle: T('Level, uncalibrated [dBFS]') }], P('Frequency [Hz]'));
-    assert.deepEqual(csv.split('\n').slice(1), ['31.5000,-10.000000', '40.0000,-20.000000']);
+    assert.deepEqual(csvRecords(csv).slice(1), [['31.5000', '-10.000000'], ['40.0000', '-20.000000']]);
 });
 
 test('WAV loop regions clip to each file and drop files outside the loop', () => {

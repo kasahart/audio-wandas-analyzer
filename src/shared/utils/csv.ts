@@ -1,11 +1,33 @@
 /**
- * The one CSV field writer every CSV the Analyzer writes goes through (the spectrum export, the entry table, 報告.csv,
- * the notes CSV, a batch's targets.csv), so each is read back by any RFC 4180 reader as it was written.
+ * The one CSV writer every CSV the Analyzer writes goes through (the spectrum export, the entry table, 報告.csv,
+ * the notes CSV, a batch's targets.csv), in the VS Code panel and the browser build alike, so each is read back by any
+ * RFC 4180 reader as it was written.
+ *
+ * The file format (one for every CSV the Analyzer writes):
+ * - UTF-8 with a BOM (EF BB BF) first: a spreadsheet app reads a Japanese header without it as Shift_JIS / ANSI and
+ *   shows it garbled (the Japanese UI writes Japanese headers);
+ * - CRLF after every record, the last one too (RFC 4180; Excel on Windows reads it as written);
+ * - each field through `csvField`, quoted exactly when it must be.
+ * `csvFile` is the only place that format is written: an export hands it its header and rows and gets the file's text.
+ * The batch's results_index.csv, written by run_recipe.py outside the Analyzer, keeps the same format
+ * (`encoding="utf-8-sig"`, the csv module's CRLF). Held by src/test/csvExports.test.ts (the bytes of each export, and no
+ * export building CSV text without `csvFile`).
  *
  * Why one place: headers carry the UI's words, and an English one has commas in it ("Level, uncalibrated [dBFS]"),
  * a user's column name or memo can hold a quote or a line break. A writer that joined such a field bare would shift
- * every column after it, and only in some languages; a copy of this rule per export would drift.
+ * every column after it, and only in some languages; a copy of this rule per export would drift (the spectrum CSV once
+ * went out without a BOM and with LF while every other export had both).
  */
+
+/** The byte order mark every CSV the Analyzer writes starts with (U+FEFF, EF BB BF in UTF-8). */
+export const CSV_BOM = '\uFEFF';
+/** What ends every record of a CSV the Analyzer writes, the last one too. */
+export const CSV_RECORD_END = '\r\n';
+
+/** A whole CSV file: the header and the rows, each field quoted when it must be, BOM first, CRLF after every record. */
+export function csvFile(header: readonly string[], rows: ReadonlyArray<readonly string[]>): string {
+    return CSV_BOM + [header, ...rows].map(record => record.map(csvField).join(',') + CSV_RECORD_END).join('');
+}
 
 /** One field: quoted (a quote doubled) when it holds a comma, a quote or a line break; else as it is. */
 export function csvField(text: string): string {
