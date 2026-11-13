@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
 from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import Any
 
 import dask
@@ -17,17 +19,44 @@ RecipeFactory = Callable[..., dict[str, Any]]
 OPT_IN = {"slow": "AWA_SLOW", "perf": "AWA_PERF"}
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--record-skips",
+        metavar="PATH",
+        help="write the skipped tests ([{test, reason}] JSON) to PATH, for verify's skip gate (scripts/test-skips.mjs)",
+    )
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    for marker, variable in OPT_IN.items():
-        if os.environ.get(variable) == "1":
-            continue
-        skip = pytest.mark.skip(reason=f"{marker}: set {variable}=1 to run")
-        for item in items:
-            if marker in item.keywords:
-                item.add_marker(skip)
+    # Deselected, not skipped: a test of an opt-in marker is not part of a run unless its variable asks for it, and
+    # in CI a skip fails verify (scripts/test-skips.mjs). The summary names what was left out and how to run it.
+    off = {marker: variable for marker, variable in OPT_IN.items() if os.environ.get(variable) != "1"}
+    deselected = [item for item in items if any(marker in item.keywords for marker in off)]
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+        items[:] = [item for item in items if item not in deselected]
+
+
+_SKIPPED: list[dict[str, str]] = []
+
+
+def pytest_runtest_logreport(report: pytest.TestReport) -> None:
+    # On the controller of a pytest-xdist run too: the workers' reports reach this hook there.
+    if report.skipped and not hasattr(report, "wasxfail"):
+        reason = report.longrepr[2] if isinstance(report.longrepr, tuple) else str(report.longrepr)
+        _SKIPPED.append({"test": report.nodeid, "reason": reason.removeprefix("Skipped: ")})
+
+
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    path = session.config.getoption("--record-skips")
+    if path and not hasattr(session.config, "workerinput"):
+        Path(path).write_text(json.dumps(_SKIPPED, indent=1), encoding="utf-8")
 
 
 def pytest_terminal_summary(terminalreporter: Any) -> None:
+    for marker, variable in OPT_IN.items():
+        if os.environ.get(variable) != "1":
+            terminalreporter.write_line(f"{marker} tests deselected: set {variable}=1 to run them")
     timings = [
         f"  {report.nodeid}: {value}"
         for reports in terminalreporter.stats.values()

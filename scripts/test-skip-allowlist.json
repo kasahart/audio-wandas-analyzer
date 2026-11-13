@@ -1,0 +1,4 @@
+{
+  "about": "The tests allowed to skip in CI (scripts/test-skips.mjs), each on one OS (process.platform) with why it cannot run there. Only shrinks: an entry whose test runs fails verify, and src/test/testSkipGate.test.ts holds the count to a ceiling.",
+  "skips": []
+}

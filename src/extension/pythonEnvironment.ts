@@ -4,6 +4,16 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { fillTemplate, getStrings, type UiStrings } from '../shared/i18n/strings';
+import {
+    choosePythonCommand,
+    DEFAULT_PYTHON_COMMAND,
+    isLikelyCommand,
+    resolvePythonCommand,
+    virtualEnvPythonCommand,
+    workspaceVenvCommands,
+} from './pythonInterpreter';
+
+export { resolvePythonCommand };
 
 const REQUIRED_PACKAGES = [
     {
@@ -35,7 +45,6 @@ const REQUIRED_PACKAGES = [
 const INSTALL_TIMEOUT_MS = 20 * 60 * 1000;
 const CREATE_VENV_TIMEOUT_MS = 5 * 60 * 1000;
 const PYTHON_EXTENSION_TIMEOUT_MS = 5000;
-const WORKSPACE_VENV_NAMES = ['.venv', 'venv', 'env'];
 const SELECT_ENVIRONMENT_COMMAND = 'audioWandasAnalyzer.selectPythonEnvironment';
 
 function strings(): UiStrings {
@@ -64,9 +73,7 @@ function trustedCandidate(pythonCommand: string | undefined): string | undefined
 }
 
 function virtualEnvInterpreter(): string | undefined {
-    const virtualEnv = process.env['VIRTUAL_ENV'];
-    if (!virtualEnv) { return undefined; }
-    return fs.existsSync(resolvePythonCommand(virtualEnv)) ? trustedCandidate(virtualEnv) : undefined;
+    return trustedCandidate(virtualEnvPythonCommand());
 }
 
 interface PythonExtensionApi {
@@ -186,36 +193,6 @@ interface PythonQuickPickItem extends vscode.QuickPickItem {
     action?: 'browse' | 'create-venv';
 }
 
-function isPythonExecutablePath(value: string): boolean {
-    return /(^|[/\\])python(?:\d+(?:\.\d+)?)?(?:\.exe)?$/iu.test(value);
-}
-
-function isLikelyCommand(value: string): boolean {
-    return /^(?:python(?:\d+(?:\.\d+)?)?|py(?:\.exe)?|python(?:\d+(?:\.\d+)?)?\.exe)$/iu.test(value);
-}
-
-export function resolvePythonCommand(
-    pythonCommand: string,
-    platform: NodeJS.Platform = process.platform,
-    workspaceRoot?: string,
-): string {
-    const pathApi = platform === 'win32' ? path.win32 : path.posix;
-    if (isLikelyCommand(pythonCommand)) {
-        return pythonCommand;
-    }
-    if (isPythonExecutablePath(pythonCommand)) {
-        if (workspaceRoot && !pathApi.isAbsolute(pythonCommand)) {
-            return pathApi.join(workspaceRoot, pythonCommand);
-        }
-        return pythonCommand;
-    }
-    const relativeInterpreterPath = pathApi.join(pythonCommand, platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
-    if (workspaceRoot && !pathApi.isAbsolute(relativeInterpreterPath)) {
-        return pathApi.join(workspaceRoot, relativeInterpreterPath);
-    }
-    return relativeInterpreterPath;
-}
-
 /**
  * Resolves `pythonCommand` against the workspace folder. While the workspace is untrusted a relative path is
  * refused, because it would start a program the folder supplies.
@@ -242,10 +219,6 @@ export function setStatusBarImporting(item: vscode.StatusBarItem, pythonCommand:
     item.text = `$(sync~spin) ${strings().pyStatusImporting}`;
     item.tooltip = `${strings().pyTooltipImporting}\n${pythonCommand}`;
     item.backgroundColor = undefined;
-}
-
-function interpreterExists(pythonCommand: string, workspaceRoot: string | undefined): boolean {
-    return fs.existsSync(resolvePythonCommand(pythonCommand, process.platform, workspaceRoot));
 }
 
 type ProblemAction = 'select' | 'create-venv' | 'show-log' | 'open-browser';
@@ -349,10 +322,11 @@ export class PythonEnvironment implements vscode.Disposable {
      */
     getPythonCommand(): string {
         const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
-        if (hasExplicitPythonCommand(config)) {
-            return config.get<string>('pythonCommand', 'python3');
-        }
-        return this.defaultInterpreter ?? virtualEnvInterpreter() ?? config.get<string>('pythonCommand', 'python3');
+        return choosePythonCommand({
+            configured: hasExplicitPythonCommand(config) ? config.get<string>('pythonCommand', DEFAULT_PYTHON_COMMAND) : undefined,
+            active: this.defaultInterpreter,
+            virtualEnv: virtualEnvInterpreter(),
+        });
     }
 
     // The Python extension is optional: no extensionDependencies entry, and any failure falls back to VIRTUAL_ENV.
@@ -446,8 +420,8 @@ export class PythonEnvironment implements vscode.Disposable {
         };
         add(await this.pythonExtensionInterpreter(), text.pyPickFromPythonExtension);
         add(virtualEnvInterpreter(), text.pyPickFromVirtualEnv);
-        for (const name of vscode.workspace.isTrusted ? WORKSPACE_VENV_NAMES : []) {
-            if (root && interpreterExists(name, root)) { add(name, text.pyPickWorkspaceVenv); }
+        for (const name of vscode.workspace.isTrusted && root ? workspaceVenvCommands(root) : []) {
+            add(name, text.pyPickWorkspaceVenv);
         }
         return [
             ...found,
@@ -493,7 +467,7 @@ export class PythonEnvironment implements vscode.Disposable {
 
     private async storePythonCommand(chosen: string): Promise<void> {
         const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
-        if (hasExplicitPythonCommand(config) && chosen === config.get<string>('pythonCommand', 'python3')) {
+        if (hasExplicitPythonCommand(config) && chosen === config.get<string>('pythonCommand', DEFAULT_PYTHON_COMMAND)) {
             this.reselectedEmitter.fire(chosen);
             return;
         }
