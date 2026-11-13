@@ -19,6 +19,7 @@
  * after you edited the guide: read the compiler's message under the block's line.
  */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -34,6 +35,9 @@ import {
 } from './plotContracts/checks';
 import type { ChartContract } from './plotContracts/model';
 import { renderContractDoc } from './plotContracts/render';
+import { pythonExecutable } from './namedTest';
+import type { StageView } from '../shared/protocol/backendProtocol';
+import { stageRange } from '../webview/runtime/stagePanes';
 import { SCHEMA_FIELDS } from './plotContracts/schema';
 import { BACKEND_READERS, type BackendReader } from './plotContracts/values';
 
@@ -372,4 +376,36 @@ test('the guide\'s checklist names every step the example is checked for, and th
         const problems = exampleProblems(without(example));
         assert.match(problems.join('\n'), fails, `without step ${step}, the checks fail naming it. They said:\n${problems.join('\n') || '(nothing)'}`);
     }
+});
+
+/** The guide's backend module run by Python (never written to disk): `kurtosis_view` of a kurtosis line, as JSON. */
+function guideKurtosisView(module: string, times: readonly number[], values: readonly number[], points: number): StageView {
+    const script = [
+        'import json, sys, types',
+        'import numpy as np',
+        'sys.path.insert(0, "python-backend")',
+        'given = json.loads(sys.stdin.read())',
+        'module = types.ModuleType("kurtosis_view")',
+        'exec(compile(given["module"], "kurtosis_view.py", "exec"), module.__dict__)',
+        'print(json.dumps(module.kurtosis_view(np.array(given["times"]), np.array(given["values"]), given["points"])))',
+    ].join('\n');
+    const run = spawnSync(pythonExecutable(), ['-c', script], { cwd: repoRoot, encoding: 'utf8', input: JSON.stringify({ module, times, values, points }) });
+    assert.equal(run.status, 0, `the guide's kurtosis_view.py runs: ${run.stderr}`);
+    return JSON.parse(run.stdout) as StageView;
+}
+
+test('the guide\'s backend example sends the full data\'s value range, so the plot\'s range encloses every value, not only the points drawn (R9)', () => {
+    const module = exampleBlocks(readFileSync(path.join(repoRoot, GUIDE), 'utf8')).find(block => block.file === 'python-backend/kurtosis_view.py')?.code;
+    assert.ok(module, `${GUIDE} has the example's backend module`);
+    // 400 frames of kurtosis near 3, one burst to 9.5 and one dip to 1.2, thinned to 8 buckets to draw.
+    const times = Array.from({ length: 400 }, (_, index) => index * 0.01);
+    const values = times.map((_, index) => (index === 123 ? 9.5 : index === 301 ? 1.2 : 3 + 0.2 * Math.sin(index)));
+    const view = guideKurtosisView(module, times, values, 8);
+    assert.deepEqual(view.valueRange, { min: 1.2, max: 9.5 });
+    const range = stageRange([view]);
+    assert.ok(range.min <= 1.2 && range.max >= 9.5, `the plot's range ${JSON.stringify(range)} encloses every value (1.2 to 9.5)`);
+    // Without the full data's range the plot keeps its default and the line is off it: why the example sends one.
+    const { valueRange: _, ...without } = view;
+    assert.ok(!(stageRange([without]).max >= 9.5), 'a view with no valueRange is not ranged to its data');
+    assert.deepEqual((view as StageView & { kurtosisPeak?: unknown }).kurtosisPeak, { x: 1.23, value: 9.5 });
 });

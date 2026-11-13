@@ -194,9 +194,11 @@ def kurtosis_peak(times: np.ndarray, values: np.ndarray) -> dict[str, float] | N
 
 
 def kurtosis_view(times: np.ndarray, values: np.ndarray, points: int) -> StageView:
-    """The picture: the line thinned to ``points`` buckets to draw, and its peak taken before."""
+    """The picture: the line thinned to ``points`` buckets to draw; its range and its peak taken before, of every frame."""
     xs, drawn = min_max_line(times, values, points, False)
     view: StageView = {"frame": "ChannelFrame", "kind": "line", "x": "time", "xs": xs.tolist(), "values": drawn.tolist()}
+    # The axis's range is set from every value, never the points drawn (R9): without it the plot keeps its default.
+    view["valueRange"] = {"min": float(np.nanmin(values)), "max": float(np.nanmax(values))}
     peak = kurtosis_peak(times, values)
     if peak:
         view["kurtosisPeak"] = peak
