@@ -1,72 +1,80 @@
-import { expect, test, type Page } from './canvasAudit';
+import { expect, settled, test, type Page } from './canvasAudit';
 import { buildUiSmokeHtml } from './buildHtml';
 
 /**
- * パワースペクトル overlay の dblclick 操作（軸→レンジ popover / 内部→ズームリセット）の
- * 実ブラウザ smoke。
+ * The cursor spectrum's double-click, in a real Chromium (docs/display-rules.md R13): on the level axis (the plot's
+ * left margin) it opens that axis's range, on the frequency axis (its bottom margin) the frequency range, and inside
+ * the plot it only gives the whole back (the zoom reset), opening no range.
  *
- * 【既知の環境制約 — fixme】
- * この環境では `page.setContent(buildUiSmokeHtml())`（~250KB の自己完結 HTML）が
- * Chromium で安定して domcontentloaded を発火できず固まり、後続の mouse.dblclick が
- * タイムアウトする（PR #104 検証時にも観測。ComparisonPanel の大きな inline
- * スクリプト + 同期描画が原因と推測）。
+ * Where to press comes from the frame the plot component painted (data-plot-frame: left, top, width, height in CSS
+ * pixels on the canvas), never from margins written here, so a change of the margins moves the presses with them.
+ * Each wait is for the page to have answered (canvasAudit's settled), never a fixed time.
  *
- * 同じ振る舞い（dblclick → ゾーン判定 → popover 表示 / specZoomReset、Apply による
- * specDbMin/Max・specFreqStart/End への反映）は jsdom 統合テスト
- * （src/test/renderScript.integration.test.ts の "spectrum overlay:" 4 ケース）で
- * 実イベント・実ハンドラ・実 state により検証済み。実 Chromium で setContent が
- * 安定して動く環境では下記 fixme を外して有効化できる。
+ * These were test.fixme until #790: page.setContent of the self-contained page was said to stall before
+ * domcontentloaded. That no longer happens (plotContract.spec.ts loads the same page the same way on every run), so
+ * they run; the jsdom tests in renderScript.integration.test.ts ("spectrum overlay:") hold the same handlers' state.
  */
 
-async function loadResultsUi(page: Page) {
-    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
-    await expect(page.locator('#toolbar')).toBeVisible();
-    // overlay がレンダリングされ canvas にサイズが付くのを待つ
-    await page.waitForFunction(() => {
-        const c = document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
-        return !!c && c.width > 100;
-    }, { timeout: 5000 });
-}
+const FULL = '0.000 1.000 0.000 1.000';
+/** What the plot shows, as fractions of its whole (data-plot-window, written by the plot gestures; none yet is the whole). */
+const shown = async (page: Page): Promise<string> => (await page.locator('#spectrum-overlay-canvas').getAttribute('data-plot-window')) ?? FULL;
 
-test.fixme('spectrum overlay: Y軸 dblclick で範囲 popover が表示される', async ({ page }) => {
-    await loadResultsUi(page);
+/** The plot's frame (CSS pixels on the canvas) and the canvas's place and height on the screen. */
+interface Frame { left: number; top: number; width: number; height: number; x: number; y: number; canvasHeight: number }
+
+/** The comparison page with its cursor spectrum drawn and settled, and where its frame is on the screen. */
+async function loadSpectrum(page: Page): Promise<Frame> {
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
     const overlay = page.locator('#spectrum-overlay-canvas');
+    await expect(overlay).toBeVisible();
+    await expect.poll(() => overlay.getAttribute('data-plot-frame')).toMatch(/^\S+ \S+ \S+ \S+$/u);
+    await settled(page);
     const box = await overlay.boundingBox();
     expect(box).not.toBeNull();
-    const { W, H } = await overlay.evaluate((c) => ({
-        W: (c as HTMLCanvasElement).width, H: (c as HTMLCanvasElement).height,
-    }));
-    const sX = box!.width / W, sY = box!.height / H;
-    // Y軸ゾーン: canvas x=10 (<padL36)
-    await page.mouse.dblclick(box!.x + 10 * sX, box!.y + (H / 2) * sY);
-    const pop = page.locator('#spectrum-range-popover');
-    await expect(pop).toBeVisible();
-    await expect(page.locator('#spec-range-axis-badge')).toContainText('dB');
+    const [left, top, width, height] = ((await overlay.getAttribute('data-plot-frame')) ?? '').split(' ').map(Number);
+    expect([left, top, width, height].every(Number.isFinite) && left > 4 && width > 0 && height > 0 && box!.height - top - height > 4).toBe(true);
+    expect(await shown(page)).toBe(FULL);
+    return { left, top, width, height, x: box!.x, y: box!.y, canvasHeight: box!.height };
+}
+
+/** The range popover is open for the axis named `unit`, prefilled with bounds it can apply. */
+async function expectRangeOpen(page: Page, unit: string): Promise<void> {
+    const popover = page.locator('#spectrum-range-popover');
+    await expect(popover).toBeVisible();
+    await expect(page.locator('#spec-range-axis-badge')).toContainText(unit);
+    const low = Number(await page.locator('#spec-range-min').inputValue());
+    const high = Number(await page.locator('#spec-range-max').inputValue());
+    expect(Number.isFinite(low) && Number.isFinite(high) && high > low, `prefilled ${low} … ${high}`).toBe(true);
+}
+
+test('spectrum overlay: Y軸 dblclick で範囲 popover が表示される', async ({ page }) => {
+    const frame = await loadSpectrum(page);
+    // The middle of the left margin, half way up the frame.
+    await page.mouse.dblclick(frame.x + frame.left / 2, frame.y + frame.top + frame.height / 2);
+    await settled(page);
+    await expectRangeOpen(page, 'dB');
 });
 
-test.fixme('spectrum overlay: X軸 dblclick で周波数 popover が表示される', async ({ page }) => {
-    await loadResultsUi(page);
-    const overlay = page.locator('#spectrum-overlay-canvas');
-    const box = await overlay.boundingBox();
-    const { W, H } = await overlay.evaluate((c) => ({
-        W: (c as HTMLCanvasElement).width, H: (c as HTMLCanvasElement).height,
-    }));
-    const sX = box!.width / W, sY = box!.height / H;
-    // X軸ゾーン: canvas y = H-5 (>H-padB18), x = 中央
-    await page.mouse.dblclick(box!.x + (W / 2) * sX, box!.y + (H - 5) * sY);
-    await expect(page.locator('#spectrum-range-popover')).toBeVisible();
-    await expect(page.locator('#spec-range-axis-badge')).toContainText('Hz');
+test('spectrum overlay: X軸 dblclick で周波数 popover が表示される', async ({ page }) => {
+    const frame = await loadSpectrum(page);
+    // The middle of the frame's width, half way down the bottom margin (the frequency axis's ticks).
+    await page.mouse.dblclick(frame.x + frame.left + frame.width / 2, frame.y + (frame.top + frame.height + frame.canvasHeight) / 2);
+    await settled(page);
+    await expectRangeOpen(page, 'Hz');
 });
 
-test.fixme('spectrum overlay: 内部 dblclick で popover を開かずズームリセット相当', async ({ page }) => {
-    await loadResultsUi(page);
-    const overlay = page.locator('#spectrum-overlay-canvas');
-    const box = await overlay.boundingBox();
-    const { W, H } = await overlay.evaluate((c) => ({
-        W: (c as HTMLCanvasElement).width, H: (c as HTMLCanvasElement).height,
-    }));
-    const sX = box!.width / W, sY = box!.height / H;
-    // 内部中央 dblclick → popover は出ない（reset 動作）
-    await page.mouse.dblclick(box!.x + (W / 2) * sX, box!.y + (H / 2) * sY);
+test('spectrum overlay: 内部 dblclick で popover を開かずズームリセット相当', async ({ page }) => {
+    const frame = await loadSpectrum(page);
+    const middle = { x: frame.x + frame.left + frame.width / 2, y: frame.y + frame.top + frame.height / 2 };
+    // Zoomed in first (Ctrl+wheel inside the plot), so the double-click has a zoom to reset.
+    await page.mouse.move(middle.x, middle.y);
+    await page.keyboard.down('Control');
+    await page.mouse.wheel(0, -240);
+    await page.keyboard.up('Control');
+    await settled(page);
+    expect(await shown(page)).not.toBe(FULL);
+    await page.mouse.dblclick(middle.x, middle.y);
+    await settled(page);
+    expect(await shown(page)).toBe(FULL);
     await expect(page.locator('#spectrum-range-popover')).toBeHidden();
 });

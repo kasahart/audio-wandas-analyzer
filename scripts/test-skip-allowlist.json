@@ -1,23 +1,4 @@
 {
   "about": "The tests allowed to skip in CI (scripts/test-skips.mjs), each for one runner (node:test, pytest, playwright) and one OS (process.platform) with why it cannot run there. Only shrinks: an entry whose test runs fails its run, and src/test/testSkipGate.test.ts holds the count to a ceiling.",
-  "skips": [
-    {
-      "runner": "playwright",
-      "test": "src/test/uiSmoke/spectrumOverlayDblclick.spec.ts > spectrum overlay: Y軸 dblclick で範囲 popover が表示される",
-      "platform": "linux",
-      "reason": "test.fixme: page.setContent of the ~250 KB self-contained comparison page stalls in headless Chromium before domcontentloaded, so the dblclick times out; the same behaviour is held by the jsdom tests in src/test/renderScript.integration.test.ts (\"spectrum overlay:\"). #790: make them pass or delete them"
-    },
-    {
-      "runner": "playwright",
-      "test": "src/test/uiSmoke/spectrumOverlayDblclick.spec.ts > spectrum overlay: X軸 dblclick で周波数 popover が表示される",
-      "platform": "linux",
-      "reason": "test.fixme: page.setContent of the ~250 KB self-contained comparison page stalls in headless Chromium before domcontentloaded, so the dblclick times out; the same behaviour is held by the jsdom tests in src/test/renderScript.integration.test.ts (\"spectrum overlay:\"). #790: make them pass or delete them"
-    },
-    {
-      "runner": "playwright",
-      "test": "src/test/uiSmoke/spectrumOverlayDblclick.spec.ts > spectrum overlay: 内部 dblclick で popover を開かずズームリセット相当",
-      "platform": "linux",
-      "reason": "test.fixme: page.setContent of the ~250 KB self-contained comparison page stalls in headless Chromium before domcontentloaded, so the dblclick times out; the same behaviour is held by the jsdom tests in src/test/renderScript.integration.test.ts (\"spectrum overlay:\"). #790: make them pass or delete them"
-    }
-  ]
+  "skips": []
 }
