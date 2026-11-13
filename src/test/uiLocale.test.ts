@@ -11,14 +11,18 @@ const ROOT = path.join(__dirname, '..', '..');
 
 /** Runs `body` as if the runtime's default locale were `locale`: a call that names no locale formats in it. */
 function withRuntimeDefault<T>(locale: string, body: () => T): T {
-    const own = Number.prototype.toLocaleString;
-    Number.prototype.toLocaleString = function (this: number, locales?: Intl.LocalesArgument, options?: Intl.NumberFormatOptions): string {
-        return own.call(this, locales ?? locale, options);
-    };
+    const own = Object.getOwnPropertyDescriptor(Number.prototype, 'toLocaleString');
+    assert.ok(own);
+    Object.defineProperty(Number.prototype, 'toLocaleString', {
+        ...own,
+        value(this: number, locales?: Intl.LocalesArgument, options?: Intl.NumberFormatOptions): string {
+            return new Intl.NumberFormat(locales ?? locale, options).format(this);
+        },
+    });
     try {
         return body();
     } finally {
-        Number.prototype.toLocaleString = own;
+        Object.defineProperty(Number.prototype, 'toLocaleString', own);
     }
 }
 
