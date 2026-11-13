@@ -7,7 +7,11 @@
  * Within a row the cells and what is in them are matched by position; an element whose tag differs, or whose
  * children differ in number or kind, gets the new markup's children. Attributes follow the new markup exactly, so
  * what the runtime adds after a write (is-linked, is-flash) is taken off and added again, as when rows were rewritten.
+ * A kept button whose hint changed tells the footer (HINT_CHANGED_EVENT), which a new one under the pointer did by
+ * its mouseover.
  */
+
+import { HINT_CHANGED_EVENT } from './hintFooter';
 
 /** The key a top-level row is matched by; rows without one (spacers, the unmatched list) are matched in order. */
 function rowKey(node: Node): string | null {
@@ -17,9 +21,16 @@ function rowKey(node: Node): string | null {
     return key === null ? null : `${element.hasAttribute('data-derived') ? 'derived' : 'row'}:${key}`;
 }
 
+/** The kept elements whose hint changed in the write going on, told once the rows are in place (HINT_CHANGED_EVENT). */
+let rehinted: Element[] = [];
+
 function syncAttributes(target: Element, source: Element): void {
     for (const name of target.getAttributeNames()) if (!source.hasAttribute(name)) target.removeAttribute(name);
-    for (const { name, value } of source.attributes) if (target.getAttribute(name) !== value) target.setAttribute(name, value);
+    for (const { name, value } of source.attributes) {
+        if (target.getAttribute(name) === value) continue;
+        target.setAttribute(name, value);
+        if (name === 'data-hint') rehinted.push(target);
+    }
 }
 
 const sameKind = (a: Node, b: Node): boolean => a.nodeType === b.nodeType && a.nodeName === b.nodeName;
@@ -65,4 +76,11 @@ export function writeKeptRows(body: HTMLElement, html: string): void {
         if (body.childNodes[index] !== placed) body.insertBefore(placed, body.childNodes[index] ?? null);
     });
     while (body.childNodes.length > next.length) body.lastChild?.remove();
+    // A button kept under a resting pointer gets no mouseover, so the footer is told its hint changed (hintFooter.ts).
+    const told = rehinted;
+    rehinted = [];
+    for (const element of told) {
+        const view = element.ownerDocument.defaultView;
+        if (view && element.isConnected) element.dispatchEvent(new view.Event(HINT_CHANGED_EVENT, { bubbles: true }));
+    }
 }

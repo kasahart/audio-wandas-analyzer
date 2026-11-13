@@ -72,13 +72,15 @@ test('a folder opens with only what is stored; nothing is computed until 計算,
     await expect(page.locator('[data-entry-dist-count]')).toHaveText(new RegExp(`^6 ch(?:${leftOut})\\d+`, 'u'));
 });
 
-/** Each row's box and each head cell's width, by row key, as the table lays them out now. */
+/** Each row's box (by row key), each head cell's width and its ▾'s, as the table lays them out now. */
 const tableLayout = (page: Page) => page.evaluate(() => ({
     rows: Object.fromEntries([...document.querySelectorAll<HTMLElement>('[data-entry-rows] tr.entry-row')].map(row => {
         const box = row.getBoundingClientRect();
         return [row.dataset.key!, { y: box.y, height: box.height }];
     })),
     columns: [...document.querySelectorAll<HTMLElement>('[data-entry-head] th')].map(cell => cell.getBoundingClientRect().width),
+    // The ▾ of each head, or the place it keeps while its value is not computed: one width either way.
+    filters: [...document.querySelectorAll<HTMLElement>('[data-entry-head] th')].map(cell => cell.querySelector('.entry-fbtn, .entry-fbtn-slot')?.getBoundingClientRect().width ?? null),
 }));
 
 type TableLayout = Awaited<ReturnType<typeof tableLayout>>;
@@ -147,6 +149,26 @@ test('beside the tracks, no row moves while a folder\'s values arrive, though th
     expectNothingMoved(await scanFolder(page, true, 'ja'));
 });
 
+
+test('a row\'s ✎ under a resting pointer: the footer says its new hint, the memo, once it is written; the button is the same one (#781)', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    await openEntry(page, scanned!);
+    await settled(page);
+    const row = rows(page).nth(1);
+    await row.click();
+    const memo = row.locator('[data-action="entry-row-memo"]');
+    await memo.hover();
+    await expect(page.locator('#hint-footer')).toHaveText(STR.dsRowMemo);
+    await memo.evaluate(button => { (window as unknown as { memoButton: Element }).memoButton = button; });
+    // Written from the keyboard, the pointer resting where it was: the button stays and only its hint changes.
+    await page.keyboard.press('m');
+    await page.locator('[data-entry-memo-text]').fill('bearing noise');
+    await page.keyboard.press('Escape');
+    await expect(memo).toHaveAttribute('data-hint', 'bearing noise');
+    expect(await memo.evaluate(button => button === (window as unknown as { memoButton: Element }).memoButton)).toBe(true);
+    await expect(page.locator('#hint-footer')).toHaveText('bearing noise');
+});
 
 test('a file written over on disk while the folder is open is greyed until 計算 measures it again; the others keep their values (V1)', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
@@ -757,6 +779,14 @@ for (const language of ['ja', 'en'] as const) {
         await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
         await expect(page.locator('th[data-column="leq"]')).toBeHidden();
         await expect(page.locator('[data-entry-rows] tr.entry-row .entry-col-value').first()).toBeHidden();
+        // The ▾ takes only its glyph and padding, whatever the font: a ▾ of a fixed width took "ch"'s room in its 3.8em
+        // column and broke it where the font's glyphs are wider (#781's first fix, seen in CI only).
+        const chButton = await page.locator('th[data-column="ch"] [data-action="entry-fhead"]').evaluate(button => {
+            const range = document.createRange();
+            range.selectNodeContents(button);
+            return { width: button.getBoundingClientRect().width, glyph: range.getBoundingClientRect().width, padding: parseFloat(getComputedStyle(button).paddingLeft) + parseFloat(getComputedStyle(button).paddingRight) };
+        });
+        expect(chButton.width, 'the ▾ is as wide as its glyph and padding').toBeLessThanOrEqual(chButton.glyph + chButton.padding + 0.5);
         expect((await headerFit(page, 'ch')).lines, 'ch docked').toBe(1);
         await page.locator('.entry-size').click();
         await expect(page.locator('#entry-screen')).toHaveClass(/is-max/);

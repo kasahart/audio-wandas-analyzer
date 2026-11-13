@@ -338,8 +338,12 @@ export function renderComparisonStyles(): string {
            It has the head's ENTRY_HEAD_LINES lines; a longer name is clamped there, and its hint is the whole name. */
         .entry-table th.entry-num { white-space: normal; }
         th.entry-num .entry-th-label { min-width: 0; word-break: keep-all; overflow-wrap: break-word; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: ${ENTRY_HEAD_LINES}; overflow: hidden; }
-        /* The ▾ and the place it keeps while the value is not computed are one size, so the name wraps the same either way. */
-        .entry-screen .entry-table .entry-fbtn, .entry-table .entry-fbtn-slot { flex: none; box-sizing: border-box; width: 18px; min-height: 0; height: 18px; padding: 0; line-height: 18px; text-align: center; }
+        /* The ▾ and the place it keeps while the value is not computed are one size, so the name wraps the same either way:
+           the place holds an unseen ▾ in the ▾'s own font and padding. Neither is wider than its glyph, so a short head
+           ("ch" in its 3.8em column) keeps the room it had in every font. */
+        .entry-screen .entry-table .entry-fbtn, .entry-table .entry-fbtn-slot { flex: none; box-sizing: border-box; min-height: 0; height: 18px; padding: 0 3px; border: 0; font-size: 12px; line-height: 18px; }
+        .entry-table .entry-fbtn-slot { visibility: hidden; }
+        .entry-table .entry-fbtn-slot::before { content: '▾'; }
         .entry-th-count { color: var(--muted); font-weight: normal; }
         .entry-screen .entry-fbtn { border: 0; padding: 0 3px; color: var(--muted); }
         .entry-screen .entry-fbtn:hover:not(:disabled) { color: var(--text); background: var(--line); }
