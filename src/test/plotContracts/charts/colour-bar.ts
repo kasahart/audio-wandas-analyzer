@@ -30,7 +30,7 @@ export const colourBar: ChartContract = {
         },
         {
             id: 'colour-bar.range', value: 'range', what: 'カラーバーの上の軸の操作が動かす窓（Ctrl+ホイール、+ / − / 0、ドラッグ）と、ダブルクリックで開く色の範囲',
-            computedIn: [`${SP}:stagePlotPoint`, 'src/webview/runtime/plotInteraction.ts:centredZoomWindow', 'src/webview/runtime/comparisonRuntime.ts:openSpectrogramRangePopup'],
+            computedIn: [`${SP}:stagePlotPoint`, 'src/webview/runtime/plotInteraction.ts:centredZoomWindow', 'src/webview/runtime/comparisonRuntime.ts:openSpectrogramRangePopup', 'src/webview/runtime/figureModel.ts:colourScale'],
             from: 'axis', trace: '帯の上かどうかは 1 つのヒットテスト（stagePlotPoint が部品の返した StagePlot.colourBar を見る）で決め、トラック表示のレーン、比較の熱図、入口の概観帯が同じものを使う。帯の上は値の軸で、Ctrl+ホイールは横軸を真ん中を中心に拡大（centredZoomWindow）、ドラッグは矩形を描かない。ダブルクリックは、トラック表示のレーンでは帯が書く端の数（StagePlot.colourScale）で色の範囲の入力を開き、ほかのグラフでは拡大を戻す（R13）。',
             tests: [
                 t('src/test/uiSmoke/plotContract.spec.ts', 'every plot the comparison shows answers the same gestures: readout above it, ← / → step it, Ctrl+wheel zoom, double-click reset, axis range, both axes named (R13)'),
