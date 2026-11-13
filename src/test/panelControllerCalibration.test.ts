@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
 import type * as vscode from 'vscode';
-import type { AnalysisResultWithError } from '../shared/analysis/analysisTypes';
+import type { AnalysisResultWithError, AnalysisUpdateMessage } from '../shared/analysis/analysisTypes';
 import type { AnalysisOrchestrator } from '../extension/analysisOrchestrator';
 import type {
     PanelBackend,
@@ -28,6 +28,19 @@ function result(filePath: string, revision: number, peakAbsolute: number): Analy
         channels: [],
         calibrationSignature: `revision-${revision}-${peakAbsolute}`,
     };
+}
+
+/**
+ * A promise settled by the first value `matches` accepts. A test awaits exactly what it asserts on, with no wall
+ * clock: node:test's own timeout (AWAIT_LIMIT_MS) is the only limit, so a slow runner waits longer instead of failing.
+ */
+// node:test's own limit for a test that awaits what it asserts on (its default is none: a lost answer would hang).
+const AWAIT_LIMIT_MS = 60_000;
+
+function whenSeen<T>(matches: (value: T) => boolean): { see: (value: T) => void; seen: Promise<void> } {
+    let resolve!: () => void;
+    const seen = new Promise<void>((done) => { resolve = done; });
+    return { see: (value) => { if (matches(value)) resolve(); }, seen };
 }
 
 function loadModules(): {
@@ -331,7 +344,7 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     controller.dispose();
 });
 
-test('a calibration change refreshes every lane that shows the file, under each of its paths', async (testContext) => {
+test('a calibration change refreshes every lane that shows the file, under each of its paths', { timeout: AWAIT_LIMIT_MS }, async (testContext) => {
     if (process.platform === 'win32') {
         testContext.skip('Symlink creation requires elevated privileges on Windows.');
         return;
@@ -348,13 +361,15 @@ test('a calibration change refreshes every lane that shows the file, under each 
         let calibrationListener: ((event: { filePath: string; analysisRevision: number }) => void) | undefined;
         const refreshCalls: string[][] = [];
         let displayed: AnalysisResultWithError[] = [];
-        let updates = 0;
+        // Done when the panel is told both lanes are of the new calibration (each path's refresh posts once).
+        const refreshed = whenSeen<AnalysisUpdateMessage>((update) => update.results.length === 2
+            && update.results.every((entry) => entry.analysisRevision === 1));
         const notices: string[] = [];
         const panel: PanelHandle = {
             webview: {
                 onDidReceiveMessage: () => ({ dispose: () => undefined }),
                 postMessage: async (message) => {
-                    if ((message as { type?: unknown }).type === 'analysis-update') { updates += 1; }
+                    if ((message as { type?: unknown }).type === 'analysis-update') { refreshed.see(message as AnalysisUpdateMessage); }
                     if ((message as { type?: unknown }).type === 'entry-calibration-changed') { notices.push((message as { filePath: string }).filePath); }
                     return true;
                 },
@@ -422,10 +437,8 @@ test('a calibration change refreshes every lane that shows the file, under each 
         await controller.analyzeFiles([linkPath, targetPath]);
         revision = 1;
         calibrationListener?.({ filePath: calibrationFileKey(targetPath), analysisRevision: 1 });
-        // The refresh reads each file's version on disk first (analysedUnder): wait on time, not a number of turns.
-        for (const until = Date.now() + 5000; Date.now() < until && updates < 2;) {
-            await new Promise((resolve) => setTimeout(resolve, 2));
-        }
+        // The refresh reads each file's version on disk first (analysedUnder): wait for its update, not a number of turns.
+        await refreshed.seen;
 
         assert.deepEqual(refreshCalls, [[linkPath], [targetPath]]);
         // The entry table hears of it too, track or not, under each path the panel names the file by (never the
@@ -535,8 +548,8 @@ test('a stored scan is kept under the file version the backend knows: a recordin
     }
 });
 
-test('a track analysed again for a new calibration is analysed with the STFT saved, as every other analysis of the panel (V4)', async () => {
-    const { PanelController } = loadModules();
+test('a track analysed again for a new calibration is analysed with the STFT saved, as every other analysis of the panel (V4)', { timeout: AWAIT_LIMIT_MS }, async () => {
+    const { PanelController, calibrationFileKey } = loadModules();
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'controller-stft-'));
     try {
         const file = path.join(directory, 'a.wav');
@@ -545,11 +558,13 @@ test('a track analysed again for a new calibration is analysed with the STFT sav
         let calibrationListener: ((event: { filePath: string; analysisRevision: number }) => void) | undefined;
         const asked: Array<{ revision: number; stft: unknown }> = [];
         let displayed: AnalysisResultWithError[] = [];
-        let updates = 0;
+        // What the test asserts on, awaited as such: the analysis the calibration asks, and the update it posts.
+        const reasked = whenSeen<number>((calls) => calls === 2);
+        const updated = whenSeen<AnalysisUpdateMessage>((update) => update.results.some((entry) => entry.analysisRevision === 1));
         const panel: PanelHandle = {
             webview: {
                 onDidReceiveMessage: () => ({ dispose: () => undefined }),
-                postMessage: async (message) => { if ((message as { type?: unknown }).type === 'analysis-update') updates += 1; return true; },
+                postMessage: async (message) => { if ((message as { type?: unknown }).type === 'analysis-update') updated.see(message as AnalysisUpdateMessage); return true; },
             },
             onDidDispose: () => ({ dispose: () => undefined }),
         };
@@ -580,7 +595,7 @@ test('a track analysed again for a new calibration is analysed with the STFT sav
             context,
             {} as PanelBackend,
             {
-                analyzeFiles: async (filePaths, stftOptions) => { asked.push({ revision, stft: stftOptions }); return filePaths.map((filePath) => result(filePath, revision, revision)); },
+                analyzeFiles: async (filePaths, stftOptions) => { asked.push({ revision, stft: stftOptions }); reasked.see(asked.length); return filePaths.map((filePath) => result(filePath, revision, revision)); },
                 warmup: () => undefined,
             },
             {} as ExportFlows,
@@ -594,8 +609,10 @@ test('a track analysed again for a new calibration is analysed with the STFT sav
         );
         await controller.analyzeFiles([file]);
         revision = 1;
-        calibrationListener?.({ filePath: file, analysisRevision: 1 });
-        for (const until = Date.now() + 5000; Date.now() < until && updates < 2;) await new Promise((resolve) => setTimeout(resolve, 2));
+        // The store names the file by its canonical key (calibrationFileKey), never the path as the panel spelled it:
+        // they differ where the temporary folder is reached through a symlink (macOS: /var -> /private/var).
+        calibrationListener?.({ filePath: calibrationFileKey(file), analysisRevision: 1 });
+        await Promise.all([reasked.seen, updated.seen]);
         assert.deepEqual(asked.map((item) => item.revision), [0, 1]);
         assert.deepEqual(asked[1].stft, saved.stft, 'the calibration\'s analysis takes the STFT saved, never the automatic one');
         controller.dispose();
