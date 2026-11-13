@@ -316,7 +316,7 @@ function provenanceProblems(scanned: ts.Program): Problem[] {
             // null fails every time: it reads no data, yet the source would count as one that reads (readsFullData).
             // What it answers is taken of its body's returns where the read is written there, so a function typed to
             // answer points (FullAnswer) that returns null on every path is no read either. A read whose every answer
-            // is "on its way" (undefined) waits for ever: only fullRead.ts makes one (PENDING_FULL_DATA).
+            // is "on its way" (undefined) waits for ever: only fullRead.ts makes one (pendingSource, a stand-in's wait on its request).
             if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && ts.isIdentifier(node.expression)) {
                 const made = aliased(checker.getSymbolAtLocation(node.expression), checker);
                 const reads = node.arguments?.[1];
@@ -354,7 +354,7 @@ const FIX: Record<Rule, string> = {
     'mint-kept': 'A module that holds the mint of Whole keeps it: `const mint = claimMint(…)` at the top of the module, not exported, and used only as `mint.value(…)`. Handing the mint to other code would let any number become full data. Export a function that reads or adapts one kind of full data instead (as localLine, backendPeak).',
     'computed-unused': 'Display rules R7 (a whole collection is made only by its producers): computedLine, computedCells and computedWhole name their result full data because it is computed of the whole values they hand their function. Here that function is not written at the call, declares no parameter, or leaves one unused (computedLine / computedCells: the value; computedWhole: each value of `from`), so the result could be made of something else: a plain array read by index, a thinned point, a constant. Write the function at the call and compute the result of the value(s) it is handed; read other whole lines at the same index inside it, next to the value (`computedLine(a, (value, bin) => value - b[bin])`). A line of numbers that are not of the data is layoutLine\'s (LAYOUT_MODULES).',
     layout: 'Only the layout modules (LAYOUT_MODULES in this file) may call layoutLine, which holds plain numbers as a readable line. If these numbers are measurements, take them whole instead: a backend field through wholeAnswers.ts (scanWhole, pairWhole), or computedWhole for a number computed of whole values, then localLine. If they are numbers this module makes to lay a figure out (counts, stacking heights), add the module to LAYOUT_MODULES with what they are.',
-    'empty-read': 'A read given to a source here can only answer null (it fails every time), or, outside fullRead.ts, only nothing: the source would count as full data and read none. If the layer has no full data, pass NO_FULL_DATA (fullRead.ts); a picture that must not be read at all (its file changed since it was analysed) is painted with `readout: false`. A stand-in whose real picture is on its way passes PENDING_FULL_DATA. A kind of read the source does not have is left out (it becomes cannotRead). A read that can fail must also be able to answer points on some path.',
+    'empty-read': 'A read given to a source here can only answer null (it fails every time), or, outside fullRead.ts, only nothing: the source would count as full data and read none. If the layer has no full data, pass NO_FULL_DATA (fullRead.ts); a picture that must not be read at all (its file changed since it was analysed) is painted with `readout: false`. A stand-in whose real picture is on its way passes pendingSource(its request). A kind of read the source does not have is left out (it becomes cannotRead). A read that can fail must also be able to answer points on some path.',
     'test-code': 'Product code may not use anything under src/test: the tests\' helpers (such as wholeValue, which makes a Whole of a made-up number) are for tests only. Read the value through a FullSource or an adapter of wholeAnswers.ts.',
     mint: 'Only fullRead.ts and wholeAnswers.ts may use the mint (src/shared/wholeMint.ts). To read a value for a readout, read it through the layer\'s FullSource; for a new backend number taken of every value, add an adapter to wholeAnswers.ts.',
     cast: 'A cast to a type holding `Whole` claims a number is full data without a mint. Take the value from a FullSource or an adapter of wholeAnswers.ts instead.',
@@ -578,7 +578,7 @@ test('the honest forms compile and pass the scan', () => {
     }
 });
 
-test('inside fullRead.ts too, a source whose read can only fail is refused; a wait for ever is made there alone (PENDING_FULL_DATA)', () => {
+test('inside fullRead.ts too, a source whose read can only fail is refused; a read that only waits is made there alone (pendingSource)', () => {
     const own = program().getSourceFile(path.join(repoRoot, FULL_READ));
     assert.ok(own, 'fullRead.ts is compiled');
     const added = ['export const FAILS = new Source(\'fetched\', { line: () => null, cells: () => null });', 'export const WAITS = new Source(\'fetched\', { level: () => undefined });'];

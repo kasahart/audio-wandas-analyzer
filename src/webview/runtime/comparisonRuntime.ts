@@ -71,7 +71,7 @@ import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions
 import { resultsPaneHtml, trackAudioHtml, type SpectrumBandsSetting } from './resultsPaneHtml';
 import { selectionFolderButton, selectionLayoutHtml } from './selectionLayoutHtml';
 import { ShownSpectrumCursor, SpectrumCommitHold } from './spectrumCommitHold';
-import { createLatestAnswers, createRequestClock } from './answerStore';
+import { createLatestAnswers, createPendingRequests, createRequestClock, type PendingRequest } from './answerStore';
 import { type AnalysisWindowBand, canvasTimeHit, clampedCanvasNorm, clientToCanvasPixels, CURSOR_LINE_STYLE, drawAnalysisWindowBand, drawDashedTimeLine, drawRectZoomSelection, HOVER_LINE_STYLE, waveformCursorLineStyle } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
@@ -285,6 +285,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         requestedAt: number;
         fullResolution: boolean;
     }
+    /** Each track's cursor slice on its way, as its stand-in's reads wait on it (fullRead.ts pendingSource). */
+    const slicePending = createPendingRequests();
     const spectrumRequests = new SpectrumRequestScheduler<DesiredSpectrumSliceRequest>({
         now: spectrumNow,
         setTimeout: (handler, ms) => window.setTimeout(handler, ms),
@@ -662,6 +664,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let unheldSpectrumGeneration: number | null = null;
     function invalidateDesiredSpectrumSliceRequests(cursorAction = false) {
         spectrumRequests.invalidate();
+        slicePending.clear();
         unheldSpectrumGeneration = cursorAction ? null : spectrumRequests.generation;
     }
     function spectrumReadoutTrackLabel(result: ComparisonTrackState, channelIndex: number) {
@@ -838,6 +841,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         record.requests.drop('specZoom');
         record.spectrogramZoom.clear();
         spectrumRequests.drop(spectrumSliceRequestKey(record.id));
+        slicePending.drop(spectrumSliceRequestKey(record.id));
         record.requests.drop('slice');
         record.spectrumSliceCache.clear();
         overlaySpectrumPainted = false;
@@ -888,7 +892,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     /** While a CSV export waits, the cursor spectra asked for hold every FFT bin rather than the row cut for display. */
     let spectrumCsvExportOpen = false;
-    function requestSpectrumSlice(i: number, cursorNormValue: number) {
+    /** Asks for track i's slice at the cursor; the request it is on its way with, for the stand-in drawn meanwhile. */
+    function requestSpectrumSlice(i: number, cursorNormValue: number): PendingRequest | undefined {
         // With the cursor-spectrum panel folded, only the analysis window band on lanes near the view needs a slice.
         // Nor while the comparison hides every spectrum (playing there would ask for slices nobody sees).
         if (!spectrumRequests.allowsSliceRequests || contentType === 'stage' || (layout.spectrumCollapsed && !laneInView(i))) {
@@ -915,7 +920,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const pending = currentSpectrumSliceRequest(record);
         if (pending && pending.settingsSignature === settingsSignature && Math.abs((pending.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result)
             && (pending.fullResolution || !fullResolution)) {
-            return;
+            return slicePending.current(key);
         }
         const requestId = nextRequestId('slice', i);
         spectrumRequests.want(key, {
@@ -932,6 +937,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             requestedAt: spectrumNow(),
             fullResolution,
         });
+        return slicePending.ask(key, requestId);
     }
     function queuePlaybackSpectrumRequests(cursorNormValue: number) {
         trackStore.activeIds().forEach(function (trackId) {
@@ -1094,6 +1100,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!active) {
             return;
         }
+        // The stand-in's readers are told (a request superseded meanwhile has none left).
+        slicePending.answered(msg.requestId);
         const i = msg.trackIndex;
         const trackId = trackIdAtProtocolBoundary(i, msg);
         const record = trackId ? trackStore.get(trackId) : undefined;
@@ -4187,7 +4195,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function peekSpectrumAtCursor(result: ComparisonTrackState, trackIndex: number, offsetSeconds: number, cursorNormValue: number): SpectrumSlice | null {
         return cursorSpectrumFor(result, trackIndex, offsetSeconds, cursorNormValue, 0, () => undefined);
     }
-    function cursorSpectrumFor(result: ComparisonTrackState, trackIndex: number, offsetSeconds: number, cursorNormValue: number, channelIndex: number, requestSlice: (trackIndex: number, cursorNorm: number) => void): SpectrumSlice | null {
+    function cursorSpectrumFor(result: ComparisonTrackState, trackIndex: number, offsetSeconds: number, cursorNormValue: number, channelIndex: number, requestSlice: (trackIndex: number, cursorNorm: number) => PendingRequest | undefined): SpectrumSlice | null {
         const chIdx = Number.isInteger(channelIndex) ? channelIndex : 0;
         return extractCursorSpectrum(result, offsetSeconds, cursorNormValue, trackStore.globalSpan(), {
             trackIndex,

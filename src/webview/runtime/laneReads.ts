@@ -84,19 +84,6 @@ export function createLaneReads(post: (message: ReadRequest) => void, now: () =>
         },
         slice(track, cursorNorm, channel) {
             const key = answerKey({ ask: ['slice', track, cursorNorm], file: track.filePath, version: trackVersion(track) });
-            // A failed slice: every read waiting on it is told once the store's pause is over, so a still pointer
-            // is read again (R7), as fetchedSource's reads are.
-            let woken: ReturnType<typeof setTimeout> | null = null, wake: (() => void) | null = null;
-            const wakeOnRetry = (ready: () => void): void => {
-                // Every reader waiting on it is told (the readout's and the paint's level for the order alike), each once.
-                const before = wake;
-                wake = before && before !== ready ? () => { before(); ready(); } : ready;
-                if (woken !== null) return;
-                let at = now();
-                for (const [held, item] of slices.newestFirst()) if (held.id === key.id && item.state === 'failed') at = item.retryAt;
-                woken = setTimeout(() => { woken = null; const call = wake; wake = null; call?.(); }, Math.max(0, at - now()) + 1);
-                (woken as { unref?: () => void }).unref?.();
-            };
             // The slice at every bin, fetched once for every read of it: its points, and its level for the order (R6).
             const full = (ready: () => void): FullSource | null | undefined => {
                 if (slices.ask(key)) {
@@ -112,9 +99,10 @@ export function createLaneReads(post: (message: ReadRequest) => void, now: () =>
                 if (state === 'pending') { slices.whenSettled(key, ready); return undefined; }
                 const slice = slices.value(key);
                 const values = slice?.values.get(channel);
-                // A slice that failed is not read (null: no number, no other line in its place, R7); one with no bins
-                // for the channel has nothing to read.
-                if (!slice) { if (state === 'failed') wakeOnRetry(ready); return null; }
+                // A slice that failed is not read (null: no number, no other line in its place, R7), and its readers
+                // (the readout's and the paint's level for the order alike) are told by the store when its pause is
+                // over, so a still pointer is read again; one with no bins for the channel has nothing to read.
+                if (!slice) { if (state === 'failed') slices.whenFailureEnds(key, ready); return null; }
                 if (!values?.length) return NO_POINTS;
                 const step = slice.maxHz / Math.max(1, values.length - 1);
                 return localLine(values.map((_, bin) => bin * step), values);

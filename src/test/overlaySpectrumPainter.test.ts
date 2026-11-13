@@ -12,6 +12,7 @@ import type { SpectrumSeries, SpectrumSlice } from '../webview/runtime/types';
 import { extractSpectrumAtCursor } from '../webview/spectrum/cursorSpectrum';
 import { createLaneReads } from '../webview/runtime/laneReads';
 import { NO_FULL_DATA } from '../webview/runtime/fullRead';
+import { createPendingRequests } from '../webview/runtime/answerStore';
 
 function recordingCtx(): { ctx: CanvasDrawCtx; calls: string[] } {
     const calls: string[] = [];
@@ -423,7 +424,7 @@ test('until the backend\'s slice comes, the cursor spectrum draws the lane\'s av
     };
     const source = { durationSeconds: 1, channels: [{ spectrogram }] };
     const asked: number[] = [];
-    const context = { trackIndex: 0, cached: null, settingsSignature: 's', cursorTolerance: 0.002, requestSlice: (_track: number, norm: number) => { asked.push(norm); }, applyDisplaySettings: (slice: SpectrumSlice) => slice };
+    const context = { trackIndex: 0, cached: null, settingsSignature: 's', cursorTolerance: 0.002, requestSlice: (_track: number, norm: number) => { asked.push(norm); return undefined; }, applyDisplaySettings: (slice: SpectrumSlice) => slice };
     const pending = extractSpectrumAtCursor(source, 0, 0.25, { startSec: 0, spanSec: 1 }, context);
     assert.ok(pending);
     assert.deepEqual(asked, [0.25], 'the slice is asked for');
@@ -477,4 +478,46 @@ test('on one level axis mixing calibration statuses, each uncalibrated line says
     assert.deepEqual(withCalibrationWords([raw, { ...raw, label: 'c.wav' }], () => false, ' 未校正').map(s => s.label), ['b.wav', 'c.wav']);
     // Another reference is another axis: its lines are not mixed with these.
     assert.deepEqual(withCalibrationWords([raw, levelSeries('d.wav', '#0f0', SPL, [80, 70, 60, 50], 50, 80)], s => s.label === 'd.wav', ' 未校正').map(s => s.label), ['b.wav', 'd.wav']);
+});
+
+test('the cursor spectrum\'s stand-in waits on the slice request it was drawn for: its readers are told when that request is answered, and let go when a newer request supersedes it (R7)', () => {
+    const spectrogram = {
+        values: [[-70, -42.5, -61, -66], [-71, -43, -60, -65]], timeBins: 2, frequencyBins: 4, windowSize: 512, hopSize: 256,
+        maxFrequencyHz: 1000, minDb: -100, maxDb: -3, unit: 'dB',
+    };
+    const source = { durationSeconds: 1, channels: [{ spectrogram }] };
+    const requests = createPendingRequests();
+    let asked = 0;
+    // As the comparison asks: one request per cursor, in the track's slot; a newer one supersedes it.
+    const context = { trackIndex: 0, cached: null, settingsSignature: 's', cursorTolerance: 0.002, requestSlice: () => requests.ask('track-0', `slice-${++asked}`), applyDisplaySettings: (slice: SpectrumSlice) => slice };
+    const hoverOn = (slice: SpectrumSlice, ready: () => void) => {
+        const { ctx } = recordingCtx();
+        const plot = plotOf(paintOverlaySpectrum(canvasOf(ctx), 400, 200, [{ ...series[0], slice }], fullView));
+        return stageHover(plot, plot.xAt(1000 / 3), plot.yAt(-42.5), ready);
+    };
+    const told: string[] = [];
+    const first = extractSpectrumAtCursor(source, 0, 0.25, { startSec: 0, spanSec: 1 }, context);
+    assert.ok(first);
+    assert.equal(first.standIn, 'pending');
+    assert.equal(first.waitingOn?.requestId, 'slice-1', 'tied to the request it waits on');
+    const read = hoverOn(first, () => told.push('first'));
+    assert.equal(read?.pending, true, 'the cursor\'s marks, no number');
+    assert.equal(read?.text, '');
+    requests.answered('slice-1');
+    assert.deepEqual([...told], ['first'], 'told when its request is answered, so a still pointer reads the picture drawn then');
+    requests.answered('slice-1');
+    assert.deepEqual([...told], ['first'], 'once');
+
+    // The cursor moves on before the slice comes: the newer request supersedes the stand-in's.
+    const before = extractSpectrumAtCursor(source, 0, 0.5, { startSec: 0, spanSec: 1 }, context);
+    assert.ok(before?.waitingOn);
+    hoverOn(before, () => told.push('superseded'));
+    const after = extractSpectrumAtCursor(source, 0, 0.75, { startSec: 0, spanSec: 1 }, context);
+    assert.ok(after?.waitingOn);
+    assert.equal(before.waitingOn.waiting, false, 'superseded: no longer waited on');
+    hoverOn(after, () => told.push('newer'));
+    requests.answered(before.waitingOn.requestId);
+    assert.deepEqual([...told], ['first'], 'a superseded request tells nobody, even if its answer comes');
+    requests.answered(after.waitingOn.requestId);
+    assert.deepEqual([...told], ['first', 'newer']);
 });

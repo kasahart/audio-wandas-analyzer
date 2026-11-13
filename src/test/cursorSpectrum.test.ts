@@ -127,7 +127,7 @@ test('cursor spectrum requests data and prioritizes a cache with matching settin
     const calls: Array<[number, number]> = [];
     const cached = { values: [-10, -20], frequencyBins: 2, maxFrequencyHz: 1000, minDb: -90, maxDb: 0,
         settingsSignature: 'current', cursorNorm: 0.5 };
-    const context = spectrumContext({ cached, requestSlice: (index, norm) => calls.push([index, norm]),
+    const context = spectrumContext({ cached, requestSlice: (index, norm) => { calls.push([index, norm]); return undefined; },
         applyDisplaySettings: (slice) => ({ ...slice, maxFrequencyHz: 500 }) });
     const slice = extractSpectrumAtCursor(makeSource(), 0, 0.5, { startSec: 0, spanSec: 1 }, context);
     assert.deepEqual(calls, [[2, 0.5]]);
@@ -143,7 +143,7 @@ test('a cached slice from an earlier cursor is never drawn or read as this curso
     const calls: number[] = [];
     const earlier = { values: [-10, -20], frequencyBins: 2, maxFrequencyHz: 1000, minDb: -90, maxDb: 0,
         settingsSignature: 'current', cursorNorm: 0.2 };
-    const context = spectrumContext({ cached: earlier, requestSlice: (_, norm) => calls.push(norm) });
+    const context = spectrumContext({ cached: earlier, requestSlice: (_, norm) => { calls.push(norm); return undefined; } });
     const slice = extractSpectrumAtCursor(makeSource(), 0, 0.5, { startSec: 0, spanSec: 1 }, context)!;
     assert.deepEqual(calls, [0.5], 'this cursor\'s slice is asked for');
     assert.notDeepEqual(slice.values, earlier.values, 'the earlier cursor\'s bins are not drawn as this cursor\'s');
@@ -168,7 +168,7 @@ test('cursor spectrum uses the requested channel and does not request outside th
     source.channels.push({ spectrogram: { ...source.channels[0].spectrogram!,
         values: [[-10, -20], [-11, -21]], timeBins: 2, frequencyBins: 2, minDb: -100 } });
     const calls: number[] = [];
-    const context = spectrumContext({ channelIndex: 1, requestSlice: (_, norm) => calls.push(norm) });
+    const context = spectrumContext({ channelIndex: 1, requestSlice: (_, norm) => { calls.push(norm); return undefined; } });
     assert.deepEqual(extractSpectrumAtCursor(source, 0, 0.5, { startSec: 0, spanSec: 1 }, context)!.values, [-11, -21]);
     assert.deepEqual(extractSpectrumAtCursor(source, 0, 1, { startSec: 0, spanSec: 1 }, context)!.values, [-100, -100]);
     assert.equal(extractSpectrumAtCursor(source, 0.5, 0.2, { startSec: 0, spanSec: 1 }, context), null);
