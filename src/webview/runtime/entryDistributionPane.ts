@@ -3,8 +3,8 @@
  * table (low rows, two in view) while a comparison is open. Rows without the value are counted, not drawn. Each
  * group's row is drawn by the plot component (R13) on one value axis, drawn on its own strip below them, and answers
  * its gestures: a drag zooms into its box (the value axis), Ctrl+wheel zooms, a double-click shows the whole again
- * and on the axis strip opens its range. Alt+drag picks a range of the value; a press that stays put picks that bin,
- * or on a dot goes to its row.
+ * and on the axis strip opens its range. Alt+drag picks a range of the value; a press that stays put acts on what the
+ * readout reads there: a dot's row, a bar's bin, or the bin of the value under it.
  */
 import type { UiStrings } from '../../shared/i18n/strings';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
@@ -13,9 +13,9 @@ import { distribution, groupLabels, type Distribution } from '../../shared/datas
 import { groupOf, isComputed, valueOf, type DatasetRow, type GroupId, type ValueId } from '../../shared/dataset/datasetTable';
 import { installRangePopover, linearAxis, openAxisPart } from '../rangePopover';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
-import { DIST_MARGINS, DIST_ROW_MAX, DIST_ROW_MIN, DIST_ROW_PAD, DIST_STRIP_ROW, distributionAxisView, distributionLegendHtml, distributionRows, distributionScale, pickedRange, type DistributionRow, type DistributionScale } from './entryDistribution';
-import { attachPlotInteraction, FULL_PLOT_WINDOW, notePlotWindow, plotPointIn, type PlotMargins, type PlotWindow, type VerticalAxis } from './plotInteraction';
-import { createPlotHoverLayer } from './plotHoverLayer';
+import { DIST_MARGINS, DIST_ROW_MAX, DIST_ROW_MIN, DIST_ROW_PAD, DIST_STRIP_ROW, distributionAxisView, distributionClick, distributionLegendHtml, distributionRows, distributionScale, pickedRange, type DistributionRow, type DistributionScale } from './entryDistribution';
+import { attachPlotInteraction, FULL_PLOT_WINDOW, notePlotWindow, plotPointIn, type PlotClick, type PlotMargins, type PlotWindow, type VerticalAxis } from './plotInteraction';
+import { clickOnRead, createPlotHoverLayer } from './plotHoverLayer';
 import { linearWindowEnds, paintOverlay, type StagePlot } from './stagePanes';
 import { countTitle, csvColumnTitle, plainNames, plainRange, setDrawnCount, setExclusionText, setOver, type FigureSet, type FigureTitle, type PlainTitle } from './figureModel';
 import { NO_POINTS } from './fullRead';
@@ -213,7 +213,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
                 { axisView, window: zoom, margins: ROW_MARGINS, xAxisLabels: false, yAxisLabels: false, xAxisCanvas: axisCanvas, ...(range ? { highlight: { start: range.low, end: range.high } } : {}) });
             if (plot) plots.set(canvas, plot);
             notePlotWindow(canvas, { x: zoomWindow.x, y: FULL_PLOT_WINDOW.y }, DIST_VERTICAL);
-            // Its dots, where they are drawn (CSS pixels on the canvas), for a press on one and for tests.
+            // Its dots, where they are drawn (CSS pixels on the canvas), for tests (a click acts on the readout's read, not on these).
             canvas.dataset.dots = row.dots.map(dot => `${dot.key}\t${plot ? plot.xAt(dot.value).toFixed(1) : ''}\t${plot ? plot.yAt(dot.level + 0.5).toFixed(1) : ''}`).join('\n');
         });
         // The value axis below them, drawn by the same component: its numbers and name; what a bar's height counts beside it.
@@ -238,9 +238,11 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
      * The marks and readout at (x, y) on a row's plot, through the one readout (plotHoverLayer): a bar, a dot or a
      * tick read there, else where on the value axis the pointer is. A hover, a redraw and a scroll all show it so.
      */
+    /** Where on the value axis the pointer at `x` (CSS pixels on a row's canvas) is: what the readout says off any point, and a click there picks. */
+    const valueAt = (x: number): number => (scale ? scale.at(DIST_MARGINS.left + x) : Number.NaN);
     const words = {
         none(x: number): { name: string; values: string } | null {
-            return scale && last ? { name: last.valueLabel, values: last.format(scale.at(DIST_MARGINS.left + x)) } : null;
+            return scale && last ? { name: last.valueLabel, values: last.format(valueAt(x)) } : null;
         },
     };
     function showAt(canvas: HTMLElement, plot: StagePlot, x: number, y: number): void {
@@ -257,29 +259,22 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
     }
     // The rows scroll under a still pointer: the row now under it is read there, never the one that was (R7).
     groups.addEventListener('scroll', () => showMarksAgain());
-    /** The dot under (x, y) on a row's canvas (its own CSS pixels), within its radius and a little. */
-    function dotAt(canvas: HTMLElement, x: number, y: number): string | null {
-        for (const line of (canvas.dataset.dots ?? '').split('\n')) {
-            const [key, dx, dy] = line.split('\t');
-            if (key && Math.hypot(Number(dx) - x, Number(dy) - y) <= 5) return key;
-        }
-        return null;
-    }
     const canvasOf = (target: EventTarget | null): HTMLElement | null => (target as HTMLElement | null)?.closest?.<HTMLElement>('[data-dist-canvas]') ?? null;
 
-    // A press that stayed put (no box drawn; the plot gestures' tap): on a dot, its row; elsewhere, the bin under it.
-    // The bin is the one under the pointer on the rows as clicked, picked at once; a double click's second press puts
-    // the table back (plotInteraction.ts arbitrates every plot's click, R13).
-    const tap = (canvas: HTMLElement, event: MouseEvent, current: () => boolean): (() => void) | undefined => {
+    // A press that stayed put (no box drawn; the plot gestures' tap) acts on what the readout read at the press, never
+    // on a hit test of its own (R7, R13: clickOnRead): a dot's or tick's row, a bar's bin, else the bin of the value the
+    // readout says the pointer is at; over a gap's "no value", or on the base's median, nothing. Done at once; a double
+    // click's second press puts the table back (plotInteraction.ts arbitrates every plot's click, R13).
+    const tap = (canvas: HTMLElement, event: MouseEvent, current: () => boolean): PlotClick | undefined => {
         if (!scale || event.altKey || !current()) return undefined;
-        const bounds = canvas.getBoundingClientRect();
-        const dot = dotAt(canvas, event.clientX - bounds.left, event.clientY - bounds.top);
-        // A dot's row too, at once.
-        if (dot) return () => deps.dot(dot);
-        const plot = groups.querySelector<HTMLElement>('[data-entry-dist-plot]');
-        const x = event.clientX - (plot ?? canvas).getBoundingClientRect().left;
-        const range = pickedRange(scale, x, x, false);
-        return range ? () => deps.pick(range) : undefined;
+        return clickOnRead(marks, canvas, current, got => {
+            const on = scale;
+            if (!on) return undefined;
+            const click = distributionClick(rows, on, got, () => valueAt(got.read ? 0 : got.x));
+            if ('row' in click) return deps.dot(click.row) ?? undefined;
+            if ('range' in click) return deps.pick(click.range) ?? undefined;
+            return undefined;
+        });
     };
 
     // The plot component's gestures on every row (R13): the value axis' window is shared, the counts stay whole.

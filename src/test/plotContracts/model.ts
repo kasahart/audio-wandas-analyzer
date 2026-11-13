@@ -29,7 +29,9 @@ export type ValueKind =
     /** Which data a value is of: a cache key, a match of a kept result to the one on screen. */
     | 'identity'
     /** What a plot shows while the data a value is read from is on its way. */
-    | 'pending';
+    | 'pending'
+    /** What a click on the plot acts on (selects, toggles, goes to, moves the cursor to): the point its readout reads (R7, R13). */
+    | 'click';
 
 export interface TestRef {
     file: string;
@@ -88,3 +90,9 @@ export const t = (file: string, name: string): TestRef => ({ file, name });
 export const tt = (file: string, name: string): TestRef => ({ file, name, tells: true });
 export const SP = 'src/webview/runtime/stagePanes.ts';
 export const RT = 'src/webview/runtime/comparisonRuntime.ts';
+/** What every plot's click acts on: the readout's read (PlotHoverLayer.clicked), handed to the plot's tap by clickOnRead. */
+export const CLICK_READ = ['src/webview/runtime/plotHoverLayer.ts:clickOnRead', 'src/webview/runtime/plotHoverLayer.ts:clicked'] as const;
+/** The browser test that clicks every plot with a click at its ties, overlapping points, bin edges and gaps (R7, R13). */
+export const CLICK_TEST = 'every plot with a click acts on the point its readout reads at the press: the same pick and identity at ties, overlapping points, bin edges and gaps, never a hit test of its own (R7, R13)';
+/** The test of the shared gestures that a press is read where it is pressed, and its click acts on that read. */
+export const PRESS_READ_TEST = 'a press is read where it is pressed and holds that read until it is let go: a move within the drag threshold reads nothing new, so a click acts on what the readout read at the press (R7, R13)';

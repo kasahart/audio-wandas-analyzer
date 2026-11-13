@@ -5,15 +5,12 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotClick, type PlotHit, type PlotWindow } from './plotInteraction';
-import { axisFractionOf, axisValueAt, drawnMargins, rowFractionOf, rowValueAt, stageHover, stagePlotPoint, type StagePlot } from './stagePanes';
-import { createPlotHoverLayer } from './plotHoverLayer';
+import { axisFractionOf, axisValueAt, drawnMargins, rowFractionOf, rowValueAt, stagePlotPoint, type StagePlot } from './stagePanes';
+import { clickOnRead, createPlotHoverLayer } from './plotHoverLayer';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import { positionPopover } from './settingsPopover';
 import type { Drawn } from './trackStagePainter';
 import type { TrackStageState } from './trackStageModel';
-
-/** How near (px) a click must be to an event's line to leave it out. */
-const EVENT_PICK_PX = 6;
 
 /** The pointer over the mode's plots, while it is over one. */
 export interface StageGestures {
@@ -81,25 +78,26 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
         return { left: rect.left + margins.left, top: rect.top + margins.top, width: Math.max(1, rect.width - margins.left - margins.right), height: Math.max(1, rect.height - margins.top - margins.bottom) };
     };
     /**
-     * The trigger's event whose line is under the pointer (within a few pixels), if any. Read from the events' full
-     * data (R7): undefined while it is fetched (`ready` is called once it is in).
+     * On an event's line the pointer says it can be clicked: where the readout reads an event's line (R7, R13: a click
+     * acts on what the readout reads, PlotHoverLayer.clicked), said again once the line's full data is in.
      */
-    const eventAt = (plot: HTMLElement, clientX: number, clientY: number, ready?: () => void, on?: StagePlot, box?: { left: number; top: number }): { id: number; source: string; out: boolean } | null | undefined => {
-        const drawn = on ?? drawnOn.get(plot)?.plot;
-        if (!drawn || !plot.isConnected) return null;
-        const rect = box ?? plot.getBoundingClientRect();
-        const hit = stageHover(drawn, clientX - rect.left, clientY - rect.top, ready);
-        if (hit?.pending) return undefined;
-        return hit && !hit.failed && hit.layer.event && Math.abs(hit.y - (clientY - rect.top)) <= EVENT_PICK_PX ? hit.layer.event : null;
-    };
-    /** On an event's line the pointer says it can be clicked; said again once the line's full data is in. */
-    const hintAt = (plot: HTMLElement, clientX: number, clientY: number, late = false): void => {
-        const again = (): void => { if (hovered && hovered.plot === plot && hovered.clientX === clientX && hovered.clientY === clientY) hintAt(plot, clientX, clientY, true); };
-        const line = deps.toggleEvent ? eventAt(plot, clientX, clientY, again) ?? null : null;
-        // Once the data is in, only a line found says so: a message written meanwhile (a key's) is not covered by the plot's hint.
-        if (late && !line) return;
-        plot.style.cursor = line ? 'pointer' : '';
-        deps.hint(line ? (line.out ? strings.stageEventClickIn : strings.stageEventClickOut) : strings.compareHintPlot);
+    const hintAt = (plot: HTMLElement, clientX: number, clientY: number): void => {
+        const still = (): boolean => !!hovered && hovered.plot === plot && hovered.clientX === clientX && hovered.clientY === clientY;
+        let late = false, told = false;
+        const say = (line: { out: boolean } | null): void => {
+            told = true;
+            plot.style.cursor = line ? 'pointer' : '';
+            deps.hint(line ? (line.out ? strings.stageEventClickIn : strings.stageEventClickOut) : strings.compareHintPlot);
+        };
+        if (!deps.toggleEvent) { say(null); return; }
+        marks.clicked(plot, still, got => {
+            const line = got?.read?.layer.event ?? null;
+            // Once the data is in, only a line found says so: a message written meanwhile (a key's) is not covered by the plot's hint.
+            if (late && !line) return;
+            say(line);
+        });
+        late = true;
+        if (!told) say(null);
     };
     /** Where the pointer is over a plot, so its marks follow a plot drawn anew under a still pointer. */
     let hovered: { plot: HTMLElement; clientX: number; clientY: number } | null = null;
@@ -113,29 +111,17 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     // plot now under it is read there (R7).
     // A click on an event's line (the plot gestures' tap: a press that stayed put, a drag zooms instead) leaves it out
     // or puts it back, at once: plotInteraction.ts arbitrates the click (R13; a double click's second press takes it back,
-    // so a double click resets the zoom only).
+    // so a double click resets the zoom only). It acts on the line the readout read at the press (R7, R13: clickOnRead),
+    // never on a hit test of its own: where the readout reads an event's line, that line; elsewhere, none.
     // It is decided on the plot as it was clicked; a click while the lines' full data is on its way is decided once it
     // is in (R7), never dropped, unless a later press anywhere (a drag, another click) takes its place first.
-    const view = document.defaultView;
-    const tap = (plot: HTMLElement, event: MouseEvent, current: () => boolean): PlotClick | undefined => {
+    const tap = (plot: HTMLElement, _event: MouseEvent, current: () => boolean): PlotClick | undefined => {
         const toggle = deps.toggleEvent;
-        if (!state.on || !toggle || !view) return undefined;
-        const { clientX, clientY } = event;
-        // Decided on the plot as it was clicked: a redraw meanwhile (a zoom by the wheel, which is no press) draws other
-        // lines under that pixel, and the click is of the line it was on (R7).
-        // Where the plot was on screen as clicked too: a scroll meanwhile moves it, never the line clicked on.
-        const clicked = drawnPlot(plot) ?? undefined;
-        const { left, top } = plot.getBoundingClientRect();
-        // What the edit made, once made (at once, or once the data is in), so the take-back puts back what was done by then.
-        let takeBack: (() => void) | undefined;
-        const decide = (): void => {
-            if (!current() || !state.on) return;
-            const line = eventAt(plot, clientX, clientY, decide, clicked, { left, top });
-            if (line === undefined) return;
-            const edit = line ? toggle(line) : undefined;
-            takeBack = edit?.();
-        };
-        return () => { decide(); return () => { takeBack?.(); takeBack = undefined; }; };
+        if (!state.on || !toggle) return undefined;
+        return clickOnRead(marks, plot, current, got => {
+            const line = state.on ? got.read?.layer.event : undefined;
+            return line ? toggle(line)?.() : undefined;
+        });
     };
     const gestures = (selector: string, container: HTMLElement): void => attachPlotInteraction(container, document, selector, {
         locate(target, clientX, clientY): PlotHit | null {
@@ -153,8 +139,8 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
             const drawn = hit ? drawnOn.get(hit.plot) : undefined;
             if (!hit || hit.axis || !drawn) { hovered = null; hideHover(); if (hit) deps.hint(strings.compareHintAxis); return; }
             hovered = { plot: hit.plot, clientX: event.clientX, clientY: event.clientY };
-            hintAt(hit.plot, event.clientX, event.clientY);
             showHover();
+            hintAt(hit.plot, event.clientX, event.clientY);
         },
         clearHover() { hovered = null; hideHover(); },
         tap,

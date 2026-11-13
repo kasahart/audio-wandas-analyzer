@@ -13,6 +13,7 @@
  */
 import { STAGE_MARGINS, floorless, stageHover, stageReadAgain, stageStep, strokeStageLine, type StagePlot, type StageRead } from './stagePanes';
 import { hidePlotReadout, paintHoverMarks, showPlotReadout } from './plotHover';
+import type { PlotClick } from './plotInteraction';
 
 /** A place on screen (client pixels) for the pointer, or an arrow key's step, to read. */
 export interface PlotPlace {
@@ -34,6 +35,14 @@ export interface PlotReadoutWords {
     read?(read: StageRead | null): void;
 }
 
+/**
+ * What a click on a plot acts on (R7, R13): the point its readout reads there, the very read it shows (a step's point
+ * too). Where it reads no point: whether the readout says "no value here" (`empty`), and the place it read (CSS
+ * pixels on the plot), for an owner whose readout words a place with no point (PlotReadoutWords.none, the
+ * distribution's place on its value axis): a click there acts on what those words say, or on nothing.
+ */
+export type PlotClickRead = { read: StageRead } | { read: null; empty: boolean; x: number; y: number };
+
 export interface PlotHoverLayer {
     /** The marks over `plot` for the pointer at (clientX, clientY), and its readout in `slot`; returns where the
      *  point read is across the plot (CSS pixels from its left), or null when none is read. */
@@ -52,6 +61,33 @@ export interface PlotHoverLayer {
     stepFrom(plot: HTMLElement, drawn: StagePlot | null, delta: -1 | 0 | 1, arrived?: (at: PlotPlace) => void): PlotPlace | null;
     /** The point last shown, while the marks are on it. */
     reading(): StageRead | null;
+    /**
+     * What a click on `plot` acts on (R7, R13): what its readout reads now, told to `decided`, never a hit test of
+     * the click's own. Null where the readout is not on `plot`, or its read failed: the click acts on nothing. A
+     * read still waiting for its full data is told once it is in, read as the readout reads it (the same read, on
+     * the drawing and at the place it was asked on, so a redraw or a scroll meanwhile does not move it onto
+     * another point), as long as `current()` holds.
+     */
+    clicked(plot: HTMLElement, current: () => boolean, decided: (got: PlotClickRead | null) => void): void;
+}
+
+/**
+ * A plot's click that acts on the point its readout reads (R7, R13): `act` is given what `marks` reads on `plot` as
+ * the click is made (PlotHoverLayer.clicked) and makes the edit, returning how to take it back. The click returned is done at once by
+ * plotInteraction.ts; a read still waiting for its data is acted on once it is in, while the click stands
+ * (`current`), and the take-back puts back what was done by then.
+ */
+export function clickOnRead(marks: PlotHoverLayer, plot: HTMLElement, current: () => boolean, act: (got: PlotClickRead) => (() => void) | undefined): PlotClick {
+    // Taken now, at the click: what the plot's owner does after it (a redraw, the readout let go) does not change it.
+    let got: PlotClickRead | null | undefined;
+    let when: (() => void) | null = null;
+    marks.clicked(plot, current, told => { got = told; when?.(); });
+    return () => {
+        let takeBack: (() => void) | undefined;
+        const go = (): void => { when = null; if (got && current()) takeBack = act(got); };
+        if (got === undefined) when = go; else go();
+        return () => { when = null; takeBack?.(); takeBack = undefined; };
+    };
 }
 
 /**
@@ -93,6 +129,11 @@ export function createPlotHoverLayer(document: Document, wording: PlotHoverWordi
     const filled = new Set<HTMLElement>();
     /** The point the marks are on: the plot's element, the part of the plot it is read on (its own, or its right-hand axis') and the read. */
     let last: { plot: HTMLElement; drawn: StagePlot | null; on: StagePlot; read: StageRead } | null = null;
+    /**
+     * What the last show read, as a click on its plot acts on it (clicked): the drawing and place it read at (CSS
+     * pixels on the plot), its answer (a point, a gap's "no value", or none), and the point a step kept, if it was one.
+     */
+    let shown: { plot: HTMLElement; drawn: StagePlot | null; x: number; y: number; answer: { on: StagePlot; read: StageRead } | null; stepFrom: StageRead | null } | null = null;
     /** What the last show was asked, so a read whose full data comes in later is shown again where it was. */
     let asked: { plot: HTMLElement; drawn: StagePlot | null; clientX: number; clientY: number; slot: HTMLElement | null; words?: PlotReadoutWords } | null = null;
     /**
@@ -264,6 +305,7 @@ export function createPlotHoverLayer(document: Document, wording: PlotHoverWordi
             const gone = kept && !step ? kept.pointer : null;
             const looks = gone ? { x: gone.clientX - rect.left, y: gone.clientY - rect.top } : { x, y };
             const answer = step ?? (drawn ? readAt(drawn, looks.x, looks.y, again) : null);
+            shown = { plot, drawn, x: looks.x, y: looks.y, answer, stepFrom: step && here ? here.found.read : null };
             // Answered, no value (a gap, R7): no point is read here.
             const empty = !!answer?.read.empty;
             const found = empty ? null : answer;
@@ -321,13 +363,14 @@ export function createPlotHoverLayer(document: Document, wording: PlotHoverWordi
             if (!on) return;
             last = null;
             asked = null;
+            shown = null;
             queued = null;
             paintHoverMarks(on.context, on.frame, clientX - on.rect.left, null, '');
             layer.hidden = false;
             emptyAll();
         },
         hide() {
-            last = null; asked = null; stepped = null; queued = null; waitingTake = null; stepping++; layer.hidden = true; emptyAll();
+            last = null; asked = null; shown = null; stepped = null; queued = null; waitingTake = null; stepping++; layer.hidden = true; emptyAll();
             // Nothing read: the plot read before says so too.
             if (noted) note(noted, null);
             noted = null;
@@ -379,6 +422,31 @@ export function createPlotHoverLayer(document: Document, wording: PlotHoverWordi
             return { clientX: rect.left + frame.left, clientY: rect.top + frame.top + frame.height / 2 };
         },
         reading: () => (last && !layer.hidden && !waits(last.read) ? last.read : null),
+        clicked(plot, current, decided) {
+            const now = shown && !layer.hidden && samePlot(shown.plot, plot) ? shown : null;
+            if (!now) { decided(null); return; }
+            const { drawn, x, y } = now;
+            /** What the click acts on, of an answer as the readout reads it; undefined while it waits. */
+            const told = (answer: { read: StageRead } | null): PlotClickRead | null | undefined => {
+                if (!answer) return { read: null, empty: false, x, y };
+                if (answer.read.pending) return undefined;
+                if (answer.read.failed) return null;
+                return answer.read.empty ? { read: null, empty: true, x, y } : { read: answer.read };
+            };
+            const first = told(now.answer);
+            if (first !== undefined) { decided(first); return; }
+            // Waiting for its full data: read again once it is in, as the readout reads it there (the step's point on
+            // its drawing, else the place on the drawing it was asked on).
+            const on = now.answer?.on ?? null, from = now.stepFrom;
+            const decide = (): void => {
+                if (!current()) return;
+                const again = from && on ? stageReadAgain(on, from, decide) : drawn ? readAt(drawn, x, y, decide)?.read ?? null : null;
+                if (again === undefined) return;
+                const got = told(again ? { read: again } : null);
+                if (got !== undefined) decided(got);
+            };
+            decide();
+        },
     };
     return layerApi;
 }

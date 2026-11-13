@@ -1,11 +1,11 @@
-import { SP, t, tt, type ChartContract } from '../model';
+import { CLICK_READ, CLICK_TEST, PRESS_READ_TEST, SP, t, tt, type ChartContract } from '../model';
 
 /** 入口の概観帯 */
 export const entryOverview: ChartContract = {
     chart: {
         id: 'entry-overview', name: '入口の概観帯',
         paintedBy: ['src/webview/runtime/entryPlots.ts:paintOverview'],
-        requires: ['readout', 'step', 'range', 'ticks', 'axis'],
+        requires: ['readout', 'step', 'range', 'ticks', 'axis', 'click'],
     },
     rows: [
         {
@@ -52,6 +52,16 @@ export const entryOverview: ChartContract = {
                 t('src/test/entrySidePlots.test.ts', 'the overview colour scale and the dataset table name the recordings\' most common level reference, never plain dB, and say uncalibrated (R4)'),
             ],
             names: { quantity: true, unit: true, reference: true },
+        },
+        {
+            id: 'entry-overview.click', value: 'click', what: 'クリックで移る表の行',
+            computedIn: [...CLICK_READ, 'src/webview/runtime/entrySidePlots.ts:tap', 'src/webview/runtime/entryPlots.ts:overviewRowKey'],
+            from: 'whole', trace: '押した所で読み値が読んだマス（PlotHoverLayer.clicked）の行（overviewCells の −(i + 0.5)）のキーへ移る。レベルのないマス（「値なし」）では移らない。行の高さから自分で行を求めない。',
+            tests: [
+                t('src/test/entrySidePlots.test.ts', 'a click on the strip acts on the row whose cell its readout reads at the press, at once: on each row\'s cell and at the edge between two, that row; on a cell with no level (the readout\'s "no value"), none; a double click\'s second press goes back, a drag picks none; the gestures add a zoom box and a range popover (R7, R13)'),
+                t('src/test/plotInteraction.test.ts', PRESS_READ_TEST),
+                t('src/test/uiSmoke/plotContract.spec.ts', CLICK_TEST),
+            ],
         },
     ],
     knownGaps: {},

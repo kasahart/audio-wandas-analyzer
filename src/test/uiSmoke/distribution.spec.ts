@@ -142,7 +142,7 @@ test('a value not computed yet says so and offers 計算 in its header; computed
     await expect.poll(async () => (await dist(page))?.groups.map(group => group.name)).toEqual(['L1', 'L2', 'L3', '']);
 });
 
-test('a group of two recordings is drawn as dots, and a dot goes to its row; a click without a drag picks one bin (I9)', async ({ page }) => {
+test('a group of two recordings is drawn as dots, and a dot goes to its row; a click off every dot picks the bin of the value the readout says there (I9, R7, R13)', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     await openEntry(page, scanned!);
     await pickCsv(page, 'motor.csv', entry100Metadata());
@@ -158,21 +158,27 @@ test('a group of two recordings is drawn as dots, and a dot goes to its row; a c
     await page.mouse.click(at.x + dot.x, at.y + dot.y);
     // Gone to at once (plotInteraction.ts arbitrates every plot's click, R13).
     await expect.poll(async () => (await snapshot(page)).focused).toBe(dot.key);
-    // A press that stays put on the plot picks the bin under it, at once (a double click's second press would take it back, R13).
-    // The plot is drawn again once the row is focused: its bars are read after that.
+    // A press that stays put acts on what the readout reads there, at once (a double click's second press would take
+    // it back, R13). The plot is drawn again once the row is focused: it is read after that.
     await expect(page.locator('[data-entry-rows] tr.is-focused')).toHaveAttribute('data-key', dot.key);
     await painted(page);
-    // Off the dot, at its value: the bin holding it.
-    const off = (await dots())[0];
-    await page.mouse.click(at.x + off.x, off.y > 14 ? at.y + off.y - 12 : at.y + off.y + 12);
+    // Off every dot (out of the pick radius of each): the readout says where on the value axis the pointer is, and the
+    // click picks the bin of that value (R7, R13: a click acts on the point the readout reads).
+    const drawn = await dots();
+    const across = Array.from({ length: Math.floor(at.width) }, (_, x) => x + 0.5);
+    const far = across.reduce((best, x) => (Math.min(...drawn.map(item => Math.abs(item.x - x))) > Math.min(...drawn.map(item => Math.abs(item.x - best))) ? x : best), across[0]);
+    expect(Math.min(...drawn.map(item => Math.abs(item.x - far)))).toBeGreaterThan(20);
+    await page.mouse.move(at.x + far, at.y + 4);
+    const said = Number(((await page.locator('.entry-dist-note > [data-plot-readout]').textContent()) ?? '').split(' / ').pop()?.replace('−', '-').replace(/[^\d.+-]/gu, ''));
+    await page.mouse.down();
+    await page.mouse.up();
     await expect.poll(async () => (await dist(page)).range).not.toBeNull();
     const range = (await dist(page)).range!;
     const { low, high } = await dist(page);
     expect(range.high - range.low).toBeCloseTo((high - low) / 48, 5);
-    // The bin picked is the one the dot is drawn in: its value, read where the canvas drew it.
-    const value = low + off.x / at.width * (high - low);
-    expect(value).toBeGreaterThanOrEqual(range.low - (high - low) * 1e-3);
-    expect(value).toBeLessThanOrEqual(range.high + (high - low) * 1e-3);
+    // The bin picked holds the value the readout said there (written to its digits).
+    expect(said).toBeGreaterThanOrEqual(range.low - (high - low) / 48);
+    expect(said).toBeLessThanOrEqual(range.high + (high - low) / 48);
     // Each row's canvas spans the value axis strip's plot: drawing, the axis and picking share one origin.
     const plot = (await page.locator('[data-entry-dist-plot]').boundingBox())!;
     expect(at.x - plot.x).toBeCloseTo(92, 0);

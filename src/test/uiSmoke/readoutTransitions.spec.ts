@@ -725,15 +725,21 @@ const ROWS: Row[] = [
             const box = (await row.boundingBox())!;
             const frame = (await noted(row)).frame;
             const left = frame.length === 4 && frame.every(Number.isFinite) ? frame[0] : 0, width = frame.length === 4 && frame.every(Number.isFinite) ? frame[2] : box.width;
-            // Near the top edge of the row, where no dot is: the bin of the value at x 0.2 of the axis.
+            // Near the top edge of the row, where no dot is, at x 0.2 of the axis: the bin the readout reads there (a bar's,
+            // or with none read the bin of the value under the pointer) is the one the click picks (R7, R13).
             const x = box.x + left + width * 0.2, y = box.y + 2;
-            const value = low + 0.2 * (high - low);
-            await page.mouse.click(x, y);
+            await page.mouse.move(x, y);
+            const read = await row.evaluate(canvas => { const at = (canvas as HTMLElement & { __plotRead?: { index?: number; layer: { view: { kind: string } } } | null }).__plotRead; return at ? { kind: at.layer.view.kind, index: at.index ?? -1 } : null; });
+            const step = (high - low) / 48;
+            const bin = read?.kind === 'bar' ? read.index : Math.floor(0.2 * 48);
+            const value = low + (bin + 0.5) * step;
+            await page.mouse.down();
+            await page.mouse.up();
             await page.keyboard.press('=');
             await settled(page);
             const picked = (await snapshot()).range;
             expect(picked, 'a bin is picked').not.toBeNull();
-            expect(picked!.low <= value + 1e-9 && value - 1e-9 <= picked!.high, `the bin clicked on (${value}) is picked, not one the zoom put there: ${JSON.stringify(picked)}`).toBe(true);
+            expect(picked!.low <= value + 1e-9 && value - 1e-9 <= picked!.high, `the bin clicked on (${value}, the bin the readout read) is picked, not one the zoom put there: ${JSON.stringify(picked)}`).toBe(true);
         },
     },
     {

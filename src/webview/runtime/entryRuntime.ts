@@ -294,7 +294,12 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         },
         dot(key) {
             const back = tableNow();
-            if (shownRows.some(row => row.key === key)) focusRow(key, true); else focusFile(fileOfKey(key));
+            // The very row the readout read (R7, R13), filters off if they hide it: never another row of its file. A
+            // dot of a recording (a value of the file, not of a channel) goes to the file's row (focusFile).
+            if (rows.some(row => row.key === key)) {
+                if (!shownRows.some(row => row.key === key)) choose({ mode: 'all', filters: [], tracksOnly: false });
+                focusRow(key, true);
+            } else focusFile(fileOfKey(key));
             return back;
         },
     });

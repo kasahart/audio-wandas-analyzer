@@ -127,4 +127,7 @@ def test_the_cases_the_backend_cannot_express_are_listed_with_why() -> None:
             "step-: from the second of two points at one x, the first",
             "step+: past the plot's side there is nothing to read",
         ]
+        # A click is the webview's alone: it acts on the point its readout reads (no-click).
+        + [case["name"] for case in CASES if case["mode"] == "click"]
     ), names
+    assert all(case["not_on"]["py"] == "no-click" for case in CASES if case["mode"] == "click")

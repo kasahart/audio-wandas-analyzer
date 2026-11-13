@@ -1,11 +1,11 @@
-import { RT, SP, t, tt, type ChartContract } from '../model';
+import { CLICK_READ, CLICK_TEST, PRESS_READ_TEST, RT, SP, t, tt, type ChartContract } from '../model';
 
 /** トラックのスペクトログラムのレーン */
 export const trackSpectrogram: ChartContract = {
     chart: {
         id: 'track-spectrogram', name: 'トラックのスペクトログラムのレーン',
         paintedBy: ['src/webview/runtime/trackCanvasPainter.ts:paintTrackSpectrogram', `${RT}:drawSpectrogram`],
-        requires: ['readout', 'step', 'range', 'ticks', 'axis'],
+        requires: ['readout', 'step', 'range', 'ticks', 'axis', 'click'],
     },
     rows: [
         {
@@ -54,6 +54,16 @@ export const trackSpectrogram: ChartContract = {
                 t('src/test/uiSmoke/plotContract.spec.ts', 'the track view\'s waveform and spectrogram lanes answer the same gestures as every plot: readout in the toolbar above them (R13)'),
             ],
             names: { quantity: true, unit: true, reference: true },
+        },
+        {
+            id: 'track-spectrogram.click', value: 'click', what: 'クリックで動く時刻のカーソル',
+            computedIn: [...CLICK_READ, `${RT}:endLaneDrag`, `${RT}:laneReadNorm`, `${RT}:showLaneReadout`],
+            from: 'full', trace: '押した所でレーンの読み値が読んだマス（PlotHoverLayer.clicked）のフレームの時刻へカーソルを動かす。マスを読まない所では動かない。',
+            tests: [
+                tt('src/test/trackLaneHover.test.ts', 'a click on a spectrogram lane moves the cursor to the frame of the cell its readout reads, not the column averaged to draw it (R7, R13)'),
+                t('src/test/plotInteraction.test.ts', PRESS_READ_TEST),
+                t('src/test/uiSmoke/plotContract.spec.ts', CLICK_TEST),
+            ],
         },
     ],
     knownGaps: {},

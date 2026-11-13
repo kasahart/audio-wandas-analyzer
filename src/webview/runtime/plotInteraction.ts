@@ -140,7 +140,9 @@ export interface PlotInteractionDeps {
     shiftDrag?: PlotDrag;
     /**
      * A press that stayed put with neither Alt nor Shift held, at its release (Alt and Shift tell their drag's `end`):
-     * what it does is decided now, on the plot as it was clicked, and returned; it is done at once (R13). The action
+     * what it does is decided now, on the plot as it was clicked, and returned; it is done at once (R13). It acts on the
+     * point the plot's readout read at the press (clickOnRead, PlotHoverLayer.clicked: the same read, the same
+     * identity), never on a hit test of its own; where the readout reads nothing, it does nothing (R7). The action
      * returns how to take it back (put back what it changed: the selection, the cursor, the event left out): the
      * second press of a double click is no click, and takes back what its first press did, so a double click resets
      * the zoom only, however slow (the browser says it is one: `detail` 2). An action that changes nothing to take
@@ -285,6 +287,9 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
             const up = (event as Partial<MouseEvent>).buttons === 0;
             if (dragUnderWay() && !up) return;
             if (press?.isDrag) return;
+            // A press held reads where it was pressed until it is let go: what a click acts on is what its readout
+            // read at the press (R7, R13: PlotHoverLayer.clicked), never a place it slid to within the drag threshold.
+            if (press && !up) return;
             const hit = deps.locate(event.target, event.clientX, event.clientY);
             if (hit) hit.plot.dataset.plotYAxis = vertical;
             deps.hover(event, hit);
@@ -297,6 +302,9 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
             // The same hand everywhere: a drag zooms into its box, Alt+drag picks a stretch of the horizontal axis,
             // Shift+drag moves what the plot shows along it.
             const drag = (event.altKey ? deps.altDrag : undefined) ?? (event.shiftKey ? deps.shiftDrag : undefined) ?? null;
+            // Read at the press, before its owner is told of it: the readout a click acts on is the one at the press.
+            hit.plot.dataset.plotYAxis = vertical;
+            deps.hover(event, hit);
             presses.count += 1;
             press = { plot: hit.plot, from: hit.point, to: hit.point, clientX: event.clientX, clientY: event.clientY, isDrag: false, drag, last: { clientX: event.clientX, clientY: event.clientY } };
             deps.pressed?.(hit, event);

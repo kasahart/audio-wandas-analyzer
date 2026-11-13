@@ -452,12 +452,11 @@ test('every chart reads through the one readout: outside plotHoverLayer no runti
         }
     };
     walk(root);
-    // stagePanes defines the reads; trackStageGestures decides a click (not a readout) on the line under it.
-    const allowed = new Set(['runtime/stagePanes.ts', 'runtime/plotHoverLayer.ts', 'runtime/trackStageGestures.ts']);
+    // stagePanes defines the reads; plotHoverLayer reads them, for the readout and for a click (PlotHoverLayer.clicked:
+    // a trigger's event click too is the readout's read, decided on the plot as clicked), and nothing else does.
+    const allowed = new Set(['runtime/stagePanes.ts', 'runtime/plotHoverLayer.ts']);
     const readers = files.filter(file => /\b(stageHover|stageStep|stageReadAgain)\(/.test(readFileSync(file, 'utf8'))).map(file => path.relative(root, file).split(path.sep).join('/'));
-    assert.deepEqual(readers.filter(file => !allowed.has(file)), []);
-    const gestures = readFileSync(path.join(root, 'runtime', 'trackStageGestures.ts'), 'utf8');
-    assert.equal((gestures.match(/\bstage(Hover|Step|ReadAgain)\(/g) ?? []).length, 1, 'only the event line under a click');
+    assert.deepEqual(readers.filter(file => !allowed.has(file)), [], 'R7/R13: a point is read only through plotHoverLayer (a click acts on its read through clickOnRead, never a read of its own)');
     // The lanes' old parallel readout is gone: they show and step through laneMarks.
     const lanes = readFileSync(path.join(root, 'runtime', 'comparisonRuntime.ts'), 'utf8');
     assert.doesNotMatch(lanes, /\blaneRead\b|\blaneStepped\b|\bsteppedRead\b/);

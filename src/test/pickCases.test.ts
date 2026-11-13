@@ -16,6 +16,8 @@ import { N, R } from './helpers/figure';
 import { testLine } from './helpers/whole';
 import { HOVER_PICK_RADIUS_PX } from '../webview/runtime/plotHover';
 import { paintOverlay, stageHover, stageStep, type StageLayer, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
+import { createPlotHoverLayer, type PlotClickRead } from '../webview/runtime/plotHoverLayer';
+import { JSDOM } from 'jsdom';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -24,14 +26,14 @@ const TABLE_PATH = path.join(repoRoot, 'python-backend', 'tests', 'fixtures', 'p
 type Value = number | null | 'nan' | 'inf' | '-inf';
 type View = { x: [number, number]; xScale: 'linear' | 'log'; y: [number, number]; box: { width: number; height: number } };
 type Case = {
-    name: string; mode: 'nearest' | 'under' | 'step+' | 'step-'; view: View; plain: boolean; points: Array<[number, Value]>;
+    name: string; mode: 'nearest' | 'under' | 'click' | 'step+' | 'step-'; view: View; plain: boolean; points: Array<[number, Value]>;
     pointer?: { x: number; y: number }; from?: number; expect: number | null; empty?: boolean;
     not_on?: { ts?: string; py?: string }; today?: { ts?: number | null; py?: number | null; handoff: string };
 };
 const TABLE = JSON.parse(readFileSync(TABLE_PATH, 'utf8')) as { radius: number; cannot: Record<string, string>; cases: Case[] };
 
-const FIX = 'R7 (docs/display-rules.md, the pick table) broke in the webview: stagePanes.stageHover / fullLineNear or stageStep '
-    + 'no longer answers this case of python-backend/tests/fixtures/pick_cases.json as the table says. Change the rule only by '
+const FIX = 'R7 (docs/display-rules.md, the pick table) broke in the webview: stagePanes.stageHover / fullLineNear or stageStep, '
+    + 'or plotHoverLayer.clicked (what a click acts on: the readout\'s read) no longer answers this case of python-backend/tests/fixtures/pick_cases.json as the table says. Change the rule only by '
     + 'changing the table, fullLineNear / stageStep and full_read.py together (python-backend/test_pick_cases.py runs the same table).';
 
 const NON_FINITE: Record<string, number> = { nan: NaN, inf: Infinity, '-inf': -Infinity };
@@ -72,10 +74,36 @@ function painted(item: Case): { plot: StagePlot; layer: StageLayer } {
     throw new Error(`${item.name}: no canvas paints a frame of ${item.view.box.width} × ${item.view.box.height}`);
 }
 
+/**
+ * What a click at (`x`, `y`) on `plot` acts on, as every plot's click is decided (R7, R13): the readout shown there
+ * (plotHoverLayer.show), then what it says a click acts on (PlotHoverLayer.clicked), as clickOnRead hands it to the tap.
+ */
+function clickedAt(plot: StagePlot, x: number, y: number): PlotClickRead | null {
+    const { window } = new JSDOM('<!doctype html><body><canvas id="plot"></canvas></body>');
+    const context = new Proxy({}, { get: () => () => undefined, set: () => true });
+    window.HTMLCanvasElement.prototype.getContext = (() => context) as unknown as HTMLCanvasElement['getContext'];
+    const element = window.document.getElementById('plot') as HTMLElement;
+    const width = plot.frame.left + plot.frame.width + 100, height = plot.frame.top + plot.frame.height + 60;
+    element.getBoundingClientRect = () => ({ left: 0, top: 0, width, height, right: width, bottom: height, x: 0, y: 0, toJSON: () => ({}) });
+    const marks = createPlotHoverLayer(window.document, { noValue: 'no value' });
+    marks.show(element, plot, x, y, null);
+    let got: PlotClickRead | null | undefined;
+    marks.clicked(element, () => true, told => { got = told; });
+    assert.notEqual(got, undefined, 'a line held whole is clicked on at once');
+    return got ?? null;
+}
+
 /** The index the webview reads for `item`, with the read's distance for a hover. */
 function answer(item: Case): number | null {
     const { plot } = painted(item);
     const { left, top } = plot.frame;
+    if (item.mode === 'click') {
+        assert.ok(item.pointer, `${item.name}: a click case gives the pointer`);
+        const got = clickedAt(plot, left + item.pointer.x, top + item.pointer.y);
+        const empty = !!got && !got.read && got.empty;
+        assert.equal(empty, !!item.empty, `${item.name}: the click ${empty ? 'is told "no value at this place"' : 'is not told "no value at this place"'}, the table says ${item.empty ? 'it is' : 'it is not'} (\`empty\`)`);
+        return got?.read?.index ?? null;
+    }
     if (item.mode === 'nearest' || item.mode === 'under') {
         assert.ok(item.pointer, `${item.name}: a hover case gives the pointer`);
         const read = stageHover(plot, left + item.pointer.x, top + item.pointer.y);
@@ -103,7 +131,7 @@ function answer(item: Case): number | null {
     return stepped?.index ?? null;
 }
 
-test('every pick case of the table is read by the webview as the table says: nearest, under, ← and → (R7)', () => {
+test('every pick case of the table is read by the webview as the table says: nearest, under, a click, ← and → (R7)', () => {
     assert.equal(TABLE.radius, HOVER_PICK_RADIUS_PX, 'the table\'s pick radius is the webview\'s (plotHover.HOVER_PICK_RADIUS_PX)');
     const broken: string[] = [];
     for (const item of TABLE.cases) {

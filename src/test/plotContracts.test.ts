@@ -6,7 +6,7 @@ import test from 'node:test';
 import ts from 'typescript';
 import { namedTest, testProblem } from './namedTest';
 import { CHARTS, CONTRACTS, GAP_CEILING, KNOWN_GAPS, ROWS } from './plotContracts/index';
-import type { ContractRow } from './plotContracts/model';
+import { CLICK_READ, CLICK_TEST, type ContractRow } from './plotContracts/model';
 import { CONTRACT_DOC, renderContractDoc } from './plotContracts/render';
 import { NOT_SHOWN, SCHEMA_FIELDS } from './plotContracts/schema';
 import { BACKEND_READERS, NOT_CHART_VALUES, PY_DECIMATORS, VALUE_HELPERS } from './plotContracts/values';
@@ -434,6 +434,69 @@ function drawingSurfaces(program: ts.Program, files: readonly string[]): Map<str
     }
     return found;
 }
+
+/**
+ * Every plot's click (the `tap` handed to attachPlotInteraction), as `file:function`: the function that makes the click,
+ * the tap itself or the function of its file it hands the click to, and whether that function acts through
+ * clickOnRead (the readout's read, R7, R13).
+ */
+function plotClicks(sources: ReadonlyArray<{ file: string; source: ts.SourceFile }> = sourceFiles().filter(file => read(file).includes('attachPlotInteraction(')).map(file => ({ file, source: parse(file) }))): Map<string, boolean> {
+    const clicks = new Map<string, boolean>();
+    for (const { file, source } of sources) {
+        // The file's own functions by name (a declaration, or an arrow given to a const), never a property of an object.
+        const named = new Map<string, ts.Node>();
+        each(source, node => {
+            const name = ts.isFunctionDeclaration(node) && node.name ? node.name.text
+                : (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) && ts.isVariableDeclaration(node.parent) && ts.isIdentifier(node.parent.name) ? node.parent.name.text : null;
+            if (name && !named.has(name)) named.set(name, node);
+        });
+        const acts = (node: ts.Node | undefined): boolean => !!node && /\bclickOnRead\(/u.test(node.getText(source));
+        each(source, node => {
+            if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression) || node.expression.text !== 'attachPlotInteraction') return;
+            const deps = node.arguments[3];
+            if (!deps || !ts.isObjectLiteralExpression(deps)) return;
+            for (const property of deps.properties) {
+                if (!property.name || property.name.getText(source) !== 'tap') continue;
+                // The tap: a function of the file it names, or written here (a method, an arrow).
+                const own = ts.isShorthandPropertyAssignment(property) ? named.get('tap')
+                    : ts.isPropertyAssignment(property) && ts.isIdentifier(property.initializer) ? named.get(property.initializer.text) : property;
+                const ownName = ts.isPropertyAssignment(property) && ts.isIdentifier(property.initializer) ? property.initializer.text : 'tap';
+                if (acts(own)) { clicks.set(`${file}:${ownName}`, true); continue; }
+                // A tap that hands the click to a function of its file (the lanes' endLaneDrag).
+                let handed: string | null = null;
+                if (own) each(own, inner => { if (!handed && ts.isCallExpression(inner) && ts.isIdentifier(inner.expression) && acts(named.get(inner.expression.text))) handed = inner.expression.text; });
+                clicks.set(`${file}:${handed ?? ownName}`, !!handed);
+            }
+        });
+    }
+    return clicks;
+}
+
+test('every plot\'s click is a click row of the table and acts on the point its readout reads, through clickOnRead, never a hit test of its own (R7, R13)', () => {
+    const clicks = plotClicks();
+    assert.ok(clicks.size >= 4, `the scan finds the plots' clicks (${[...clicks.keys()].join(', ')})`);
+    const own = [...clicks].filter(([, through]) => !through).map(([at]) => at);
+    assert.deepEqual(own, [], 'Rule (docs/display-rules.md R7, R13: "a click acts on the point the readout reads"): every plot\'s click acts on what its readout read at the press, the same pick and the same identity. These taps do not act through clickOnRead (plotHoverLayer.ts), so they decide by a hit test of their own. Fix: return clickOnRead(marks, plot, current, got => ...) from the tap, acting on got.read (or, where the readout reads no point, on what its words say there), and delete the tap\'s own geometry.');
+    const rows = ROWS.filter(row => row.value === 'click');
+    const listed = new Set(rows.flatMap(row => row.computedIn));
+    assert.deepEqual([...clicks.keys()].filter(at => !listed.has(at)).sort(), [], 'Rule (R7, R13): every plot with a click has a click row in the contract table, which the browser test (CLICK_TEST in src/test/plotContracts/model.ts) clicks at ties, overlapping points, bin edges and gaps. These clicks have none. Fix: add a row of value \'click\' to the chart\'s file in src/test/plotContracts/charts (computedIn: ...CLICK_READ and this function), add \'click\' to its requires, and give it a case in plotContract.spec.ts CLICK_CASES.');
+    for (const row of rows) {
+        assert.ok(CLICK_READ.every(at => row.computedIn.includes(at)), `${row.id}: a click row names the readout's read it acts on (CLICK_READ)`);
+        assert.ok(row.tests.some(item => item.file === 'src/test/uiSmoke/plotContract.spec.ts' && item.name === CLICK_TEST), `${row.id}: a click row is held by the browser test of every plot's click (CLICK_TEST)`);
+    }
+});
+
+test('the click scan finds a plot\'s own hit test: a tap that does not act through clickOnRead', () => {
+    const text = [
+        'function handOn(current) { return clickOnRead(marks, plot, current, got => act(got.read)); }',
+        'attachPlotInteraction(a, document, ".a", { tap: (plot, event, current) => handOn(current) });',
+        // The old distribution's click: the first dot within 5 px of the pointer, a hit test of its own.
+        'const tap = (plot, event) => { const dot = dotAt(plot, event.clientX, event.clientY); return dot ? () => go(dot) : undefined; };',
+        'attachPlotInteraction(b, document, ".b", { tap });',
+    ].join('\n');
+    const clicks = plotClicks([{ file: 'fixture.ts', source: ts.createSourceFile('fixture.ts', text, ts.ScriptTarget.Latest, true) }]);
+    assert.deepEqual([...clicks].sort(), [['fixture.ts:handOn', true], ['fixture.ts:tap', false]]);
+});
 
 test('a use of the plot component is found under any name: imported under another, through a namespace, or handed on as a value', () => {
     const file = 'src/webview/runtime/injectedPainter.ts';

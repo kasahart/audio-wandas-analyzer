@@ -44,6 +44,8 @@ export const NOT_ANSWERS: Record<string, Listed> = {
     'src/webview/runtime/comparisonRuntime.ts#spectrogramPlots': notAnswer('each spectrogram canvas\'s last drawing, for its pointer readout'),
     'src/webview/runtime/comparisonRuntime.ts#spectrogramRasterCache': notAnswer('pixels of a lane\'s spectrogram drawn (by track, channel and theme), let go with the track\'s analysis'),
     'src/webview/runtime/entryDistributionPane.ts#plots': notAnswer('each distribution element\'s last drawing, for its pointer readout'),
+    'src/webview/runtime/entryDistribution.ts#layers': notAnswer('a distribution row\'s layers as drawn, kept with the row so a click names the layer its readout read (DistributionRow.clickOf)'),
+    'src/webview/runtime/entryDistribution.ts#clicks': notAnswer('what a click on each of a distribution row\'s layers acts on (a recording, a bin), kept with the row\'s drawing (DistributionRow.clickOf)'),
     'src/webview/runtime/entryPlots.ts#overviewCache': notAnswer('each overview canvas\'s drawing, redrawn when its rows key changes'),
     'src/webview/runtime/entryTableHtml.ts#linesOf': notAnswer('a table view\'s lines, keyed by the view object itself'),
     'src/webview/runtime/entrySidePlots.ts#windows': notAnswer('each side plot\'s zoom window'),

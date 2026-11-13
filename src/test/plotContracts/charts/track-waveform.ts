@@ -1,11 +1,11 @@
-import { RT, SP, t, tt, type ChartContract } from '../model';
+import { CLICK_READ, CLICK_TEST, PRESS_READ_TEST, RT, SP, t, tt, type ChartContract } from '../model';
 
 /** トラックの波形レーン */
 export const trackWaveform: ChartContract = {
     chart: {
         id: 'track-waveform', name: 'トラックの波形レーン',
         paintedBy: [`${RT}:drawTrackWaveform`],
-        requires: ['readout', 'step', 'range', 'ticks', 'axis'],
+        requires: ['readout', 'step', 'range', 'ticks', 'axis', 'click'],
     },
     rows: [
         {
@@ -71,6 +71,16 @@ export const trackWaveform: ChartContract = {
             from: 'axis', trace: '軸を描いた端をそのまま書く（exactFieldText、R9）。自動の振幅の範囲は入力欄の桁まで外へ広げ、拡大の窓の端は入力欄の桁で作って描く（figureModel.fieldWindow）。',
             tests: [
                 t('src/test/uiSmoke/waveformAmplitudeRange.spec.ts', 'double-clicking the waveform amplitude axis sets the vertical range from a popover'),
+            ],
+        },
+        {
+            id: 'track-waveform.click', value: 'click', what: 'クリックで動く時刻のカーソル',
+            computedIn: [...CLICK_READ, `${RT}:endLaneDrag`, `${RT}:laneReadNorm`, `${RT}:showLaneReadout`],
+            from: 'full', trace: '押した所でレーンの読み値が読んだサンプル（PlotHoverLayer.clicked、次の描画を待たずに showLaneReadout で出す）の時刻（ほかのレーンの時刻の線と同じ laneReadNorm）へカーソルを動かす。画素の時刻は使わない。読み値が何も読まない所（値なし、解析後に変わったファイル）では動かない。',
+            tests: [
+                tt('src/test/trackLaneHover.test.ts', 'a click on a track lane moves the cursor to the sample its readout reads, not to a point of the envelope drawn nor the pixel\'s own time (R7, R13)'),
+                t('src/test/plotInteraction.test.ts', PRESS_READ_TEST),
+                t('src/test/uiSmoke/plotContract.spec.ts', CLICK_TEST),
             ],
         },
     ],

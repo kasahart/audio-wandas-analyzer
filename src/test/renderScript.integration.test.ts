@@ -19,6 +19,7 @@ import { join } from 'node:path';
 // vscode モックを先に設定してから ComparisonPanel をロードするヘルパー
 import { getRenderScript, getRenderStyles } from './helpers/comparisonScriptLoader';
 import { createWebviewEnv, evalScript } from './helpers/webviewTestEnv';
+import { UI_SMOKE_READS } from './uiSmoke/fullReadStandIn';
 import { OWN_COLORS } from '../shared/gui/roleColors';
 
 // scripts/build-webview.js が tsc 後に生成。__dirname は dist/test なので 1 階層上が dist/。
@@ -1121,6 +1122,8 @@ test('renderScript: a cursor set again to where an in-flight slice was asked ask
 test('renderScript: waveform seek invalidates an in-flight spectrum response', async () => {
     const state = JSON.parse(makeLazySpectrogramState());
     state.results = state.results.slice(0, 1);
+    // Samples spread over the second, so the readout at the click (3/4 of the lane) reads one there (R7, R13).
+    state.results[0].channels[0].waveform = { min: [-0.5, -0.4, -0.3], max: [0.5, 0.4, 0.45], minT: [0.1, 0.4, 0.7], maxT: [0.2, 0.5, 0.75], samples: [0], absolutePeak: 0.5 };
     const env = setupEnvWithState(JSON.stringify(state));
     await nextAnimationFrame(env.dom);
 
@@ -1128,18 +1131,24 @@ test('renderScript: waveform seek invalidates an in-flight spectrum response', a
     const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement;
     const spectrumSpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
     assert.ok(initial && canvas && spectrumSpy);
+    canvas.width = 800;
+    canvas.height = 80;
     canvas.getBoundingClientRect = () => ({
         left: 0, top: 0, right: 800, bottom: 80, width: 800, height: 80,
     } as DOMRect);
-    const strokesBeforeSeekResponse = spectrumSpy.strokeCalls;
-
+    // Painted again at its new size, so the readout (and a click) reads the lane as it is drawn there.
+    env.dom.window.dispatchEvent(new env.dom.window.Event('resize'));
+    await nextAnimationFrame(env.dom);
+    await nextAnimationFrame(env.dom);
     canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', {
         bubbles: true, button: 0, clientX: 600, clientY: 5,
     }));
     env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', {
         bubbles: true, button: 0, clientX: 600, clientY: 5,
     }));
-    // The click seeks at once (plotInteraction arbitrates every plot's click, R13).
+    // The click seeks to the sample the lane's readout reads there, once its samples are in (R7, R13).
+    await answerLaneReads(env);
+    const strokesBeforeSeekResponse = spectrumSpy.strokeCalls;
 
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
         type: 'spectrum-slice-result',
@@ -1643,6 +1652,29 @@ const MISMATCHED_DELTA_F_SPECTRUM_STATE = JSON.stringify({
     ],
 });
 
+/**
+ * Answers every lane read the page has asked for and not been answered (a lane's samples or cells around the pointer),
+ * from its own analysis result, as the ui-smoke pages' stand-in does: a lane's click acts on the point its readout
+ * reads (R7, R13), and that read waits for its full data.
+ */
+const answeredReads = new WeakMap<object, Set<string>>();
+async function answerLaneReads(env: ReturnType<typeof createWebviewEnv>): Promise<void> {
+    const win = env.dom.window as unknown as { uiSmokeReadAnswer?: (message: unknown) => unknown };
+    if (!win.uiSmokeReadAnswer) evalScript(env.dom, UI_SMOKE_READS);
+    const answered = answeredReads.get(env) ?? new Set<string>();
+    answeredReads.set(env, answered);
+    for (let round = 0; round < 4; round++) {
+        const open = (env.postedMessages as Array<{ requestId?: string; read?: unknown }>).filter(message => message.read && message.requestId && !answered.has(message.requestId));
+        if (!open.length) return;
+        for (const message of open) {
+            answered.add(message.requestId as string);
+            const reply = win.uiSmokeReadAnswer?.(message);
+            if (reply) env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: reply }));
+        }
+        await nextAnimationFrame(env.dom);
+    }
+}
+
 function setupSpectrumEnv() {
     const script = getRenderScript();
     const env = createWebviewEnv(SPECTRUM_APP_STATE);
@@ -1713,6 +1745,8 @@ test('renderScript: mouseup click commits cursor and re-draws spectrum', async (
     // mousedown + mouseup (no movement) -> a click: the cursor moves (endLaneDrag)
     canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 10, clientY: 5 }));
     env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 10, clientY: 5 }));
+    // The cursor goes to the sample the lane's readout reads there, once its samples are in (R7, R13).
+    await answerLaneReads(env);
 
     assert.ok(overlaySpy.strokeCalls > before,
         'クリック確定後に overlay canvas が再描画されること');
@@ -1930,16 +1964,25 @@ test('spectrogram hit testing maps pointer positions to the whole lane width and
     await nextAnimationFrame(env.dom);
     await nextAnimationFrame(env.dom);
 
-    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 400, clientY: 80 }));
-    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 400, clientY: 80 }));
+    // The readout at x=300 (3/8 of the lane: the second of its four frames' middle) reads the cell there (its full data answered); a click moves the cursor to that cell's frame (R7, R13).
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 300, clientY: 80 }));
     await nextAnimationFrame(env.dom);
+    await answerLaneReads(env);
+    const read = (canvas as unknown as { __plotRead?: { at?: number } | null }).__plotRead;
+    assert.ok(read?.at !== undefined, 'the lane reads a cell at x=300');
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 300, clientY: 80 }));
+    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 300, clientY: 80 }));
+    await answerLaneReads(env);
+    await nextAnimationFrame(env.dom);
+    assert.equal(Number(env.dom.window.document.getElementById('tracks-wrapper')?.dataset.cursorAt), read.at, 'the click moves the cursor to the frame of the cell the readout reads (R7, R13)');
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
         data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-hit-plot' },
     }));
     await nextAnimationFrame(env.dom);
 
     let snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    assert.equal(snap.renderedUi.cursorNorm, 0.5, 'x=400 on an 800px lane maps to 50% time');
+    const placed = snap.renderedUi.cursorNorm as number;
+    assert.ok(Math.abs(placed - 0.375) < 1e-9, `x=300 on an 800px lane reads the frame at 37.5% of the time: the lane's whole width is its time (${placed})`);
 
     const bar = colourBarClientPoint(canvas, 0);
     canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, ...bar }));
@@ -1951,7 +1994,7 @@ test('spectrogram hit testing maps pointer positions to the whole lane width and
     await nextAnimationFrame(env.dom);
 
     snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    assert.equal(snap.renderedUi.cursorNorm, 0.5, 'clicks on the spectrogram colour bar do not update audio time');
+    assert.equal(snap.renderedUi.cursorNorm, placed, 'clicks on the spectrogram colour bar do not update audio time');
     env.dom.window.close();
 });
 

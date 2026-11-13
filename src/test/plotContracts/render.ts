@@ -6,7 +6,7 @@ import type { Source, ValueKind } from './model';
 /** The table as a section of docs/plot-contracts.md: the charts, then each one's rows, then the gaps by severity. */
 export function renderContractDoc(): string {
     const fromText: Record<Source, string> = { full: '全データ', whole: '描く点が全部（間引かない）', extremes: '間引いた点（区間の最小・最大）', thinned: '間引いた点（平均・切り出し）', axis: '軸の範囲・窓', input: '利用者の値・メタデータ', words: '文字' };
-    const kindText: Record<ValueKind, string> = { readout: '読み値', step: '← / →', delta: 'Δ', median: '中央値', headline: '見出し・最大', order: '重ねる順', range: '自動の範囲', ticks: '目盛り', axis: '軸の名前', export: '書き出し', count: '数', summary: '要約の値', label: '入力・設定の表示', identity: 'どのデータか', pending: '届くまでの表示' };
+    const kindText: Record<ValueKind, string> = { readout: '読み値', step: '← / →', delta: 'Δ', median: '中央値', headline: '見出し・最大', order: '重ねる順', range: '自動の範囲', ticks: '目盛り', axis: '軸の名前', export: '書き出し', count: '数', summary: '要約の値', label: '入力・設定の表示', identity: 'どのデータか', pending: '届くまでの表示', click: 'クリックが選ぶもの' };
     const cell = (text: string): string => text.replace(/\|/g, '\\|').replace(/\n/g, ' ');
     const code = (items: readonly string[]): string => items.map(item => `\`${item.replace(/^src\/|^python-backend\//, '')}\``).join('<br>');
     const lines = [

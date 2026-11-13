@@ -35,7 +35,7 @@ test('the legend names the base (a file, or a group\'s median) and the filled co
     assert.match(group, /slot-0 is-dashed"><\/span>Base \(median of rpm &lt;900&gt;\)/);
 });
 
-function setup() {
+function setup(attributes = new Map([['/d/a.wav', { rpm: '900', score: '0.2' }], ['/d/b.wav', { rpm: '900', score: '0.4' }], ['/d/c.wav', { rpm: '1500', score: '0.9' }]])) {
     const dom = new JSDOM('<!doctype html><body></body>');
     const { document } = dom.window;
     const host = document.createElement('div');
@@ -46,7 +46,6 @@ function setup() {
     screen.hidden = false;
     const calls: Array<[string, unknown]> = [];
     const pane = createDistributionPane({ screen, strings, pick: range => { calls.push(['pick', range]); return () => { calls.push(['unpick', range]); }; }, dot: key => { calls.push(['dot', key]); return () => { calls.push(['undot', key]); }; } });
-    const attributes = new Map([['/d/a.wav', { rpm: '900', score: '0.2' }], ['/d/b.wav', { rpm: '900', score: '0.4' }], ['/d/c.wav', { rpm: '1500', score: '0.9' }]]);
     const rows: DatasetRow[] = datasetRows([...attributes.keys()], '/d', attributes, new Map());
     const byKey = new Map(rows.map(row => [row.key, row]));
     const inputs: DistributionInputs = {
@@ -114,22 +113,82 @@ test('Alt+drag on a row picks a range, as Alt+drag is on every plot (plotInterac
     assert.equal(calls.length, 1, 'a plain drag picks nothing');
 });
 
-test('a click on a row (the plot gestures\' tap: a press that stays put) picks the bin under it at once; a double click\'s second press puts the table back (R13)', () => {
-    const { dom, screen, pane, calls, inputs } = setup();
-    pane.place(true);
-    pane.paint(inputs);
-    const canvas = screen.querySelector('[data-entry-dist-groups] [data-dist-canvas]');
-    assert.ok(canvas);
-    const { document } = dom.window;
-    const fire = (target: EventTarget, type: string, detail = 1): void => { target.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, button: 0, clientX: 200, detail })); };
-    const fix = 'Fix: a click acts at once, and a double click\'s second press takes it back (plotInteraction.ts release(); docs/display-rules.md R13).';
-    fire(canvas, 'mousedown');
-    fire(document, 'mouseup');
-    assert.equal(calls.length, 1, `a click did not pick at once. ${fix}`);
-    assert.equal(calls[0][0], 'pick');
-    for (const detail of [1, 2]) { fire(canvas, 'mousedown', detail); fire(document, 'mouseup', detail); }
-    assert.deepEqual(calls.slice(1).map(call => call[0]), ['pick', 'unpick'], `a double click left a bin picked: it resets the zoom only. ${fix}`);
-    assert.deepEqual(calls[2][1], calls[1][1], 'the bin its first press picked is the one put back');
+/**
+ * The pane's rows drawn as on a page (a context that draws nothing), each row's canvas `width` × 34 px, 40 px below the
+ * one before from (100, 0), scrolled up by `scrolled()`: the pointer's marks and readout are shown, so a click has a read.
+ */
+function drawingPane(dom: JSDOM, screen: HTMLElement, width = 300, scrolled = (): number => 0): { rows: () => HTMLCanvasElement[]; rowRect: (index: number) => DOMRect; restore: () => void } {
+    const context = new Proxy({}, {
+        get: (_target, key) => key === 'font' ? '10px sans-serif' : key === 'measureText' ? (text: string) => ({ width: text.length * 6 })
+            : key.toString().startsWith('create') ? () => ({ addColorStop: () => undefined }) : key === 'getImageData' || key === 'createImageData' ? (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(Math.max(1, w * h * 4)) }) : () => undefined,
+        set: () => true,
+    });
+    dom.window.HTMLCanvasElement.prototype.getContext = (() => context) as unknown as HTMLCanvasElement['getContext'];
+    // The pane finds the row under the pointer as a canvas of the page (instanceof HTMLCanvasElement).
+    const globals = globalThis as { HTMLCanvasElement?: unknown };
+    const before = globals.HTMLCanvasElement;
+    globals.HTMLCanvasElement = dom.window.HTMLCanvasElement;
+    const rowRect = (index: number): DOMRect => ({ left: 100, top: index * 40 - scrolled(), width, height: 34, right: 100 + width, bottom: index * 40 - scrolled() + 34, x: 100, y: index * 40 - scrolled(), toJSON: () => ({}) });
+    // Every row's canvas, as painted now (a paint makes them anew), placed by its index.
+    const rows = (): HTMLCanvasElement[] => [...screen.querySelectorAll<HTMLCanvasElement>('[data-dist-canvas]')];
+    const proto = dom.window.HTMLCanvasElement.prototype;
+    proto.getBoundingClientRect = function (this: HTMLCanvasElement) { const index = rows().indexOf(this); return rowRect(Math.max(0, index)); };
+    Object.defineProperty(proto, 'clientWidth', { get: () => width, configurable: true });
+    Object.defineProperty(proto, 'clientHeight', { get: () => 34, configurable: true });
+    (dom.window.document as unknown as { elementFromPoint: (x: number, y: number) => Element | null }).elementFromPoint = (_x, y) => rows().find((_c, index) => y >= rowRect(index).top && y < rowRect(index).bottom) ?? null;
+    return { rows, rowRect, restore: () => { globals.HTMLCanvasElement = before; } };
+}
+
+test('a click on a row acts on what its readout reads at the press, never on a hit test of its own: on a dot beside another of its height, that dot\'s row; half way between, the first; off any point, the bin of the value the readout says; a double click\'s second press puts the table back (R7, R13)', () => {
+    // Two recordings of one group a dot's spacing apart (the axis / 60): drawn at one height, about 4 px apart.
+    const { dom, screen, pane, calls, inputs } = setup(new Map([['/d/a.wav', { rpm: '900', score: '0' }], ['/d/b.wav', { rpm: '900', score: '0.0201' }], ['/d/c.wav', { rpm: '1500', score: '1' }]]));
+    const { rows, rowRect, restore } = drawingPane(dom, screen, 240);
+    try {
+        pane.place(true);
+        pane.paint({ ...inputs, slots: [null, null, null, null], base: null });
+        const canvas = rows()[0];
+        const dots = (canvas.dataset.dots ?? '').split('\n').map(line => { const [key, x, y] = line.split('\t'); return { key, x: Number(x), y: Number(y) }; });
+        assert.deepEqual(dots.map(dot => dot.key), ['/d/a.wav', '/d/b.wav']);
+        const [a, b] = dots;
+        assert.equal(a.y, b.y, 'the two dots are drawn at one height');
+        assert.ok(Math.abs(b.x - a.x) <= 5, `the two dots are close enough that a 5 px hit test of the click's own would take the first for the second (${a.x}, ${b.x})`);
+        const readout = screen.querySelector<HTMLElement>('.entry-dist-note > [data-plot-readout]');
+        const shown = (): string => (readout && !readout.hidden ? readout.textContent ?? '' : '');
+        const { document } = dom.window;
+        const fix = 'R7/R13 (docs/display-rules.md, "a click acts on the point the readout reads"): the distribution\'s click must act on PlotHoverLayer.clicked\'s read (entryDistributionPane.ts tap through clickOnRead, entryDistribution.distributionClick), never on a hit test of its own (the old dotAt took the first dot within 5 px).';
+        const click = (x: number, y: number, detail = 1): string => {
+            const at = { bubbles: true, button: 0, clientX: rowRect(0).left + x, clientY: rowRect(0).top + y, detail };
+            canvas.dispatchEvent(new dom.window.MouseEvent('mousemove', at));
+            const read = shown();
+            canvas.dispatchEvent(new dom.window.MouseEvent('mousedown', at));
+            document.dispatchEvent(new dom.window.MouseEvent('mouseup', at));
+            return read;
+        };
+        // On b's centre: the readout reads b, and the click goes to b's row.
+        assert.match(click(b.x, b.y), /\/d\/b\.wav/u);
+        assert.deepEqual(calls, [['dot', '/d/b.wav']], fix);
+        // Half way between them: as near to each, the first in the data's order (pick_cases.json), read and gone to.
+        calls.length = 0;
+        assert.match(click((a.x + b.x) / 2, a.y), /\/d\/a\.wav/u);
+        assert.deepEqual(calls, [['dot', '/d/a.wav']], fix);
+        // Off any point (the row's right part, out of the pick radius of every dot): the readout says where on the
+        // value axis the pointer is, and the click picks the bin of that value.
+        calls.length = 0;
+        const said = click(200, 2);
+        const value = Number(said.split(' / ').pop());
+        assert.ok(Number.isFinite(value), `off any point the readout says a value (${said})`);
+        assert.equal(calls.length, 1, fix);
+        const [kind, range] = calls[0] as [string, { low: number; high: number }];
+        assert.equal(kind, 'pick', fix);
+        assert.ok(range.low <= value + 1e-3 && value - 1e-3 <= range.high && range.high - range.low <= ((pane.last()?.high ?? 0) - (pane.last()?.low ?? 0)) / DISTRIBUTION_BINS + 1e-9, `the bin picked (${range.low}–${range.high}) holds the value the readout said (${value}). ${fix}`);
+        // A double click there: its first press picks the bin, its second puts the table back (R13).
+        calls.length = 0;
+        for (const detail of [1, 2]) click(200, 2, detail);
+        assert.deepEqual(calls.map(call => call[0]), ['pick', 'unpick'], 'a double click left a bin picked: it resets the zoom only (plotInteraction.ts release(); docs/display-rules.md R13)');
+        assert.deepEqual(calls[1][1], calls[0][1], 'the bin its first press picked is the one put back');
+    } finally {
+        restore();
+    }
 });
 
 test('each group is a row of the plot component: its dots, its slots and the base on it', () => {
@@ -157,28 +216,10 @@ test('a double-click on the value axis strip opens its range through the plot co
 
 test('the readout off a bar says where on the value axis the pointer is, and keeps saying it after a redraw; a scroll under a still pointer reads the row now under it (R7)', () => {
     const { dom, screen, pane, inputs } = setup();
-    const context = new Proxy({}, {
-        get: (_target, key) => key === 'font' ? '10px sans-serif' : key === 'measureText' ? (text: string) => ({ width: text.length * 6 })
-            : key.toString().startsWith('create') ? () => ({ addColorStop: () => undefined }) : key === 'getImageData' || key === 'createImageData' ? (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(Math.max(1, w * h * 4)) }) : () => undefined,
-        set: () => true,
-    });
-    dom.window.HTMLCanvasElement.prototype.getContext = (() => context) as unknown as HTMLCanvasElement['getContext'];
-    // The pane finds the row under the pointer as a canvas of the page (instanceof HTMLCanvasElement).
-    const globals = globalThis as { HTMLCanvasElement?: unknown };
-    const before = globals.HTMLCanvasElement;
-    globals.HTMLCanvasElement = dom.window.HTMLCanvasElement;
-    pane.place(true);
-    // Each row 40 px tall, 400 wide, one under the other; the groups' list scrolls them by `scrolled`.
+    // Each row 40 px tall, 300 wide, one under the other; the groups' list scrolls them by `scrolled`.
     let scrolled = 0;
-    const rowRect = (index: number) => ({ left: 100, top: index * 40 - scrolled, width: 300, height: 34, right: 400, bottom: index * 40 - scrolled + 34, x: 100, y: index * 40 - scrolled, toJSON: () => ({}) });
-    // Every row's canvas, as painted now (a paint makes them anew), placed by its index.
-    const rows = (): HTMLCanvasElement[] => [...screen.querySelectorAll<HTMLCanvasElement>('[data-dist-canvas]')];
-    const proto = dom.window.HTMLCanvasElement.prototype;
-    proto.getBoundingClientRect = function (this: HTMLCanvasElement) { const index = rows().indexOf(this); return rowRect(Math.max(0, index)); };
-    Object.defineProperty(proto, 'clientWidth', { get: () => 300, configurable: true });
-    Object.defineProperty(proto, 'clientHeight', { get: () => 34, configurable: true });
-    const { document } = dom.window;
-    (document as unknown as { elementFromPoint: (x: number, y: number) => Element | null }).elementFromPoint = (_x, y) => rows().find((_c, index) => y >= rowRect(index).top && y < rowRect(index).bottom) ?? null;
+    const { rows, restore } = drawingPane(dom, screen, 300, () => scrolled);
+    pane.place(true);
     pane.paint(inputs);
     let canvases = rows();
     assert.equal(canvases.length, 2);
@@ -197,5 +238,5 @@ test('the readout off a bar says where on the value axis the pointer is, and kee
     scrolled = 40;
     screen.querySelector<HTMLElement>('[data-entry-dist-groups]')?.dispatchEvent(new dom.window.Event('scroll'));
     assert.notEqual(canvases[1].dataset.plotRead, undefined, 'the row now under the pointer is read');
-    globals.HTMLCanvasElement = before;
+    restore();
 });

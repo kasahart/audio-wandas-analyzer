@@ -14,12 +14,12 @@ import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { calibrationWordsBy, levelKeyOf, ofReference, ownReferenceMark, templatedLevelName, unreferencedName, uncalibratedWord, type FigureTitle, type FolderReference } from './figureModel';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import type { HeldPicture } from './entryHeldPlot';
-import { OVERVIEW_MARGINS, paintOverview } from './entryPlots';
+import { OVERVIEW_MARGINS, overviewRowKey, paintOverview } from './entryPlots';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, plotPointIn, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { positionPopover } from './settingsPopover';
 import { BAND_CENTERS_HZ } from './entryTable';
 import { STAGE_MARGINS, type StagePlot } from './stagePanes';
-import { createPlotHoverLayer } from './plotHoverLayer';
+import { clickOnRead, createPlotHoverLayer } from './plotHoverLayer';
 
 export interface SidePlotsDeps {
     /**
@@ -217,17 +217,15 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
             },
             clearHover() { pointer = null; marks.hide(); /* the panel's own hints stay */ },
             stepFrom(plot, delta, arrived) { return marks.stepFrom(plot, plot === heldCanvas ? deps.heldPicture()?.drawn ?? null : overviewDrawn, delta, arrived); },
-            // A press on the strip that stayed put (a drag zooms instead) goes to the row under it.
-            tap(plot, event) {
-                // The row under the press on the strip as clicked, gone to at once; a double click's second press goes back (plotInteraction.ts, R13).
+            // A press on the strip that stayed put (a drag zooms instead) goes to the row whose cell the readout read at
+            // the press (R7, R13: clickOnRead), never to a row of a hit test of its own; on a cell with no level (the
+            // readout's "no value"), nowhere. At once; a double click's second press goes back (plotInteraction.ts).
+            tap(plot, _event, current) {
                 if (plot !== overview) return undefined;
-                const rows = deps.rows();
-                const box = overview.getBoundingClientRect();
-                // The strip's rows (top first) over the part of it on screen.
-                const zoom = plotWindow('overview');
-                const plotTop = box.top + OVERVIEW_MARGINS.top, plotHeight = box.height - OVERVIEW_MARGINS.top - OVERVIEW_MARGINS.bottom;
-                const row = rows[Math.floor(((1 - zoom.y.end) + (event.clientY - plotTop) / Math.max(1, plotHeight) * (zoom.y.end - zoom.y.start)) * rows.length)];
-                return row ? () => deps.pickRow(row.key) : undefined;
+                return clickOnRead(marks, plot, current, got => {
+                    const key = got.read ? overviewRowKey(deps.rows(), got.read) : null;
+                    return key === null ? undefined : deps.pickRow(key) ?? undefined;
+                });
             },
             showBox(plot, from, to) {
                 const box = plot.getBoundingClientRect(), outer = side.getBoundingClientRect(), margins = marginsOf(plot);

@@ -8,6 +8,8 @@ import type { SpectrogramData } from '../shared/analysis/analysisTypes';
 import { paintOverlay, stageHover, stageStep, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
 import { laneWaveformOverlay, paintTrackSpectrogram } from '../webview/runtime/trackCanvasPainter';
 import { laneReadoutText, spectrogramReadoutText } from '../webview/runtime/trackLaneHover';
+import { clickOnRead, createPlotHoverLayer } from '../webview/runtime/plotHoverLayer';
+import { JSDOM } from 'jsdom';
 
 /** A lane canvas at its CSS size whose context draws nothing. */
 function laneCanvas(width: number, height: number): HTMLCanvasElement {
@@ -116,4 +118,77 @@ test('the pointer on a spectrogram lane reads the real STFT cell under it, not t
         assert.equal(read?.value, raw[bin][frame]);
     }
     assert.equal(spectrogramReadoutText('', 0.25, 0.01, { frequencyHz: 2000, level: -22 }, 'dB'), '0.25 s / 2 kHz / −22.0 dB');
+});
+
+/**
+ * A click on `plot` (drawn on a lane `width` × `height` at the page's top left) at (x, y), as every plot's click is
+ * decided (R7, R13): the readout shown there, then the read a click acts on, as clickOnRead hands it to the lane's tap.
+ */
+function laneClick(plot: StagePlot, width: number, height: number, x: number, y: number): StageRead | null {
+    const { window } = new JSDOM('<!doctype html><body><canvas id="lane"></canvas></body>');
+    const context = new Proxy({}, { get: () => () => undefined, set: () => true });
+    window.HTMLCanvasElement.prototype.getContext = (() => context) as unknown as HTMLCanvasElement['getContext'];
+    const lane = window.document.getElementById('lane') as HTMLElement;
+    lane.getBoundingClientRect = () => ({ left: 0, top: 0, width, height, right: width, bottom: height, x: 0, y: 0, toJSON: () => ({}) });
+    const marks = createPlotHoverLayer(window.document, { noValue: 'no value' });
+    marks.show(lane, plot, x, y, null);
+    let acted: StageRead | null = null;
+    clickOnRead(marks, lane, () => true, got => { acted = got.read; return undefined; })();
+    return acted;
+}
+
+test('a click on a track lane moves the cursor to the sample its readout reads, not to a point of the envelope drawn nor the pixel\'s own time (R7, R13)', () => {
+    const count = 40000;
+    const samples = Array.from({ length: count }, (_, index) => 0.8 * Math.sin(index * 1.37) * Math.cos(index * 0.013));
+    const norms = samples.map((_, index) => index / (count - 1));
+    const min: number[] = [], max: number[] = [], minT: number[] = [], maxT: number[] = [];
+    const drawn = new Set<number>();
+    for (let start = 0; start < count; start += 100) {
+        let low = start, high = start;
+        for (let index = start; index < start + 100; index++) {
+            if (samples[index] < samples[low]) low = index;
+            if (samples[index] > samples[high]) high = index;
+        }
+        min.push(samples[low]); max.push(samples[high]); minT.push(norms[low]); maxT.push(norms[high]);
+        drawn.add(low).add(high);
+    }
+    const lane = laneWaveformOverlay({ waveform: { min, max, minT, maxT, samples: [], absolutePeak: 1 }, dataStart: 0, dataEnd: 1, amplitudeScale: 1 },
+        place, '#00ff00', 'Pa', testLine(norms, samples));
+    const plot = paintOverlay(laneCanvas(400, 100), lane.overlay, R({ min: -1, max: 1 }), N({ x: 'Time [s]', y: 'Amplitude [Pa]' }),
+        { axisCanvas: null, axisView: lane.axisView, window: { x: { start: 0, end: 1 } } }) as StagePlot;
+    let at = 20003;
+    while (drawn.has(at)) at++;
+    const time = laneSeconds(at / (count - 1) * 2);
+    const read = stageHover(plot, plot.xAt(time), plot.yAt(samples[at]));
+    const acted = laneClick(plot, 400, 100, plot.xAt(time), plot.yAt(samples[at]));
+    // The click's time is the readout's: the sample it reads, on the lanes' time axis.
+    assert.equal(acted?.at, read?.at, 'R7/R13: a lane\'s click acts on the readout\'s read (comparisonRuntime endLaneDrag through clickOnRead)');
+    close(acted?.at, time, 'the sample under the pointer');
+    const drawnTimes = [...drawn].map(index => laneSeconds(norms[index] * 2));
+    assertNotDrawn(acted?.at, nearestOf(drawnTimes, time), 'not the time of a point of the envelope drawn');
+});
+
+test('a click on a spectrogram lane moves the cursor to the frame of the cell its readout reads, not the column averaged to draw it (R7, R13)', () => {
+    const frames = Array.from({ length: 80 }, (_, frame) => 0.0125 + frame * 0.025);
+    const bins = Array.from({ length: 9 }, (_, bin) => bin * 500);
+    const raw = bins.map((_, bin) => frames.map((_, frame) => -60 + 20 * Math.sin(frame * 0.9 + bin)));
+    const spec: SpectrogramData = {
+        values: Array.from({ length: 10 }, (_, column) => Array.from({ length: 5 }, (_, row) => {
+            const cells = raw.slice(row * 2, row * 2 + 2).flatMap(line => line.slice(column * 8, column * 8 + 8));
+            return cells.reduce((sum, value) => sum + value, 0) / cells.length;
+        })),
+        timeBins: 10, frequencyBins: 5, windowSize: 256, hopSize: 64, maxFrequencyHz: 4000, minDb: -80, maxDb: -40, unit: 'dB',
+    };
+    const entry = paintTrackSpectrogram(laneCanvas(400, 90), null, spec, place,
+        { window: { start: 0, end: 1 }, dbLo: -80, dbHi: -40, maxFrequencyHz: 4000, minFrequencyHz: 0, durationSec: 2 }, undefined,
+        { colour: T('Level [dBFS]'), frequency: P('Frequency [Hz]'), time: P('Time [s]') }, '', testCells(frames, bins, raw));
+    const plot = entry.plot;
+    assert.ok(plot?.image);
+    const frame = 41;
+    const where = plot.image.placeOf(laneSeconds(frames[frame]), bins[5]);
+    const acted = laneClick(plot, 400, 90, where.x, where.y);
+    assert.equal(acted?.at, stageHover(plot, where.x, where.y)?.at, 'R7/R13: a lane\'s click acts on the readout\'s read (comparisonRuntime endLaneDrag through clickOnRead)');
+    close(acted?.at ?? undefined, laneSeconds(frames[frame]), 'the frame of the cell read');
+    // The column drawn holds eight frames: its middle is no frame's time.
+    assertNotDrawn(acted?.at, laneSeconds((frames[Math.floor(frame / 8) * 8] + frames[Math.floor(frame / 8) * 8 + 7]) / 2), 'not the time of the column drawn');
 });

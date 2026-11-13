@@ -185,7 +185,8 @@ test('a drag under way reads nothing, and let go (a box zoom, Alt+drag, Shift+dr
             altDrag: recorder([], 'alt'), shiftDrag: recorder([], 'shift'),
         });
         drag('a', 20, 60, init);
-        assert.deepEqual(calls, ['clear', 'hover:a:60'], JSON.stringify(init));
+        // Read at the press (what a click would act on, R7, R13), then nothing while it drags, then where it was let go.
+        assert.deepEqual(calls, ['hover:a:20', 'clear', 'hover:a:60'], JSON.stringify(init));
     }
 });
 
@@ -354,6 +355,18 @@ test('during a drag on one surface the keys over another plot step and zoom noth
     // Let go over b, the pointer still: b reads there.
     element('b').dispatchEvent(new (doc.defaultView as Window & typeof globalThis).MouseEvent('mouseup', { bubbles: true, clientX: 60, clientY: 50, button: 0 }));
     assert.ok(done.includes('hover:b'), `read where it was let go: ${done.join(', ')}`);
+});
+
+test('a press is read where it is pressed and holds that read until it is let go: a move within the drag threshold reads nothing new, so a click acts on what the readout read at the press (R7, R13)', () => {
+    const { doc, element, done, mouse } = twoSurfaces();
+    const fix = 'R7/R13 (docs/display-rules.md, "a click acts on the point the readout reads"): plotInteraction.ts press() reads at the press, and hover() reads nothing while a press is held, so the tap acts on the read the readout showed.';
+    mouse(element('a'), 'mousedown', 20);
+    assert.deepEqual(done, ['hover:a'], `the press is read where it was pressed. ${fix}`);
+    mouse(doc, 'mousemove', 22);
+    mouse(element('a'), 'mousemove', 22);
+    assert.deepEqual(done, ['hover:a'], `a move of a held press within the drag threshold reads nothing new. ${fix}`);
+    mouse(element('a'), 'mouseup', 22, { detail: 1 });
+    assert.ok(done.indexOf('tap:a:22') >= 0 && done.indexOf('tap:a:22') < done.lastIndexOf('hover:a'), `the click acts before the readout reads where it was let go: ${done.join(', ')}. ${fix}`);
 });
 
 test('a press moved within the drag threshold and let go reads where it was let go, as the time lines go there (R7)', () => {

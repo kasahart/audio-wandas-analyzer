@@ -4,7 +4,8 @@ import path from 'node:path';
 import { expect, settled, test, type Locator, type Page } from './canvasAudit';
 import { appStateOf, buildExtensionHostPathUiSmokeHtml, buildUiSmokeCalibrationHtml, buildUiSmokeHtml, UI_SMOKE_HOST_GRID } from './buildHtml';
 import { getStrings } from '../../shared/i18n/strings';
-import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
+import { entry100Metadata, entry100Results, openEntry, pickCsv, type ScannedFile } from './entryHelpers';
+import { ROWS } from '../plotContracts/index';
 import { INPUT_FRAME, isCharted, outputOf, WANDAS_OPERATIONS } from '../../shared/recipe/recipeCatalog';
 import { reachableFrameKinds } from '../helpers/frameKinds';
 import { DIFF_COLOR, FLAG_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
@@ -1012,6 +1013,265 @@ test('the track view\'s waveform and spectrogram lanes answer the same gestures 
         await expectContract(page, name, plot);
     }
     await expectEveryPlot(page);
+});
+
+/**
+ * R7, R13 ("a click acts on the point the readout reads"): every plot whose click selects, toggles, goes to or moves
+ * something acts on the very point its readout read at the press, the same pick and the same identity, never on a hit
+ * test of its own; where the readout reads nothing, the click does nothing. Data-driven from the plot contract table:
+ * every row of value 'click' (src/test/plotContracts/charts) has a case here, and each is clicked at places found on
+ * the plot as drawn: every point the readout reads on a grid over it, half way between two read points near each other
+ * (a tie, dots drawn over each other), at the edge between two places that read different things (a bin's edge, a
+ * row's), and the grid's own places (gaps, a point read under the pointer from afar). At each, the identity the
+ * readout reads is the identity the click acted on.
+ */
+type ClickRead = { x: number; y: number; id: string | null };
+interface ClickCase {
+    /** Opens the plot(s) the click acts on. */
+    open(page: Page): Promise<Locator[]>;
+    /** What the readout reads on `plot` now: its identity as the click would act on it (null: nothing to act on). */
+    read(page: Page, plot: Locator): Promise<string | null>;
+    /** The page's state the click changes: what it acted on is told by `acted`. */
+    state(page: Page): Promise<string>;
+    /** What a click that changed `before` into `after` acted on (null: nothing changed). */
+    acted(before: string, after: string): string | null;
+    /** Whether acting on `read` changes nothing of `before` (the row already focused, the bin already picked), so a click on it tells nothing. */
+    already(before: string, read: string): boolean;
+    /** Whether what the click acted on is what the readout read (default: the same identity). */
+    match?(read: string | null, acted: string | null): boolean;
+    /** The readout is shown as the pointer moves, of data the page holds: read without waiting for the page to settle. */
+    readsAtOnce?: boolean;
+    /** How many places to click on each plot (default 16): a click that redraws the whole table takes its time. */
+    clicks?: number;
+}
+type NotedRead = { identity?: string; index?: number; at?: number; row?: number; value?: number; image?: boolean; full?: boolean; name?: string; layer: { marks?: string; dash?: unknown; label?: string; view: { kind: string }; event?: { id: number; source: string } } };
+/** The read noted on a plot (plotHoverLayer.ts notePlotRead), as plain data. */
+const notedRead = (plot: Locator): Promise<NotedRead | null> => plot.evaluate(canvas => {
+    const read = (canvas as HTMLElement & { __plotRead?: NotedRead | null }).__plotRead;
+    return read ? { identity: read.identity, index: read.index, at: read.at, row: read.row, value: read.value, image: read.image, full: read.full, name: read.name, layer: { marks: read.layer.marks, dash: read.layer.dash ? true : undefined, label: read.layer.label, view: { kind: read.layer.view.kind }, event: read.layer.event ? { id: read.layer.event.id, source: read.layer.event.source } : undefined } } : null;
+});
+/** Where the read point is drawn (CSS pixels on its plot), for the places a click is tried at. */
+const readPlace = (plot: Locator): Promise<{ x: number; y: number } | null> => plot.evaluate(canvas => {
+    const read = (canvas as HTMLElement & { __plotRead?: { x: number; y: number; image?: boolean } | null }).__plotRead;
+    return read && !read.image ? { x: read.x, y: read.y } : null;
+});
+const entrySnapshot = (page: Page): Promise<{ focused: string | null; dist: { low: number; high: number; range: { low: number; high: number } | null } | null }> => page.evaluate(() => {
+    window.dispatchEvent(new MessageEvent('message', { data: { type: 'comparison-panel-test-action', actionId: 'entry-snapshot', actions: [] } }));
+    const messages = (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; renderedUi: { entry: unknown } }> }).__uiSmokePostedMessages;
+    return messages.filter(message => message.type === 'comparison-panel-test-snapshot').at(-1)!.renderedUi.entry as { focused: string | null; dist: { low: number; high: number; range: { low: number; high: number } | null } | null };
+});
+/** A table row's name as the strip's readout says it: its file, and its channel when the recording has several. */
+const rowKeyName = (key: string): string => { const [file, ch] = key.split('#ch'); return `${file.split('/').at(-1) ?? ''}${ch ? ` ch${ch}` : ''}`; };
+const changed = (before: string, after: string, key: string): unknown => { const a = JSON.parse(before) as Record<string, unknown>, b = JSON.parse(after) as Record<string, unknown>; return JSON.stringify(a[key]) === JSON.stringify(b[key]) ? undefined : b[key]; };
+
+/** Opens the comparison on a trigger's events: two events of each recording, the lanes under them. */
+async function openTriggerEvents(page: Page): Promise<void> {
+    const STR = getStrings('en');
+    await page.setViewportSize({ width: 1280, height: 1100 });
+    await openComparison(page, scanned!);
+    const bar = page.locator('.track-stage-bar');
+    await bar.locator('.step-chip', { hasText: STR.stepAverage }).locator('[data-action="step-delete"]').click();
+    await bar.locator('[data-action="step-add"]').click();
+    await bar.locator('[data-step-menu-filter]').fill('trigger');
+    await bar.locator('.step-menu-item[data-op="wandas.audio.trigger"]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.recipe?.nodes.at(-1)?.operation.split('.').pop()).toBe('trigger');
+    const event = (id: number, peak: number): Record<string, unknown> => ({ id, time: 0.3 + id * 0.5, xs: [-0.01, 0, 0.05, 0.19], values: [0, peak, -peak / 2, 0] });
+    await answer(page, scanned!, { frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'FS', xs: [-0.01, 0, 0.05, 0.19], events: [event(0, 0.5), event(1, 0.45)] });
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-1');
+    await answer(page, scanned!, { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'FS', xs: [0, 0.75, 1.5], values: [-0.5, 0.5, -0.5],
+        waveform: { min: [-0.5, -0.4, -0.3], max: [0.5, 0.4, 0.3], minT: [0.2, 0.7, 1.1], maxT: [0.3, 0.8, 1.2], absolutePeak: 0.5, unit: 'FS', ref: 1 } });
+    await expect.poll(async () => Number(await page.locator('.track-stage').getAttribute('data-lanes-marked'))).toBeGreaterThan(0);
+}
+
+/** A lane's click: the time cursor moves to the time the readout read (its sample's, its cell's frame's). */
+const laneCase = (selector: string): ClickCase => ({
+    async open(page) {
+        await page.setViewportSize({ width: 1200, height: 900 });
+        await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+        const plot = page.locator(`${selector}[data-plot]`).first();
+        await expect(plot).toBeVisible();
+        await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe(null);
+        return [plot];
+    },
+    async read(_page, plot) {
+        const read = await notedRead(plot);
+        return read?.at !== undefined && (!read.image || read.full) ? `t:${read.at}` : null;
+    },
+    state: async page => JSON.stringify({ at: await page.locator('#tracks-wrapper').getAttribute('data-cursor-at') }),
+    acted(before, after) { const at = changed(before, after, 'at'); return typeof at === 'string' ? `t:${Number(at)}` : null; },
+    already: (before, read) => `t:${Number((JSON.parse(before) as { at: string | null }).at)}` === read,
+});
+
+const CLICK_CASES: Record<string, ClickCase> = {
+    'entry-distribution.click': {
+        async open(page) {
+            await page.setViewportSize({ width: 1280, height: 900 });
+            await openEntry(page, scanned!, { language: 'en' });
+            await pickCsv(page, 'motor.csv', entry100Metadata());
+            await page.locator('[data-action="entry-group"]').selectOption('csv:rpm');
+            // A row of dots (two recordings of two channels: 1800 rpm) and a row of bars (the first group).
+            const dots = page.locator('[data-dist-group="1800"] [data-dist-canvas]');
+            await expect.poll(async () => ((await dots.getAttribute('data-dots')) ?? '').split('\n').filter(Boolean).length).toBe(4);
+            const bars = page.locator('[data-dist-canvas]').first();
+            await expect(bars).toBeVisible();
+            return [dots, bars];
+        },
+        async read(page, plot) {
+            const read = await notedRead(plot);
+            if (read) {
+                if (read.identity !== undefined) return `row:${read.identity}`;
+                if (read.layer.view.kind === 'bar') return `bin:${read.index}`;
+                // The base's median: no row, no bin.
+                if (read.layer.dash) return null;
+                return `tick:${read.layer.label}`;
+            }
+            // No point read: the readout says where on the value axis the pointer is (words.none), unless it says "no value".
+            const readout = page.locator('.entry-dist-note > [data-plot-readout]');
+            const text = (await readout.isVisible()) ? (await readout.textContent()) ?? '' : '';
+            if (!text || text.includes(STR_EN.plotNoValue)) return null;
+            const dist = (await entrySnapshot(page)).dist;
+            if (!dist) return null;
+            const width = (dist.high - dist.low) / 48;
+            const box = (await plot.boundingBox())!;
+            const pointer = await page.evaluate(() => (window as unknown as { __clickAt?: { x: number } }).__clickAt?.x ?? NaN);
+            const value = dist.low + (pointer - box.x) / box.width * (dist.high - dist.low);
+            return `bin:${Math.floor((value - dist.low) / width)}`;
+        },
+        state: async page => { const now = await entrySnapshot(page); return JSON.stringify({ focused: now.focused, range: now.dist?.range ?? null, low: now.dist?.low, high: now.dist?.high }); },
+        acted(before, after) {
+            const range = changed(before, after, 'range') as { low: number; high: number } | undefined;
+            const { low, high } = JSON.parse(after) as { low: number; high: number };
+            if (range) return `bin:${Math.round((range.low - low) / ((high - low) / 48))}`;
+            const focused = changed(before, after, 'focused');
+            return typeof focused === 'string' ? `row:${focused}` : null;
+        },
+        already(before, read) {
+            const { focused, range, low, high } = JSON.parse(before) as { focused: string | null; range: { low: number } | null; low: number; high: number };
+            return read === `row:${focused}` || (!!focused && read === `row:${focused.replace(/#ch\d+$/u, '')}`) || (!!range && read === `bin:${Math.round((range.low - low) / ((high - low) / 48))}`);
+        },
+        readsAtOnce: true,
+        // Each click on a bin narrows the table of a hundred recordings, drawn again.
+        clicks: 9,
+        // A dot of a recording (a value of its file, not of a channel) goes to its file's row.
+        match: (read, acted) => read === acted || (!!read && !read.includes('#ch') && !!acted && acted.replace(/#ch\d+$/u, '') === read),
+    },
+    'entry-overview.click': {
+        async open(page) {
+            await page.setViewportSize({ width: 1280, height: 900 });
+            await openEntry(page, scanned!, { language: 'en' });
+            const plot = page.locator('[data-entry-overview]');
+            await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe('');
+            return [plot];
+        },
+        async read(_page, plot) {
+            const read = await notedRead(plot);
+            return read?.image && read.full && read.value !== undefined && read.name ? `row:${read.name}` : null;
+        },
+        state: async page => JSON.stringify({ focused: (await entrySnapshot(page)).focused }),
+        acted(before, after) { const focused = changed(before, after, 'focused'); return typeof focused === 'string' ? `row:${rowKeyName(focused)}` : null; },
+        already(before, read) { const { focused } = JSON.parse(before) as { focused: string | null }; return !!focused && read === `row:${rowKeyName(focused)}`; },
+        readsAtOnce: true,
+    },
+    'compare-overlay.click': {
+        async open(page) {
+            await openTriggerEvents(page);
+            return [page.locator('[data-stage-canvas="overlay"]')];
+        },
+        async read(_page, plot) {
+            const read = await notedRead(plot);
+            return read?.layer.event ? `event:${read.layer.event.source}#${read.layer.event.id}` : null;
+        },
+        state: async page => JSON.stringify({ out: (await page.locator('[data-action="stage-event-toggle"][data-out="true"]').evaluateAll(buttons => buttons.map(button => `${(button as HTMLElement).dataset.path}#${(button as HTMLElement).dataset.event}`))).sort() }),
+        acted(before, after) {
+            const was = new Set((JSON.parse(before) as { out: string[] }).out), now = new Set((JSON.parse(after) as { out: string[] }).out);
+            const flipped = [...[...was].filter(id => !now.has(id)), ...[...now].filter(id => !was.has(id))];
+            return flipped.length ? flipped.map(id => `event:${id}`).join(' ') : null;
+        },
+        already: () => false,
+    },
+    'track-waveform.click': laneCase('.track-canvas:not(.track-spec-canvas)'),
+    'track-spectrogram.click': laneCase('.track-spec-canvas'),
+};
+
+/** Where to click `plot`: every point read on a grid over it, ties between read points near each other, the edges between places that read differently, and the grid. */
+async function clickPlaces(page: Page, plot: Locator, of: ClickCase): Promise<Array<{ x: number; y: number; why: string }>> {
+    const box = (await plot.boundingBox())!;
+    const columns = 8, rows = 4;
+    const grid: ClickRead[][] = [];
+    for (let row = 0; row < rows; row++) {
+        grid.push([]);
+        for (let column = 0; column < columns; column++) {
+            // Off the round fractions of the plot, so no place falls exactly on a bin's edge, where the test's own sum of
+            // the value could round to the other side of it than the page's.
+            const x = box.x + (column + 0.43) / columns * box.width, y = box.y + (row + 0.43) / rows * box.height;
+            await page.evaluate(at => { (window as unknown as { __clickAt: unknown }).__clickAt = at; }, { x, y });
+            await page.mouse.move(x, y);
+            if (!of.readsAtOnce) await settled(page);
+            const id = await of.read(page, plot);
+            const place = await readPlace(plot);
+            grid[row].push({ x, y, id });
+            if (place && id) grid[row].push({ x: box.x + place.x, y: box.y + place.y, id: `${id}\u0000point` });
+        }
+    }
+    const points = new Map<string, { x: number; y: number }>();
+    for (const line of grid) for (const item of line) if (item.id?.endsWith('\u0000point')) points.set(item.id, { x: item.x, y: item.y });
+    const places: Array<{ x: number; y: number; why: string }> = [];
+    const centres = [...points.values()];
+    // Two read points near each other (a tie half way, dots drawn over each other).
+    for (let a = 0; a < centres.length; a++) for (let b = a + 1; b < centres.length; b++) {
+        if (Math.hypot(centres[a].x - centres[b].x, centres[a].y - centres[b].y) <= 24) places.push({ x: (centres[a].x + centres[b].x) / 2, y: (centres[a].y + centres[b].y) / 2, why: 'half way between two read points' });
+    }
+    // The edge between two neighbouring places that read different things (a bin's edge, a row's).
+    const cells = grid.map(line => line.filter(item => !item.id?.endsWith('\u0000point')));
+    for (let row = 0; row < rows; row++) for (let column = 0; column < columns; column++) {
+        const here = cells[row][column];
+        for (const there of [cells[row][column + 1], cells[row + 1]?.[column]]) if (there && there.id !== here.id) places.push({ x: (here.x + there.x) / 2, y: (here.y + there.y) / 2, why: `the edge between ${here.id} and ${there.id}` });
+    }
+    // A read point, and a few pixels beside it (in reach, though not on it).
+    for (const centre of centres) places.push({ x: centre.x, y: centre.y, why: 'on a read point' }, { x: centre.x, y: centre.y + 9, why: '9 px under a read point' });
+    for (const line of cells) for (const item of line) places.push({ x: item.x, y: item.y, why: 'a place of the grid' });
+    // Each kind of place in turn, as many as the test's time takes, within the plot.
+    const inside = places.filter(place => place.x > box.x + 1 && place.x < box.x + box.width - 1 && place.y > box.y + 1 && place.y < box.y + box.height - 1);
+    const kinds = ['half way', 'the edge', 'on a read', '9 px', 'a place'];
+    const picked: typeof places = [];
+    const most = of.clicks ?? 16;
+    for (let round = 0; picked.length < most && round < 40; round++) for (const kind of kinds) { const next = inside.filter(place => place.why.startsWith(kind))[round]; if (next && picked.length < most) picked.push(next); }
+    return picked;
+}
+
+test.describe('every plot with a click acts on the point its readout reads at the press: the same pick and identity at ties, overlapping points, bin edges and gaps, never a hit test of its own (R7, R13)', () => {
+    const rows = ROWS.filter(row => row.value === 'click').map(row => row.id);
+    test('every click row of the plot contract table has a case here, and every case a row (R7, R13)', () => {
+        expect(Object.keys(CLICK_CASES).sort(), 'R7/R13: give each click row of src/test/plotContracts/charts a case in CLICK_CASES (plotContract.spec.ts), and take off a case whose row is gone').toEqual([...rows].sort());
+    });
+    for (const id of rows) {
+        test(`${id}: the click acts on the readout's read (R7, R13)`, async ({ page }) => {
+            const of = CLICK_CASES[id];
+            test.skip(!of, `no case for ${id}`);
+            test.skip(id !== 'track-waveform.click' && id !== 'track-spectrogram.click' && !scanned, 'no Python backend with wandas for the entry100 fixture');
+            for (const plot of await of.open(page)) {
+                const places = await clickPlaces(page, plot, of);
+                expect(places.length, `${id}: places to click were found on the plot`).toBeGreaterThan(4);
+                let checked = 0;
+                for (const place of places) {
+                    await page.evaluate(at => { (window as unknown as { __clickAt: unknown }).__clickAt = at; }, place);
+                    await page.mouse.move(place.x, place.y);
+                    if (!of.readsAtOnce) await settled(page);
+                    const read = await of.read(page, plot);
+                    const before = await of.state(page);
+                    await page.mouse.down();
+                    await page.mouse.up();
+                    await settled(page);
+                    const acted = of.acted(before, await of.state(page));
+                    // An identity already the page's (a row already focused, the bin already picked) changes nothing to tell.
+                    if (read !== null && acted === null && of.already(before, read)) continue;
+                    checked += 1;
+                    expect.soft((of.match ?? ((a, b) => a === b))(read, acted) ? read : acted, `${id} at ${place.why} (${place.x.toFixed(1)}, ${place.y.toFixed(1)}): the click acted on ${acted ?? 'nothing'}, the readout read ${read ?? 'nothing'}. Rule R7/R13 (docs/display-rules.md, "a click acts on the point the readout reads"): the plot's tap must act through clickOnRead on PlotHoverLayer.clicked's read, never a hit test of its own.`).toBe(read);
+                }
+                expect(checked, `${id}: clicks were checked`).toBeGreaterThan(2);
+            }
+        });
+    }
 });
 
 test('every ui-smoke test fails on a plot on screen that the plot component did not draw, unless plotRegistry.ts lists it (R13)', async ({ page }) => {

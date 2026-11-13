@@ -10,7 +10,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import { binCounts, DISTRIBUTION_BINS, DOTS_BELOW, type Distribution } from '../../shared/dataset/distribution';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import { plainRange, type FigureRange } from './figureModel';
-import type { StageLayer } from './stagePanes';
+import type { StageLayer, StageRead } from './stagePanes';
 import { layoutLine } from './fullRead';
 
 /** The group's name and count on the left, a little room on the right, the axis strip below. */
@@ -69,7 +69,15 @@ export interface DistributionRow {
     base: boolean;
     /** Its dots (a group of few): each recording, its value and how high it is stacked (in counts). */
     dots: Array<{ key: string; value: number; level: number }>;
+    /**
+     * What a click acts on where the readout reads `read` on this row (R7, R13): a dot's or rug tick's recording (its
+     * StageLayer.identity), a slot's tick's row, a bar's bin; the base's median, nothing. Null for a read of another row.
+     */
+    clickOf(read: Pick<StageRead, 'layer' | 'index' | 'identity'>): DistributionClick | null;
 }
+
+/** What a click on the distribution does: go to a row, or pick a range of the value (a bin). */
+export type DistributionClick = { row: string } | { range: { low: number; high: number } } | { nothing: true };
 
 export interface DistributionScale { low: number; high: number; width: number; height: number; x: (value: number) => number; at: (x: number) => number }
 
@@ -78,14 +86,41 @@ export interface DistributionScale { low: number; high: number; width: number; h
  * press that stayed put; null when that leaves nothing.
  */
 export function pickedRange(scale: Pick<DistributionScale, 'low' | 'high' | 'at'>, x0: number, x: number, moved: boolean): { low: number; high: number } | null {
-    let low = scale.at(Math.min(x, x0)), high = scale.at(Math.max(x, x0));
-    if (!moved) {
-        const width = (scale.high - scale.low) / DISTRIBUTION_BINS;
-        low = scale.low + Math.floor((low - scale.low) / width) * width;
-        high = low + width;
+    const low = scale.at(Math.min(x, x0)), high = scale.at(Math.max(x, x0));
+    if (!moved) return binRange(scale, Math.floor((low - scale.low) / ((scale.high - scale.low) / DISTRIBUTION_BINS)));
+    return clipped(scale, low, high);
+}
+
+/** Bin `bin` of the value axis (of DISTRIBUTION_BINS), clipped to it; null outside it. */
+export function binRange(scale: Pick<DistributionScale, 'low' | 'high'>, bin: number): { low: number; high: number } | null {
+    const width = (scale.high - scale.low) / DISTRIBUTION_BINS;
+    return clipped(scale, scale.low + bin * width, scale.low + (bin + 1) * width);
+}
+
+const clipped = (scale: Pick<DistributionScale, 'low' | 'high'>, low: number, high: number): { low: number; high: number } | null => {
+    const from = Math.max(low, scale.low), to = Math.min(high, scale.high);
+    return to > from ? { low: from, high: to } : null;
+};
+
+/**
+ * What a click on the rows acts on (R7, R13): what the readout reads at the press (PlotHoverLayer.clicked), never a
+ * hit test of its own. A point read: what its row says it is (DistributionRow.clickOf). No point read, the readout
+ * says where on the value axis the pointer is (`at`, as the pane's words write it): the bin of that value. A gap's
+ * "no value here", or a read of no row: nothing.
+ */
+export function distributionClick(rows: readonly DistributionRow[], scale: Pick<DistributionScale, 'low' | 'high'>, got: { read: Pick<StageRead, 'layer' | 'index' | 'identity'> } | { read: null; empty: boolean }, at: () => number): DistributionClick {
+    if (got.read) {
+        const read = got.read;
+        for (const row of rows) {
+            const click = row.clickOf(read);
+            if (click) return click;
+        }
+        return { nothing: true };
     }
-    low = Math.max(low, scale.low); high = Math.min(high, scale.high);
-    return high > low ? { low, high } : null;
+    if (got.empty) return { nothing: true };
+    const value = at();
+    const range = binRange(scale, Math.floor((value - scale.low) / ((scale.high - scale.low) / DISTRIBUTION_BINS)));
+    return range ? { range } : { nothing: true };
 }
 
 /**
@@ -135,6 +170,9 @@ export function distributionRows(dist: Distribution, picture: DistributionPictur
         const memberText = (index: number): string[] => [picture.name(members[index].key), picture.format(members[index].value, binWidth)];
         const layers: StageLayer[] = [];
         const dots: DistributionRow['dots'] = [];
+        // What a click on each layer's point acts on (clickOf).
+        const clicks = new Map<StageLayer, (read: Pick<StageRead, 'index' | 'identity'>) => DistributionClick>();
+        const recording = (read: Pick<StageRead, 'identity'>): DistributionClick => (read.identity !== undefined ? { row: read.identity } : { nothing: true });
         let top = 1, max = '';
         if (members.length < DOTS_BELOW) {
             // Too few for a histogram: a dot per member, stacked upward where they would cover each other (two
@@ -151,11 +189,13 @@ export function distributionRows(dist: Distribution, picture: DistributionPictur
             // One layer of every member, whatever is picked: ← / → pass every recording, in and out of a picked range,
             // in the one order (R7). The range only colours them: out of it (or with none picked) in the bars'
             // colour; in it, lighter (StageLayer.colorAt).
-            layers.push({
+            const dotLayer: StageLayer = {
                 ...line(members.map(member => member.value), dots.map(dot => dot.level + 0.5)), color: colours.bar, width: 3.5, marks: 'dots', label,
                 ...(picture.range ? { colorAt: (index: number) => (members[index].inRange ? colours.barIn : colours.bar) } : {}),
                 readout: memberText, identity: index => members[index].key,
-            });
+            };
+            layers.push(dotLayer);
+            clicks.set(dotLayer, recording);
         } else {
             const { counts, inRange, max: most } = binCounts(group.members, dist.low, dist.high);
             top = most * 1.08;
@@ -165,12 +205,17 @@ export function distributionRows(dist: Distribution, picture: DistributionPictur
             // says both counts: those in the range of all in the bin.
             const picked = !!picture.range;
             const binText = (bin: number): string[] => [`${picture.format(dist.low + bin * binWidth, binWidth)}–${picture.format(dist.low + (bin + 1) * binWidth, binWidth)}`, `${picked ? `${inRange[bin]} / ` : ''}${counts[bin]} ${unit}`];
-            layers.push({
+            const bars: StageLayer = {
                 ...line(centres, counts.map(count => count || null), 'bar'), color: colours.bar, filled: true, fill: 1, label, readout: binText,
                 ...(picked ? { share: { values: inRange.map(count => count || null), color: colours.barIn } } : {}),
-            });
+            };
+            layers.push(bars);
+            const scale = { low: dist.low, high: dist.high };
+            clicks.set(bars, read => { const range = read.index !== undefined && read.index >= 0 ? binRange(scale, read.index) : null; return range ? { range } : { nothing: true }; });
             // The rug: a tick per member, so a few far from the rest show even where their bar is thin.
-            layers.push({ ...line(members.map(member => member.value), members.map(() => 0)), color: colours.barIn, alpha: 0.55, width: 1, marks: 'rug', label, readout: memberText, identity: index => members[index].key });
+            const rug: StageLayer = { ...line(members.map(member => member.value), members.map(() => 0)), color: colours.barIn, alpha: 0.55, width: 1, marks: 'rug', label, readout: memberText, identity: index => members[index].key };
+            layers.push(rug);
+            clicks.set(rug, recording);
         }
         // A count axis from none (not a level: figureModel.plainRange).
         const range = plainRange(0, top);
@@ -179,7 +224,10 @@ export function distributionRows(dist: Distribution, picture: DistributionPictur
         for (const slot of picture.slots) {
             if (slot.group !== group.name) continue;
             slots.push(slot.slot);
-            layers.push({ ...line([slot.value, slot.value], [0, top]), color: colours.slots[slot.slot] ?? colours.bar, width: 2, label: picture.name(slot.key), readout: () => [picture.format(slot.value, binWidth)] });
+            const tick: StageLayer = { ...line([slot.value, slot.value], [0, top]), color: colours.slots[slot.slot] ?? colours.bar, width: 2, label: picture.name(slot.key), readout: () => [picture.format(slot.value, binWidth)] };
+            layers.push(tick);
+            // A slot's tick reads its row (its name): a click goes there.
+            clicks.set(tick, () => ({ row: slot.key }));
         }
         let base = false;
         if (picture.base?.group === group.name) {
@@ -192,6 +240,8 @@ export function distributionRows(dist: Distribution, picture: DistributionPictur
         return {
             group: group.name, label: label.length > 11 ? `${label.slice(0, 10)}…` : label, title: group.name || strings.dsFilterBlank,
             count: picture.strip ? '' : picture.countOf(group.name, group.members.length), max, layers, range, slots, base, dots,
+            // The base's median is no row and no bin: a click on it does nothing (its layer has no click).
+            clickOf: read => { const of = clicks.get(read.layer); return of ? of(read) : layers.includes(read.layer) ? { nothing: true } : null; },
         };
     });
 }

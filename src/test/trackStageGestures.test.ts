@@ -1,4 +1,5 @@
 import { testLine } from './helpers/whole';
+import { assertNotDrawn } from './fullNotDrawn';
 import { N, R, Y } from './helpers/figure';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -8,6 +9,13 @@ import { getStrings } from '../shared/i18n/strings';
 import { attachStageGestures } from '../webview/runtime/trackStageGestures';
 import { initialStageState } from '../webview/runtime/trackStageModel';
 import { STAGE_MARGINS, type StagePlot } from '../webview/runtime/stagePanes';
+
+/** A page whose canvases draw (to nothing): the pointer's marks and readout are shown, so a click has a read to act on (R7, R13). */
+function drawing(dom: JSDOM): JSDOM {
+    const context = new Proxy({}, { get: () => () => undefined, set: () => true });
+    dom.window.HTMLCanvasElement.prototype.getContext = (() => context) as unknown as HTMLCanvasElement['getContext'];
+    return dom;
+}
 
 test('attaching the gestures puts the cursor line, zoom box and axis range popover on the page, hidden', () => {
     const dom = new JSDOM('<!doctype html><body><div class="lanes"></div><div class="track-stage"></div></body>');
@@ -24,7 +32,7 @@ test('attaching the gestures puts the cursor line, zoom box and axis range popov
 });
 
 test('a click on a trigger\'s event line (the plot gestures\' tap: a press that stays put) leaves it out at once (plotInteraction arbitrates); a double click\'s second press puts it back, a drag leaves none out (R13)', () => {
-    const dom = new JSDOM('<!doctype html><body><div class="lanes"></div><div class="track-stage"><canvas data-stage-canvas="overlay"></canvas></div></body>');
+    const dom = drawing(new JSDOM('<!doctype html><body><div class="lanes"></div><div class="track-stage"><canvas data-stage-canvas="overlay"></canvas></div></body>'));
     const { document } = dom.window;
     const view = dom.window;
     const root = document.querySelector('.track-stage') as HTMLElement;
@@ -62,14 +70,97 @@ test('a click on a trigger\'s event line (the plot gestures\' tap: a press that 
     fire(document, 'mousemove', 1, { clientX: frame.left + 180, clientY: frame.top + 90 });
     fire(document, 'mouseup', 1, { clientX: frame.left + 180, clientY: frame.top + 90 });
     assert.deepEqual(toggled, [], 'a drag leaves no event out');
-    // Off the line, a click leaves nothing out.
-    fire(canvas, 'mousedown', 1, { clientX: frame.left + 100, clientY: frame.top + 90 });
-    fire(document, 'mouseup', 1, { clientX: frame.left + 100, clientY: frame.top + 90 });
-    assert.deepEqual(toggled, []);
+});
+
+test('a click on the events plot acts on the event line its readout reads at the press, never on a tolerance of its own: the nearest within the pick radius, the one nearest in height out of it, a tie the first, none past the lines\' ends (R7, R13)', () => {
+    const dom = drawing(new JSDOM('<!doctype html><body><div class="lanes"></div><div class="track-stage"><div class="track-stage-controls"><span data-plot-readout><span></span><span></span></span></div><canvas data-stage-canvas="overlay"></canvas></div></body>'));
+    const { document } = dom.window;
+    const root = document.querySelector('.track-stage') as HTMLElement;
+    const canvas = root.querySelector('canvas') as HTMLCanvasElement;
+    const frame = { left: STAGE_MARGINS.left, top: STAGE_MARGINS.top, width: 200, height: 100 };
+    const width = frame.left + frame.width + STAGE_MARGINS.right, height = frame.top + frame.height + STAGE_MARGINS.bottom;
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width, height, right: width, bottom: height, x: 0, y: 0, toJSON: () => ({}) });
+    // Two events as flat lines over the left half of the plot, 8 px apart (0.50 and 0.42 of the height).
+    const lineOf = (id: number, value: number) => ({ view: { kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 0.25, 0.5], values: [value, value, value] }, color: '#000', label: `#${id + 1}`, event: { id, source: '/d/a.wav', out: false }, full: testLine([0, 0.25, 0.5], [value, value, value]) });
+    const plot = {
+        frame, xAt: (value: number) => frame.left + value * frame.width, ...Y(value => frame.top + (1 - value) * frame.height, frame.height),
+        xOf: (x: number) => (x - frame.left) / frame.width, ratioStep: 1, diff: false,
+        lines: [lineOf(0, 0.5), lineOf(1, 0.42)],
+    } as unknown as StagePlot;
+    const state = initialStageState();
+    state.on = true;
+    const toggled: number[] = [];
+    attachStageGestures(document.querySelector('.lanes') as HTMLElement, root, document, {
+        strings: getStrings('en'), state, drawnOn: new Map([[canvas, { picture: null, range: R({ min: 0, max: 1 }), axes: N({ x: 't', y: 'v' }), plot }]]), painted: () => true,
+        moved: () => undefined, rerender: () => undefined, hint: () => undefined, lanesApart: () => false,
+        toggleEvent: line => () => { toggled.push(line.id); return undefined; },
+    });
+    const fix = 'R7/R13 (docs/display-rules.md, "a click acts on the point the readout reads"): the events plot\'s click must act on the line PlotHoverLayer.clicked gives (trackStageGestures.ts tap through clickOnRead), never on a hit test or tolerance of its own.';
+    const readName = (): string => (root.querySelector('[data-plot-readout] span')?.textContent ?? '');
+    const click = (x: number, y: number): { read: string; acted: number[] } => {
+        toggled.length = 0;
+        const at = { clientX: frame.left + x, clientY: frame.top + y, button: 0, bubbles: true, detail: 1 };
+        canvas.dispatchEvent(new dom.window.MouseEvent('mousemove', at));
+        const read = readName();
+        canvas.dispatchEvent(new dom.window.MouseEvent('mousedown', at));
+        document.dispatchEvent(new dom.window.MouseEvent('mouseup', at));
+        // A click on its own is not a double click's first press: the next one starts afresh.
+        return { read, acted: [...toggled] };
+    };
+    // On the second line (8 px below the first): the readout reads it, and the click leaves it out, not the first.
+    assert.deepEqual(click(50, 58), { read: '#2', acted: [1] }, fix);
+    // 40 px under both, out of the pick radius: the readout reads the one nearest in height at the column, and so does the click.
+    assert.deepEqual(click(50, 98), { read: '#2', acted: [1] }, fix);
+    // Half way between them (4 px from each): the first in the data's order, as the readout reads it (pick_cases.json).
+    assert.deepEqual(click(50, 54), { read: '#1', acted: [0] }, fix);
+    // Past the lines' ends the readout reads no line: the click leaves nothing out.
+    assert.deepEqual(click(180, 50).acted, [], fix);
+});
+
+/** The events left out by a hover and a click at (x, y) (CSS pixels on the plot's frame) on an events plot drawing `lines`. */
+function eventsClicked(lines: unknown[], x: number, y: number): number[] {
+    const dom = drawing(new JSDOM('<!doctype html><body><div class="lanes"></div><div class="track-stage"><canvas data-stage-canvas="overlay"></canvas></div></body>'));
+    const { document } = dom.window;
+    const root = document.querySelector('.track-stage') as HTMLElement;
+    const canvas = root.querySelector('canvas') as HTMLCanvasElement;
+    const frame = { left: STAGE_MARGINS.left, top: STAGE_MARGINS.top, width: 200, height: 100 };
+    const width = frame.left + frame.width + STAGE_MARGINS.right, height = frame.top + frame.height + STAGE_MARGINS.bottom;
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width, height, right: width, bottom: height, x: 0, y: 0, toJSON: () => ({}) });
+    const plot = { frame, xAt: (value: number) => frame.left + value * frame.width, ...Y(value => frame.top + (1 - value) * frame.height, frame.height), xOf: (at: number) => (at - frame.left) / frame.width, ratioStep: 1, diff: false, lines } as unknown as StagePlot;
+    const state = initialStageState();
+    state.on = true;
+    const toggled: number[] = [];
+    attachStageGestures(document.querySelector('.lanes') as HTMLElement, root, document, {
+        strings: getStrings('en'), state, drawnOn: new Map([[canvas, { picture: null, range: R({ min: 0, max: 1 }), axes: N({ x: 't', y: 'v' }), plot }]]), painted: () => true,
+        moved: () => undefined, rerender: () => undefined, hint: () => undefined, lanesApart: () => false,
+        toggleEvent: line => () => { toggled.push(line.id); return undefined; },
+    });
+    const at = { clientX: frame.left + x, clientY: frame.top + y, button: 0, bubbles: true, detail: 1 };
+    canvas.dispatchEvent(new dom.window.MouseEvent('mousemove', at));
+    canvas.dispatchEvent(new dom.window.MouseEvent('mousedown', at));
+    document.dispatchEvent(new dom.window.MouseEvent('mouseup', at));
+    return toggled;
+}
+
+test('a click on the events plot leaves out the line its readout reads in the full data, not the line the drawn points would put nearest (R7, R13)', () => {
+    // #1 flat at 0.5. #2 drawn flat at 0.42, its peak of 0.6 at 0.25 thinned away from the picture but held in its full data.
+    const xs = [0, 0.1, 0.2, 0.25, 0.3, 0.4, 0.5];
+    const second = xs.map(x => (x === 0.25 ? 0.6 : 0.42));
+    const lines = [
+        { view: { kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 0.5], values: [0.5, 0.5] }, color: '#000', label: '#1', event: { id: 0, source: '/d/a.wav', out: false }, full: testLine(xs, xs.map(() => 0.5)) },
+        { view: { kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 0.5], values: [0.42, 0.42] }, color: '#111', label: '#2', event: { id: 1, source: '/d/a.wav', out: false }, full: testLine(xs, second) },
+    ];
+    // On #2's peak (0.6 at 0.25 of a 200 × 100 px frame): 10 px above #1, on #2's full data.
+    const toggled = eventsClicked(lines, 0.25 * 200, 0.4 * 100);
+    assert.equal(toggled.length, 1, 'one line left out');
+    assert.equal(toggled[0], 1, 'R7/R13: the click acts on the line the readout reads from the full data (trackStageGestures.ts tap through clickOnRead)');
+    // The drawn points put #1 nearest there (0.5 is 10 px off, 0.42 is 18 px off).
+    const drawnNearest = [0.5, 0.42].reduce((best, value, index, all) => (Math.abs(value - 0.6) < Math.abs(all[best] - 0.6) ? index : best), 0);
+    assertNotDrawn(toggled[0], drawnNearest, 'not the line nearest by the points drawn');
 });
 
 test('a click on a trigger\'s event line while its full data is on its way is decided once it is in, never dropped; a double-click meanwhile still takes it back (R7)', async () => {
-    const dom = new JSDOM('<!doctype html><body><div class="lanes"></div><div class="track-stage"><canvas data-stage-canvas="overlay"></canvas></div></body>');
+    const dom = drawing(new JSDOM('<!doctype html><body><div class="lanes"></div><div class="track-stage"><canvas data-stage-canvas="overlay"></canvas></div></body>'));
     const { document } = dom.window;
     const view = dom.window;
     const root = document.querySelector('.track-stage') as HTMLElement;
@@ -129,7 +220,7 @@ test('a click on a trigger\'s event line while its full data is on its way is de
 });
 
 test('a click on an event line waiting for its data is decided on the plot it was clicked on: a zoom by the wheel meanwhile does not move it onto another line or none (R7)', async () => {
-    const dom = new JSDOM('<!doctype html><body><div class="lanes"></div><div class="track-stage"><canvas data-stage-canvas="overlay"></canvas></div></body>');
+    const dom = drawing(new JSDOM('<!doctype html><body><div class="lanes"></div><div class="track-stage"><canvas data-stage-canvas="overlay"></canvas></div></body>'));
     const { document } = dom.window;
     const root = document.querySelector('.track-stage') as HTMLElement;
     const canvas = root.querySelector('canvas') as HTMLCanvasElement;

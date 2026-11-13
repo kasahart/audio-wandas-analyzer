@@ -1,11 +1,11 @@
-import { SP, t, type ChartContract } from '../model';
+import { CLICK_READ, CLICK_TEST, PRESS_READ_TEST, SP, t, type ChartContract } from '../model';
 
 /** 入口の分布図（群ごとの行と下の値の軸） */
 export const entryDistribution: ChartContract = {
     chart: {
         id: 'entry-distribution', name: '入口の分布図（群ごとの行と下の値の軸）',
         paintedBy: ['src/webview/runtime/entryDistributionPane.ts:paint'],
-        requires: ['readout', 'step', 'count', 'median', 'range', 'ticks', 'axis'],
+        requires: ['readout', 'step', 'count', 'median', 'range', 'ticks', 'axis', 'click'],
     },
     rows: [
         {
@@ -80,6 +80,17 @@ export const entryDistribution: ChartContract = {
                 t('src/test/axisNames.test.ts', 'a CSV column\'s value axis names the unit its header gives, and says when it gives none'),
             ],
             names: { quantity: true, unit: true },
+        },
+        {
+            id: 'entry-distribution.click', value: 'click', what: 'クリックが選ぶもの（点・ラグ・スロットの目盛りの行、棒のビン、点のない所は読み値が言う値のビン）',
+            computedIn: [...CLICK_READ, 'src/webview/runtime/entryDistributionPane.ts:tap', 'src/webview/runtime/entryDistribution.ts:distributionClick', 'src/webview/runtime/entryDistribution.ts:binRange'],
+            from: 'whole', trace: '押した所で読み値が読んだ点（PlotHoverLayer.clicked）を clickOnRead が tap に渡し、その点の層が言うもの（DistributionRow.clickOf: 点とラグは StageLayer.identity の録音、スロットの目盛りはその行、棒はその番号のビン、基準の中央値は何もしない）を選ぶ。点を読まない所は読み値の言葉（words.none）と同じ valueAt の値のビン、「値なし」は何もしない。クリック自身の当たり判定はない。',
+            tests: [
+                t('src/test/entryDistributionPane.test.ts', 'a click on a row acts on what its readout reads at the press, never on a hit test of its own: on a dot beside another of its height, that dot\'s row; half way between, the first; off any point, the bin of the value the readout says; a double click\'s second press puts the table back (R7, R13)'),
+                t('src/test/pickCases.test.ts', 'every pick case of the table is read by the webview as the table says: nearest, under, a click, ← and → (R7)'),
+                t('src/test/plotInteraction.test.ts', PRESS_READ_TEST),
+                t('src/test/uiSmoke/plotContract.spec.ts', CLICK_TEST),
+            ],
         },
     ],
     knownGaps: {

@@ -46,9 +46,9 @@ import { buildTrackSnapshot } from './comparisonSnapshot';
 import { contentBoxWidth, readThenWrite, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpectrogramOverlayCanvasId, trackWaveformOverlayCanvasId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
-import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotHit, type PlotPoint, type PlotPointer, type PlotWindow } from './plotInteraction';
+import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotClick, type PlotHit, type PlotPoint, type PlotPointer, type PlotWindow } from './plotInteraction';
 import { plotUnderPointer } from './trackPointerEvents';
-import { createPlotHoverLayer, notePlotRead, type PlotPlace } from './plotHoverLayer';
+import { clickOnRead, createPlotHoverLayer, notePlotRead, type PlotPlace } from './plotHoverLayer';
 import { attachCanvasFocusHint, attachHoverHints, createHintFooter, createTaskStatus, setHint } from './hintFooter';
 import { attachTrackLaneActions } from './trackLaneActions';
 import { attachGlobalKeyboardListeners } from './globalKeyboardEvents';
@@ -455,6 +455,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function moveCursor(norm: number, playing = false): void {
         if (!playing) invalidateDesiredSpectrumSliceRequests(true);
         viewState.setCursor(norm, playing ? 'cursor' : 'all');
+        // Where the cursor is on the lanes' time axis (s), for the test that a lane's click moves it to the time read (R7, R13).
+        const lanes = document.getElementById('tracks-wrapper');
+        const span = trackStore.globalSpan();
+        if (lanes) lanes.dataset.cursorAt = String(span.startSec + norm * span.spanSec);
     }
     /** The cursor spectrum's pointer marks and readout, as every plot's (plotHoverLayer.ts, R7). */
     const spectrumMarks = createPlotHoverLayer(document, { noValue: STR.plotNoValue }, 'spectrum-cursor');
@@ -2463,6 +2467,20 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         laneMarks.hide();
         hidePlotReadout(document.getElementById(PLOT_READOUT_ID));
     }
+    /** Where a point a lane reads is on the lanes' time axis (0–1), as the ruler and the cursor show it (a shifted track's offset included); null with no time. */
+    function laneReadNorm(read: StageRead): number | null {
+        if (read.at === undefined || (read.image && !read.full)) return null;
+        const span = trackStore.globalSpan();
+        return span.spanSec > 0 ? (read.at - span.startSec) / span.spanSec : 0;
+    }
+    /** The lane's readout shown now at the pointer it holds (a lane shows it on its next frame): what a click acts on is what it reads. */
+    function showLaneReadout(canvas: HTMLCanvasElement): void {
+        const trackIndex = trackIndexFromElement(canvas);
+        const result = trackIndex === null ? undefined : state.results[trackIndex];
+        if (trackIndex === null || !result) return;
+        if (laneHover?.canvas === canvas) drawLaneHover(result, channelIndexAttribute(canvas) ?? 0, trackColor(trackIndex));
+        else if (spectrogramHover?.canvas === canvas) showSpectrogramReadout(canvas, spectrogramHover.clientX, spectrogramHover.clientY);
+    }
     /** The pointer's marks and readout over the waveform lane under it, read from the lane's samples (R7). */
     function drawLaneHover(result: ComparisonTrackState, channelIndex: number, color: string): void {
         if (!laneHover) return;
@@ -2478,11 +2496,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 return { name: spectrumReadoutTrackLabel(result, channelIndex), values: laneReadoutText('', read.at, secondsPerPixel, read.value, unit, read.step), color };
             },
             read(read) {
-                if (!read || read.at === undefined) return;
-                // On the lanes' time axis, as the ruler and the cursor show it (a shifted track's offset included): the
-                // other lanes and the time shown follow the point read, not the pointer beside it (as the spectra do).
-                const span = trackStore.globalSpan();
-                const readNorm = span.spanSec > 0 ? (read.at - span.startSec) / span.spanSec : 0;
+                // On the lanes' time axis: the other lanes and the time shown follow the point read, not the pointer
+                // beside it (as the spectra do), and so does a click (endLaneDrag).
+                const readNorm = read ? laneReadNorm(read) : null;
+                if (readNorm === null) return;
                 if (viewState.hover === null || Math.abs(viewState.hover - readNorm) > 1e-9) viewState.setHover(readNorm);
             },
         });
@@ -2520,7 +2537,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 // The other lanes' time line and the time shown follow the cell read (its frame's time), from the
                 // readout's own state (R7): a cell stepped to and read again on a lane drawn anew keeps its time, never
                 // the time now under the place it was read at; with none read yet, the pointer's.
-                const readNorm = read?.full && read.at !== undefined && span.spanSec > 0 ? (read.at - span.startSec) / span.spanSec : norm;
+                const readNorm = (read?.full ? laneReadNorm(read) : null) ?? norm;
                 if (viewState.hover === null || Math.abs(viewState.hover - readNorm) > 1e-9) viewState.setHover(readNorm);
             },
         });
@@ -2793,8 +2810,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             showBox: showLaneBox,
             hideBox() { rectZoomSelection = null; },
             zoomToBox: zoomLanesToBox,
-            // A click moves the time cursor there and clears the loop, at once; a double click's second press puts both back (R13).
-            tap: (_plot, e) => endLaneDrag(e, false, true),
+            // A click moves the time cursor to the time the readout read at the press and clears the loop, at once; a
+            // double click's second press puts both back (R7, R13).
+            tap: (_plot, e, current) => endLaneDrag(e, false, true, current),
             altDrag: {
                 start() { if (lanePress) lanePress.dragType = loopGripAt(viewState.loop, lanePress.startNorm, waveformView.span()) ?? 'loop'; },
                 move: moveLaneDrag,
@@ -4095,23 +4113,26 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleRender();
     }
     /** A press let go after its drag, or where it was (a click: the cursor goes there and the loop is cleared). */
-    function endLaneDrag(e: MouseEvent, dragged: boolean, waits = false): (() => (() => void)) | undefined {
+    function endLaneDrag(e: MouseEvent, dragged: boolean, waits = false, current: () => boolean = () => true): PlotClick | undefined {
         const press = lanePress;
         lanePress = null;
         if (!press) return undefined;
-        let click: (() => (() => void)) | undefined;
+        let click: PlotClick | undefined;
         if (!dragged) {
-            // The time under the press on the lane as clicked; a plain click's is returned for plotInteraction.ts to do
-            // at once, with how to put the cursor and the loop back for a double click's second press (R13).
+            // The time the lane's readout read at the press (R7, R13: clickOnRead, the point read and its time as the
+            // other lanes' time line shows it), never the pixel's own time: a plain click's is returned for
+            // plotInteraction.ts to do at once, with how to put the cursor and the loop back for a double click's second
+            // press. Where the readout reads nothing (no value, a file changed since it was analysed), nothing moves.
             const canvas = trackStore.protocolIndexForId(press.trackId) === null ? null : canvasById(document, press.canvasId);
-            const hit = canvas ? trackCanvasTimeHit(canvas, e.clientX, e.clientY) : null;
-            if (hit) {
-                const norm = hit.norm;
-                click = () => {
+            if (canvas) {
+                showLaneReadout(canvas);
+                click = clickOnRead(laneMarks, canvas, current, got => {
+                    const norm = got.read ? laneReadNorm(got.read) : null;
+                    if (norm === null) return undefined;
                     const cursorBefore = viewState.cursor, loopBefore = viewState.loop;
                     moveCursor(norm); setLoopRegion(null); scheduleSpectrumRefresh('immediate');
                     return () => { moveCursor(cursorBefore); setLoopRegion(loopBefore); scheduleSpectrumRefresh('immediate'); };
-                };
+                });
             }
         }
         // A click asks for the spectra at the cursor it moves to (its own refresh), not first at the one it leaves.

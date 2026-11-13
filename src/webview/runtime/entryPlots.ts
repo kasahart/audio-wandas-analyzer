@@ -7,7 +7,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import { BAND_CENTERS_HZ, type EntryRow } from './entryTable';
 import { FULL_PLOT_WINDOW, type PlotMargins, type PlotWindow } from './plotInteraction';
-import { paintOverlay, type StagePlot } from './stagePanes';
+import { paintOverlay, type StagePlot, type StageRead } from './stagePanes';
 import { heldCells, type InlineFullSource, fullSource } from './fullRead';
 import type { WholeLine } from '../../shared/provenance';
 import { emptyFigure, heatmapRange, levelTitle, plainNames, plainTitle, type FigureRange } from './figureModel';
@@ -139,6 +139,16 @@ export function overviewCells(rows: ReadonlyArray<OverviewRow>, bands: ReadonlyM
             );
         },
     });
+}
+
+/**
+ * The table row of a cell the strip's readout read (overviewCells: row i sits at −(i + 0.5)), its key: what a click
+ * on the strip goes to (R7, R13). Null for a read of no row's level (no value, not of the cells).
+ */
+export function overviewRowKey(rows: ReadonlyArray<OverviewRow>, read: Pick<StageRead, 'image' | 'full' | 'row' | 'value'>): string | null {
+    if (!read.image || !read.full || read.row === undefined || read.value === undefined) return null;
+    const row = rows[Math.round(-Number(read.row) - 0.5)];
+    return row ? row.key ?? row.filePath : null;
 }
 
 export interface OverviewPaint {

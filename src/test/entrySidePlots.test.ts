@@ -133,40 +133,73 @@ test('painting waits for the next frame, once however often it is asked; the dis
     assert.deepEqual(calls.slice(2), ['distribution', 'held']);
 });
 
-test('a click on the strip (the plot gestures\' tap: a press that stays put) picks the row under it at once, a double click\'s second press goes back, a drag picks none; the gestures add a zoom box and a range popover (R13)', () => {
-    const { document, side, overview, plots, calls } = setup();
+test('a click on the strip acts on the row whose cell its readout reads at the press, at once: on each row\'s cell and at the edge between two, that row; on a cell with no level (the readout\'s "no value"), none; a double click\'s second press goes back, a drag picks none; the gestures add a zoom box and a range popover (R7, R13)', () => {
+    const { dom, document, side, overview, plots, calls, flush } = setup();
+    // The canvases draw (to nothing), so the strip is painted and its readout shown.
+    const context = new Proxy({}, {
+        get: (_target, key) => (key === 'measureText' ? () => ({ width: 10 }) : key === 'createImageData' || key === 'getImageData' ? (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(Math.max(1, w * h * 4)) })
+            : key.toString().startsWith('create') ? () => ({ addColorStop: () => undefined }) : () => undefined),
+        set: () => true,
+    });
+    dom.window.HTMLCanvasElement.prototype.getContext = (() => context) as unknown as HTMLCanvasElement['getContext'];
+    overview.getContext = (() => context) as unknown as HTMLCanvasElement['getContext'];
+    // Four rows over 100 px of plot, top first.
+    const height = 100 + OVERVIEW_MARGINS.top + OVERVIEW_MARGINS.bottom;
+    Object.defineProperty(side, 'offsetWidth', { value: 320 });
+    Object.defineProperties(overview, { clientWidth: { value: 200 + OVERVIEW_MARGINS.left + OVERVIEW_MARGINS.right }, clientHeight: { value: height } });
+    overview.getBoundingClientRect = () => ({ top: 0, left: 0, width: 200 + OVERVIEW_MARGINS.left + OVERVIEW_MARGINS.right, height, bottom: height, right: 200 + OVERVIEW_MARGINS.left + OVERVIEW_MARGINS.right, x: 0, y: 0, toJSON: () => ({}) });
+    const input = { id: 'x', fs: 48000, channels: [0], durationS: 1, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated' as const, fullScale: true };
+    // a, b and d have levels; c none (its cells say "no value").
+    for (const [path, level] of [['/d/a.wav', -40], ['/d/b.wav', -30], ['/d/d.wav', -20]] as const) plots.noteResult(path, { ok: true, input, thirdOctDb: [BAND_CENTERS_HZ.map(() => level)] });
     plots.attach();
     assert.ok(side.querySelector('.entry-zoom-box[hidden]'));
     assert.ok(document.getElementById('entry-range-popover'));
-    // Four rows over 100 px of plot, top first.
-    const height = 100 + OVERVIEW_MARGINS.top + OVERVIEW_MARGINS.bottom;
-    overview.getBoundingClientRect = () => ({ top: 0, left: 0, width: 200, height, bottom: height, right: 200, x: 0, y: 0, toJSON: () => ({}) });
+    plots.schedule(false);
+    flush();
+    calls.length = 0;
     const view = document.defaultView!;
-    const fire = (target: EventTarget, type: string, clientY: number, clientX = OVERVIEW_MARGINS.left + 50): void => {
-        target.dispatchEvent(new view.MouseEvent(type, { clientX, clientY, button: 0, bubbles: true }));
+    const readout = overview.closest('.entry-overview-box')?.querySelector<HTMLElement>('[data-plot-readout]');
+    const fire = (target: EventTarget, type: string, clientY: number, clientX = OVERVIEW_MARGINS.left + 50, detail = 1): void => {
+        target.dispatchEvent(new view.MouseEvent(type, { clientX, clientY, button: 0, bubbles: true, detail }));
     };
+    const rule = 'R7/R13 (docs/display-rules.md, "a click acts on the point the readout reads"): the strip\'s click must go to the row of the cell PlotHoverLayer.clicked gives (entrySidePlots.ts tap through clickOnRead, entryPlots.overviewRowKey), never to a row of its own geometry.';
     const fix = 'Fix: a click acts at once, and a double click\'s second press takes it back (plotInteraction.ts release(); docs/display-rules.md R13).';
-    const click = (clientY: number): void => { fire(overview, 'mousedown', clientY); fire(document, 'mouseup', clientY); };
-    click(OVERVIEW_MARGINS.top + 10);
-    assert.deepEqual(calls, ['pick /d/a.wav'], `a click did not pick at once. ${fix}`);
-    click(OVERVIEW_MARGINS.top + 60);
-    click(OVERVIEW_MARGINS.top + 140);
-    assert.deepEqual(calls, ['pick /d/a.wav', 'pick /d/c.wav'], 'below the rows is no row');
-    // A double-click (which resets the zoom only): its first press goes to the row, its second goes back.
-    for (const detail of [1, 2]) {
-        overview.dispatchEvent(new view.MouseEvent('mousedown', { clientX: OVERVIEW_MARGINS.left + 50, clientY: OVERVIEW_MARGINS.top + 10, button: 0, bubbles: true, detail }));
-        document.dispatchEvent(new view.MouseEvent('mouseup', { clientX: OVERVIEW_MARGINS.left + 50, clientY: OVERVIEW_MARGINS.top + 10, button: 0, bubbles: true, detail }));
+    /** Hovers, then clicks, at `clientY`: the readout's row name there and the rows picked. */
+    const click = (clientY: number): { read: string; picked: string[] } => {
+        calls.length = 0;
+        fire(overview, 'mousemove', clientY);
+        const read = readout && !readout.hidden ? readout.querySelector('span')?.textContent ?? '' : '';
+        fire(overview, 'mousedown', clientY);
+        fire(document, 'mouseup', clientY);
+        return { read, picked: calls.filter(call => call.startsWith('pick')) };
+    };
+    for (const [y, name] of [[10, 'a.wav'], [35, 'b.wav'], [85, 'd.wav']] as const) {
+        const got = click(OVERVIEW_MARGINS.top + y);
+        assert.equal(got.read, name, `the readout at ${y} px reads ${name}`);
+        assert.deepEqual(got.picked, [`pick /d/${name}`], `${rule} ${fix}`);
     }
-    assert.deepEqual(calls, ['pick /d/a.wav', 'pick /d/c.wav', 'pick /d/a.wav', 'unpick /d/a.wav'], `a double click left a row picked: it resets the zoom only. ${fix}`);
+    // At the edge between two rows (a's and b's, 25 px down): the row the readout reads there, whichever it is.
+    const edge = click(OVERVIEW_MARGINS.top + 25);
+    assert.deepEqual(edge.picked, [`pick /d/${edge.read}`], rule);
+    // On c's row, whose cells have no level: the readout says so, and the click picks no row.
+    assert.deepEqual(click(OVERVIEW_MARGINS.top + 60).picked, [], rule);
+    // A double-click (which resets the zoom only): its first press goes to the row, its second goes back.
+    calls.length = 0;
+    for (const detail of [1, 2]) {
+        fire(overview, 'mousedown', OVERVIEW_MARGINS.top + 10, OVERVIEW_MARGINS.left + 50, detail);
+        fire(document, 'mouseup', OVERVIEW_MARGINS.top + 10, OVERVIEW_MARGINS.left + 50, detail);
+    }
+    assert.deepEqual(calls.filter(call => /pick/u.test(call)), ['pick /d/a.wav', 'unpick /d/a.wav'], `a double click left a row picked: it resets the zoom only. ${fix}`);
     // A press dragged into a box zooms instead: no row is picked.
     calls.length = 0;
     fire(overview, 'mousedown', OVERVIEW_MARGINS.top + 10);
     fire(document, 'mousemove', OVERVIEW_MARGINS.top + 80, OVERVIEW_MARGINS.left + 150);
     fire(document, 'mouseup', OVERVIEW_MARGINS.top + 80, OVERVIEW_MARGINS.left + 150);
-    assert.deepEqual(calls, [], 'a drag picks no row');
+    assert.deepEqual(calls.filter(call => /pick/u.test(call)), [], 'a drag picks no row');
     // A click event alone (no press on the plot) is not the plot's: the strip answers only the shared gestures.
+    calls.length = 0;
     overview.dispatchEvent(new view.MouseEvent('click', { clientX: OVERVIEW_MARGINS.left + 50, clientY: OVERVIEW_MARGINS.top + 10, bubbles: true }));
-    assert.deepEqual(calls, []);
+    assert.deepEqual(calls.filter(call => /pick/u.test(call)), []);
 });
 
 test('a recording of several channels has a strip row per channel: each its own levels, named by its channel', () => {

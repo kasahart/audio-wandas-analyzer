@@ -1,11 +1,11 @@
-import { SP, t, tt, type ChartContract } from '../model';
+import { CLICK_READ, CLICK_TEST, PRESS_READ_TEST, SP, t, tt, type ChartContract } from '../model';
 
 /** 比較台の重ね図（トリガーのイベント図を含む） */
 export const compareOverlay: ChartContract = {
     chart: {
         id: 'compare-overlay', name: '比較台の重ね図（トリガーのイベント図を含む）',
         paintedBy: ['src/webview/runtime/trackStagePainter.ts:paintStageOverlay', 'src/webview/runtime/trackStagePainter.ts:paintNoPicture'],
-        requires: ['readout', 'step', 'order', 'range', 'ticks', 'axis', 'median'],
+        requires: ['readout', 'step', 'order', 'range', 'ticks', 'axis', 'median', 'click'],
     },
     rows: [
         {
@@ -212,6 +212,18 @@ export const compareOverlay: ChartContract = {
             tests: [
                 t('src/test/stageDetail.test.ts', "a detail's key is the range asked for exactly as it is sent: two deep windows a few samples apart never share one"),
                 t('src/test/stageDetail.test.ts', "pictures are cached under the range sent, so a spec whose key matches another's never takes its detail"),
+            ],
+        },
+        {
+            id: 'compare-overlay.click', value: 'click', what: 'クリックで外す・戻すトリガーのイベントの線',
+            computedIn: [...CLICK_READ, 'src/webview/runtime/trackStageGestures.ts:tap'],
+            from: 'full', trace: '押した所で読み値が読んだ線（PlotHoverLayer.clicked）がイベントの線なら、その線（StageLayer.event）を外す・戻す。読み値がイベントの線を読まない所では何もしない。全データを取り寄せ中なら、押したときの図と場所で読み値と同じ読み方で読み、届いてから決める。線からの距離の許し（旧 EVENT_PICK_PX）はない。',
+            tests: [
+                t('src/test/trackStageGestures.test.ts', 'a click on the events plot acts on the event line its readout reads at the press, never on a tolerance of its own: the nearest within the pick radius, the one nearest in height out of it, a tie the first, none past the lines\' ends (R7, R13)'),
+                t('src/test/trackStageGestures.test.ts', 'a click on an event line waiting for its data is decided on the plot it was clicked on: a zoom by the wheel meanwhile does not move it onto another line or none (R7)'),
+                tt('src/test/trackStageGestures.test.ts', 'a click on the events plot leaves out the line its readout reads in the full data, not the line the drawn points would put nearest (R7, R13)'),
+                t('src/test/plotInteraction.test.ts', PRESS_READ_TEST),
+                t('src/test/uiSmoke/plotContract.spec.ts', CLICK_TEST),
             ],
         },
     ],
