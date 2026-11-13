@@ -25,7 +25,6 @@ export const NOT_ANSWERS: Record<string, Listed> = {
     'src/webview/runtime/hostRequests.ts#current': inLayer('each slot\'s current request id'),
     'src/webview/runtime/laneReads.ts#waiting': notAnswer('reads on their way by request id: the callback each answer goes to'),
     'src/webview/runtime/stageReader.ts#waiting': notAnswer('reads on their way by request id: the callback each answer goes to'),
-    'src/webview/runtime/fullRead.ts#waiting': notAnswer('readers to call once a read on its way is in'),
     'src/webview/runtime/staticWorker.ts#replies': notAnswer('worker calls on their way by id: the callback each reply goes to'),
     'src/webview/runtime/spectrumRequestScheduler.ts#desired': notAnswer('the latest cursor-spectrum request wanted per track, not yet sent'),
     'src/webview/runtime/entryRedraw.ts#pending': notAnswer('redraws asked for this frame'),
@@ -208,4 +207,15 @@ export const LATEST_ANSWERS: Record<string, Listed> = {
     'src/webview/runtime/entrySidePlots.ts#ownMarks': unmigrated('per fresh recording, its reference mark, made again with the folder reference (shared.version)'),
     'src/webview/runtime/stageSource.ts#known': inLayer('per file, the basis string last computed (scan condition, calibration, sourceVersion, fileEpoch): the version of the pictures\' keys'),
     'src/webview/runtime/trackStore.ts#spectrumSliceCache': unmigrated('per cursor time, a slice of one track\'s analysis; let go with the track record (a new analysis is a new record)'),
+};
+
+/**
+ * Answer sources (a file that calls a maker of answerStore.ts or fetchedSource / fullSource('fetched')) that also
+ * schedule with the platform's timers, each with what the timers are for. None of them is a failure's pause or wake:
+ * when a failed answer is asked again is the store's (whenFailureEnds, `retried`). The list only shrinks; a new answer
+ * source with a timer is not added here, it moves its timing onto the store.
+ */
+export const SCHEDULING_OWNERS: Record<string, Listed> = {
+    'src/webview/runtime/comparisonRuntime.ts': notAnswer('the comparison screen: frames for painting and focus, a range request gathered while scrolling, an export waiting on its pictures'),
+    'src/webview/runtime/pairSpectrumPanel.ts': notAnswer('the pair panel: a request gathered while the pointer moves (PAIR_REQUEST_DELAY_MS); its retry is the store\'s `retried`'),
 };

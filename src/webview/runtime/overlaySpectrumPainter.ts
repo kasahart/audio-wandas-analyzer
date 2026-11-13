@@ -6,7 +6,7 @@ import { drawableLine } from '../../shared/drawnPoints';
 import type { Drawn } from '../../shared/provenance';
 import { everyBin } from './wholeAnswers';
 import { minMaxLine } from './comparePanes';
-import { localLine, NO_FULL_DATA, NO_LEVEL, PENDING_FULL_DATA, type FullSource, fullSource } from './fullRead';
+import { localLine, NO_FULL_DATA, NO_LEVEL, pendingSource, type FullSource, fullSource } from './fullRead';
 import {
     OVERLAY_SPECTRUM_PAD,
     overlayLevelAxes,
@@ -34,14 +34,14 @@ export interface OverlaySpectrumPaint {
 
 /**
  * Where a stand-in's numbers are read (types.ts SpectrumStandIn): nowhere. While the slice is on its way its read is
- * pending (R7: the cursor's marks, no number) and it is measured for the overlay's order once the slice comes; past
- * the track's end there is no point to read, and silence has no power (the quietest, drawn last on top, R6).
+ * pending on the slice's request (R7: the cursor's marks, no number; its readers told when it is answered, pendingSource)
+ * and it is measured for the overlay's order once the slice comes; past the track's end there is no point to read, and
+ * silence has no power (the quietest, drawn last on top, R6).
  */
-const STAND_IN_READ: Record<NonNullable<SpectrumSeries['slice']['standIn']>, FullSource> = {
-    pending: PENDING_FULL_DATA,
+const SILENCE_READ: FullSource = fullSource('fetched', { line: () => ({ xs: [], values: [], start: null, end: null, complete: true }), level: () => NO_LEVEL });
+const standInRead = (slice: SpectrumSeries['slice']): FullSource | undefined => (slice.standIn === 'pending' ? pendingSource(slice.waitingOn)
     // No point to read there: an empty window (null would be a read that failed, which no other line stands in for).
-    silence: fullSource('fetched', { line: () => ({ xs: [], values: [], start: null, end: null, complete: true }), level: () => NO_LEVEL }),
-};
+    : slice.standIn === 'silence' ? SILENCE_READ : undefined);
 
 /** Marks the right-hand axis in the legend. */
 export const SECONDARY_AXIS_MARK = '▶';
@@ -68,7 +68,7 @@ export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?
     // Every number read off it is a bin of the slice (R7): the bins kept here, before any thinning, or for a slice cut
     // for display the slice read again at every bin (series.full).
     // A stand-in is drawn only: none of its values is a bin of a slice.
-    const standIn = slice.standIn ? STAND_IN_READ[slice.standIn] : undefined;
+    const standIn = standInRead(slice);
     // Bands are every band of the slice; a slice cut for display without its every bin (series.full) has none to read.
     // Given whole with the places on the axis: only the bins that have a place are read (localLine).
     const held = every;
