@@ -1,4 +1,4 @@
-import { SP, t, tt, type ChartContract } from '../model';
+import { TICK_PLACES, SP, t, tt, type ChartContract } from '../model';
 
 /** ペアの図（利得・位相・γ²） */
 export const pairView: ChartContract = {
@@ -56,6 +56,7 @@ export const pairView: ChartContract = {
             computedIn: [`${SP}:paintPlot`, `${SP}:valueAxisTicks`, `${SP}:valueTickTexts`, `${SP}:alongAxisTicks`, `${SP}:rowAxisTicks`, `${SP}:tickTexts`, `${SP}:colourEndText`, `${SP}:paintRightAxis`],
             from: 'axis', trace: '範囲から部品が決める（位相は ±180°、γ² は 0〜1）。',
             tests: [
+                TICK_PLACES.pair,
                 t('src/test/stagePanes.test.ts', 'levels share a range of four round steps; coherence keeps 0 to 1'),
                 t('src/test/laneAxes.test.ts', 'the lanes take the ticks and their text from the rules every plot uses'),
             ],

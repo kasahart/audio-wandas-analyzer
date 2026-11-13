@@ -1,4 +1,4 @@
-import { SP, t, tt, type ChartContract } from '../model';
+import { TICK_PLACES, SP, t, tt, type ChartContract } from '../model';
 
 /** 比較台の横並びのレーン */
 export const compareLanes: ChartContract = {
@@ -54,6 +54,7 @@ export const compareLanes: ChartContract = {
             computedIn: [`${SP}:paintPlot`, `${SP}:valueAxisTicks`, `${SP}:valueTickTexts`, `${SP}:alongAxisTicks`, `${SP}:rowAxisTicks`, `${SP}:tickTexts`, `${SP}:colourEndText`, `${SP}:paintRightAxis`],
             from: 'axis', trace: '範囲から部品が決める。',
             tests: [
+                TICK_PLACES.comparison,
                 t('src/test/stagePanes.test.ts', 'levels share a range of four round steps; coherence keeps 0 to 1'),
                 t('src/test/laneAxes.test.ts', 'the lanes take the ticks and their text from the rules every plot uses'),
             ],

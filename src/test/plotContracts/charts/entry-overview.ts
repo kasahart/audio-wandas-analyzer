@@ -1,4 +1,4 @@
-import { CLICK_READ, CLICK_TEST, PRESS_READ_TEST, SP, t, tt, type ChartContract } from '../model';
+import { TICK_PLACES, CLICK_READ, CLICK_TEST, PRESS_READ_TEST, SP, t, tt, type ChartContract } from '../model';
 
 /** 入口の概観帯 */
 export const entryOverview: ChartContract = {
@@ -38,9 +38,11 @@ export const entryOverview: ChartContract = {
         },
         {
             id: 'entry-overview.ticks', value: 'ticks', what: '帯と行の目盛り',
-            computedIn: [`${SP}:paintPlot`, `${SP}:valueAxisTicks`, `${SP}:valueTickTexts`, `${SP}:alongAxisTicks`, `${SP}:rowAxisTicks`, `${SP}:tickTexts`, `${SP}:colourEndText`, `${SP}:paintRightAxis`],
-            from: 'axis', trace: '行は表の上からの番号（yTickText）。',
+            computedIn: [`${SP}:paintPlot`, `${SP}:rowNumberTicks`, `${SP}:placedTicks`, `${SP}:alongAxisTicks`, `${SP}:tickTexts`, `${SP}:colourEndText`],
+            from: 'axis', trace: '行の目盛りは表の上から 1 で始まる行の番号で、その行の中心に置く（rowNumberTicks、OVERVIEW_ROWS）。目盛りは行として選び（行の間の切りのよい位置に番号を書き直さない）、その位置は行のマスを描く行の軸（yAxis）で決めるので、どの拡大でも番号 n はその行のマスの中心にある（R9、R14）。',
             tests: [
+                TICK_PLACES.overview,
+                TICK_PLACES.overviewRows,
                 t('src/test/entrySidePlots.test.ts', 'the strip is a heatmap of the table: a row per table row counted down from the top, each bucket\'s quietest and loudest when they outnumber its lines (R2)'),
             ],
         },

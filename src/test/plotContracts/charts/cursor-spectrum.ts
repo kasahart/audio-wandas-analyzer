@@ -1,4 +1,4 @@
-import { RT, SP, t, tt, type ChartContract } from '../model';
+import { TICK_PLACES, RT, SP, t, tt, type ChartContract } from '../model';
 
 /** カーソルスペクトル */
 export const cursorSpectrum: ChartContract = {
@@ -61,6 +61,8 @@ export const cursorSpectrum: ChartContract = {
             computedIn: [`${SP}:paintPlot`, `${SP}:valueAxisTicks`, `${SP}:valueTickTexts`, `${SP}:alongAxisTicks`, `${SP}:rowAxisTicks`, `${SP}:tickTexts`, `${SP}:colourEndText`, `${SP}:paintRightAxis`],
             from: 'axis', trace: '範囲から部品が決める。右の第 2 のレベル軸は自分の範囲の目盛り（valueAxisTicks）をその値の位置に書く。',
             tests: [
+                TICK_PLACES.spectrum,
+                TICK_PLACES.spectrumRight,
                 t('src/test/overlaySpectrumPainter.test.ts', 'zoomed between two log ticks, the frequency axis still labels where it is'),
                 t('src/test/stagePanes.test.ts', 'the right-hand level axis writes its own round ticks, each at the place of its own value, never the left axis\'s places relabelled (R4, R9)'),
             ],

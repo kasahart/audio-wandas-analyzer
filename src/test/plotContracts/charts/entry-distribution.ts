@@ -1,4 +1,4 @@
-import { CLICK_READ, CLICK_TEST, PRESS_READ_TEST, SP, t, type ChartContract } from '../model';
+import { TICK_PLACES, CLICK_READ, CLICK_TEST, PRESS_READ_TEST, SP, t, type ChartContract } from '../model';
 
 /** 入口の分布図（群ごとの行と下の値の軸） */
 export const entryDistribution: ChartContract = {
@@ -59,6 +59,7 @@ export const entryDistribution: ChartContract = {
             computedIn: [`${SP}:paintPlot`, `${SP}:valueAxisTicks`, `${SP}:valueTickTexts`, `${SP}:alongAxisTicks`, `${SP}:rowAxisTicks`, `${SP}:tickTexts`, `${SP}:colourEndText`, `${SP}:paintRightAxis`],
             from: 'axis', trace: '範囲から部品が決める。',
             tests: [
+                TICK_PLACES.distribution,
                 t('src/test/distribution.test.ts', 'ticks fall on round values without floating-point drift'),
             ],
         },

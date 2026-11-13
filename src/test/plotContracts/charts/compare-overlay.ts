@@ -1,4 +1,4 @@
-import { CLICK_READ, CLICK_TEST, PRESS_READ_TEST, SP, t, tt, type ChartContract } from '../model';
+import { TICK_PLACES, CLICK_READ, CLICK_TEST, PRESS_READ_TEST, SP, t, tt, type ChartContract } from '../model';
 
 /** 比較台の重ね図（トリガーのイベント図を含む） */
 export const compareOverlay: ChartContract = {
@@ -140,6 +140,8 @@ export const compareOverlay: ChartContract = {
             computedIn: [`${SP}:paintPlot`, `${SP}:valueAxisTicks`, `${SP}:valueTickTexts`, `${SP}:alongAxisTicks`, `${SP}:rowAxisTicks`, `${SP}:tickTexts`, `${SP}:colourEndText`, `${SP}:paintRightAxis`, `${SP}:at`],
             from: 'axis', trace: '範囲（または窓）から部品が決める。データには触れない。',
             tests: [
+                TICK_PLACES.comparison,
+                TICK_PLACES.trigger,
                 t('src/test/stagePanes.test.ts', 'levels share a range of four round steps; coherence keeps 0 to 1'),
                 t('src/test/laneAxes.test.ts', 'the lanes take the ticks and their text from the rules every plot uses'),
             ],

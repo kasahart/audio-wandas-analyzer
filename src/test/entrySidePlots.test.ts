@@ -410,3 +410,59 @@ test('the strip\'s row numbers stay clear of its axis name, a table of a thousan
         assert.ok(left >= nameRight, `row ${item.text} starts at ${left.toFixed(1)} px, the name ends at ${nameRight.toFixed(1)} px`);
     }
 });
+
+test('the strip\'s row ticks are at the rows they number, at every zoom: a tick labelled n is where table row n\'s cells are painted, a window cutting a row in half too (R9, R14)', () => {
+    // 20 rows on a plot 120 px tall: each row is a picture row of its own (no buckets), so each tick's row has a centre drawn.
+    const dom = new JSDOM('<!doctype html><body><div class="holder"><canvas></canvas><div data-entry-overview-frame></div><div data-entry-overview-focus></div></div></body>');
+    const canvas = dom.window.document.querySelector('canvas') as HTMLCanvasElement;
+    const plotHeight = 120;
+    Object.defineProperties(canvas, { clientWidth: { value: 300 }, clientHeight: { value: plotHeight + OVERVIEW_MARGINS.top + OVERVIEW_MARGINS.bottom } });
+    // Every number written right-aligned at the row axis's edge: the row ticks, with where each is written.
+    const written: Array<{ text: string; x: number; y: number; align: string }> = [];
+    const state = { textAlign: 'start', font: '10px sans-serif' };
+    const saved: Array<typeof state> = [];
+    const context = new Proxy({}, {
+        get: (_target, key) => key === 'measureText' ? (text: string) => ({ width: text.length * 6 })
+            : key === 'fillText' ? (text: string, x: number, y: number) => { written.push({ text, x, y, align: state.textAlign }); }
+            : key === 'save' ? () => { saved.push({ ...state }); } : key === 'restore' ? () => { Object.assign(state, saved.pop() ?? state); }
+            : key === 'textAlign' || key === 'font' ? state[key] : key === 'createImageData' || key === 'getImageData' ? (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(Math.max(1, w * h * 4)) })
+            : key.toString().startsWith('create') ? () => ({ addColorStop: () => undefined }) : () => undefined,
+        set: (_target, key, value) => { if (key === 'textAlign' || key === 'font') state[key] = String(value); return true; },
+    });
+    canvas.getContext = (() => context) as unknown as HTMLCanvasElement['getContext'];
+    const total = 20;
+    const rows = Array.from({ length: total }, (_, index) => ({ filePath: `/d/r${index + 1}.wav` }));
+    const bands = wholeBands(rows.map(row => [row.filePath, [-40, -30]]));
+    const mark = dom.window.document.querySelector<HTMLElement>('[data-entry-overview-focus]')!;
+    // Windows up the rows' axis (0 at the bottom of the table, 1 at its top): the whole table; −11 to −10 (row 11
+    // alone over the whole plot, where round places of a tenth of a row would be the ticks); from the middle of row
+    // 13 to the middle of row 10 (a window cutting a row in half at each end); and an uneven window that cuts rows anywhere.
+    const windows = [{ start: 0, end: 1 }, { start: 0.45, end: 0.5 }, { start: 0.375, end: 0.525 }, { start: 0.1234, end: 0.6789 }];
+    for (const y of windows) {
+        written.length = 0;
+        const window = { x: FULL_PLOT_WINDOW.x, y };
+        const plot = paintOverview(canvas, strings, rows, bands, { first: 0, last: total - 1 }, '/d/r12.wav', window, { label: 'dBFS', calibrated: false }).drawn;
+        const heat = plot?.image;
+        assert.ok(plot && heat, 'the strip is drawn');
+        // The picture's rows as painted: each table row's cells (named by its file) and the place of its centre.
+        const picture = overviewPicture(rows, bands, window, plotHeight);
+        assert.ok(picture);
+        const centreOf = (n: number): number | null => {
+            const at = picture.names.findIndex(names => names[0] === `r${n}.wav`);
+            return at < 0 ? null : heat.placeOf(BAND_CENTERS_HZ[0], Number(picture.view.ys?.[at])).y;
+        };
+        const ticks = written.filter(item => item.align === 'right' && item.x === OVERVIEW_MARGINS.left - 2 && /^\d+$/u.test(item.text));
+        assert.ok(ticks.length >= 1, `window ${y.start}–${y.end}: the row axis writes a row's number (${JSON.stringify(written)})`);
+        for (const tick of ticks) {
+            const n = Number(tick.text);
+            const centre = centreOf(n);
+            assert.ok(centre !== null, `window ${y.start}–${y.end}: the tick "${tick.text}" names row ${n}, which the strip does not paint there (display rules R9, R14: a row tick is a row's number at that row; choose the ticks as rows, stagePanes.rowNumberTicks)`);
+            assert.ok(Math.abs(tick.y - centre) <= 0.5, `window ${y.start}–${y.end}: the tick "${tick.text}" is written at y = ${tick.y.toFixed(2)} px, but row ${n}'s cells are painted around y = ${centre.toFixed(2)} px `
+                + '(display rules R9, R14: a tick is placed at the place the picture paints what it names; pick the row ticks at rows\' centres, never relabel a round place between rows)');
+        }
+        // The focused row's mark is laid where its row is painted, by the same axis (row 12 is table row 11 from 0).
+        const markTop = heat.placeOf(BAND_CENTERS_HZ[0], -11).y;
+        const shown = markTop >= OVERVIEW_MARGINS.top - 1e-9 && markTop <= OVERVIEW_MARGINS.top + plotHeight;
+        if (shown && !mark.hidden) assert.equal(mark.style.top, `${markTop}px`, `window ${y.start}–${y.end}: the focus mark is at its row's painted top`);
+    }
+});

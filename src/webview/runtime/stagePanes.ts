@@ -22,7 +22,7 @@ import { paintWaveformLayer, waveformRange, type PlotBox, type SignalPointSink }
 import { packRgb, paletteColour, rasterizeHeatmap, unpackRgb } from '../plot/heatmapRaster';
 import { readoutText, type AxisTick, type Palette } from '../../shared/gui-core/index';
 import { axisName, axisNameParts, fitAxisTitle, fontPixels, scaledFont } from '../plot/axisTitle';
-import { HEATMAP_DB_SPAN, heatmapDbRange, niceRange, niceTicks } from '../../shared/utils/ticks';
+import { HEATMAP_DB_SPAN, heatmapDbRange, niceRange, niceStep, niceTicks } from '../../shared/utils/ticks';
 import { amountText, barkText, colourDecimals, exactDecimals, frequencyText, lagText, levelText, quefrencyText, secondsText, signedText, spacingDecimals, stepText, withMinus } from '../plot/plotText';
 import type { Whole, WholeLine } from '../../shared/provenance';
 import { drawableLine, drawableRows } from '../../shared/drawnPoints';
@@ -684,18 +684,30 @@ export function spacedTicks<T extends AxisTick>(ticks: readonly T[], height: num
  * (Compare's panes and the track lanes' amplitude axis), with as many decimals as the span needs. On an axis
  * `height` px tall, as many round steps as fit without their labels touching: fewer on a short plot.
  */
-export function valueAxisTicks(range: PaneRange, height = Infinity): AxisTick[] {
+export function valueAxisTicks(range: PaneRange, height = Infinity): ValueTick[] {
     const span = range.max - range.min || 1;
-    const at = (count: number): AxisTick[] => {
+    const at = (count: number): ValueTick[] => {
         const values = niceTicks(range.min, range.max, count);
-        return values.map(value => ({ text: valueTickTexts(values)(value), fraction: (value - range.min) / span }));
+        return values.map(value => ({ value, text: valueTickTexts(values)(value), fraction: (value - range.min) / span }));
     };
     const full = at(4);
     if (ticksFit(full, height)) return full;
     // Coarser round steps, or every k-th of the finest (−80, −40, 0): whichever keeps the most labels apart.
     const everyKth = Array.from({ length: full.length }, (_, k) => Array.from({ length: k + 1 }, (_, offset) => full.filter((_, index) => index % (k + 1) === offset))).flat();
     const candidates = [at(3), at(2), at(1), ...everyKth, spacedTicks(full, height)].filter(ticks => ticksFit(ticks, height));
-    return candidates.reduce<AxisTick[]>((best, ticks) => (ticks.length > best.length ? ticks : best), []);
+    return candidates.reduce<ValueTick[]>((best, ticks) => (ticks.length > best.length ? ticks : best), []);
+}
+
+/** A tick of a value or row axis: its text, the value it is at (what the text writes), and its place up the axis. */
+export type ValueTick = AxisTick & { value: number };
+
+/**
+ * Ticks placed by the plot's own transform (display rules R9, R14): each at the place the picture paints its value,
+ * `place` (an axis transform's or the heatmap rows' value-to-fraction), never at a place worked out apart from it.
+ * Their texts are kept: each is the text of its own value, so a tick labelled v is where v is painted.
+ */
+function placedTicks(ticks: readonly ValueTick[], place: (value: number) => number): ValueTick[] {
+    return ticks.map(tick => ({ ...tick, fraction: place(tick.value) }));
 }
 
 /**
@@ -721,13 +733,50 @@ export function valueTickTexts(values: readonly number[]): (value: number) => st
  * A heatmap's row axis ticks between `low` and `high` (fractions up the axis): at a log axis's round values, or on a
  * linear one as many as `height` px is tall for. Compare's heatmaps and the track spectrogram lanes use it.
  */
-export function rowAxisTicks(low: number, high: number, log: boolean, height: number, text?: (value: number) => string): Array<AxisTick & { value: number }> {
+export function rowAxisTicks(low: number, high: number, log: boolean, height: number): ValueTick[] {
     const span = high - low || 1;
-    const values = log ? ticks(low, high, true) : niceTicks(low, high, Math.max(2, Math.min(8, Math.floor(height / 22))));
+    const values = log ? ticks(low, high, true) : niceTicks(low, high, rowTickCount(height));
     const texts = tickTexts(values, log);
-    const drawn = values.map((value, index) => ({ value, text: text?.(value) ?? texts[index], fraction: log ? Math.log(value / low) / Math.log(high / low) : (value - low) / span }));
-    // A caller's own text (a table's whole row numbers) may write two ticks alike: each number is written once (C3).
+    const drawn = values.map((value, index) => ({ value, text: texts[index], fraction: log ? Math.log(value / low) / Math.log(high / low) : (value - low) / span }));
+    // Each text is its own value's (tickTexts): a window finer than the digits' cap (under a nanosecond) writes each
+    // number once, at the first place it is (C3), as alongAxisTicks does. No text is ever another place's.
     return drawn.filter((tick, index) => drawn.findIndex(other => other.text === tick.text) === index);
+}
+
+/** How many ticks a linear row axis `height` px tall gets (about one per 22 px, 2 to 8). */
+const rowTickCount = (height: number): number => Math.max(2, Math.min(8, Math.floor(height / 22)));
+
+/**
+ * A numbered row axis (the entry strip's table rows, counted from 1 down from the top): where row `n`'s centre is on
+ * the row axis (the picture's own row coordinates), and the row number at a place on it (fractional between centres).
+ * The same function places the picture's rows, the readout's cells and these ticks.
+ */
+export interface RowNumbers {
+    centreOf(n: number): number;
+    numberAt(y: number): number;
+}
+
+/**
+ * A numbered row axis's ticks between `low` and `high` (its ends as painted): one at the centre of each row a whole
+ * round step of rows apart (every 1, 2, 5, 10, 20, 25, … rows), labelled with that row's number, as many as a linear
+ * row axis `height` px tall gets. The places are chosen as rows, never a round place between rows relabelled with a
+ * row's number (display rules R9, R14: a tick labelled n is where row n is painted, at every zoom). A window with no
+ * row's centre in it has no row tick.
+ */
+export function rowNumberTicks(low: number, high: number, height: number, rows: RowNumbers): ValueTick[] {
+    const a = rows.numberAt(low), b = rows.numberAt(high);
+    const first = Math.ceil(Math.min(a, b) - 1e-9), last = Math.floor(Math.max(a, b) + 1e-9);
+    if (!(last >= first) || !Number.isFinite(first) || !Number.isFinite(last)) return [];
+    const nice = Math.max(1, niceStep((last - first) / rowTickCount(height)));
+    // Whole rows only: a step of 2.5 rows is 5.
+    const step = Number.isInteger(nice) ? nice : Math.ceil(nice / 5) * 5;
+    const span = high - low || 1;
+    const out: ValueTick[] = [];
+    for (let n = Math.ceil(first / step) * step; n <= last; n += step) {
+        const value = rows.centreOf(n);
+        out.push({ value, text: String(n), fraction: (value - low) / span });
+    }
+    return out;
 }
 
 /** A time or frequency axis's ticks between `low` and `high` (a log frequency axis's at its round values), with their text. */
@@ -962,8 +1011,11 @@ export interface StagePaintOptions {
     margins?: PlotMargins;
     /** A stretch of the horizontal axis picked (its values): shaded behind the pictures. */
     highlight?: { start: number; end: number };
-    /** A heatmap's row-axis tick text, for rows counted another way than their values (the entry strip's, down from the top). */
-    yTickText?: (value: number) => string;
+    /**
+     * A heatmap whose rows are numbered (the entry strip's table rows): its row ticks are rows' numbers at their rows'
+     * centres (rowNumberTicks), never the row axis's round values relabelled.
+     */
+    yRows?: RowNumbers;
     /**
      * Lines read against a second level reference, on a level axis of their own at the right: `range` is that
      * axis' range and `title` its name. They are drawn after the left axis' lines, by that axis's own transform
@@ -1131,6 +1183,18 @@ export function axisTransform(axis: Pick<FigureAxis<unknown>, 'range'> | { reado
     };
 }
 
+/** A value's place up the plot (0 at its bottom, 1 at its top) by `axis`'s own exact y (yOf): what its ticks are placed by. */
+function fractionOn(axis: AxisTransform, box: PlotBox): (value: number) => number {
+    return value => (box.top + box.height - axis.yOf(value)) / box.height;
+}
+
+/**
+ * A plot's canvas, with where its vertical axes paint the number a tick label names (CSS pixels down the canvas):
+ * `left` on its level or row axis (on the canvas beside it for a lane), `right` on a right-hand level axis. Set by
+ * paintOverlay from the transforms it paints with, for the ui-smoke audit (canvasAudit.ts) to hold each label to.
+ */
+export type TickPlacedCanvas = HTMLCanvasElement & { __plotTickPlaces?: { left: (label: number) => number; right?: (label: number) => number } };
+
 /** A plot's signals on `axis` (StagePlot.signal): their unit as the backend sent it, the axis's range, painted by it. */
 function signalOn(axis: AxisTransform, unit: string): NonNullable<StagePlot['signal']> {
     // The signal's unit as the backend sent it (stage_view.signal_unit): none sent, none read out.
@@ -1209,6 +1273,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     // Neutral: blue and the other colours are the roles'.
     const pendingColors = { muted, line, fill: text, back: style?.getPropertyValue('--track-bg').trim() || '#0b0d10' };
     if (!view) {
+        (canvas as TickPlacedCanvas).__plotTickPlaces = undefined;
         // A lane with nothing to draw yet keeps its value axis (ticks and name) beside it, as data-plot-axes names it.
         if (options.axisCanvas) paintSideAxis(options.axisCanvas, valueAxisTicks(range, plotHeight), axes.y, { muted, text });
         if (options.pending) paintPending(context, options.pending, left + plotWidth / 2, top + plotHeight / 2, 'center', pendingColors);
@@ -1254,6 +1319,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     const yAt = mainAxis.yAt;
 
     let levelTicks: AxisTick[] = [];
+    let rightTransform: AxisTransform | null = null;
     const plot: StagePlot = { frame: { left, top, width: plotWidth, height: plotHeight }, xAt, yAt, xOf: x => xAxis.at((x - left) / plotWidth), xLog: xAxis.log, levelOf: mainAxis.levelOf,
         yOf: mainAxis.yOf, pixelsPerUnit: mainAxis.pixelsPerUnit, ratioStep: 1.12, lines: [], diff: !!options.diff, xRange: { min: xAxis.low, max: xAxis.high }, ...(yAxis ? { rowRange: { min: yAxis.low, max: yAxis.high } } : {}), ...(heatmap ? {} : { valueRange: mainAxis.valueRange }), ...(options.readout === false ? { noReadout: true } : {}), ...levelUnitOf(heatmap ? axes.colour : axes.y) };
     // Where its data is drawn on the canvas (CSS pixels: left, top, width, height), so a gesture test can tell what a
@@ -1337,7 +1403,10 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
             },
         };
         // A linear row axis (Bark, quefrency, the entry strip's rows) gets as many ticks as the plot is tall for.
-        levelTicks = rowAxisTicks(yAxis.low, yAxis.high, yAxis.log, plotHeight, options.yTickText).map(tick => ({ text: tick.text, fraction: yAxis.fraction(tick.value) }));
+        // Placed by the rows' own axis (yAxis, which places the cells too), at every zoom (R9, R14): a numbered row
+        // axis at its rows' centres.
+        const rowTicks = options.yRows ? rowNumberTicks(yAxis.low, yAxis.high, plotHeight, options.yRows) : rowAxisTicks(yAxis.low, yAxis.high, yAxis.log, plotHeight);
+        levelTicks = placedTicks(rowTicks, value => yAxis.fraction(value));
         // The colour bar, top right inside the plot: what the colour measures, and its ends.
         const endText = (value: number): string => colourEndText(value, high - low);
         plot.colourScale = { low, high };
@@ -1357,7 +1426,8 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     } else {
         context.strokeStyle = line;
         context.lineWidth = 1;
-        levelTicks = valueAxisTicks(range, plotHeight);
+        // Placed by the axis's own transform, which paints the lines (R9, R14).
+        levelTicks = placedTicks(valueAxisTicks(range, plotHeight), fractionOn(mainAxis, box));
         for (const tick of levelTicks) {
             const y = top + (1 - tick.fraction) * plotHeight;
             context.beginPath(); context.moveTo(left, y); context.lineTo(left + plotWidth, y); context.stroke();
@@ -1434,6 +1504,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
             // The right-hand axis's lines on its own transform, a signal among them too: never the left axis's (R14).
             const { levelUnit: _main, signal: _left, ...shared } = plot;
             const rightAxis = axisTransform(options.secondary, { box, time: wholeAxis, window: xWindow });
+            rightTransform = rightAxis;
             const rightSignal = options.secondary.layers.find(layer => layer.view.waveform)?.view.waveform;
             const secondPlot: StagePlot = { ...shared, valueRange: rightAxis.valueRange, yAt: rightAxis.yAt, yOf: rightAxis.yOf, pixelsPerUnit: rightAxis.pixelsPerUnit, levelOf: rightAxis.levelOf, lines: [],
                 ...(rightSignal ? { signal: signalOn(rightAxis, rightSignal.unit) } : {}), ...levelUnitOf(options.secondary.title) };
@@ -1491,7 +1562,15 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     }
     // The right-hand axis has its own round ticks, each written where its own value is (never the left axis's places
     // labelled with the right range's values there, rounded to a number that is not where it is drawn).
-    if (options.secondary && !heatmap) paintRightAxis(context, frame, valueAxisTicks(options.secondary.range, plotHeight), options.secondary.range, options.secondary.title, width, { muted, line, text });
+    if (options.secondary && !heatmap && rightTransform) paintRightAxis(context, frame, placedTicks(valueAxisTicks(options.secondary.range, plotHeight), fractionOn(rightTransform, box)), options.secondary.range, options.secondary.title, width, { muted, line, text });
+    // Where each vertical axis paints the number a tick label names (CSS pixels down the canvas), from the very
+    // transforms the picture is painted by: a value's y on a value axis, a row's (or a numbered row's centre's) on a
+    // heatmap's rows. Every ui-smoke test holds each tick label drawn to it (canvasAudit.ts, display rules R9, R14).
+    const heat = plot.image, rows = options.yRows, second = plot.secondary;
+    (canvas as TickPlacedCanvas).__plotTickPlaces = {
+        left: heat ? (label: number) => heat.placeOf(xAxis.low, rows ? rows.centreOf(label) : label).y : plot.yOf,
+        ...(second && !heatmap ? { right: second.yOf } : {}),
+    };
     // Under the region's corner tag when there is one.
     // A heatmap's colour bar holds that corner: the note goes under it.
     if (options.pending) paintPending(context, options.pending, left + plotWidth - 6, heatmap && plot.colourBar ? plot.colourBar.y + plot.colourBar.height + 9 : top + (options.region?.mark === 'tag' ? 38 : 12), 'right', pendingColors);

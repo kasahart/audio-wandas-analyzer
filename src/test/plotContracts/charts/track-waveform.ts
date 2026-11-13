@@ -1,4 +1,4 @@
-import { CLICK_READ, CLICK_TEST, PRESS_READ_TEST, RT, SP, t, tt, type ChartContract } from '../model';
+import { TICK_PLACES, CLICK_READ, CLICK_TEST, PRESS_READ_TEST, RT, SP, t, tt, type ChartContract } from '../model';
 
 /** トラックの波形レーン */
 export const trackWaveform: ChartContract = {
@@ -52,6 +52,7 @@ export const trackWaveform: ChartContract = {
             computedIn: ['src/webview/runtime/laneAxes.ts:laneAmplitudeTicks', `${SP}:valueAxisTicks`],
             from: 'axis', trace: '範囲から、どのグラフとも同じ規則で決める。',
             tests: [
+                TICK_PLACES.lanes,
                 t('src/test/laneAxes.test.ts', 'a waveform lane\'s amplitude ticks sit where the waveform draws their values, zoomed or not'),
                 t('src/test/laneAxes.test.ts', 'the lanes take the ticks and their text from the rules every plot uses'),
             ],

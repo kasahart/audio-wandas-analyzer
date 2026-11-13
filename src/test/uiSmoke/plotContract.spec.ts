@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { stubStage } from './stubStage';
 import path from 'node:path';
-import { expect, settled, test, type Locator, type Page } from './canvasAudit';
+import { expect, settled, test, type Locator, type Page, type TickPlaces } from './canvasAudit';
 import { appStateOf, buildExtensionHostPathUiSmokeHtml, buildUiSmokeCalibrationHtml, buildUiSmokeHtml, UI_SMOKE_HOST_GRID } from './buildHtml';
 import { getStrings } from '../../shared/i18n/strings';
 import { entry100Metadata, entry100Results, openEntry, pickCsv, type ScannedFile } from './entryHelpers';
@@ -22,7 +22,7 @@ const STR_EN = getStrings('en');
  * A plot that does not pass one yet is listed in KNOWN_GAPS with the deviation of the unified plot spec it waits
  * for; a gap that is fixed fails here until it is taken off, so the list only shrinks.
  */
-type Check = 'readout' | 'step' | 'zoom' | 'reset' | 'zoom keys' | 'axis wheel' | 'box zoom' | 'lost release' | 'axis range' | 'x range' | 'axes' | 'names inside';
+type Check = 'readout' | 'step' | 'zoom' | 'reset' | 'zoom keys' | 'axis wheel' | 'box zoom' | 'lost release' | 'axis range' | 'x range' | 'axes' | 'names inside' | 'tick places';
 const KNOWN_GAPS: Record<string, readonly Check[]> = {};
 
 const FULL = '0.000 1.000 0.000 1.000';
@@ -156,9 +156,26 @@ async function knownStep(plot: Locator, from: PointAt, delta: 1 | -1 = 1): Promi
 }
 
 /** The checks a plot passes, each tried on its own; a failure is noted, not thrown, so every check is tried. */
+/**
+ * Plots whose vertical axes write no numbers, with why: 'tick places' holds the numbers each writes, and a plot listed
+ * here that writes some fails (the list only shrinks).
+ */
+const NO_VERTICAL_TICKS: Record<string, string> = {
+    'canvas.entry-dist-canvas[data-dist-canvas]': 'a distribution group\'s row: the groups are named beside their rows, its value axis is the shared one below (yAxisLabels false)',
+};
+/** What 'tick places' found wrong on the plot being checked, for expectContract to report with the plot's name. */
+const tickPlacesFound: string[] = [];
+/** The plot's vertical axes' tick labels held to where its axes paint their numbers (canvasAudit.ts tickPlaces). */
+const tickPlacesOf = (plot: Locator): Promise<TickPlaces> => plot.evaluate(canvas => window.__tickPlaces?.(canvas as HTMLCanvasElement) ?? { declared: false, judged: 0, wrong: ['the ui-smoke audit is not installed'] });
+
 async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     const passed = new Set<Check>();
     const plotKey = await plot.evaluate(plotName);
+    // Each tick label of its vertical axes where its axis paints its number (R9, R14), seen at several vertical zooms:
+    // whole now, box-zoomed and typed to a narrow window below, the states pushed here as they are seen.
+    const tickStates: Array<{ at: string; places: TickPlaces }> = [];
+    const seeTicks = async (at: string): Promise<void> => { await settled(page); tickStates.push({ at, places: await tickPlacesOf(plot) }); };
+    await seeTicks('shown whole');
     const box = (await plot.boundingBox())!;
     const middle = { x: box.x + box.width * 0.6, y: box.y + box.height * 0.45 };
     // Both axes are named, on screen: each name the plot gives (data-plot-axes) names its quantity and its unit and is
@@ -431,6 +448,7 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     const hoveredThere = await rawRead();
     const readsRelease = atRelease === hoveredThere;
     const boxed = ((await plot.getAttribute('data-plot-window')) ?? '').split(' ').map(Number);
+    await seeTicks(`box-zoomed to ${boxed.join(' ')}`);
     const vertical = await plot.getAttribute('data-plot-y-axis');
     if (boxed.length === 4 && boxed.every(Number.isFinite) && (vertical === 'zoom' || vertical === 'all-counts')) {
         const [x0, x1, y0, y1] = boxed;
@@ -511,8 +529,28 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     // The level axis: the plot's own left margin, or the canvas beside it that holds its value axis (data-plot-axis).
     const axisId = await plot.getAttribute('data-plot-axis');
     const axisBox = axisId ? await page.locator(`[id="${axisId}"]`).boundingBox() : null;
-    const leftRange = await rangeApplies({ x: axisBox ? axisBox.x + axisBox.width / 2 : box.x + 8, y: axisBox ? axisBox.y + axisBox.height / 2 : middle.y });
+    const leftAt = { x: axisBox ? axisBox.x + axisBox.width / 2 : box.x + 8, y: axisBox ? axisBox.y + axisBox.height / 2 : middle.y };
+    const leftRange = await rangeApplies(leftAt);
     const leftOpened = opened as { name: string; low: number; high: number } | null;
+    // A narrow window typed on the vertical axis, 1.7 % of what it shows, from 40.5 % of the way up: between round
+    // values, and on a numbered row axis of 100 rows from the middle of a row (−59.5 of −100 to 0), a row cut in half.
+    await page.mouse.dblclick(leftAt.x, leftAt.y);
+    const narrowPopover = page.locator('[id$="range-popover"]:visible');
+    if (await narrowPopover.count()) {
+        const min = narrowPopover.locator('input[id$="-min"]'), max = narrowPopover.locator('input[id$="-max"]');
+        const low = Number(await min.inputValue()), high = Number(await max.inputValue());
+        if (Number.isFinite(low) && Number.isFinite(high) && high > low) {
+            await min.fill(String(low + (high - low) * 0.405));
+            await max.fill(String(low + (high - low) * 0.422));
+            await narrowPopover.locator('button[id$="-apply"]').click();
+            await seeTicks(`typed to ${String(low + (high - low) * 0.405)} … ${String(low + (high - low) * 0.422)} up`);
+            await page.mouse.dblclick(leftAt.x, leftAt.y);
+            const again = page.locator('[id$="range-popover"]:visible');
+            if (await again.count()) await again.locator('button[id$="-auto"]').click();
+            await settled(page);
+        }
+    }
+    if (await page.locator('[id$="range-popover"]:visible').count()) await page.keyboard.press('Escape');
     // The right-hand level axis opens its own range (A48), as every axis does: named as that axis, over the levels it
     // shows, never the left one's.
     const rightAt = await rightAxis();
@@ -536,6 +574,12 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     // audit judges each name as it is drawn (canvasAudit.ts __titleAudit; the fix is in the shared component, see
     // docs/display-rules.md R4 "軸名はキャンバスの中に"). What it found stays on the page and fails the test at its end too.
     if ((await page.evaluate(() => window.__titleAudit ?? [])).length === 0) passed.add('names inside');
+    // 'tick places': at every state seen (whole, box-zoomed, typed narrow; three at least, the typed one included), the
+    // plot says where it paints (paintOverlay's __plotTickPlaces), every number its vertical axes write is where that
+    // axis paints it, and it writes some, but for a plot whose vertical axes write none (NO_VERTICAL_TICKS, with why).
+    const silent = !!NO_VERTICAL_TICKS[plotKey];
+    tickPlacesFound.push(...tickStates.flatMap(state => state.places.wrong.map(wrong => `${state.at}: ${wrong}`)));
+    if (tickStates.length >= 3 && tickStates.some(state => state.at.startsWith('typed')) && tickStates.every(state => state.places.declared && !state.places.wrong.length && (silent ? state.places.judged === 0 : state.places.judged > 0))) passed.add('tick places');
     return passed;
 }
 
@@ -663,8 +707,9 @@ async function expectContract(page: Page, name: string, plot: Locator): Promise<
     checkedPlots.add(await plot.evaluate(plotName));
     const passed = await contract(page, plot);
     const gaps = KNOWN_GAPS[name] ?? [];
-    const checks: Check[] = ['readout', 'step', 'zoom', 'reset', 'zoom keys', 'axis wheel', 'box zoom', 'lost release', 'axis range', 'x range', 'axes', 'names inside'];
-    expect.soft(checks.filter(check => !passed.has(check) && !gaps.includes(check)), `${name}: fails these checks of the plot contract (docs/display-rules.md R13; each is a block in contract() above whose comment states the rule it checks, e.g. 'lost release' is R7's drag whose release never reaches the page, 'names inside' is R4's axis names inside their canvas)`).toEqual([]);
+    const checks: Check[] = ['readout', 'step', 'zoom', 'reset', 'zoom keys', 'axis wheel', 'box zoom', 'lost release', 'axis range', 'x range', 'axes', 'names inside', 'tick places'];
+    expect.soft(checks.filter(check => !passed.has(check) && !gaps.includes(check)), `${name}: fails these checks of the plot contract (docs/display-rules.md R13; each is a block in contract() above whose comment states the rule it checks, e.g. 'lost release' is R7's drag whose release never reaches the page, 'names inside' is R4's axis names inside their canvas, 'tick places' is R9/R14's tick labelled v at the place its axis paints v)`).toEqual([]);
+    expect.soft(tickPlacesFound.splice(0), `${name}: tick labels written where their axis does not paint their number, at the vertical zooms of 'tick places' (docs/display-rules.md R9, R14: place each tick by the transform the picture is painted with, stagePanes.placedTicks; a numbered row axis's ticks are rows, stagePanes.rowNumberTicks; never relabel a place with another number)`).toEqual([]);
     expect.soft(gaps.filter(check => passed.has(check)), `${name}: now passes; take it off KNOWN_GAPS`).toEqual([]);
 }
 

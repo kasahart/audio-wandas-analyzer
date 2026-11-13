@@ -8,8 +8,9 @@ import type { ScanResult } from '../shared/protocol/backendProtocol';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 import { recipeSteps } from '../shared/recipe/recipeSteps';
 import { BAND_CENTERS_HZ, buildEntryModel } from '../webview/runtime/entryTable';
-import { paintOverlayFigure, reportCsv, reportDefinitions, reportLevelAxes, reportFiles, reportFolderName, reportOctaveRecipe, reportRecipe, summaryRegionText } from '../webview/runtime/compareReport';
+import { paintDeltaFigure, paintOverlayFigure, reportCsv, reportDefinitions, reportLevelAxes, reportFiles, reportFolderName, reportOctaveRecipe, reportRecipe, summaryRegionText } from '../webview/runtime/compareReport';
 import { compareOf } from './helpers/compareInput';
+import { misplacedTicks, placeRecordingCanvas } from './helpers/tickPlaces';
 import { withChannel } from '../shared/recipe/channelSelection';
 import type { BaseDefinition, DerivedRow, EntryModel } from '../webview/runtime/entryTable';
 
@@ -269,4 +270,32 @@ test('the CSVs say each row\'s level reference beside its levels: never one cali
         // The uncalibrated file against a calibrated base: both levels, each with its own reference (no Δ across them).
         ['dBFS 未校正', 'dB SPL re 20 µPa'],
     ]);
+});
+
+test('a report figure writes each tick of its level axes, the right-hand one too, and of its Δ axis where that axis paints its number (R9, R14)', () => {
+    const strings = getStrings('ja');
+    // One reference (one axis), and two (a right-hand axis of its own): the overlay figure; and the Δ figure.
+    const cases: Array<{ base: ScanResult; compare: ScanResult; right: boolean }> = [
+        { base: calibrated(60, 50), compare: calibrated(62.3, 51.7), right: false },
+        { base: calibrated(60, 50), compare: scan(-20, -30), right: true },
+    ];
+    for (const { base, compare, right } of cases) {
+        const results = new Map<string, ScanResult>([['/f/base.wav', base], ['/f/cmp.wav', compare]]);
+        const model = buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
+        const comparison = compareOf(model, results, '/f/cmp.wav', '/f/base.wav', strings);
+        const input = { model, results, slots: ['/f/base.wav', '/f/cmp.wav', null, null], compare: () => comparison, region: null, recipe: null, recipeName: 'r', now: new Date(), stale: new Set<string>() };
+        const figures: Array<[string, (canvas: HTMLCanvasElement) => void]> = [
+            ['overlay', canvas => paintOverlayFigure(canvas, comparison, 1, 'title', strings, input, { width: 900, height: 320 })],
+            ...(right ? [] : [['Δ', (canvas: HTMLCanvasElement) => paintDeltaFigure(canvas, comparison, 'title', 'curve', strings, input, { width: 900, height: 260 })] as [string, (canvas: HTMLCanvasElement) => void]]),
+        ];
+        for (const [name, paint] of figures) {
+            const { canvas, written } = placeRecordingCanvas({ width: 900, height: 320 });
+            paint(canvas);
+            const ticks = misplacedTicks(canvas, written);
+            const what = `${name} figure${right ? ' with a right-hand axis' : ''}`;
+            assert.ok(ticks.declared, `${what}: paintOverlay says where its axes paint (__plotTickPlaces)`);
+            assert.ok(ticks.judged >= (right ? 4 : 2), `${what}: its level axes write their ticks (${JSON.stringify(written)})`);
+            assert.deepEqual(ticks.wrong, [], `${what}: a tick written where its axis does not paint its number (display rules R9, R14: place each tick by the transform the picture is painted with, stagePanes.placedTicks)`);
+        }
+    }
 });

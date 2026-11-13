@@ -7,7 +7,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import { BAND_CENTERS_HZ, type EntryRow } from './entryTable';
 import { FULL_PLOT_WINDOW, type PlotMargins, type PlotWindow } from './plotInteraction';
-import { paintOverlay, type StagePlot, type StageRead } from './stagePanes';
+import { paintOverlay, type RowNumbers, type StagePlot, type StageRead } from './stagePanes';
 import { heldCells, type InlineFullSource, fullSource } from './fullRead';
 import type { WholeLine } from '../../shared/provenance';
 import { emptyFigure, heatmapRange, levelTitle, plainNames, plainTitle, type FigureRange } from './figureModel';
@@ -24,6 +24,21 @@ export type RowWord = (filePath: string) => string;
 /** A row's name in the readout: its file, its channel when the recording has more than one, and its own calibration word. */
 const rowName = (row: OverviewRow, wordOf: RowWord): string => `${fileName(row.filePath)}${(row.channels ?? 1) > 1 && row.ch ? ` ch${row.ch}` : ''}${wordOf(row.filePath)}`;
 const NO_WORD: RowWord = () => '';
+
+/**
+ * Where the strip's table rows are on its row axis: table row `index` (from 0) spans −index to −(index + 1), its centre
+ * at −(index + 0.5), so the axis counts the rows down from the top. The one place this is written: the picture's
+ * rows, the readout's cells, a click's row, the frame and mark over the rows, and the row ticks all take it.
+ */
+export const rowEdge = (index: number): number => 0 - index; // 0 - 0 is 0, not −0
+export const rowCentre = (index: number): number => -(index + 0.5);
+/** The table row (from 0) whose cell holds the place `y` on the row axis: the nearest centre. */
+const rowAt = (y: number): number => Math.round(-y - 0.5);
+/**
+ * The strip's row ticks name a table row by its number from 1 (row 1 is the table's first, index 0), each at its
+ * row's centre (stagePanes.rowNumberTicks, display rules R9, R14).
+ */
+export const OVERVIEW_ROWS: RowNumbers = { centreOf: n => rowCentre(n - 1), numberAt: y => -y + 0.5 };
 
 /**
  * The strip's rows as a heatmap: a column per band and, in the part of the table in `window`, a row per table row, or
@@ -91,7 +106,7 @@ export function overviewPicture(
     }
     if (!Number.isFinite(low)) return null;
     // Each picture row's centre, in table rows (negative: down from the top); bottom first, as the axis runs.
-    const centres = shown.map((_, cell) => -(firstRow + (binned ? (cell + 0.5) * count / cellsTotal : cell + 0.5)));
+    const centres = shown.map((_, cell) => (binned ? rowEdge(firstRow + (cell + 0.5) * count / cellsTotal) : rowCentre(firstRow + cell)));
     const order = centres.map((_, cell) => cellsTotal - 1 - cell);
     const xs = [...BAND_CENTERS_HZ];
     const view: StageView = {
@@ -99,7 +114,7 @@ export function overviewPicture(
         ys: order.map(cell => centres[cell]), matrix: order.map(cell => shown[cell]),
     } as StageView;
     // The whole table's axes: a zoomed strip places its part on them.
-    const whole: StageView = { ...view, ys: [-total, 0], matrix: [] };
+    const whole: StageView = { ...view, ys: [rowEdge(total), rowEdge(0)], matrix: [] };
     // The colours span every table row's every band (not only the extremes each bucket draws), widened to round ends (R9).
     // As every heatmap's colours (R9): to the loudest level, no more than 100 dB under it.
     return { view, whole, names: order.map(cell => names[cell]), range: heatmapRange(low, high) };
@@ -117,7 +132,7 @@ export function overviewCells(rows: ReadonlyArray<OverviewRow>, bands: ReadonlyM
             const n = rows.length;
             if (!n) return null;
             // Row i sits at −(i + 0.5): the one nearest the place, and two either side.
-            const row = Math.max(0, Math.min(n - 1, Math.round(-query.y - 0.5)));
+            const row = Math.max(0, Math.min(n - 1, rowAt(query.y)));
             const near = (value: number): number => {
                 let best = 0;
                 for (let band = 1; band < BAND_CENTERS_HZ.length; band++) if (Math.abs(BAND_CENTERS_HZ[band] - value) < Math.abs(BAND_CENTERS_HZ[best] - value)) best = band;
@@ -130,7 +145,7 @@ export function overviewCells(rows: ReadonlyArray<OverviewRow>, bands: ReadonlyM
             for (let index = Math.min(n - 1, row + 2); index >= Math.max(0, row - 2); index--) indices.push(index);
             // Every table row's every band is held: the cells cut here are of the full data.
             return heldCells(
-                BAND_CENTERS_HZ.slice(c0, c1), indices.map(index => -(index + 0.5)),
+                BAND_CENTERS_HZ.slice(c0, c1), indices.map(rowCentre),
                 indices.map(index => { const levels = bands.get(rows[index].key ?? rows[index].filePath); return BAND_CENTERS_HZ.slice(c0, c1).map((_, band) => levels?.[c0 + band] ?? null); }),
                 {
                     rowNames: indices.map(index => rowName(rows[index], wordOf)),
@@ -147,7 +162,7 @@ export function overviewCells(rows: ReadonlyArray<OverviewRow>, bands: ReadonlyM
  */
 export function overviewRowKey(rows: ReadonlyArray<OverviewRow>, read: Pick<StageRead, 'image' | 'full' | 'row' | 'value'>): string | null {
     if (!read.image || !read.full || read.row === undefined || read.value === undefined) return null;
-    const row = rows[Math.round(-Number(read.row) - 0.5)];
+    const row = rows[rowAt(Number(read.row))];
     return row ? row.key ?? row.filePath : null;
 }
 
@@ -195,13 +210,15 @@ export function paintOverview(
             plainNames(plainTitle(strings, 'axisBand'), plainTitle(strings, 'axisEntryRows'), colour), {
                 margins: OVERVIEW_MARGINS,
                 window: { x: window.x, y: window.y }, axisView: picture?.whole ?? null,
-                // The rows are counted down from the top: a row's place is minus its value.
-                yTickText: value => String(Math.round(Math.abs(value))),
+                // The table's rows by their numbers from 1, each tick at its row's centre (R9, R14).
+                yRows: OVERVIEW_ROWS,
             });
         overviewCache.set(canvas, { key, rows, wordOf, drawn });
     }
-    // The rows on screen framed, the focused one marked, over the plot (clipped to it).
-    const rowTop = (index: number): number => top + (index / Math.max(1, rows.length) - (1 - window.y.end)) / (window.y.end - window.y.start || 1) * plotHeight;
+    // The rows on screen framed, the focused one marked, over the plot (clipped to it): each row's top where the plot
+    // painted it (its rows' axis, as painted, zoomed or not), never a place worked out from the window apart from it.
+    const heat = drawn?.image;
+    const rowTop = (index: number): number => (heat ? heat.placeOf(BAND_CENTERS_HZ[0], rowEdge(index)).y : top);
     const holder = canvas.parentElement;
     const frame = holder?.querySelector<HTMLElement>('[data-entry-overview-frame]');
     const mark = holder?.querySelector<HTMLElement>('[data-entry-overview-focus]');

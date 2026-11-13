@@ -1,4 +1,4 @@
-import { SP, t, tt, type ChartContract } from '../model';
+import { TICK_PLACES, SP, t, tt, type ChartContract } from '../model';
 
 /** 入口の保持図（スロットの Δ、手順の有無の Δ、平均スペクトル） */
 export const entryHeld: ChartContract = {
@@ -71,6 +71,7 @@ export const entryHeld: ChartContract = {
             computedIn: [`${SP}:paintPlot`, `${SP}:valueAxisTicks`, `${SP}:valueTickTexts`, `${SP}:alongAxisTicks`, `${SP}:rowAxisTicks`, `${SP}:tickTexts`, `${SP}:colourEndText`, `${SP}:paintRightAxis`],
             from: 'axis', trace: '範囲から部品が決める。',
             tests: [
+                TICK_PLACES.held,
                 t('src/test/stagePanes.test.ts', 'levels share a range of four round steps; coherence keeps 0 to 1'),
                 t('src/test/laneAxes.test.ts', 'the lanes take the ticks and their text from the rules every plot uses'),
             ],

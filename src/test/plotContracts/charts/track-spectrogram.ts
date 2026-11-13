@@ -1,4 +1,4 @@
-import { CLICK_READ, CLICK_TEST, PRESS_READ_TEST, RT, SP, t, tt, type ChartContract } from '../model';
+import { TICK_PLACES, CLICK_READ, CLICK_TEST, PRESS_READ_TEST, RT, SP, t, tt, type ChartContract } from '../model';
 
 /** トラックのスペクトログラムのレーン */
 export const trackSpectrogram: ChartContract = {
@@ -41,6 +41,7 @@ export const trackSpectrogram: ChartContract = {
             computedIn: [`${SP}:paintPlot`, `${SP}:valueAxisTicks`, `${SP}:valueTickTexts`, `${SP}:alongAxisTicks`, `${SP}:rowAxisTicks`, `${SP}:tickTexts`, `${SP}:colourEndText`, `${SP}:paintRightAxis`],
             from: 'axis', trace: '周波数の範囲（ナイキストか入れた範囲）から部品が決める。',
             tests: [
+                TICK_PLACES.lanes,
                 t('src/test/stagePanes.test.ts', 'levels share a range of four round steps; coherence keeps 0 to 1'),
                 t('src/test/laneAxes.test.ts', 'the lanes take the ticks and their text from the rules every plot uses'),
             ],

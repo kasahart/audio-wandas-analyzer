@@ -57,8 +57,15 @@ const AUDIT = {
 const SVG_CHART_MIN = { width: 64, height: 40 };
 
 declare global {
-    interface Window { __canvasAudit?: string[]; __readoutAudit?: string[]; __plotAudit?: string[]; __drawnAudit?: string[]; __svgAudit?: string[]; __orderAudit?: string[]; __fullAudit?: string[]; __unitAudit?: string[]; __colourEndAudit?: string[]; __tickAudit?: string[]; __titleAudit?: string[]; __plotPainting?: number; __settle?: SettleTracker }
+    interface Window { __canvasAudit?: string[]; __readoutAudit?: string[]; __plotAudit?: string[]; __drawnAudit?: string[]; __svgAudit?: string[]; __orderAudit?: string[]; __fullAudit?: string[]; __unitAudit?: string[]; __colourEndAudit?: string[]; __tickAudit?: string[]; __tickPlaceAudit?: string[]; __tickPlaces?: (canvas: HTMLCanvasElement) => TickPlaces; __titleAudit?: string[]; __plotPainting?: number; __settle?: SettleTracker }
 }
+
+/**
+ * What a plot's vertical axes write, held to where they paint it (display rules R9, R14): `judged` tick labels were
+ * read as numbers and found at the place the plot's own transform paints that number (its `__plotTickPlaces`, set by
+ * paintOverlay); `wrong` says each one that was not; `declared` is false for a plot that does not say where it paints.
+ */
+export interface TickPlaces { declared: boolean; judged: number; wrong: string[] }
 
 /** What the page still has to do in answer to what it was given: its frames and short timers not yet run, and what it asked for from outside itself and has not been given (settled()). */
 interface SettleTracker {
@@ -187,7 +194,9 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
     }
     // The words each canvas shows (fillText), whoever drew them, since the whole of it was last cleared: what a test
     // reads to see an axis's name on screen, not only in the plot's attributes.
-    type Texted = HTMLCanvasElement & { __plotTexts?: string[]; __tickBoxes?: Array<{ text: string; column: string; row: string; x: number; top: number; bottom: number }> };
+    // Each tick box keeps where its text is anchored too: in the context's own units (a plot's CSS pixels, as
+    // paintOverlay draws it) and on the bitmap, and how it is aligned, for the audit of where ticks are (R9, R14).
+    type Texted = HTMLCanvasElement & { __plotTexts?: string[]; __tickBoxes?: Array<{ text: string; column: string; row: string; x: number; top: number; bottom: number; align: string; at: { x: number; y: number }; bitmap: { x: number; y: number } }> };
     const fillText = proto.fillText;
     const measureText = proto.measureText;
     const tickText = /^[−+-]?\d[\d.]*(e[−+-]?\d+)?k?$/u;
@@ -240,7 +249,8 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
                 const metrics = measureText.call(this, args[0]) as TextMetrics;
                 const [x, y] = [Number(args[1]), Number(args[2])];
                 canvas.__tickBoxes ??= [];
-                canvas.__tickBoxes.push({ text: args[0], column: `${this.textAlign}@${Math.round(at.a * x + at.e)}`, row: `${this.textAlign}/${this.textBaseline}@${Math.round(at.d * y + at.f)}`, x: at.a * x + at.e, top: at.d * (y - metrics.actualBoundingBoxAscent) + at.f, bottom: at.d * (y + metrics.actualBoundingBoxDescent) + at.f });
+                canvas.__tickBoxes.push({ text: args[0], column: `${this.textAlign}@${Math.round(at.a * x + at.e)}`, row: `${this.textAlign}/${this.textBaseline}@${Math.round(at.d * y + at.f)}`, x: at.a * x + at.e, top: at.d * (y - metrics.actualBoundingBoxAscent) + at.f, bottom: at.d * (y + metrics.actualBoundingBoxDescent) + at.f,
+                    align: this.textAlign, at: { x, y }, bitmap: { x: at.a * x + at.e, y: at.d * y + at.f } });
                 if (canvas.__tickBoxes.length > 400) canvas.__tickBoxes.shift();
             }
         }
@@ -497,6 +507,49 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
         const names = canvas.dataset.plotNames ? document.getElementById(canvas.dataset.plotNames) : null;
         return !!names && [names, ...Array.from(names.querySelectorAll<HTMLElement>('*'))].some(element => element.children.length === 0 && element.checkVisibility() && element.textContent?.trim() === name);
     };
+    // Each plot on screen with a vertical axis's tick label written where that axis does not paint its number (R9, R14).
+    const misplaced: string[] = [];
+    window.__tickPlaceAudit = misplaced;
+    /**
+     * Every number a plot's vertical axes write, read as the user reads it (a true minus, "k" for a thousand), held to
+     * the place its axis paints that number (the plot's own transform, __plotTickPlaces): on the plot's left edge (the
+     * level axis, or a heatmap's rows: a numbered row axis's numbers are its rows'), on its right-hand level axis, and
+     * on the canvas beside a lane that holds its value axis (data-plot-axis), within half a pixel.
+     */
+    const tickPlaces = (canvas: HTMLCanvasElement): TickPlaces => {
+        const places = (canvas as HTMLCanvasElement & { __plotTickPlaces?: { left: (label: number) => number; right?: (label: number) => number } }).__plotTickPlaces;
+        const frame = (canvas.getAttribute('data-plot-frame') ?? '').split(' ').map(Number);
+        if (!places || frame.length !== 4 || !frame.every(Number.isFinite)) return { declared: false, judged: 0, wrong: [] };
+        const [left, , width] = frame;
+        const read = (text: string): number => (text.endsWith('k') ? Number(text.slice(0, -1).replace(/−/gu, '-')) * 1000 : Number(text.replace(/−/gu, '-')));
+        const wrong: string[] = [];
+        let judged = 0;
+        const judge = (text: string, drawnY: number, expectedY: number, where: string): void => {
+            if (!Number.isFinite(read(text))) return;
+            judged += 1;
+            if (!(Math.abs(drawnY - expectedY) <= 0.5)) wrong.push(`"${text}" on its ${where} is written at y = ${drawnY.toFixed(2)} px, where that axis paints ${text} at y = ${expectedY.toFixed(2)} px`);
+        };
+        for (const box of (canvas as Texted).__tickBoxes ?? []) {
+            if (box.align === 'right' && Math.abs(box.at.x - (left - 2)) <= 0.5) judge(box.text, box.at.y, places.left(read(box.text)), 'left axis');
+            else if (places.right && box.align === 'left' && Math.abs(box.at.x - (left + width + 4)) <= 0.5) judge(box.text, box.at.y, places.right(read(box.text)), 'right-hand axis');
+        }
+        // A lane's value axis on the canvas beside it: both on the page, the plot's place through its bitmap's ratio
+        // (as paintOverlay sizes a lane), the axis canvas's along its own height (paintSideAxis's frame is its bitmap).
+        const axis = canvas.dataset.plotAxis ? document.getElementById(canvas.dataset.plotAxis) : null;
+        if (axis instanceof HTMLCanvasElement && axis.height > 0 && canvas.height > 0 && canvas.clientWidth > 0) {
+            const plotBox = canvas.getBoundingClientRect(), axisBox = axis.getBoundingClientRect();
+            const plotScale = plotBox.height / (canvas.height / (canvas.width / canvas.clientWidth));
+            for (const box of (axis as Texted).__tickBoxes ?? []) {
+                if (box.align !== 'right' || Math.abs(box.bitmap.x - (axis.width - 2)) > 0.5) continue;
+                judge(box.text, axisBox.top + box.bitmap.y * axisBox.height / axis.height, plotBox.top + places.left(read(box.text)) * plotScale, 'value axis beside it');
+            }
+        }
+        return { declared: true, judged, wrong };
+    };
+    window.__tickPlaces = tickPlaces;
+    // Since when each plot on screen has written a tick away from its place: a plot drawn anew a frame later (its
+    // axis canvas painted next) is not reported; one that stays so is.
+    const misplacedSince = new WeakMap<HTMLCanvasElement, { frame: number; at: number }>();
     const samplePlots = (): void => {
         const now = performance.now();
         for (const canvas of Array.from(document.querySelectorAll('canvas'))) {
@@ -533,6 +586,13 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
                 const name = `undrawn ${canvasName(canvas)}: ${undrawn.join(' | ')}`;
                 if (now - since > measureMs && !reported.has(name)) { reported.add(name); unitless.push(`${canvasName(canvas)} (${canvas.clientWidth}×${canvas.clientHeight}) names ${undrawn.map(text => `"${text}"`).join(', ')} but does not draw it`); }
             } else undrawnSince.delete(canvas);
+            const ticksWrong = canvas.hasAttribute('data-plot') && shownBox(canvas) ? tickPlaces(canvas).wrong : [];
+            if (ticksWrong.length) {
+                const from = misplacedSince.get(canvas) ?? { frame, at: now };
+                misplacedSince.set(canvas, from);
+                const name = `tick places ${canvasName(canvas)}: ${ticksWrong.join(' ')}`;
+                if (frame - from.frame >= settle.frames && now - from.at >= settle.ms && !reported.has(name)) { reported.add(name); misplaced.push(`${canvasName(canvas)} (${canvas.clientWidth}×${canvas.clientHeight}): ${ticksWrong.join('; ')}`); }
+            } else misplacedSince.delete(canvas);
             const colour = canvas.getAttribute('data-plot-colour');
             if (colour && canvas.hasAttribute('data-plot') && shownBox(canvas) && !colourNameDrawn((canvas as Texted).__plotTexts ?? [], colour)) {
                 const name = `colour ${canvasName(canvas)}: ${colour}`;
@@ -633,6 +693,9 @@ export const test = base.extend<{ canvasAudit: void }>({
             + 'Fix in the shared code, not per chart: along the axis, give fitAxisTitle (src/webview/plot/axisTitle.ts) the room the name really has; across it, keep the name between the canvas\'s edge and the plot (stagePanes.ts paintValueTitle\'s gutter, the colour bar\'s box))').toEqual([]);
         const crowdedFound = await page.evaluate(() => window.__tickAudit ?? []);
         base.expect.soft(crowdedFound, 'plots with two tick labels of one axis over each other (fewer ticks on a short plot: valueAxisTicks, spacedTicks), or two that read the same number (tickTexts)').toEqual([]);
+        const misplacedFound = await page.evaluate(() => window.__tickPlaceAudit ?? []);
+        base.expect.soft(misplacedFound, 'plots with a tick label written where its axis does not paint that number (docs/display-rules.md R9, R14: place each tick by the transform '
+            + 'the picture is painted with, stagePanes.placedTicks; choose a numbered row axis\'s ticks as rows, stagePanes.rowNumberTicks; never relabel a tick\'s place with another number)').toEqual([]);
         const svgFound = await page.evaluate(() => window.__svgAudit ?? []);
         base.expect.soft(svgFound, 'charts drawn as SVG (R13: draw them with paintOverlay, or list them in plotRegistry.ts while they wait)').toEqual([]);
     }, { auto: true }],

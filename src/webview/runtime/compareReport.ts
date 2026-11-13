@@ -479,7 +479,7 @@ export function deltaFigure(comparison: Pick<CompareModel, 'bins' | 'bandDeltas'
 }
 
 /** A Δ figure: compare − base per point, the 1/3-octave Δ as steps under it, titled and with its legend. */
-function paintDeltaFigure(canvas: HTMLCanvasElement, comparison: CompareModel, title: string, curve: string, strings: ReportStrings, input: ReportInput, size: { width: number; height: number }): void {
+export function paintDeltaFigure(canvas: HTMLCanvasElement, comparison: CompareModel, title: string, curve: string, strings: ReportStrings, input: ReportInput, size: { width: number; height: number }): void {
     const { view, range, binned } = deltaFigure(comparison);
     // The Δ axis names the compared recording's levels as its fresh answer read them (never a raw, maybe stale, scan).
     const axes = paneNames(strings, comparison.compareResult?.input).delta;

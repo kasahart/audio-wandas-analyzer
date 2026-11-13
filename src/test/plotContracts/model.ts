@@ -96,3 +96,24 @@ export const CLICK_READ = ['src/webview/runtime/plotHoverLayer.ts:clickOnRead', 
 export const CLICK_TEST = 'every plot with a click acts on the point its readout reads at the press: the same pick and identity at ties, overlapping points, bin edges and gaps, never a hit test of its own (R7, R13)';
 /** The test of the shared gestures that a press is read where it is pressed, and its click acts on that read. */
 export const PRESS_READ_TEST = 'a press is read where it is pressed and holds that read until it is let go: a move within the drag threshold reads nothing new, so a click acts on what the readout read at the press (R7, R13)';
+
+/**
+ * The tests that hold each tick label of a chart's vertical axes (its level or value axis, a heatmap's rows, a
+ * right-hand level axis) at the place its axis paints the number the label writes (display rules R9, R14), at several
+ * vertical zooms where the chart zooms: the plot contract's 'tick places' (plotContract.spec.ts, whole, box-zoomed and
+ * typed to a narrow window), the entry strip's numbered rows (a window cutting a row in half too), and a report's
+ * figures, painted off screen. Every chart with a ticks row names one of them in it (plotContracts.test.ts).
+ */
+export const TICK_PLACES = {
+    comparison: t('src/test/uiSmoke/plotContract.spec.ts', 'every plot the comparison shows answers the same gestures: readout above it, ← / → step it, Ctrl+wheel zoom, double-click reset, axis range, both axes named (R13)'),
+    trigger: t('src/test/uiSmoke/plotContract.spec.ts', 'a trigger\'s events plot and the lanes under it answer the same gestures as every plot (R13)'),
+    held: t('src/test/uiSmoke/plotContract.spec.ts', 'the entry\'s held plot answers the same gestures as every plot (R13)'),
+    overview: t('src/test/uiSmoke/plotContract.spec.ts', 'the entry\'s overview strip answers the same gestures as every plot (R13)'),
+    overviewRows: t('src/test/entrySidePlots.test.ts', 'the strip\'s row ticks are at the rows they number, at every zoom: a tick labelled n is where table row n\'s cells are painted, a window cutting a row in half too (R9, R14)'),
+    distribution: t('src/test/uiSmoke/plotContract.spec.ts', 'the entry\'s distribution answers the same gestures as every plot: each group\'s row, on the value axis below them (R13)'),
+    spectrum: t('src/test/uiSmoke/plotContract.spec.ts', 'the cursor spectrum answers the same gestures as every plot (R13)'),
+    spectrumRight: t('src/test/uiSmoke/plotContract.spec.ts', 'the cursor spectrum with two level references answers the axis gestures on its right-hand axis as on its left (A48, R13)'),
+    pair: t('src/test/uiSmoke/plotContract.spec.ts', 'the pair view\'s gain, phase and γ² plots answer the same gestures as every plot (R13)'),
+    lanes: t('src/test/uiSmoke/plotContract.spec.ts', 'the track view\'s waveform and spectrogram lanes answer the same gestures as every plot: readout in the toolbar above them (R13)'),
+    report: t('src/test/benchReport.test.ts', 'a report figure writes each tick of its level axes, the right-hand one too, and of its Δ axis where that axis paints its number (R9, R14)'),
+} as const;

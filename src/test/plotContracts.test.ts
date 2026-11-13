@@ -6,7 +6,7 @@ import test from 'node:test';
 import ts from 'typescript';
 import { namedTest, testProblem } from './namedTest';
 import { CHARTS, CONTRACTS, GAP_CEILING, KNOWN_GAPS, ROWS } from './plotContracts/index';
-import { CLICK_READ, CLICK_TEST, type ContractRow } from './plotContracts/model';
+import { CLICK_READ, CLICK_TEST, TICK_PLACES, type ContractRow } from './plotContracts/model';
 import { CONTRACT_DOC, renderContractDoc } from './plotContracts/render';
 import { NOT_SHOWN, SCHEMA_FIELDS } from './plotContracts/schema';
 import { BACKEND_READERS, NOT_CHART_VALUES, PY_DECIMATORS, VALUE_HELPERS } from './plotContracts/values';
@@ -484,6 +484,19 @@ test('every plot\'s click is a click row of the table and acts on the point its 
         assert.ok(CLICK_READ.every(at => row.computedIn.includes(at)), `${row.id}: a click row names the readout's read it acts on (CLICK_READ)`);
         assert.ok(row.tests.some(item => item.file === 'src/test/uiSmoke/plotContract.spec.ts' && item.name === CLICK_TEST), `${row.id}: a click row is held by the browser test of every plot's click (CLICK_TEST)`);
     }
+});
+
+/** Charts with a ticks row and no vertical axis whose ticks are placed by a transform, each with why. */
+const NO_TICK_AXIS: Readonly<Record<string, string>> = {
+    'colour-bar': 'its numbers are a colour bar\'s two ends, held to the scale its colours are painted from (R9, canvasAudit.ts colour ends), not ticks up an axis',
+};
+
+test('every chart with a level, value or row axis names in its ticks row a test that holds each tick label at the place its axis paints that number, at several vertical zooms (R9, R14)', () => {
+    const holding = new Set(Object.values(TICK_PLACES).map(ref => `${ref.file} › ${ref.name}`));
+    const ticked = [...new Set(ROWS.filter(row => row.value === 'ticks').map(row => row.chart))];
+    const unheld = ticked.filter(chart => !NO_TICK_AXIS[chart] && !ROWS.some(row => row.chart === chart && row.value === 'ticks' && row.tests.some(ref => holding.has(`${ref.file} › ${ref.name}`))));
+    assert.deepEqual(unheld, [], 'charts whose ticks row names no test of TICK_PLACES (plotContracts/model.ts): give the chart\'s plot the plot contract (plotContract.spec.ts expectContract, whose \'tick places\' holds every tick at its place at several vertical zooms), or for a figure painted off screen a node test with helpers/tickPlaces.ts, and name it in the ticks row (display rules R9, R14)');
+    assert.deepEqual(Object.keys(NO_TICK_AXIS).filter(chart => !ticked.includes(chart)), [], 'NO_TICK_AXIS lists a chart with no ticks row: take it off');
 });
 
 test('the click scan finds a plot\'s own hit test: a tap that does not act through clickOnRead', () => {

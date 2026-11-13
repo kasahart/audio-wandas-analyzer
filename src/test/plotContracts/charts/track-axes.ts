@@ -1,4 +1,4 @@
-import { RT, SP, t, type ChartContract } from '../model';
+import { TICK_PLACES, RT, SP, t, type ChartContract } from '../model';
 
 /** トラックのレーンの軸（振幅・周波数の軸、上の時間の目盛り） */
 export const trackAxes: ChartContract = {
@@ -13,6 +13,7 @@ export const trackAxes: ChartContract = {
             computedIn: [`${RT}:renderRuler`, `${RT}:laneVisibleSeconds`, 'src/webview/runtime/laneAxes.ts:laneTimeTicks', `${SP}:paintSideAxis`, `${SP}:paintTimeAxis`],
             from: 'axis', trace: '見えている時間の窓から、比較台と同じ規則で決める。',
             tests: [
+                TICK_PLACES.lanes,
                 t('src/test/laneAxes.test.ts', 'the lanes take the ticks and their text from the rules every plot uses'),
             ],
         },

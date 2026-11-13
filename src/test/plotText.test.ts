@@ -13,7 +13,8 @@ import { fieldWindow } from '../webview/runtime/figureModel';
 import { pairHeader, type PairCurve, type PairStrings } from '../webview/runtime/pairSpectrum';
 import { formatValue, plotValueText } from '../webview/runtime/entryTableHtml';
 import { spectrumReadoutText } from '../webview/runtime/spectrumRuntime';
-import { alongAxisTicks, rowAxisTicks, stageHover, valueAxisTicks, type StagePlot } from '../webview/runtime/stagePanes';
+import { alongAxisTicks, rowAxisTicks, rowNumberTicks, stageHover, valueAxisTicks, type StagePlot } from '../webview/runtime/stagePanes';
+import { OVERVIEW_ROWS } from '../webview/runtime/entryPlots';
 import { regionCells } from '../webview/runtime/entryTable';
 import { laneReadoutText, spectrogramReadoutText } from '../webview/runtime/trackLaneHover';
 
@@ -185,9 +186,11 @@ test('every tick and readout takes its digits from the spacing of its neighbours
             assert.ok(!(texts.some(text => text.endsWith('k')) && texts.some(text => !text.endsWith('k') && kHz(text) >= 1000)), `${low}–${high} Hz: never "1000" beside "1k"`);
         }
     }
-    // A caller's own tick text (the entry overview's whole row numbers on a few rows) never writes a number twice.
-    const rows = rowAxisTicks(0, 3, false, 300, value => String(Math.round(value))).map(tick => tick.text);
+    // A numbered row axis (the entry overview's table rows) on a few rows writes each row's number once, at that row.
+    const numbered = rowNumberTicks(OVERVIEW_ROWS.centreOf(3) - 0.5, OVERVIEW_ROWS.centreOf(1) + 0.5, 300, OVERVIEW_ROWS);
+    const rows = numbered.map(tick => tick.text);
     assert.equal(new Set(rows).size, rows.length, rows.join(' '));
+    for (const tick of numbered) assert.equal(tick.value, OVERVIEW_ROWS.centreOf(Number(tick.text)), `row "${tick.text}" is at its row's centre`);
     // A time axis zoomed to a few samples.
     const times = alongAxisTicks(1.23451, 1.23459).map(tick => tick.text);
     assert.equal(new Set(times).size, times.length, times.join(' '));
