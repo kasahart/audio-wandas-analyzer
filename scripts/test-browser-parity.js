@@ -105,18 +105,50 @@ const nativePairs = fixtures.map(nativeResultsFor);
 const byteResults = nativePairs.map(pair => pair[0]);
 const nativeResults = nativePairs.map(pair => pair[1]);
 let numbers = 0;
-function compare(a, b, at = '') {
-    // A scan names its file by the host's own identity (a path natively, a content hash on the Web), and so its kept data.
-    if (['computeMs', 'elapsedMs', 'filePath', 'fileName', 'input.id', 'stage.data'].some(key => at.endsWith('.' + key))) return;
+// A file's host identity: a path natively, a content hash on the Web, and so what is named or kept under it.
+// sourceVersion is the version of that identity (a hash of input.id: the path with its size, times and inode
+// natively, so a path is never read twice to name it; the content hash when the bytes are loaded), so a path and
+// the same bytes loaded give different values by design. Its value is compared only between two byte loads;
+// `checkSourceVersions` keeps it checked on every route.
+const HOST_IDENTITY = ['filePath', 'fileName', 'input.id', 'stage.data'];
+const SOURCE_VERSION = 'sourceVersion';
+function compare(a, b, at = '', hostKeys = HOST_IDENTITY) {
+    if (['computeMs', 'elapsedMs', ...hostKeys].some(key => at.endsWith('.' + key))) return;
     if (typeof a === 'number') {
         assert.equal(typeof b, 'number', at);
         assert.ok(Math.abs(a - b) <= 0.0002 + Math.abs(a) * 0.00002, `${at}: ${a} vs ${b}`); numbers++; return;
     }
-    if (Array.isArray(a)) { assert.equal(a.length, b.length, at); a.forEach((x,i) => compare(x,b[i],`${at}[${i}]`)); return; }
-    if (a && typeof a === 'object') { assert.deepEqual(Object.keys(a).sort(),Object.keys(b).sort(),at); for (const key of Object.keys(a)) compare(a[key],b[key],`${at}.${key}`); return; }
+    if (Array.isArray(a)) { assert.equal(a.length, b.length, at); a.forEach((x,i) => compare(x,b[i],`${at}[${i}]`,hostKeys)); return; }
+    if (a && typeof a === 'object') { assert.deepEqual(Object.keys(a).sort(),Object.keys(b).sort(),at); for (const key of Object.keys(a)) compare(a[key],b[key],`${at}.${key}`,hostKeys); return; }
     assert.equal(a,b,at);
 }
-compare(byteResults,nativeResults,'native/bytes');
+/** Every sourceVersion one route gave, at any depth of its answers. */
+function sourceVersionsIn(value, found = []) {
+    if (Array.isArray(value)) value.forEach(item => sourceVersionsIn(item, found));
+    else if (value && typeof value === 'object') {
+        for (const [key, item] of Object.entries(value)) {
+            if (key === SOURCE_VERSION) found.push(item); else sourceVersionsIn(item, found);
+        }
+    }
+    return found;
+}
+/** Each route names each fixture by one non-empty sourceVersion on every answer, and different fixtures differently. */
+function checkSourceVersions(runtime, route) {
+    const perFixture = runtime.map((answers, index) => {
+        const versions = sourceVersionsIn(answers);
+        const at = `${route}[${index}] ${fixtures[index].name}`;
+        assert.ok(versions.length >= 2, `${at}: answers carry ${SOURCE_VERSION}`);
+        for (const version of versions) assert.ok(typeof version === 'string' && version.length > 0, `${at}: ${SOURCE_VERSION} ${JSON.stringify(version)}`);
+        // The same route asked again and again of one load gives the same id.
+        assert.deepEqual([...new Set(versions)], [versions[0]], `${at}: one ${SOURCE_VERSION} per load`);
+        return versions[0];
+    });
+    assert.equal(new Set(perFixture).size, perFixture.length, `${route}: each fixture its own ${SOURCE_VERSION}`);
+}
+// Path against bytes: the version's value is a host identity here (see HOST_IDENTITY).
+compare(byteResults,nativeResults,'native/bytes',[...HOST_IDENTITY, SOURCE_VERSION]);
+checkSourceVersions(byteResults,'native/bytes');
+checkSourceVersions(nativeResults,'native/path');
 const base = path.join(root,'browser-dist');
 const server = http.createServer((req,res) => {
     let pathname = new URL(req.url,'http://local').pathname;
@@ -165,7 +197,9 @@ const server = http.createServer((req,res) => {
                 return all;
             } finally {worker.terminate();}
         },{fixtures:fixtures.map(fixture=>({bytes:Array.from(fixture.bytes),commands:fixture.commands})),commands});
+        // Both load the same bytes, so here the version's value too must agree.
         compare(byteResults,results,'native/Pyodide');
+        checkSourceVersions(results,'Pyodide');
         for (const runtime of [byteResults, nativeResults, results]) {
             const tones = runtime[2];
             const [shown, full] = tones.slice(-2);
@@ -420,7 +454,11 @@ const server = http.createServer((req,res) => {
         const toneCanvas = await page.locator((await firstCanvas()).replace('track-canvas-', 'track-spec-canvas-')).boundingBox();
         await page.evaluate(() => {window.__testInbound = [];});
         await page.mouse.click(toneCanvas.x + toneCanvas.width * .5, toneCanvas.y + toneCanvas.height * .5);
-        await page.waitForFunction(() => window.__testInbound.some(m => m.type === 'spectrum-slice-result' && Math.abs(m.cursorNorm - .5) < .01));
+        // A click acts on the point the readout reads (R7): the spectrogram frame nearest the pointer, so the cursor
+        // lands within half a hop of the middle (2048 points at 75 % overlap: 512 samples of the 1 s, 16 kHz tones).
+        const halfHopNorm = 512 / toneRate / 2;
+        await page.waitForFunction(tolerance => window.__testInbound.some(m => m.type === 'spectrum-slice-result'
+            && Math.abs(m.cursorNorm - .5) <= tolerance), halfHopNorm + .002);
         const toneCsvMenu = page.locator('details').filter({has:page.locator('[data-action="export-csv"]')});
         if (!await toneCsvMenu.evaluate(node=>node.open)) await toneCsvMenu.locator('summary').click();
         const [toneCsvDownload] = await Promise.all([page.waitForEvent('download'),page.locator('[data-action="export-csv"]').click()]);
