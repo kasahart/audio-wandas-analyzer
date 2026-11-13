@@ -236,7 +236,11 @@ export interface UiStrings {
     stepMore: string;
     stepInputFiles: string;
     stepInput: string;
-    stepHintLocale: string;
+    /**
+     * The UI's language, as these strings are in it: what the step hints are picked by and every number in a sentence is
+     * formatted by (`uiNumber` in src/shared/utils/format.ts), never the machine's or the browser's locale.
+     */
+    uiLocale: SupportedLocale;
     stepGroupFilter: string;
     stepGroupPrepare: string;
     stepGroupTime: string;
@@ -1082,7 +1086,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepMore: '{n} more ({names})',
         stepInputFiles: 'Input · {n} files',
         stepInput: 'Input',
-        stepHintLocale: 'en',
+        uiLocale: 'en',
         stepGroupFilter: 'Filters',
         stepGroupPrepare: 'Preparation',
         stepGroupTime: 'Over time',
@@ -1900,7 +1904,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepMore: 'その他 {n} 件（{names}）',
         stepInputFiles: '入力 {n} 本',
         stepInput: '入力',
-        stepHintLocale: 'ja',
+        uiLocale: 'ja',
         stepGroupFilter: 'フィルタ',
         stepGroupPrepare: '前処理',
         stepGroupTime: '時間変化',
