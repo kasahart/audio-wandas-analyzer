@@ -5,12 +5,17 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { fillTemplate, getStrings, type UiStrings } from '../shared/i18n/strings';
 import {
-    choosePythonCommand,
     DEFAULT_PYTHON_COMMAND,
+    extensionPythonCandidates,
+    firstRunningPython,
+    invocationText,
     isLikelyCommand,
+    pythonInvocation,
     resolvePythonCommand,
     virtualEnvPythonCommand,
     workspaceVenvCommands,
+    type PythonInvocation,
+    type PythonProbeFailure,
 } from './pythonInterpreter';
 
 export { resolvePythonCommand };
@@ -152,6 +157,28 @@ export interface PythonEnvironmentState {
     tooltip: string;
 }
 
+/**
+ * No candidate interpreter ran (each was started with the dependency check, which failed). The message names every
+ * candidate with why it failed and the setting that chooses the interpreter: the one notification for this case.
+ */
+class NoPythonRunsError extends Error {
+    constructor(failures: readonly { label: string; error: unknown }[]) {
+        const text = strings();
+        super(fillTemplate(text.pyNoInterpreterRuns, {
+            tried: failures.map(({ label, error }) => `${label} (${probeFailureReason(error)})`).join('; '),
+        }));
+        this.name = 'NoPythonRunsError';
+    }
+}
+
+/** Why a candidate did not run, in a few words: not found, or the first line of what its check printed. */
+function probeFailureReason(error: unknown): string {
+    const text = strings();
+    if (error instanceof PythonNotFoundError) { return text.pyCandidateNotFound; }
+    const firstLine = (error instanceof Error ? error.message : String(error)).trim().split(/\r?\n/u)[0] ?? '';
+    return fillTemplate(text.pyCandidateFailed, { detail: firstLine.length > 160 ? `${firstLine.slice(0, 160)}…` : firstLine });
+}
+
 class PythonNotFoundError extends Error {
     constructor(pythonCommand: string) {
         super(fillTemplate(strings().pyInterpreterNotFound, { command: pythonCommand }));
@@ -191,6 +218,17 @@ class SetupError extends Error {
 interface PythonQuickPickItem extends vscode.QuickPickItem {
     pythonCommand?: string;
     action?: 'browse' | 'create-venv';
+}
+
+/** A candidate given as a string (a setting value: path, folder or command) or as a command with arguments. */
+function asInvocation(candidate: string | PythonInvocation): PythonInvocation {
+    return typeof candidate === 'string' ? pythonInvocation(candidate) : candidate;
+}
+
+/** A candidate as it is started: its command resolved (resolveConfiguredPythonCommand), its arguments kept. */
+export function resolveConfiguredInvocation(candidate: string | PythonInvocation): PythonInvocation {
+    const { command, args } = asInvocation(candidate);
+    return { command: resolveConfiguredPythonCommand(command), args };
 }
 
 /**
@@ -237,15 +275,16 @@ interface LoggedRun {
 /** Runs a setup command with its output streamed to the setup log and the progress notification. */
 function runLogged(
     log: vscode.OutputChannel,
-    command: string,
+    python: PythonInvocation,
     args: string[],
     timeoutMs: number,
     progress: vscode.Progress<{ message?: string }>,
     token: vscode.CancellationToken,
 ): Promise<LoggedRun> {
-    log.appendLine(`$ ${command} ${args.join(' ')}`);
+    const command = python.command;
+    log.appendLine(`$ ${invocationText(python)} ${args.join(' ')}`);
     return new Promise((resolve, reject) => {
-        const child = spawn(command, args, { cwd: os.tmpdir(), stdio: ['ignore', 'pipe', 'pipe'] });
+        const child = spawn(command, [...python.args, ...args], { cwd: os.tmpdir(), stdio: ['ignore', 'pipe', 'pipe'] });
         let output = '';
         let cancelled = false;
         let timedOut = false;
@@ -270,7 +309,7 @@ function runLogged(
             clearTimeout(timer);
             cancellation.dispose();
             log.appendLine(error.message);
-            reject(error.code === 'ENOENT' || error.code === 'EACCES' ? new PythonNotFoundError(command) : error);
+            reject(error.code === 'ENOENT' || error.code === 'EACCES' ? new PythonNotFoundError(invocationText(python)) : error);
         });
         child.on('close', (code: number | null) => {
             clearTimeout(timer);
@@ -308,6 +347,8 @@ export class PythonEnvironment implements vscode.Disposable {
     private readonly pythonEnvironmentStateEmitter = new vscode.EventEmitter<PythonEnvironmentState>();
     private currentPythonEnvironmentState: PythonEnvironmentState | undefined;
     private latestDependencyCheckRequestId = 0;
+    /** The candidate the last check found running, for the selection it was found for (getPythonCommand). */
+    private found: { selection: string; candidate: PythonInvocation } | undefined;
     readonly onDidChangePythonEnvironmentState = this.pythonEnvironmentStateEmitter.event;
     private readonly reselectedEmitter = new vscode.EventEmitter<string>();
     /**
@@ -316,17 +357,48 @@ export class PythonEnvironment implements vscode.Disposable {
      */
     readonly onDidReselectPythonCommand = this.reselectedEmitter.event;
 
+    /** `platform` decides the fallback commands (pythonInterpreter.ts fallbackPythonCommands); tests inject it. */
+    constructor(private readonly platform: NodeJS.Platform = process.platform) {}
+
     /**
-     * The interpreter in use, before relative-path resolution: `audioWandasAnalyzer.pythonCommand` when the user set
-     * it, otherwise the one found by `refreshDefaultInterpreter` (Python extension, then `VIRTUAL_ENV`), else python3.
+     * The interpreters to try, in order, before relative-path resolution (pythonInterpreter.ts
+     * extensionPythonCandidates): `audioWandasAnalyzer.pythonCommand` when the user set it, otherwise the one found by
+     * `refreshDefaultInterpreter` (Python extension, then `VIRTUAL_ENV`), else the fallback commands of this OS.
      */
-    getPythonCommand(): string {
+    getPythonCandidates(): PythonInvocation[] {
         const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
-        return choosePythonCommand({
+        return extensionPythonCandidates({
             configured: hasExplicitPythonCommand(config) ? config.get<string>('pythonCommand', DEFAULT_PYTHON_COMMAND) : undefined,
             active: this.defaultInterpreter,
             virtualEnv: virtualEnvInterpreter(),
-        });
+        }, this.platform);
+    }
+
+    /**
+     * The selection, as text: the first candidate (getPythonCandidates). It changes exactly when the candidates do,
+     * so the extension compares it to know that the interpreter must be checked again.
+     */
+    getPythonCommand(): string {
+        return invocationText(this.getPythonCandidates()[0]);
+    }
+
+    /**
+     * The interpreter in use, unresolved: the candidate the last check found running for the current selection, else
+     * the first candidate (not checked yet).
+     */
+    interpreterInUse(): PythonInvocation {
+        const found = this.found;
+        return found && found.selection === this.getPythonCommand() ? found.candidate : this.getPythonCandidates()[0];
+    }
+
+    /** interpreterInUse as shown in the status bar and messages: `py -3`, `.venv`. */
+    interpreterLabel(): string {
+        return invocationText(this.interpreterInUse());
+    }
+
+    /** interpreterInUse as the backend starts it (resolveConfiguredInvocation); throws for a refused workspace path. */
+    backendInvocation(): PythonInvocation {
+        return resolveConfiguredInvocation(this.interpreterInUse());
     }
 
     // The Python extension is optional: no extensionDependencies entry, and any failure falls back to VIRTUAL_ENV.
@@ -376,7 +448,7 @@ export class PythonEnvironment implements vscode.Disposable {
     getCurrentPythonEnvironmentState(): PythonEnvironmentState {
         return this.currentPythonEnvironmentState
             ? { ...this.currentPythonEnvironmentState }
-            : { pythonCommand: this.getPythonCommand(), status: 'normal', tooltip: strings().pyTooltipSelect };
+            : { pythonCommand: this.interpreterLabel(), status: 'normal', tooltip: strings().pyTooltipSelect };
     }
 
     setStatusBarNormal(item: vscode.StatusBarItem, pythonCommand: string): void {
@@ -404,7 +476,7 @@ export class PythonEnvironment implements vscode.Disposable {
     private async environmentChoices(): Promise<PythonQuickPickItem[]> {
         const text = strings();
         const root = getWorkspaceRoot();
-        const current = this.getPythonCommand();
+        const current = this.interpreterLabel();
         const found: PythonQuickPickItem[] = [];
         const seen = new Set<string>();
         const add = (pythonCommand: string | undefined, description: string): void => {
@@ -444,7 +516,7 @@ export class PythonEnvironment implements vscode.Disposable {
             return;
         }
         if (selectedItem.action === 'create-venv') {
-            await this.createWorkspaceVenvAndInstall(this.getPythonCommand(), statusBarItem);
+            await this.createWorkspaceVenvAndInstall(this.interpreterInUse(), statusBarItem);
             return;
         }
 
@@ -507,10 +579,7 @@ export class PythonEnvironment implements vscode.Disposable {
         if (chosen === 'select') {
             await vscode.commands.executeCommand(SELECT_ENVIRONMENT_COMMAND);
         } else if (chosen === 'create-venv') {
-            await this.createWorkspaceVenvAndInstall(
-                this.currentPythonEnvironmentState?.pythonCommand ?? this.getPythonCommand(),
-                statusBarItem,
-            );
+            await this.createWorkspaceVenvAndInstall(this.interpreterInUse(), statusBarItem);
         } else if (chosen === 'show-log') {
             this.pythonSetupLog().show(true);
         } else if (chosen === 'open-browser') {
@@ -518,19 +587,40 @@ export class PythonEnvironment implements vscode.Disposable {
         }
     }
 
+    /**
+     * Finds the interpreter to use and makes sure it has the packages: each of `candidates` (getPythonCandidates, or
+     * one interpreter) is started with the dependency check in order, and the first that runs is used, so a working
+     * configured interpreter or venv is checked once and no other is started. Missing packages are then offered for
+     * install into it. When none runs, one notification names every candidate with why it failed and the setting
+     * that chooses the interpreter. True when the interpreter in use has every package.
+     */
     async checkAndPromptInstallDependencies(
-        pythonCommand: string,
+        candidates: string | readonly PythonInvocation[],
         statusBarItem: vscode.StatusBarItem,
     ): Promise<boolean> {
         const requestId = ++this.latestDependencyCheckRequestId;
         const isLatestRequest = () => requestId === this.latestDependencyCheckRequestId;
         const text = strings();
+        const tried = typeof candidates === 'string' ? [pythonInvocation(candidates)] : [...candidates];
+        const selection = invocationText(tried[0]);
 
         try {
-            const { missingPackages, externallyManaged } = await this.checkMissingDependencies(pythonCommand);
+            const { found, failures } = await firstRunningPython(
+                tried,
+                candidate => this.checkMissingDependencies(candidate),
+                error => error instanceof UntrustedWorkspacePathError,
+            );
             if (!isLatestRequest()) {
                 return false;
             }
+            this.logProbeFailures(failures);
+            if (!found) {
+                this.found = undefined;
+                throw new NoPythonRunsError(failures.map(failure => ({ label: this.startedAs(failure.candidate), error: failure.error })));
+            }
+            const { candidate, result: { missingPackages, externallyManaged } } = found;
+            this.found = { selection, candidate };
+            const pythonCommand = invocationText(candidate);
 
             if (missingPackages.length === 0) {
                 this.setStatusBarNormal(statusBarItem, pythonCommand);
@@ -539,30 +629,31 @@ export class PythonEnvironment implements vscode.Disposable {
 
             this.setStatusBarWarning(statusBarItem, pythonCommand);
             return await this.promptAndInstallDependencies(
-                pythonCommand, missingPackages, externallyManaged, statusBarItem, isLatestRequest,
+                candidate, missingPackages, externallyManaged, statusBarItem, isLatestRequest,
             );
         } catch (error) {
             if (!isLatestRequest()) {
                 return false;
             }
 
-            if (error instanceof PythonNotFoundError) {
-                this.setStatusBarWarning(statusBarItem, pythonCommand, text.pyTooltipMissingInterpreter);
+            if (error instanceof NoPythonRunsError) {
+                this.setStatusBarWarning(statusBarItem, selection, text.pyTooltipNoInterpreterRuns);
                 void this.showProblem('warning', error.message, ['select', 'open-browser', 'show-log'], statusBarItem);
                 return false;
             }
             if (error instanceof UntrustedWorkspacePathError) {
-                this.setStatusBarWarning(statusBarItem, pythonCommand, text.pyTooltipUntrustedWorkspacePath);
+                this.setStatusBarWarning(statusBarItem, selection, text.pyTooltipUntrustedWorkspacePath);
                 void this.showProblem('warning', error.message, ['select'], statusBarItem);
                 return false;
             }
 
+            // Not a candidate's failure (each of those is collected above): a fault of this flow itself.
             const message = error instanceof Error ? error.message : String(error);
-            this.pythonSetupLog().appendLine(`[check] ${pythonCommand}: ${message}`);
-            this.setStatusBarWarning(statusBarItem, pythonCommand, text.pyTooltipCheckFailed);
+            this.pythonSetupLog().appendLine(`[check] ${selection}: ${message}`);
+            this.setStatusBarWarning(statusBarItem, selection, text.pyTooltipCheckFailed);
             void this.showProblem(
                 'error',
-                fillTemplate(text.pyCheckFailed, { command: pythonCommand }),
+                fillTemplate(text.pyCheckFailed, { command: selection }),
                 ['show-log', 'select'],
                 statusBarItem,
             );
@@ -570,14 +661,38 @@ export class PythonEnvironment implements vscode.Disposable {
         }
     }
 
+    /** A candidate as the message names it: the program it started (a folder's interpreter, a command as given). */
+    private startedAs(candidate: PythonInvocation): string {
+        try {
+            return invocationText(resolveConfiguredInvocation(candidate));
+        } catch {
+            return invocationText(candidate);
+        }
+    }
+
+    /** Each candidate that did not run, with what it printed (one not found was logged when its start failed). */
+    private logProbeFailures(failures: readonly PythonProbeFailure[]): void {
+        for (const { candidate, error } of failures) {
+            if (error instanceof PythonNotFoundError) { continue; }
+            this.pythonSetupLog().appendLine(`[check] ${this.startedAs(candidate)}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    /**
+     * Starts `candidate` with the dependency check: its missing requirements, or a rejection when it does not run
+     * (PythonNotFoundError when there is no such program, an Error with what it printed otherwise). This is the
+     * probe checkAndPromptInstallDependencies tries each candidate with.
+     */
     checkMissingDependencies(
-        pythonCommand: string,
+        candidate: string | PythonInvocation,
     ): Promise<{ missingPackages: string[]; externallyManaged: boolean }> {
-        const resolvedPythonCommand = resolveConfiguredPythonCommand(pythonCommand);
+        // Resolved outside the promise: a refused workspace path (UntrustedWorkspacePathError) is thrown, not probed.
+        const resolved = resolveConfiguredInvocation(candidate);
+        const resolvedPythonCommand = invocationText(resolved);
         return new Promise((resolve, reject) => {
             const process = spawn(
-                resolvedPythonCommand,
-                ['-c', DEPENDENCY_CHECK_SCRIPT],
+                resolved.command,
+                [...resolved.args, '-c', DEPENDENCY_CHECK_SCRIPT],
                 {
                     cwd: os.tmpdir(),
                     stdio: ['ignore', 'pipe', 'pipe'],
@@ -633,13 +748,14 @@ export class PythonEnvironment implements vscode.Disposable {
     }
 
     private async promptAndInstallDependencies(
-        pythonCommand: string,
+        python: PythonInvocation,
         missingPackages: string[],
         externallyManaged: boolean,
         statusBarItem: vscode.StatusBarItem,
         isLatestRequest: () => boolean,
     ): Promise<boolean> {
         const text = strings();
+        const pythonCommand = invocationText(python);
         const choices = [
             ...(externallyManaged ? [] : [text.pyBtnInstall]),
             ...(canCreateWorkspaceVenv() ? [text.pyBtnCreateVenv] : []),
@@ -658,12 +774,12 @@ export class PythonEnvironment implements vscode.Disposable {
             return false;
         }
         if (answer === text.pyBtnCreateVenv) {
-            await this.createWorkspaceVenvAndInstall(pythonCommand, statusBarItem);
+            await this.createWorkspaceVenvAndInstall(python, statusBarItem);
             return false;
         }
 
         try {
-            await this.installPackages(pythonCommand, missingPackages);
+            await this.installPackages(python, missingPackages);
             if (!isLatestRequest()) {
                 return false;
             }
@@ -705,8 +821,9 @@ export class PythonEnvironment implements vscode.Disposable {
         void this.showProblem('error', message, ['show-log', 'select'], statusBarItem);
     }
 
-    private async installPackages(pythonCommand: string, packages: string[]): Promise<void> {
-        const resolvedPythonCommand = resolveConfiguredPythonCommand(pythonCommand);
+    private async installPackages(python: PythonInvocation, packages: string[]): Promise<void> {
+        const resolved = resolveConfiguredInvocation(python);
+        const pythonCommand = invocationText(python);
         this.pythonSetupLog().show(true);
         const run = await vscode.window.withProgress(
             {
@@ -715,7 +832,7 @@ export class PythonEnvironment implements vscode.Disposable {
                 cancellable: true,
             },
             (progress, token) => runLogged(
-                this.pythonSetupLog(), resolvedPythonCommand, ['-m', 'pip', 'install', ...packages], INSTALL_TIMEOUT_MS, progress, token,
+                this.pythonSetupLog(), resolved, ['-m', 'pip', 'install', ...packages], INSTALL_TIMEOUT_MS, progress, token,
             ),
         );
         const interrupted = interruptedError(run, INSTALL_TIMEOUT_MS);
@@ -729,7 +846,7 @@ export class PythonEnvironment implements vscode.Disposable {
      * Creates `<workspace>/.venv` with `baseCommand`, installs every requirement into it and selects it, which
      * restarts the backend through the configuration listener.
      */
-    private async createWorkspaceVenvAndInstall(baseCommand: string, statusBarItem: vscode.StatusBarItem): Promise<void> {
+    private async createWorkspaceVenvAndInstall(base: PythonInvocation, statusBarItem: vscode.StatusBarItem): Promise<void> {
         const text = strings();
         const root = getWorkspaceRoot();
         if (!root) { return; }
@@ -746,7 +863,7 @@ export class PythonEnvironment implements vscode.Disposable {
                 },
                 (progress, token) => runLogged(
                     this.pythonSetupLog(),
-                    resolveConfiguredPythonCommand(baseCommand),
+                    resolveConfiguredInvocation(base),
                     ['-m', 'venv', venvPath],
                     CREATE_VENV_TIMEOUT_MS,
                     progress,
@@ -761,7 +878,7 @@ export class PythonEnvironment implements vscode.Disposable {
                     { path: venvPath },
                 ));
             }
-            await this.installPackages(venvPath, requiredPackageRequirements());
+            await this.installPackages(pythonInvocation(venvPath), requiredPackageRequirements());
             void vscode.window.showInformationMessage(text.pyInstallSucceeded);
             await this.storePythonCommand('.venv');
         } catch (error) {
@@ -770,7 +887,7 @@ export class PythonEnvironment implements vscode.Disposable {
                     this.pythonSetupLog().appendLine(`[venv] could not remove ${venvPath}: ${String(removeError)}`);
                 });
             }
-            this.reportSetupFailure(error, baseCommand, statusBarItem);
+            this.reportSetupFailure(error, invocationText(base), statusBarItem);
         }
     }
 }

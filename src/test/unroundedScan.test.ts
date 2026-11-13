@@ -26,7 +26,7 @@ function scanned(): Map<string, ScanResult> | null {
     }
     const directory = mkdtempSync(path.join(os.tmpdir(), 'awa-unrounded-scan-'));
     try {
-        const run = spawnSync(python, [SCAN, directory], { encoding: 'utf8', timeout: 120_000 });
+        const run = spawnSync(python.command, [...python.args, SCAN, directory], { encoding: 'utf8', timeout: 120_000 });
         if (run.status !== 0) throw new Error(`the backend's scan failed: ${run.stderr}`);
         return new Map(Object.entries(JSON.parse(run.stdout) as Record<string, ScanResult>));
     } finally {

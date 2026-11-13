@@ -6,21 +6,23 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { firstPython, pythonCandidates } from './python-candidates.mjs';
+import { firstPython, invocationText, pythonCandidates } from './python-candidates.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const target = join(root, 'src/shared/protocol/generated/backendProtocolSchema.ts');
 // protocol_schema.py needs only the standard library; any Python of the shared rule will do
-// (scripts/python-candidates.mjs: WANDAS_PYTHON, the workspace venv, VIRTUAL_ENV, python3, python).
+// (scripts/python-candidates.mjs: WANDAS_PYTHON, the workspace venv, VIRTUAL_ENV, then `py -3`, python on Windows and
+// python3, python elsewhere).
 function findPython() {
-    const found = firstPython(pythonCandidates({ root }));
-    if (!found) throw new Error('No Python found for python-backend/protocol_schema.py (tried WANDAS_PYTHON, .venv, venv, env, VIRTUAL_ENV, python3, python)');
+    const candidates = pythonCandidates({ root });
+    const found = firstPython(candidates);
+    if (!found) throw new Error(`No Python found for python-backend/protocol_schema.py (tried ${candidates.map(invocationText).join(', ')})`);
     return found;
 }
 const python = findPython();
-const dumped = spawnSync(python, ['protocol_schema.py'], { cwd: join(root, 'python-backend'), encoding: 'utf8' });
+const dumped = spawnSync(python.command, [...python.args, 'protocol_schema.py'], { cwd: join(root, 'python-backend'), encoding: 'utf8' });
 if (dumped.status !== 0) {
-    throw new Error(`${python} protocol_schema.py failed (exit ${dumped.status}):\n${dumped.stderr || dumped.error?.message || '(no output)'}`);
+    throw new Error(`${invocationText(python)} protocol_schema.py failed (exit ${dumped.status}):\n${dumped.stderr || dumped.error?.message || '(no output)'}`);
 }
 const schema = JSON.parse(dumped.stdout);
 const definitions = schema.$defs;

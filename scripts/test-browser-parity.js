@@ -15,7 +15,7 @@ async function removeAllTracks(page, act = 'click') {
 const root = path.resolve(__dirname, '..');
 // The native side runs on the Python the tests use, found as the extension finds it (npm run build:browser compiled it).
 const python = require(path.join(root, 'dist/test/helpers/python.js')).testPython();
-assert.ok(python, 'no Python found for the native side (a workspace venv, VIRTUAL_ENV, WANDAS_PYTHON or python3)');
+assert.ok(python, 'no Python found for the native side (WANDAS_PYTHON, a workspace venv, VIRTUAL_ENV, then py -3, python on Windows or python3, python elsewhere)');
 // The page speaks the browser's language (staticHost: navigator.language), and headless Chromium takes that from the
 // machine's LANG unless told: a Japanese desktop ran the Japanese page where CI (LANG=C.UTF-8) ran the English one, so
 // a check could pass on one and fail on the other. Every page opened here is in this one locale; CI's is en-US.
@@ -72,7 +72,7 @@ fixtures.push({ name: 'generated-frequency-tones.wav', path: tonePath, bytes: to
     { ...commands[2], requestId: 'long-fft-full', cursorNorm: 0.5, stftOptions: longFft, fullResolution: true },
 ]) });
 function nativeResultsFor(fixture) {
-const native = spawnSync(python, ['-c', `
+const native = spawnSync(python.command, [...python.args, '-c', `
 import sys,json
 sys.path.insert(0,'python-backend')
 from analysis_engine import AnalysisEngine
@@ -330,7 +330,7 @@ const server = http.createServer((req,res) => {
         assert.equal(exported.toString('ascii', 0, 4), 'RIFF');
         assert.ok(exported.length > 44 && exported.length < bytes.length);
         const selection = await page.evaluate(() => window.__testOutbound.filter(message => message.type === 'export-wav-loop').at(-1));
-        const checked = spawnSync(python, ['-c', [
+        const checked = spawnSync(python.command, [...python.args, '-c', [
             'import sys,json,numpy as np,soundfile as sf',
             'source,rate=sf.read(sys.argv[1],always_2d=True)',
             'output,output_rate=sf.read(sys.argv[2],always_2d=True)',
@@ -374,7 +374,7 @@ const server = http.createServer((req,res) => {
         assert.doesNotMatch(await page.locator('span[role="status"]').innerText(),/Traceback|PythonError|\n/);
         assert.equal(await page.locator('.track-row').count(),0);
         // Non-WAV formats decode in Pyodide through the same wandas readers as the desktop backend.
-        const encode = format => spawnSync(python,['-c','import sys,io,soundfile as sf; d,r=sf.read(sys.argv[1]); b=io.BytesIO(); sf.write(b,d,r,format=sys.argv[2]); sys.stdout.buffer.write(b.getvalue())',fixturePath('short-stereo.wav'),format]);
+        const encode = format => spawnSync(python.command,[...python.args,'-c','import sys,io,soundfile as sf; d,r=sf.read(sys.argv[1]); b=io.BytesIO(); sf.write(b,d,r,format=sys.argv[2]); sys.stdout.buffer.write(b.getvalue())',fixturePath('short-stereo.wav'),format]);
         const flac = encode('FLAC'), aiff = encode('AIFF');
         assert.equal(flac.status,0,String(flac.stderr));
         assert.equal(aiff.status,0,String(aiff.stderr));

@@ -122,14 +122,14 @@ function denseLine(on: StagePlot, item: Case, x: number): { xs: number[]; values
 /** The backend's answers (answer.py) to `reads` of the line. */
 function backend(line: { xs: number[]; values: number[] }, reads: BackendRead[]): Array<StagePoints | null> {
     const python = backendPython();
-    const run = python ? spawnSync(python, [ANSWER], { input: JSON.stringify({ xs: line.xs, values: line.values, reads }), encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 }) : undefined;
+    const run = python ? spawnSync(python.command, [...python.args, ANSWER], { input: JSON.stringify({ xs: line.xs, values: line.values, reads }), encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 }) : undefined;
     if (!run || run.status !== 0) throw new Error(`the backend's read failed: ${run?.stderr ?? 'no Python'}`);
     return run.stdout.trim().split('\n').map(text => JSON.parse(text) as StagePoints | null);
 }
 
 function backendReady(): boolean {
     const python = backendPython();
-    const ok = !!python && spawnSync(python, [ANSWER], { input: JSON.stringify({ xs: [1, 2], values: [0, 0], reads: [{ x: [1], beyond: 0 }] }), encoding: 'utf8', timeout: 60_000 }).status === 0;
+    const ok = !!python && spawnSync(python.command, [...python.args, ANSWER], { input: JSON.stringify({ xs: [1, 2], values: [0, 0], reads: [{ x: [1], beyond: 0 }] }), encoding: 'utf8', timeout: 60_000 }).status === 0;
     if (!ok && required) throw new Error('the Python backend is required here (AWA_REQUIRE_BACKEND, or the repo\'s .venv) but answer.py could not run');
     return ok;
 }

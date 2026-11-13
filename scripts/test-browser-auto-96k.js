@@ -3,8 +3,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-/** The Python the tests use, found as the extension finds it (dist/test/helpers/python.js, compiled by build:browser). */
-const testPython = root => require(path.join(root, 'dist/test/helpers/python.js')).testPython();
+/**
+ * Runs the Python the tests use, found as the extension finds it (dist/test/helpers/python.js, compiled by
+ * build:browser): a command and its own arguments (`py -3`), then `args`.
+ */
+const runPython = (root, args, options) => {
+    const python = require(path.join(root, 'dist/test/helpers/python.js')).testPython();
+    if (!python) throw new Error('no Python found (dist/test/helpers/python.js testPython)');
+    return spawnSync(python.command, [...python.args, ...args], options);
+};
 
 /** Every track taken off with its lane's × (the entry table replaced the selection panel's clear-all), until none is left. */
 async function removeAllTracks(page, act = 'click') {
@@ -22,7 +29,7 @@ module.exports = async function auditAuto96k({browser,origin,root,compare}) {
     bytes.write('data',36);bytes.writeUInt32LE(frames*2,40);
     for(let i=0;i<frames;i++) bytes.writeInt16LE(Math.round(12000*Math.sin(2*Math.PI*500*i/rate)),44+i*2);
     const fixture=path.join(root,'test-results/generated-auto-96k.wav');fs.writeFileSync(fixture,bytes);
-    const native=spawnSync(testPython(root),['-c',[
+    const native=runPython(root, ['-c',[
         'import sys,json', 'sys.path.insert(0,"python-backend")',
         'from analysis_engine import AnalysisEngine', 'from analysis_service import AnalysisService',
         'service=AnalysisService(AnalysisEngine())',

@@ -74,6 +74,8 @@ function loadPythonEnvironmentModule(options: {
     /** Runs after a warning's buttons are chosen and before it is answered. */
     onWarning?: () => void;
     spawnImpl?: (...args: unknown[]) => FakeProcess;
+    /** The OS whose fallback commands PythonEnvironment tries (pythonInterpreter.ts fallbackPythonCommands). */
+    platform?: NodeJS.Platform;
 }) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const NodeModule = require('node:module') as {
@@ -252,7 +254,7 @@ function loadPythonEnvironmentModule(options: {
 
     return {
         pythonEnvironmentModule,
-        pythonEnvironment: new pythonEnvironmentModule.PythonEnvironment(),
+        pythonEnvironment: new pythonEnvironmentModule.PythonEnvironment(options.platform),
         updates,
         warningMessages,
         warningButtons,
@@ -272,6 +274,11 @@ function loadPythonEnvironmentModule(options: {
             delete require.cache[require.resolve('../extension/pythonEnvironment')];
         },
     };
+}
+
+/** The one notification when no candidate interpreter runs (strings.ts pyNoInterpreterRuns). */
+function noInterpreterRuns(tried: string): string {
+    return `No Python interpreter could be run. Tried: ${tried}. Set audioWandasAnalyzer.pythonCommand to a Python environment folder or interpreter (Select Environment does it), or try the browser version, which needs no Python.`;
 }
 
 /** Lets the fire-and-forget notification handlers (button actions) settle. */
@@ -425,7 +432,7 @@ test('getPythonCommand prefers the explicit setting, then the Python extension, 
         }
 
         process.env['VIRTUAL_ENV'] = path.join(root, 'deleted-env');
-        const staleVirtualEnv = loadPythonEnvironmentModule({});
+        const staleVirtualEnv = loadPythonEnvironmentModule({ platform: 'linux' });
         try {
             assert.equal(staleVirtualEnv.pythonEnvironment.getPythonCommand(), 'python3');
         } finally {
@@ -546,6 +553,7 @@ test('in Restricted Mode no interpreter from inside the workspace is offered or 
         pythonExtensionPath: path.join(root, '.venv', 'bin', 'python'),
         workspacePythonCommand: '.venv',
         trusted: false,
+        platform: 'linux',
     });
 
     try {
@@ -742,10 +750,10 @@ test('checkAndPromptInstallDependencies warns when interpreter is missing and of
         await pythonEnvironment.checkAndPromptInstallDependencies('missing-python', item as never);
         await settle();
         assert.equal(item.text, 'Python: missing-python $(warning)');
-        assert.equal(item.tooltip, 'The Python interpreter was not found. Click to select another environment.');
+        assert.equal(item.tooltip, 'No Python interpreter could be run. Click to select an environment.');
         // The interpreter path follows the host venv layout (bin/python on POSIX, Scripts\\python.exe on Windows).
         const expectedInterpreter = pythonEnvironmentModule.resolvePythonCommand('missing-python');
-        assert.deepEqual(warningMessages, [`Python interpreter not found: ${expectedInterpreter}. Select an environment, or try the browser version, which needs no Python.`]);
+        assert.deepEqual(warningMessages, [noInterpreterRuns(`${expectedInterpreter} (not found)`)]);
         assert.deepEqual(warningButtons, [['Select Environment', 'Try Browser Version', 'Show Log']]);
         assert.deepEqual(executedCommands, ['audioWandasAnalyzer.selectPythonEnvironment']);
     } finally {
@@ -773,8 +781,8 @@ test('checkAndPromptInstallDependencies opens the browser version when the inter
     }
 });
 
-test('checkAndPromptInstallDependencies treats invalid dependency output as a check failure', async () => {
-    const { pythonEnvironment, errorMessages, errorButtons, log, restore } = loadPythonEnvironmentModule({
+test('checkAndPromptInstallDependencies treats invalid dependency output as an interpreter that did not run', async () => {
+    const { pythonEnvironment, warningMessages, warningButtons, errorMessages, log, restore } = loadPythonEnvironmentModule({
         spawnImpl: () => fakeProcess((proc) => {
             proc.stdout.emit('data', Buffer.from('not json'));
             proc.emit('close', 0);
@@ -784,9 +792,11 @@ test('checkAndPromptInstallDependencies treats invalid dependency output as a ch
 
     try {
         await assert.doesNotReject(() => pythonEnvironment.checkAndPromptInstallDependencies('python3', item as never));
-        assert.equal(item.tooltip, 'The Python environment check failed. Click to select another environment.');
-        assert.deepEqual(errorMessages, ['Could not check the Python packages in python3. See the log for details.']);
-        assert.deepEqual(errorButtons, [['Show Log', 'Select Environment']]);
+        assert.equal(item.tooltip, 'No Python interpreter could be run. Click to select an environment.');
+        assert.equal(warningMessages.length, 1);
+        assert.match(warningMessages[0], /^No Python interpreter could be run\. Tried: python3 \(did not run: Failed to parse dependency check output: /u);
+        assert.deepEqual(warningButtons, [['Select Environment', 'Try Browser Version', 'Show Log']]);
+        assert.deepEqual(errorMessages, []);
         assert.match(log(), /Failed to parse dependency check output/u);
     } finally {
         restore();
@@ -1068,8 +1078,8 @@ test('a .venv that existed before the create call is never removed', async () =>
     }
 });
 
-test('checkAndPromptInstallDependencies treats unexpected dependency check exit as check failure', async () => {
-    const { pythonEnvironment, errorMessages, log, restore } = loadPythonEnvironmentModule({
+test('checkAndPromptInstallDependencies treats an unexpected dependency check exit as an interpreter that did not run', async () => {
+    const { pythonEnvironment, warningMessages, log, restore } = loadPythonEnvironmentModule({
         spawnImpl: () => fakeProcess((proc) => {
             proc.stderr.emit('data', Buffer.from('ERROR: internal dependency failure\n'));
             proc.emit('close', 2);
@@ -1079,8 +1089,8 @@ test('checkAndPromptInstallDependencies treats unexpected dependency check exit 
 
     try {
         await assert.doesNotReject(() => pythonEnvironment.checkAndPromptInstallDependencies('python3', item as never));
-        assert.equal(item.tooltip, 'The Python environment check failed. Click to select another environment.');
-        assert.deepEqual(errorMessages, ['Could not check the Python packages in python3. See the log for details.']);
+        assert.equal(item.tooltip, 'No Python interpreter could be run. Click to select an environment.');
+        assert.deepEqual(warningMessages, [noInterpreterRuns('python3 (did not run: ERROR: internal dependency failure)')]);
         assert.match(log(), /ERROR: internal dependency failure/u);
     } finally {
         restore();
@@ -1188,11 +1198,30 @@ test('separate PythonEnvironment instances keep their own dependency checks and 
     }
 });
 
-test('checkAndPromptInstallDependencies swallows unexpected errors and shows an error message', async () => {
-    const { pythonEnvironment, errorMessages, log, restore } = loadPythonEnvironmentModule({
+test('a start that fails for another reason than a missing program is that candidate\'s reason', async () => {
+    const { pythonEnvironment, warningMessages, log, restore } = loadPythonEnvironmentModule({
         spawnImpl: () => fakeProcess((proc) => {
             proc.emit('error', new Error('boom'));
         }),
+    });
+    const item = statusItem();
+
+    try {
+        await assert.doesNotReject(() => pythonEnvironment.checkAndPromptInstallDependencies('python3', item as never));
+        assert.deepEqual(warningMessages, [noInterpreterRuns('python3 (did not run: boom)')]);
+        assert.match(log(), /boom/u);
+    } finally {
+        restore();
+    }
+});
+
+test('checkAndPromptInstallDependencies swallows a fault of its own flow and shows an error message', async () => {
+    const { pythonEnvironment, errorMessages, log, restore } = loadPythonEnvironmentModule({
+        spawnImpl: () => fakeProcess((proc) => {
+            proc.stdout.emit('data', Buffer.from(checkOutput(['wandas'])));
+            proc.emit('close', 0);
+        }),
+        onWarning: () => { throw new Error('boom'); },
     });
     const item = statusItem();
 
@@ -1203,5 +1232,103 @@ test('checkAndPromptInstallDependencies swallows unexpected errors and shows an 
         assert.match(log(), /boom/u);
     } finally {
         restore();
+    }
+});
+
+// #789: with nothing chosen, the OS's fallback commands are tried (pythonInterpreter.ts fallbackPythonCommands), each
+// started with the dependency check, the first that runs is used, and when none runs one message names them all.
+// The platform is injected and spawn is a fake, so each OS's rule runs on any host.
+
+/** A spawn that records each start and answers it by its program: ENOENT, a failed run, or a clean check. */
+function fakeSpawn(answers: Record<string, 'missing' | { exit: number; stderr: string } | 'runs'>) {
+    const spawned: Array<{ command: string; args: string[] }> = [];
+    const spawnImpl = (...spawnArgs: unknown[]) => {
+        const command = String(spawnArgs[0]);
+        const args = (spawnArgs[1] as string[]).map(arg => (arg.length > 40 ? '<script>' : arg));
+        spawned.push({ command, args });
+        const answer = answers[command] ?? 'missing';
+        return fakeProcess((proc) => {
+            if (answer === 'missing') {
+                const error = new Error(`spawn ${command} ENOENT`) as NodeJS.ErrnoException;
+                error.code = 'ENOENT';
+                proc.emit('error', error);
+            } else if (answer === 'runs') {
+                proc.stdout.emit('data', Buffer.from(checkOutput([])));
+                proc.emit('close', 0);
+            } else {
+                proc.stderr.emit('data', Buffer.from(answer.stderr));
+                proc.emit('close', answer.exit);
+            }
+        });
+    };
+    return { spawned, spawnImpl };
+}
+
+test('on Windows, with no interpreter chosen, py -3 and then python are started with the check, and the first that runs is used', async () => {
+    const { spawned, spawnImpl } = fakeSpawn({ python: 'runs' });
+    const { pythonEnvironment, warningMessages, restore } = loadPythonEnvironmentModule({ platform: 'win32', spawnImpl });
+    const item = statusItem();
+    try {
+        assert.equal(pythonEnvironment.getPythonCommand(), 'py -3');
+        assert.equal(await pythonEnvironment.checkAndPromptInstallDependencies(pythonEnvironment.getPythonCandidates(), item as never), true);
+        assert.deepEqual(spawned, [{ command: 'py', args: ['-3', '-c', '<script>'] }, { command: 'python', args: ['-c', '<script>'] }]);
+        assert.equal(item.text, 'Python: python');
+        assert.equal(pythonEnvironment.interpreterLabel(), 'python');
+        assert.deepEqual(pythonEnvironment.backendInvocation(), { command: 'python', args: [] }, 'the backend starts the one that ran');
+        assert.deepEqual(warningMessages, []);
+    } finally {
+        restore();
+    }
+});
+
+test('the first candidate that runs is used: py -3 on Windows, python3 elsewhere, and no later one is started', async () => {
+    for (const [platform, first] of [['win32', 'py'], ['linux', 'python3'], ['darwin', 'python3']] as const) {
+        const { spawned, spawnImpl } = fakeSpawn({ [first]: 'runs', python: 'runs' });
+        const { pythonEnvironment, restore } = loadPythonEnvironmentModule({ platform, spawnImpl });
+        try {
+            assert.equal(await pythonEnvironment.checkAndPromptInstallDependencies(pythonEnvironment.getPythonCandidates(), statusItem() as never), true);
+            assert.deepEqual(spawned.map(start => start.command), [first], platform);
+            assert.deepEqual(pythonEnvironment.backendInvocation(), platform === 'win32' ? { command: 'py', args: ['-3'] } : { command: 'python3', args: [] });
+        } finally {
+            restore();
+        }
+    }
+});
+
+test('on Linux and macOS, with no interpreter chosen, python3 and then python are tried', async () => {
+    for (const platform of ['linux', 'darwin'] as const) {
+        const { spawned, spawnImpl } = fakeSpawn({ python: 'runs' });
+        const { pythonEnvironment, restore } = loadPythonEnvironmentModule({ platform, spawnImpl });
+        try {
+            assert.equal(pythonEnvironment.getPythonCommand(), 'python3');
+            assert.equal(await pythonEnvironment.checkAndPromptInstallDependencies(pythonEnvironment.getPythonCandidates(), statusItem() as never), true);
+            assert.deepEqual(spawned.map(start => start.command), ['python3', 'python'], platform);
+            assert.equal(pythonEnvironment.interpreterLabel(), 'python');
+        } finally {
+            restore();
+        }
+    }
+});
+
+test('when no candidate runs, one message names every candidate with why it failed and the setting to set', async () => {
+    const storeStub = 'Python was not found; run without arguments to install from the Microsoft Store, or disable this shortcut from Settings > Manage App Execution Aliases.';
+    const cases = [
+        { platform: 'win32', answers: { python: { exit: 9009, stderr: `${storeStub}\r\n` } }, tried: `py -3 (not found); python (did not run: ${storeStub})` },
+        { platform: 'linux', answers: {}, tried: 'python3 (not found); python (not found)' },
+    ] as const;
+    for (const { platform, answers, tried } of cases) {
+        const { spawnImpl } = fakeSpawn(answers);
+        const { pythonEnvironment, warningMessages, warningButtons, errorMessages, restore } = loadPythonEnvironmentModule({ platform, spawnImpl });
+        const item = statusItem();
+        try {
+            assert.equal(await pythonEnvironment.checkAndPromptInstallDependencies(pythonEnvironment.getPythonCandidates(), item as never), false);
+            await settle();
+            assert.deepEqual(warningMessages, [noInterpreterRuns(tried)], platform);
+            assert.deepEqual(warningButtons, [['Select Environment', 'Try Browser Version', 'Show Log']]);
+            assert.deepEqual(errorMessages, []);
+            assert.equal(item.tooltip, 'No Python interpreter could be run. Click to select an environment.');
+        } finally {
+            restore();
+        }
     }
 });

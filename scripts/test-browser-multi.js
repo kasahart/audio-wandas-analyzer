@@ -3,8 +3,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-/** The Python the tests use, found as the extension finds it (dist/test/helpers/python.js, compiled by build:browser). */
-const testPython = root => require(path.join(root, 'dist/test/helpers/python.js')).testPython();
+/**
+ * Runs the Python the tests use, found as the extension finds it (dist/test/helpers/python.js, compiled by
+ * build:browser): a command and its own arguments (`py -3`), then `args`.
+ */
+const runPython = (root, args, options) => {
+    const python = require(path.join(root, 'dist/test/helpers/python.js')).testPython();
+    if (!python) throw new Error('no Python found (dist/test/helpers/python.js testPython)');
+    return spawnSync(python.command, [...python.args, ...args], options);
+};
 
 /** Every track taken off with its lane's × (the entry table replaced the selection panel's clear-all), until none is left. */
 async function removeAllTracks(page, act = 'click') {
@@ -91,7 +98,7 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         assert.equal(selection.fileRegions.length,2);
         const first = selection.fileRegions.find(r=>r.filePath===initial[0].filePath);
         assert.equal(first.endNorm,1);assert.ok(Math.abs(first.startNorm-(selection.startNorm*2.5-.01))<1e-8);
-        const checked = spawnSync(testPython(root),['-c',[
+        const checked = runPython(root, ['-c',[
             'import sys,json,zipfile,io,numpy as np,soundfile as sf',
             'z=zipfile.ZipFile(sys.argv[1]); assert z.testzip() is None and z.namelist()==["short-stereo_loop.wav","changing-stereo_loop.wav"]',
             'regions=json.loads(sys.argv[2]); paths=json.loads(sys.argv[3])',
@@ -122,7 +129,7 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         assert.equal(notebook.nbformat, 4);
         const code = notebook.cells.filter(cell => cell.cell_type === 'code').map(cell => cell.source.join('')).join('\n');
         assert.match(code, /wd.read\("short-stereo.wav"\)/); assert.ok(!code.includes('/sources/'));
-        const syntax = spawnSync(testPython(root), ['-c', 'import sys; compile(sys.stdin.read(), "export.ipynb", "exec")'], {input:code,encoding:'utf8'});
+        const syntax = runPython(root, ['-c', 'import sys; compile(sys.stdin.read(), "export.ipynb", "exec")'], {input:code,encoding:'utf8'});
         assert.equal(syntax.status, 0, syntax.stderr);
         // Cancelled: Esc closes the format choice and nothing is downloaded.
         const reportMenu = page.locator('details').filter({ has: page.locator('[data-action="export-report"]') });

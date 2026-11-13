@@ -549,7 +549,7 @@ test('native injected calibration retry preserves cancellation token and request
     const server = new class extends backendModule.PythonBackendServer {
         failCancellation = false;
         constructor() {
-            super('unused', () => 'python3', () => {}, () => {}, {
+            super('unused', () => ({ command: 'python3', args: [] }), () => {}, () => {}, {
                 current: () => ({ calibrationProfile: profile, analysisRevision: revision }),
                 discardStale: async (filePath, error, attempted) => {
                     if (!(error instanceof backendModule.AnalysisRequestError)) return false;

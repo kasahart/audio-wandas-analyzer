@@ -18,7 +18,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { firstPython, pythonCandidates } from './python-candidates.mjs';
+import { firstPython, invocationText, pythonCandidates } from './python-candidates.mjs';
 import { nodeTestSkipArgs, pytestSkipArgs } from './test-skips.mjs';
 import { runLanes } from './verify-runner.mjs';
 
@@ -27,15 +27,17 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const windows = process.platform === 'win32';
 const pathKey = Object.keys(process.env).find(key => key.toUpperCase() === 'PATH') ?? 'PATH';
 const env = { ...process.env };
-// The Python the tests use too (scripts/python-candidates.mjs: WANDAS_PYTHON, the workspace venv, VIRTUAL_ENV, python3,
-// python). An interpreter path's folder goes first on PATH, so the tools installed beside it are the ones run.
-const python = firstPython(pythonCandidates({ root }));
+// The Python the tests use too (scripts/python-candidates.mjs: WANDAS_PYTHON, the workspace venv, VIRTUAL_ENV, then
+// `py -3`, python on Windows and python3, python elsewhere). An interpreter path's folder goes first on PATH, so the
+// tools installed beside it are the ones run.
+const candidates = pythonCandidates({ root });
+const python = firstPython(candidates);
 if (!python) {
-    console.error('verify: no Python found (tried WANDAS_PYTHON, .venv, venv, env, VIRTUAL_ENV, python3, python) — set up .venv as AGENTS.md says');
+    console.error(`verify: no Python found (tried ${candidates.map(invocationText).join(', ')}) — set up .venv as AGENTS.md says`);
     process.exit(1);
 }
-if (/[\\/]/u.test(python)) {
-    env[pathKey] = `${dirname(python)}${delimiter}${env[pathKey] ?? ''}`;
+if (/[\\/]/u.test(python.command)) {
+    env[pathKey] = `${dirname(python.command)}${delimiter}${env[pathKey] ?? ''}`;
 }
 
 // Through npm's own CLI when npm started us: spawning npm.cmd on Windows would need a shell.
@@ -43,9 +45,11 @@ const npm = args => process.env.npm_execpath
     ? [process.execPath, [process.env.npm_execpath, ...args]]
     : [windows ? 'npm.cmd' : 'npm', args];
 const node = (...args) => [process.execPath, args];
+// A Python step: the interpreter's command and its own arguments (`py -3`), then the step's.
+const py = (...args) => [python.command, [...python.args, ...args]];
 
 for (const tool of ['ruff', 'pyright']) {
-    if (spawnSync(python, ['-m', tool, '--version'], { env, stdio: 'ignore' }).status !== 0) {
+    if (spawnSync(python.command, [...python.args, '-m', tool, '--version'], { env, stdio: 'ignore' }).status !== 0) {
         console.error(`${tool} not found — install dev deps with: pip install -c python-backend/constraints.txt -e ".[dev]"`);
         process.exit(1);
     }
@@ -76,25 +80,25 @@ const lanes = [
         ['eslint', ...npm(['run', 'lint'])],
     ]],
     ['Python', [
-        ['ruff check', python, ['-m', 'ruff', 'check', 'python-backend', 'scripts/check_decimation_flow.py', 'scripts/check_test_proofs.py']],
-        ['ruff format --check', python, ['-m', 'ruff', 'format', '--check', 'python-backend', 'scripts/check_decimation_flow.py', 'scripts/check_test_proofs.py']],
+        ['ruff check', ...py('-m', 'ruff', 'check', 'python-backend', 'scripts/check_decimation_flow.py', 'scripts/check_test_proofs.py')],
+        ['ruff format --check', ...py('-m', 'ruff', 'format', '--check', 'python-backend', 'scripts/check_decimation_flow.py', 'scripts/check_test_proofs.py')],
         // Configured in pyproject.toml ([tool.pyright]); --pythonpath points it at the interpreter verify runs. pyright
         // needs that interpreter's absolute path: given a bare command (`python3`) it finds no site-packages.
-        ['pyright', python, ['-m', 'pyright', '--pythonpath', () => pythonExecutable()]],
+        ['pyright', ...py('-m', 'pyright', '--pythonpath', () => pythonExecutable())],
         // What the backend thins to draw (min/max per bucket, block averages) never becomes a number it sends (R1, R2).
-        ['drawn points never become numbers (scripts/check_decimation_flow.py)', python, ['scripts/check_decimation_flow.py']],
-        ['pytest', python, ['-m', 'pytest', 'python-backend', ...pytestArgs, ...pytestSkipArgs(pytestSkips)], { after: 'tsc compile' }],
+        ['drawn points never become numbers (scripts/check_decimation_flow.py)', ...py('scripts/check_decimation_flow.py')],
+        ['pytest', ...py('-m', 'pytest', 'python-backend', ...pytestArgs, ...pytestSkipArgs(pytestSkips)), { after: 'tsc compile' }],
         ['skipped tests (in CI only those scripts/test-skip-allowlist.json lists)', ...node('scripts/test-skips.mjs', 'check', `node:test=${nodeSkips}`, `pytest=${pytestSkips}`), { after: 'node:test' }],
     ]],
 ];
 if (process.env.AWA_VERIFY_BROWSER === '1') {
     lanes.push(['Browser', [
-        ['browser runtime asset integrity', python, ['scripts/prepare-browser-runtime.py', '--check']],
+        ['browser runtime asset integrity', ...py('scripts/prepare-browser-runtime.py', '--check')],
     ]]);
 }
 
 function pythonExecutable() {
-    return spawnSync(python, ['-c', 'import sys; print(sys.executable)'], { env, encoding: 'utf8' }).stdout.trim();
+    return spawnSync(python.command, [...python.args, '-c', 'import sys; print(sys.executable)'], { env, encoding: 'utf8' }).stdout.trim();
 }
 
 const failures = await runLanes(lanes, { cwd: root, env, serial: process.env.AWA_VERIFY_SERIAL === '1' });
