@@ -155,9 +155,11 @@ export function createStageSource(prefix: string, post: (message: CompareScanMes
             const publication = message as ComparePublication;
             if (!message.type.startsWith('compare-') || !('requestId' in publication) || !publication.requestId.startsWith(`${prefix}-`)) return false;
             const request = requests.find(publication.requestId);
-            if (publication.type === 'compare-scan-result' && request) {
-                const { key, spec, bases } = request.meta;
-                const basis = bases.get(publication.filePath) ?? basisOf(publication.filePath);
+            // An answer is of the basis its file was ASKED under (kept with the request), never the basis now; a file
+            // the request did not ask for is no answer of it.
+            const basis = request?.meta.bases.get(publication.type === 'compare-scan-result' ? publication.filePath : '');
+            if (publication.type === 'compare-scan-result' && request && basis !== undefined) {
+                const { key, spec } = request.meta;
                 const answer = fileKey(key, publication.filePath, basis);
                 // A step that cannot run on the file (failedStep) is its answer; any other failure (the file unreadable
                 // for now, the backend restarted) may pass: it stands for the store's pause and is then asked again.

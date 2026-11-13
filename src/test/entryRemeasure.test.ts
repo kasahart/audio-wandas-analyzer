@@ -67,3 +67,36 @@ test('a file written over while its region was measured is no answer of it now (
     assert.equal(h.rows()[0].stale, true);
     assert.equal(h.remeasure.handle({ type: 'compare-scan-done', requestId: 'stage-1' }), false, 'another asker\'s answer is not this one\'s');
 });
+
+test('a region scan asked under an earlier epoch is not kept under the epoch now: the newer ask writes the row (answer of the version asked)', () => {
+    const h = harness();
+    h.epochs['/b.wav'] = '1.0';
+    h.remeasure.ask(h.rows()[0]);
+    // The base file's calibration changes, and a whole-file computation then finishes: the row is asked again under it.
+    h.epochs['/b.wav'] = '2.0';
+    h.remeasure.ask(h.rows()[0]);
+    assert.equal(h.posted.length, 2);
+    // The epoch-1 answer arrives last of the two asks' first halves: it is no answer of epoch 2.
+    h.answer(h.posted[0], 10);
+    h.done(h.posted[0]);
+    assert.deepEqual([h.rows()[0].stale, h.rows()[0].result], [true, ok(1)], 'the row is not replaced and stays ≠');
+    assert.equal(h.posted.length, 2, 'a newer ask is on its way: nothing is asked again');
+    h.answer(h.posted[1], 20);
+    h.done(h.posted[1]);
+    assert.deepEqual([h.rows()[0].stale, h.rows()[0].result], [false, ok(20)], 'the epoch-2 answer replaces it');
+});
+
+test('a remeasurement whose epoch changed under it, with no newer ask, is asked again once under the epoch now', () => {
+    const h = harness();
+    h.remeasure.ask(h.rows()[0]);
+    h.answer(h.posted[0], 10);
+    h.epochs['/a.wav'] = '1.0';
+    h.done(h.posted[0]);
+    assert.equal(h.rows()[0].stale, true, 'void: the row stays ≠');
+    assert.equal(h.posted.length, 2, 'and is asked again under the epoch now');
+    assert.deepEqual(h.posted[1].filePaths, ['/a.wav', '/b.wav']);
+    h.answer(h.posted[1], 30);
+    h.done(h.posted[1]);
+    assert.deepEqual([h.rows()[0].stale, h.rows()[0].result], [false, ok(30)]);
+    assert.equal(h.posted.length, 2, 'an answer of the epoch it was asked under asks nothing more: no loop');
+});
