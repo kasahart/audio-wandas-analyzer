@@ -3,6 +3,7 @@ import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import type { ComparisonState } from '../runtime/types';
 import { createNonce } from './nonce';
 import { DIST_MARGINS } from '../runtime/entryDistribution';
+import { ENTRY_HEAD_LINE_PX, ENTRY_HEAD_LINES, ENTRY_ROW_HEIGHT } from '../runtime/entryTableHtml';
 import { DIFF_COLOR, FLAG_COLOR, LIGHT_DIFF_COLOR, LIGHT_ROLE_COLORS, LIGHT_THEME_BODY_SELECTORS, ROLE_COLORS } from '../../shared/gui/roleColors';
 
 export interface ComparisonAssets {
@@ -271,6 +272,16 @@ export function renderComparisonStyles(): string {
         /* While a comparison is open the distribution folds into a low strip above the table, with a way back. */
         .entry-screen.is-dist-strip .entry-dist { flex: none; padding: 4px 10px 2px; border-bottom: 1px solid var(--line); background: var(--panel); }
         .entry-screen.is-dist-strip .entry-dist-empty { min-height: 0; padding: 2px; }
+        /* Folded above the table, its head is laid out the same while a folder's values arrive and once they are in
+           (#781), so the table under it never moves: the selects are one width whatever their options say, the count is
+           one line, and 計算 / its progress is one line kept even when empty (a tag gives way before its button does). */
+        .entry-screen.is-dist-strip .entry-pick select { width: 12em; max-width: none; }
+        .entry-screen.is-dist-strip .entry-pick select[data-action="entry-group"] { width: 7em; }
+        .entry-screen.is-dist-strip .entry-dist-n { flex: 1 0 100%; min-width: 0; height: 18px; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .entry-screen.is-dist-strip .entry-compute { flex: 1 0 100%; min-width: 0; height: 28px; flex-wrap: nowrap; overflow: hidden; }
+        .entry-screen.is-dist-strip .entry-compute > .awa-tag { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        .entry-screen.is-dist-strip .entry-compute > button { flex: none; }
+        .entry-screen.is-dist-strip .entry-dist-head > .entry-spacer { display: none; }
         /* A held slot's Δ spectrum takes the distribution's frame while it is held, so nothing else moves. */
         .entry-held { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--entry-delta); border-radius: 4px; padding: 2px 6px; }
         .entry-held[hidden] { display: none; }
@@ -306,20 +317,29 @@ export function renderComparisonStyles(): string {
         .entry-row > td:last-child:empty, .entry-table thead th:last-child:empty { padding: 0; }
         .entry-table col.entry-col-ch-w { width: 3.8em; }
         .entry-table col.entry-col-group-w { width: 8em; }
-        .entry-table col.entry-col-value-w { width: 9.5em; }
+        /* Wide enough that the usual value names ("Leq A-weighted, uncalibrated [dB SPL re 20 µPa]", "1 kHz 帯 未校正 [dB SPL re 20 µPa]") take at most the head's ENTRY_HEAD_LINES lines. */
+        .entry-table col.entry-col-value-w { width: 11.5em; }
         .entry-table col.entry-col-reason-w { width: 7em; }
         /* Beside the tracks the table is for finding a file: the value column shows maximized (⤢). */
         .entry-screen:not(.is-max) .entry-table :is(col.entry-col-value-w, .entry-col-value) { display: none; }
         .entry-screen:not(.is-max) .entry-table col.entry-col-group-w { width: 6em; }
-        .entry-table tr { height: 24px; }
+        /* A row's height and the head's are set before any value arrives and never change (#781, ENTRY_ROW_HEIGHT and
+           ENTRY_HEAD_LINES in entryTableHtml.ts): nothing in a row is taller than it, so the rows under the pointer stay put. */
+        .entry-table tr.entry-row { height: ${ENTRY_ROW_HEIGHT}px; }
+        /* Its head's lines plus its padding and half its collapsed border; beside the tracks the value column is not shown and the head is one row. */
+        .entry-screen.is-max .entry-table thead tr { height: ${ENTRY_HEAD_LINES * ENTRY_HEAD_LINE_PX + 5}px; }
+        .entry-screen:not(.is-max) .entry-table thead tr { height: ${ENTRY_ROW_HEIGHT}px; }
         .entry-table td { padding: 0 8px; overflow: hidden; text-overflow: ellipsis; }
-        .entry-table th { padding: 2px 8px; }
+        .entry-table th { padding: 2px 8px; line-height: ${ENTRY_HEAD_LINE_PX}px; vertical-align: bottom; }
         .entry-th { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; }
         th.entry-num .entry-th { justify-content: flex-end; width: 100%; }
         .entry-th-label { overflow: hidden; text-overflow: ellipsis; }
-        /* The value's name and unit wrap between words rather than being cut: "A特性" stays whole; only a word wider than the column breaks, at its edge. */
+        /* The value's name and unit wrap between words rather than being cut: "A特性" stays whole; only a word wider than the column breaks, at its edge.
+           It has the head's ENTRY_HEAD_LINES lines; a longer name is clamped there, and its hint is the whole name. */
         .entry-table th.entry-num { white-space: normal; }
-        th.entry-num .entry-th-label { min-width: 0; overflow: visible; word-break: keep-all; overflow-wrap: break-word; }
+        th.entry-num .entry-th-label { min-width: 0; word-break: keep-all; overflow-wrap: break-word; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: ${ENTRY_HEAD_LINES}; overflow: hidden; }
+        /* The ▾ and the place it keeps while the value is not computed are one size, so the name wraps the same either way. */
+        .entry-screen .entry-table .entry-fbtn, .entry-table .entry-fbtn-slot { flex: none; box-sizing: border-box; width: 18px; min-height: 0; height: 18px; padding: 0; line-height: 18px; text-align: center; }
         .entry-th-count { color: var(--muted); font-weight: normal; }
         .entry-screen .entry-fbtn { border: 0; padding: 0 3px; color: var(--muted); }
         .entry-screen .entry-fbtn:hover:not(:disabled) { color: var(--text); background: var(--line); }
@@ -333,7 +353,7 @@ export function renderComparisonStyles(): string {
         .entry-nm-tail { flex: none; }
         .entry-nm-full { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
         .entry-rowtools { display: inline-flex; gap: 1px; flex: none; }
-        .entry-screen .entry-rbtn { min-width: 20px; height: 20px; padding: 0 3px; border-color: transparent; font-family: var(--font-mono); font-size: 11px; line-height: 1; }
+        .entry-screen .entry-rbtn { min-width: 20px; min-height: 0; height: 20px; padding: 0 3px; border-color: transparent; font-family: var(--font-mono); font-size: 11px; line-height: 1; }
         .entry-screen .entry-rbtn:hover { border-color: var(--line); }
         .entry-row:not(:hover):not(.is-focused) .entry-rbtn.is-hover { visibility: hidden; }
         /* In the side panel a row's hidden tools take no room, so its name has it. */
@@ -360,7 +380,7 @@ export function renderComparisonStyles(): string {
         .entry-screen .entry-fadd { border-style: dashed; color: var(--muted); }
         .entry-screen .entry-ftracks { border-style: dashed; color: var(--muted); }
         .entry-screen .entry-ftracks.is-on { border-style: solid; border-color: var(--text); color: var(--text); }
-        .entry-table .entry-mark-all { font: inherit; color: inherit; background: none; border: 0; padding: 0; width: 100%; cursor: pointer; }
+        .entry-table .entry-mark-all { min-height: 0; font: inherit; color: inherit; background: none; border: 0; padding: 0; width: 100%; cursor: pointer; }
         .entry-table th.entry-mark.is-some, .entry-table th.entry-mark.is-all, .entry-table .entry-mark-all:hover { color: var(--text); }
         .entry-screen .entry-tracks-confirm { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
         .entry-screen .entry-tracks-confirm .is-primary { border-color: var(--text); font-weight: 600; }

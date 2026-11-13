@@ -54,6 +54,22 @@ export interface DatasetScreenView {
 export interface DerivedItem { key: string; label: string; value: string; stale: boolean; title: string; parentPath: string; region: string; baseLabel: string }
 
 /**
+ * Every row of the table is exactly this tall, whatever it holds (#781): a value that arrives, a tool that shows on
+ * hover or a level's own calibration word never moves the rows under it. The CSS sets it (comparisonDocument.ts) and
+ * rowWindow counts with it, so the spacers stand for exactly the rows they replace.
+ */
+export const ENTRY_ROW_HEIGHT = 24;
+/**
+ * Widened (where the value column shows), the head is this many lines tall from the start, whatever the value
+ * column's name is (#781); beside the tracks it is one row (ENTRY_ROW_HEIGHT): the name grows when
+ * the folder's reference is known ("Leq A-weighted" becomes "Leq A-weighted, uncalibrated [dBFS]"), and the rows
+ * under the head must not move when it does. A name that needs more lines than this is clamped; its hint is whole.
+ */
+export const ENTRY_HEAD_LINES = 3;
+/** The head's line height in px (CSS), so its height is ENTRY_HEAD_LINES of them whatever font is on screen. */
+export const ENTRY_HEAD_LINE_PX = 15;
+
+/**
  * The lines drawn for a scroll position: those on screen and a margin around them (10 above, 20 below), the
  * rest left to spacers, so 100,000 rows scroll as 40 do. A height not known yet counts as 600 px.
  */
@@ -196,9 +212,10 @@ export function datasetHeadHtml(view: DatasetScreenView, strings: EntryStrings):
         const arrow = sorted ? (view.sort.descending ? ' ↓' : ' ↑') : '';
         const hint = disabled ? strings.dsNotComputed : on ? strings.dsFilterOn : strings.dsFilterHead;
         return `<th class="${column.numeric ? 'entry-num ' : ''}${sortKey === 'value' ? 'entry-col-value ' : sortKey === 'group' ? 'entry-col-group ' : ''}${sorted ? 'is-sorted' : ''}" data-column="${escapeHtml(column.id)}"><span class="entry-th">`
-            + `<span class="entry-th-label"${disabled ? hintAttr(strings.dsNotComputed) : column.title ? hintAttr(column.title) : ''}>${escapeHtml(column.label)}${extra}${arrow}</span>`
-            // A value not computed yet has nothing to sort or filter by: no ▾, and its header says why.
-            + (disabled ? '' : `<button type="button" class="entry-fbtn${on ? ' is-on' : ''}" data-action="entry-fhead" data-column="${escapeHtml(column.id)}" data-sort="${sortKey}" aria-label="${escapeHtml(`${column.label} ${strings.dsFilterHead}`)}"${hintAttr(hint)}>${on ? '▼' : '▾'}</button>`) + '</span></th>';
+            + `<span class="entry-th-label"${disabled ? hintAttr(strings.dsNotComputed) : column.title ? hintAttr(column.title) : sortKey === 'value' ? hintAttr(column.label) : ''}>${escapeHtml(column.label)}${extra}${arrow}</span>`
+            // A value not computed yet has nothing to sort or filter by: no ▾, and its header says why. The ▾'s place
+            // is kept (as wide as the ▾), so the name wraps the same way once it comes (#781).
+            + (disabled ? '<span class="entry-fbtn-slot" aria-hidden="true"></span>' : `<button type="button" class="entry-fbtn${on ? ' is-on' : ''}" data-action="entry-fhead" data-column="${escapeHtml(column.id)}" data-sort="${sortKey}" aria-label="${escapeHtml(`${column.label} ${strings.dsFilterHead}`)}"${hintAttr(hint)}>${on ? '▼' : '▾'}</button>`) + '</span></th>';
     };
     const count = ` <span class="entry-th-count">${escapeHtml(strings.dsRows.replace('{n}', uiNumber(view.rows.length, strings.uiLocale)))}</span>`;
     return `<tr>${trackHeadHtml(view, strings)}${head('name', view.columns.name, count)}${head('ch', view.columns.ch)}${view.columns.group ? head('group', view.columns.group) : ''}${head('value', view.columns.value, '', !view.valueReady)}<th></th></tr>`;
