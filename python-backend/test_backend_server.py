@@ -1497,18 +1497,28 @@ def test_heartbeat_and_large_responses_are_serialized(monkeypatch):
 
     import backend_server
 
-    sleep = time.sleep
+    yield_now = time.sleep  # the real one: backend_server.time.sleep is replaced below
     output = io.StringIO()
     barrier = threading.Barrier(2)
     writes = []
     flushes = []
+    # The two threads are made to meet: the first response's write, after its first fragment, lets the heartbeat
+    # thread go on to emit and waits until it has, so that heartbeat is due while the response holds the stream.
+    # Without the lock in _emit it would land inside the response. Between fragments the writer only yields
+    # (sleep(0)): a sleep under a millisecond waits a whole timer tick on Windows (up to 15.6 ms), and some 750 of
+    # them made the join bound below a matter of luck there.
+    response_started = threading.Event()
+    heartbeat_released = threading.Event()
 
     class FragmentingOutput:
         def write(self, value):
             writes.append(value)
             for start in range(0, len(value), 127):
                 output.write(value[start : start + 127])
-                sleep(0.00001)
+                if '"requestId"' in value and start == 0 and not response_started.is_set():
+                    response_started.set()
+                    assert heartbeat_released.wait(timeout=10), "the heartbeat thread never came to emit"
+                yield_now(0)
 
         def flush(self):
             flushes.append(True)
@@ -1520,9 +1530,13 @@ def test_heartbeat_and_large_responses_are_serialized(monkeypatch):
         if heartbeats == 12:
             raise SystemExit
         heartbeats += 1
-        sleep(0.00001)
+        if heartbeats == 1:
+            assert response_started.wait(timeout=10), "the first response never started"
+            heartbeat_released.set()
+        yield_now(0)
 
-    monkeypatch.setattr(sys, "stdout", FragmentingOutput())
+    # _emit writes to the private reply stream the process takes at start (backend_server._reply_stream).
+    monkeypatch.setattr(backend_server, "_replies", FragmentingOutput())
     monkeypatch.setattr(backend_server.time, "sleep", heartbeat_sleep)
     errors = []
 
@@ -1550,6 +1564,7 @@ def test_heartbeat_and_large_responses_are_serialized(monkeypatch):
         thread.join(timeout=10)
         assert not thread.is_alive()
     assert errors == []
+    assert heartbeat_released.is_set(), "a heartbeat came due while a response held the stream"
     messages = [json.loads(line) for line in output.getvalue().splitlines()]
     assert sum(message.get("type") == "heartbeat" for message in messages) == 12
     responses = [message for message in messages if "requestId" in message]
