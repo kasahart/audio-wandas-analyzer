@@ -19,6 +19,7 @@ import ast
 import json
 import subprocess
 import sys
+import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -43,27 +44,48 @@ SILENT_DB = -250.0
 # --- The backend, over its protocol -------------------------------------------------------------------------
 
 
+#: How long one request may go unanswered. A reply takes seconds; the backend's heartbeat (every 5 s) would otherwise
+#: keep a lost reply waiting for good, as it did on Windows CI with nothing in the log to say why.
+REPLY_LIMIT_S = 120.0
+#: Every this many seconds the backend writes all its threads' stacks to its log, so a reply that never comes shows
+#: where the backend was.
+STACK_DUMP_EVERY_S = 30.0
+
+
 class Backend:
     """``backend_server.py`` in its own process, asked one request at a time as the extension asks it."""
 
-    def __init__(self) -> None:
+    def __init__(self, log: Path) -> None:
+        self._log_path = log
+        self._log = log.open("w", encoding="utf-8")
+        launch = (
+            "import faulthandler, runpy, sys; "
+            f"faulthandler.dump_traceback_later({STACK_DUMP_EVERY_S}, repeat=True, file=sys.stderr); "
+            f"sys.argv = [{str(HERE / 'backend_server.py')!r}]; "
+            "runpy.run_path(sys.argv[0], run_name='__main__')"
+        )
         self._process = subprocess.Popen(
-            [sys.executable, str(HERE / "backend_server.py")],
+            [sys.executable, "-c", launch],
             cwd=HERE,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=self._log,
             text=True,
             encoding="utf-8",
         )
         self._count = 0
-        assert self._read().get("type") == "ready"
+        assert self._read().get("type") == "ready", self._log_tail()
+
+    def _log_tail(self) -> str:
+        self._log.flush()
+        text = self._log_path.read_text(encoding="utf-8", errors="replace")
+        return f"backend log ({self._log_path}), last part:\n{text[-6000:]}"
 
     def _read(self) -> dict[str, Any]:
         assert self._process.stdout is not None
         line = self._process.stdout.readline()
         if not line:
-            raise RuntimeError("the backend closed its output")
+            raise RuntimeError(f"the backend closed its output\n{self._log_tail()}")
         return json.loads(line)
 
     def ask(self, cmd: str, **payload: object) -> dict[str, Any]:
@@ -72,9 +94,12 @@ class Backend:
         request_id = f"ref-{self._count}"
         self._process.stdin.write(json.dumps({"cmd": cmd, "requestId": request_id, **payload}) + "\n")
         self._process.stdin.flush()
+        asked = time.monotonic()
         while True:
             message = self._read()
             if message.get("requestId") != request_id or message.get("type") == "started":
+                if time.monotonic() - asked > REPLY_LIMIT_S:
+                    raise RuntimeError(f"{cmd}: no reply in {REPLY_LIMIT_S:.0f} s\n{self._log_tail()}")
                 continue
             if "error" in message:
                 raise RuntimeError(f"{cmd}: {message['error']}")
@@ -87,11 +112,13 @@ class Backend:
             self._process.wait(timeout=10)
         except subprocess.TimeoutExpired:
             self._process.kill()
+            self._process.wait()
+        self._log.close()
 
 
 @pytest.fixture(scope="module")
-def backend() -> Iterator[Backend]:
-    process = Backend()
+def backend(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Backend]:
+    process = Backend(tmp_path_factory.mktemp("backend") / "stderr.log")
     yield process
     process.close()
 
@@ -191,7 +218,7 @@ def log_band_max_db(freqs: np.ndarray, levels: np.ndarray, bands: int = 192) -> 
 # --- The module itself: no app code ----------------------------------------------------------------------------
 
 #: What this layer may import: the standard library, numpy, scipy, soundfile, wandas and pytest.
-ALLOWED_IMPORTS = {"__future__", "ast", "collections", "json", "pathlib", "subprocess", "sys", "typing"}
+ALLOWED_IMPORTS = {"__future__", "ast", "collections", "json", "pathlib", "subprocess", "sys", "time", "typing"}
 ALLOWED_PACKAGES = {"numpy", "pytest", "scipy", "soundfile", "wandas"}
 
 
