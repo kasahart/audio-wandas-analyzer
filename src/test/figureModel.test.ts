@@ -330,8 +330,6 @@ const ALLOWED: Sites = {
     'extension/calibrationStore.ts': { 'every-calibrated': ['persistChannel'] },
     // A gain (one unit's ratio) and a Δ are plain dB: 'Gain [dB]', 'Difference Δ [dB]' in each language.
     'shared/i18n/strings.ts': { 'bracket-db': ['STRINGS.en.axisDelta', 'STRINGS.en.axisGain', 'STRINGS.ja.axisDelta', 'STRINGS.ja.axisGain'] },
-    // R9's rule and its rounding, defined: heatmapDbRange is built on niceRange (figureModel.ts wraps both).
-    'shared/utils/ticks.ts': { 'range-rule': ['heatmapDbRange'] },
     // A histogram's bins, rounded by the same rule: entry-distribution's range is figureModel.ts:plainRange of it.
     'shared/dataset/distribution.ts': { 'range-rule': ['distribution'] },
     // A signed difference's text ("+1.2 dB"): a Δ, not a level.

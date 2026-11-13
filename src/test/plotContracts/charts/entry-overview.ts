@@ -30,7 +30,7 @@ export const entryOverview: ChartContract = {
         {
             id: 'entry-overview.range', value: 'range', what: '色の範囲（カラーバーの両端）',
             computedIn: ['src/webview/runtime/entryPlots.ts:overviewPicture', 'src/shared/utils/ticks.ts:heatmapDbRange', 'src/webview/runtime/figureModel.ts:heatmapRange'],
-            from: 'full', trace: '表のすべての行のすべての帯のレベル（区間ごとに最小と最大だけを描くが、描かない行も）の最大を上、max(最小, 最大 − 100 dB) を下にして（heatmapDbRange）切りのよい値に広げる（R9）。',
+            from: 'full', trace: '表のすべての行のすべての帯のレベル（区間ごとに最小と最大だけを描くが、描かない行も）の最大を上、最小を下にして（heatmapDbRange）切りのよい値に広げる。丸めたあとの幅は 100 dB を超えない（下は丸めた上から 100 dB まで、R9）。',
             tests: [
                 tt('src/test/entrySidePlots.test.ts', 'the strip\'s colour range holds every table row\'s level, not only the rows the window draws, and opens at round ends (R9)'),
                 t('src/test/entrySidePlots.test.ts', 'the strip\'s colours reach no more than 100 dB under its loudest level: a digitally silent recording (−300 dB) does not set the bottom (R9)'),

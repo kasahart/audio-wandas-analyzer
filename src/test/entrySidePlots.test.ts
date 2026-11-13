@@ -344,7 +344,8 @@ test('the strip\'s colours reach no more than 100 dB under its loudest level: a 
     bands.set('/d/3.wav', wholeValues([-300, -300]));
     bands.set('/d/9.wav', wholeValues([-4.2, -40]));
     const picture = overviewPicture(rows, bands, FULL_PLOT_WINDOW, 10);
-    assert.deepEqual(picture?.range, { min: -110, max: 0 });
+    // −300…−4.2 dB: the top rounded up to 0, the bottom 100 dB under it after rounding (R9), not −110.
+    assert.deepEqual(picture?.range, { min: -100, max: 0 });
 });
 
 test('the strip is read at the table row under the pointer, never a row its bucket draws, and ← / → step that row\'s bands (R7)', () => {
