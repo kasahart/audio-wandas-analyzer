@@ -1,6 +1,6 @@
 import { eventTarget } from './domAdapter';
 import type { HeightResize } from './heightResize';
-import { keyRouterFor } from './keyRouter';
+import { keyRouterFor } from '../shell/keyRouter';
 
 export interface ToolbarActionHandlers {
     onAction(action: string): void;

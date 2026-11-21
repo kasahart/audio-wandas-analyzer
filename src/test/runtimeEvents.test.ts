@@ -7,7 +7,7 @@ import type { RuntimeWindow, UiSmokeState } from '../webview/runtime/types';
 
 const waveformZoom: ComparisonRuntimeEvent = {
     type: 'waveform-zoom',
-    snapshot: { zoomStart: 0.1, zoomEnd: 0.6, amplitudeZoomMinNorm: -1, amplitudeZoomMaxNorm: 1, rectZoomSelection: null },
+    snapshot: { zoomStart: 0.1, zoomEnd: 0.6, amplitudeZoomMinNorm: -1, amplitudeZoomMaxNorm: 1 },
 };
 
 function bridgeFor(state: UiSmokeState | undefined): ComparisonTestBridge {
@@ -43,7 +43,6 @@ test('the test bridge copies the runtime events into the smoke state', () => {
     feed.emit(() => ({ type: 'spectrum-slice-timing', timing }));
     assert.equal(state.zoomStart, 0.1);
     assert.equal(state.zoomEnd, 0.6);
-    assert.equal(state.rectZoomSelection, null);
     assert.deepEqual(state.spectrumZoom, { specFreqStart: 0, specFreqEnd: 0.5, trackHeight: 160, spectrumOverlayHeight: 140, specDbMin: null, specDbMax: -10 });
     assert.deepEqual(state.spectrumPerformance, timing);
 });

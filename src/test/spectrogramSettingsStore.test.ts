@@ -61,7 +61,7 @@ test('every change of the STFT analyses again: Reset and Apply go through one re
     };
     assert.equal(runtime.split("type: 'request-reanalyze'").length - 1, 1, 'one place asks for a reanalysis');
     const reanalyze = body('reanalyzeSpectrogram');
-    for (const step of ["type: 'request-reanalyze'", 'invalidateDesiredSpectrumSliceRequests()', 'laneReads.clear()']) assert.ok(reanalyze.includes(step), step);
+    for (const step of ["type: 'request-reanalyze'", 'invalidateDesiredSpectrumSliceRequests()', 'regionPeaks.clear()']) assert.ok(reanalyze.includes(step), step);
     // Each call that can change the STFT has its answer acted on: a changed STFT analyses again.
     const calls = [...runtime.matchAll(/spectrogramSettings\.(reset|applyStft)\(/g)];
     assert.ok(calls.length >= 2);

@@ -1,4 +1,3 @@
-import type { ChannelSummary } from '../../shared/analysis/analysisTypes';
 import type { LazyResponseIdentity } from './hostMessaging';
 import type { LazyRequestState, PythonEnvironmentState, TrackId } from './types';
 
@@ -33,8 +32,9 @@ export function isResponseToLazyRequest(
 /**
  * Whether a lane's lazy answer (range, detail, zoom window, slice, read, or their failure) is of the analysis its
  * track shows: of the same file version (the request named the track's sourceVersion and the backend answers only of
- * it) and, for a spectral answer, of the same STFT (stftSignature: the backend names the STFT it computed with, never
- * the settingsSignature the request carried, which it only echoes). So an answer of another version, or one computed
+ * it) and, for a spectral answer, of the same STFT (stftSignature: the backend names the STFT of the analysis, resolved
+ * from the settings it computed with, never the settingsSignature the request carried, which it only echoes; a zoom
+ * window's own finer hop is its hopSize, not part of this name). So an answer of another version, or one computed
  * with the new settings while the old analysis is still drawn, is never drawn or read over it. A track with no
  * version (a host that gives none) takes any version.
  */
@@ -43,13 +43,3 @@ export function isOfShownVersion(shown: { sourceVersion?: string; stftSignature?
         && (shown.stftSignature === undefined || answer.stftSignature === undefined || answer.stftSignature === shown.stftSignature);
 }
 
-export function mergeDetailSpectrograms(target: ChannelSummary[], incoming: ChannelSummary[]): void {
-    incoming.forEach(function (channel, channelIndex) {
-        if (!target[channelIndex]) {
-            return;
-        }
-        if (channel && channel.spectrogram) {
-            target[channelIndex].spectrogram = channel.spectrogram;
-        }
-    });
-}

@@ -1,4 +1,5 @@
 """Download only hash-locked public runtime assets; never accepts input data."""
+
 from __future__ import annotations
 
 import argparse
@@ -75,7 +76,9 @@ def main() -> None:
                 lower = item.filename.lower()
                 if item.is_dir() or item.file_size > 4 * 1024 * 1024:
                     continue
-                if ".dist-info/" in lower and any(word in lower for word in ["license", "licence", "copying", "notice"]):
+                if ".dist-info/" in lower and any(
+                    word in lower for word in ["license", "licence", "copying", "notice"]
+                ):
                     name = asset["component"] + "--" + item.filename.replace("/", "--")
                     generated(licenses / name, wheel.read(item))
     print(f"Verified {len(lock['assets'])} runtime assets")

@@ -1,36 +1,4 @@
-function channelCanvasSuffix(channelIndex: number): string {
-    return channelIndex === 0 ? '' : '-' + channelIndex;
-}
-
-export function trackCanvasId(trackIndex: number, channelIndex: number): string {
-    return 'track-canvas-' + trackIndex + channelCanvasSuffix(channelIndex);
-}
-
-export function trackAxisCanvasId(trackIndex: number, channelIndex: number): string {
-    return 'track-axis-canvas-' + trackIndex + channelCanvasSuffix(channelIndex);
-}
-
-export function trackSpectrogramOverlayCanvasId(trackIndex: number, channelIndex: number): string {
-    return 'track-spectrogram-overlay-' + trackIndex + channelCanvasSuffix(channelIndex);
-}
-
-export function trackCanvasWrapId(trackIndex: number, channelIndex: number): string {
-    return 'track-canvas-wrap-' + trackIndex + channelCanvasSuffix(channelIndex);
-}
-
-export function trackSpecCanvasId(trackIndex: number, channelIndex: number): string {
-    return 'track-spec-canvas-' + trackIndex + channelCanvasSuffix(channelIndex);
-}
-
-export function trackSpecAxisCanvasId(trackIndex: number, channelIndex: number): string {
-    return 'track-spec-axis-canvas-' + trackIndex + channelCanvasSuffix(channelIndex);
-}
-
-export function trackSpecWrapId(trackIndex: number, channelIndex: number): string {
-    return 'track-spec-wrap-' + trackIndex + channelCanvasSuffix(channelIndex);
-}
-
-/** The layer over a waveform lane for the lines that follow the cursor, the loop and the pointer (R13: the lane's plot holds only what paintOverlay drew). */
-export function trackWaveformOverlayCanvasId(trackIndex: number, channelIndex: number): string {
-    return 'track-waveform-overlay-' + trackIndex + channelCanvasSuffix(channelIndex);
+/** Where a channel's Figure goes (screens/trackRows.ts): its waveform and spectrogram lanes in one box. */
+export function trackRowFigureId(trackIndex: number, channelIndex: number): string {
+    return 'track-row-figure-' + trackIndex + (channelIndex === 0 ? '' : '-' + channelIndex);
 }

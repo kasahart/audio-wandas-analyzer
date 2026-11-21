@@ -7,8 +7,14 @@
 /** How many bytes are read: enough for the header chunks of every format here, a little cover art before an MP3 frame included. */
 export const AUDIO_HEAD_BYTES = 64 * 1024;
 
-/** A header's channel count, and its length when the header says it (WAV, FLAC): what a computation will take is by length. */
-export type ChannelProbe = { channels: number; durationS?: number } | { unknown: true } | { error: string };
+/**
+ * A header's channel count, and what else the header says of the file: its length (WAV, FLAC) and its sample rate
+ * (WAV, FLAC, Ogg), which the entry table shows as the file's own information (nothing is decoded or computed).
+ */
+export type ChannelProbe = { channels: number; durationS?: number; sampleRate?: number } | { unknown: true } | { error: string };
+
+/** `probe` with the header's sample rate, where it is a rate at all. */
+const rated = (probe: ChannelProbe, rate: number): ChannelProbe => ('channels' in probe && rate > 0 ? { ...probe, sampleRate: rate } : probe);
 
 const text = (bytes: Uint8Array, at: number, length: number): string => String.fromCharCode(...bytes.subarray(at, at + length));
 const u16 = (bytes: Uint8Array, at: number): number => bytes[at] | (bytes[at + 1] << 8);
@@ -22,7 +28,7 @@ function wav(bytes: Uint8Array): ChannelProbe {
         const id = text(bytes, at, 4), size = u32(bytes, at + 4);
         if (id === 'fmt ') {
             if (at + 20 > bytes.length) return { error: 'a cut fmt chunk' };
-            format = valid(u16(bytes, at + 10));
+            format = rated(valid(u16(bytes, at + 10)), u32(bytes, at + 12));
             byteRate = u32(bytes, at + 16);
         }
         // The data chunk's size over the byte rate is the length; an RF64 size of 0xFFFFFFFF is in its ds64 chunk (not read).
@@ -46,14 +52,15 @@ function flac(bytes: Uint8Array): ChannelProbe {
     // STREAMINFO: the sample rate (20 bits from byte 18) and the total samples (36 bits from byte 21's low nibble).
     const rate = (bytes[18] << 12) | (bytes[19] << 4) | (bytes[20] >> 4);
     const samples = (bytes[21] & 0x0f) * 2 ** 32 + ((bytes[22] << 24) >>> 0) + (bytes[23] << 16) + (bytes[24] << 8) + bytes[25];
-    return rate > 0 && samples > 0 ? { ...probe, durationS: samples / rate } : probe;
+    return rate > 0 && samples > 0 ? { ...rated(probe, rate), durationS: samples / rate } : rated(probe, rate);
 }
 
 function ogg(bytes: Uint8Array): ChannelProbe {
     const segments = bytes[26];
     const body = 27 + segments;
-    if (text(bytes, body, 7) === '\x01vorbis') return valid(bytes[body + 11]);
-    if (text(bytes, body, 8) === 'OpusHead') return valid(bytes[body + 9]);
+    // (Vorbis: its sample rate follows the channel count. Opus always decodes at 48 kHz, whatever went in.)
+    if (text(bytes, body, 7) === '\x01vorbis') return rated(valid(bytes[body + 11]), bytes.length >= body + 16 ? u32(bytes, body + 12) : 0);
+    if (text(bytes, body, 8) === 'OpusHead') return rated(valid(bytes[body + 9]), 48000);
     return { unknown: true };
 }
 

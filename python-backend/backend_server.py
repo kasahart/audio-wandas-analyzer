@@ -25,13 +25,13 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, TextIO
 
-from backend_errors import InputError, error_payload
-from command_dispatch import Command, dispatch, validate_request
-from perf import perf_log
-from protocol_schema import DEFINITIONS, first_violation
+from services.backend_errors import InputError, error_payload
+from services.perf import perf_log
+from transport.command_dispatch import Command, dispatch, validate_request
+from transport.protocol_schema import DEFINITIONS, first_violation
 
 if TYPE_CHECKING:
-    from analysis_service import AnalysisService
+    from services.analysis_service import AnalysisService
 
 _PROCESS_STARTED = time.perf_counter()
 _REPLIES_LOCK = threading.Lock()
@@ -51,11 +51,11 @@ def _emit(message: dict[str, object], *, ensure_ascii: bool = False) -> None:
 
 def _load_default_service() -> AnalysisService:
     started = time.perf_counter()
-    analysis_engine = importlib.import_module("analysis_engine")
+    analysis_engine = importlib.import_module("services.analysis_engine")
     perf_log("startup_import_analysis_engine", started)
 
     started = time.perf_counter()
-    analysis_service = importlib.import_module("analysis_service")
+    analysis_service = importlib.import_module("services.analysis_service")
     perf_log("startup_import_analysis_service", started)
 
     started = time.perf_counter()
@@ -183,7 +183,8 @@ class _Lanes:
 
 # These change what later requests for their files see: dropping a track's STFT, or a file a scan opened.
 _BARRIER_COMMANDS = frozenset({"release-track-detail", "scan"})
-_INTERACTIVE_COMMANDS = frozenset({"range", "spectrum-slice"})
+# A figure's read is interactive too (docs/figure-design.md 第 6 節: 対話の優先, never a pre-emption).
+_INTERACTIVE_COMMANDS = frozenset({"cursor-answers", "figure-read"})
 
 
 def _lane(path: str) -> str:

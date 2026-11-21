@@ -2,12 +2,10 @@ import { escapeHtml, serializeForScript } from '../../shared/utils/webviewEscapi
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import type { ComparisonState } from '../runtime/types';
 import { createNonce } from './nonce';
-import { DIST_MARGINS } from '../runtime/entryDistribution';
 import { ENTRY_HEAD_LINE_PX, ENTRY_HEAD_LINES, ENTRY_ROW_HEIGHT } from '../runtime/entryTableHtml';
 import { DIFF_COLOR, FLAG_COLOR, LIGHT_DIFF_COLOR, LIGHT_ROLE_COLORS, LIGHT_THEME_BODY_SELECTORS, ROLE_COLORS } from '../../shared/gui/roleColors';
 
 export interface ComparisonAssets {
-    waveformScriptUri: string;
     runtimeScriptUri: string;
     hostScriptUri?: string;
     cspSource: string;
@@ -50,7 +48,6 @@ export function renderComparisonDocument(state: ComparisonState, assets: Compari
         window.__APP_STRINGS__ = ${serializeForScript(strings)};
         window.__APP_LOCALE__ = ${serializeForScript(locale)};${assets.testHooks ? '\n        window.__AWA_TEST_HOOKS__ = true;' : ''}
     </script>
-    <script src="${assets.waveformScriptUri}"></script>
     ${assets.hostScriptUri ? `<script src="${assets.hostScriptUri}"></script>` : ''}
     <script src="${assets.runtimeScriptUri}"></script>
 </body>
@@ -236,7 +233,6 @@ export function renderComparisonStyles(): string {
             .entry-screen.is-max .entry-table-wrap { flex: 1 1 0; min-height: 120px; }
             .entry-screen.is-max .entry-side { width: auto; height: 300px; border-left: 0; border-top: 1px solid var(--line); flex-direction: row; }
             .entry-screen.is-max .entry-side > * { flex: 1 1 0; min-width: 0; }
-            .entry-screen.is-max .entry-side .entry-overview-box { height: auto; align-self: stretch; }
         }
         .entry-side { width: 420px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px; border-left: 1px solid var(--line); background: var(--panel); }
         /* The distribution: neutral bars (lighter where a picked range takes them), the slots as ticks in their role colours. */
@@ -250,23 +246,10 @@ export function renderComparisonStyles(): string {
         .entry-dist-swatch.slot-0 { border-left-color: var(--entry-base); }
         .entry-dist-swatch.slot-2 { border-left-color: var(--entry-slot-2); }
         .entry-dist-swatch.slot-3 { border-left-color: var(--entry-slot-3); }
-        .entry-dist-swatch.is-dashed { border-left-style: dashed; }
         .entry-dist-note { display: flex; gap: 8px; align-items: center; min-height: 16px; color: var(--muted); font-size: 11px; }
         .entry-dist-note > .plot-readout { justify-content: flex-end; }
-        .entry-dist-groups { overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; flex: 0 1 auto; }
-        .entry-dist-axis { position: relative; overflow: hidden; scrollbar-gutter: stable; height: 34px; }
-        .entry-dist-axis-canvas { display: block; height: 20px; }
-        .entry-dist-axis-canvas[hidden] { display: none; }
-        .entry-dist-count-axis { position: absolute; left: 4px; top: 20px; color: var(--muted); font-size: 11px; }
-        .entry-dist-plot { position: relative; user-select: none; touch-action: none; }
-        .entry-dist-row { position: relative; display: flex; }
-        .entry-dist-label { flex: none; width: ${DIST_MARGINS.left}px; padding: 2px 0 0 4px; display: flex; flex-direction: column; overflow: hidden; }
-        .entry-dist-canvas { display: block; margin-top: 4px; cursor: crosshair; }
-        .entry-dist-name { color: var(--text); font-size: 12px; white-space: nowrap; }
-        .entry-dist-count { color: var(--muted); font-size: 11px; font-family: var(--font-mono); }
-        .entry-dist-max { color: var(--muted); opacity: 0.75; font-size: 10px; font-family: var(--font-mono); }
-        .entry-dist-brush { position: absolute; top: 0; bottom: 0; background: rgba(127, 127, 127, 0.12); border: 1px dashed var(--text); pointer-events: none; }
-        .entry-dist-brush[hidden] { display: none; }
+        .entry-dist-figure { position: relative; margin-top: 4px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; flex: 0 1 auto; }
+        .entry-dist-figure[hidden] { display: none; }
         .entry-dist-empty { display: grid; place-items: center; min-height: 120px; color: var(--muted); text-align: center; padding: 8px; }
         .entry-dist-empty[hidden] { display: none; }
         /* While a comparison is open the distribution folds into a low strip above the table, with a way back. */
@@ -283,20 +266,6 @@ export function renderComparisonStyles(): string {
         .entry-screen.is-dist-strip .entry-compute > button { flex: none; }
         .entry-screen.is-dist-strip .entry-dist-head > .entry-spacer { display: none; }
         /* A held slot's Δ spectrum takes the distribution's frame while it is held, so nothing else moves. */
-        .entry-held { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--entry-delta); border-radius: 4px; padding: 2px 6px; }
-        .entry-held[hidden] { display: none; }
-        .entry-held canvas { flex: 1; width: 100%; min-height: 0; }
-        .entry-held-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; }
-        .entry-held-head > [data-entry-held-title] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .entry-held-head > .plot-readout { justify-content: flex-end; }
-        .entry-overview-box { height: 132px; display: flex; flex-direction: column; min-width: 0; }
-        .entry-overview-head { display: flex; justify-content: flex-end; min-height: 16px; }
-        .entry-overview-plot { position: relative; flex: 1; min-height: 0; }
-        .entry-overview { display: block; height: 100%; width: 100%; }
-        .entry-overview-frame { position: absolute; border: 1px solid var(--text); box-sizing: border-box; pointer-events: none; }
-        .entry-overview-focus { position: absolute; background: var(--text); pointer-events: none; }
-        .entry-overview-frame[hidden], .entry-overview-focus[hidden] { display: none; }
-        .entry-row.is-derived .entry-name { color: var(--muted); padding-left: 16px; }
         .entry-table { border-collapse: collapse; width: 100%; outline: 1px solid transparent; outline-offset: -1px; }
         .entry-table th { position: sticky; top: 0; background: var(--panel); text-align: left; font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
         .entry-table td { padding: 3px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
@@ -318,10 +287,14 @@ export function renderComparisonStyles(): string {
         .entry-table col.entry-col-ch-w { width: 3.8em; }
         .entry-table col.entry-col-group-w { width: 8em; }
         /* Wide enough that the usual value names ("Leq A-weighted, uncalibrated [dB SPL re 20 µPa]", "1 kHz 帯 未校正 [dB SPL re 20 µPa]") take at most the head's ENTRY_HEAD_LINES lines. */
+        .entry-table col.entry-col-duration-w { width: 9em; }
+        .entry-table col.entry-col-fs-w { width: 7.6em; }
+        .entry-table col.entry-col-calibration-w { width: 8.4em; }
+        .entry-col-info { color: var(--muted); white-space: nowrap; }
         .entry-table col.entry-col-value-w { width: 11.5em; }
         .entry-table col.entry-col-reason-w { width: 7em; }
         /* Beside the tracks the table is for finding a file: the value column shows maximized (⤢). */
-        .entry-screen:not(.is-max) .entry-table :is(col.entry-col-value-w, .entry-col-value) { display: none; }
+        .entry-screen:not(.is-max) .entry-table :is(col.entry-col-value-w, .entry-col-value, col.entry-col-info-w, .entry-col-info) { display: none; }
         .entry-screen:not(.is-max) .entry-table col.entry-col-group-w { width: 6em; }
         /* A row's height and the head's are set before any value arrives and never change (#781, ENTRY_ROW_HEIGHT and
            ENTRY_HEAD_LINES in entryTableHtml.ts): nothing in a row is taller than it, so the rows under the pointer stay put. */
@@ -450,16 +423,12 @@ export function renderComparisonStyles(): string {
         .track-stage-gate { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); margin-left: 8px; }
         .track-stage-gate[hidden] { display: none; }
         .entry-batch-opt { display: flex; align-items: center; gap: 6px; }
-        .entry-row.is-derived td { color: var(--muted); }
         .compare-play { padding: 0 6px !important; background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 4px; font-size: 10px; line-height: 16px; cursor: pointer; }
         .compare-play:hover { border-color: var(--accent); color: var(--accent); }
         .compare-zoom-box { position: absolute; border: 1px dashed var(--text); pointer-events: none; }
         .compare-zoom-box[hidden] { display: none; }
         .entry-side { position: relative; }
         .track-stage-bar[hidden], .track-stage[hidden], .track-stage-panel[hidden], .track-stage-diff[hidden] { display: none; }
-        .plot-hover-layer { position: fixed; pointer-events: none; z-index: 20; }
-        .plot-hover-layer[hidden], .track-stage-box[hidden] { display: none; }
-        .track-stage-box { position: fixed; z-index: 21; }
         .track-stage { position: relative; z-index: 20; display: flex; flex-direction: column; flex-shrink: 0; font-family: var(--font-ui); font-size: 12px; color: var(--text); }
         /* Short of room, the readout takes a line of its own under the buttons (still above the plots), never past the row's end. */
         .track-stage-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; padding: 2px 12px 4px; }
@@ -476,6 +445,30 @@ export function renderComparisonStyles(): string {
         /* With the tracks under it (a trigger's events), the plot keeps its own height and the tracks scroll below it. */
         .track-stage[data-layout="overlay"][data-marked="true"] { flex: 0 0 auto; }
         .track-stage-panel > canvas { flex: 1 1 0; width: 100%; min-height: 0; }
+        /* The spectrum overlay and its Δ lane on the new path: one Figure drawn at its box's size (screens/compareOverlay.ts). */
+        .track-stage-figure { flex: 1 1 0; width: 100%; min-height: 0; position: relative; overflow: hidden; }
+        .track-stage-figure > canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+        .track-stage-figure[hidden], .track-stage-figure-head[hidden] { display: none; }
+        /* Where the Figure draws nothing: the reason, in the plot's place. */
+        .track-stage-message { flex: 1 1 0; min-height: 60px; display: flex; align-items: center; justify-content: center; padding: 8px 16px; color: var(--muted); text-align: center; }
+        .track-stage-message[hidden] { display: none; }
+        /* Under a trigger's events: the lanes' Figure, its readout row above it and each event's controls over it. */
+        .track-stage-lanes-row { display: flex; justify-content: flex-end; align-items: center; min-height: 18px; padding: 0 2px; flex: 0 0 auto; }
+        .track-stage-lanes-row[hidden] { display: none; }
+        .track-stage-lanes-row > .plot-readout { justify-content: flex-end; }
+        /* The events' plot and each lane keep a height to be read at; a few fill the window, many grow the view, which scrolls. */
+        .track-stage[data-layout="overlay"][data-lanes-figure="true"] { flex: 1 0 auto; }
+        .track-stage[data-lanes-figure="true"] [data-stage-figure] { flex: 1 0 220px; }
+        .track-stage-lanes-figure { flex: 2 0 auto; }
+        /* A lane a recording (the lines not overlaid): each lane keeps a height; a few fill the window, many grow the view. */
+        .track-stage[data-figure-rows="true"] { flex: 1 0 auto; }
+        .track-stage[data-figure-rows="true"] [data-stage-figure] { flex: 1 0 auto; }
+        .stage-lanes-marks > .stage-event-count { transform: translateX(-100%); padding: 2px 5px; background: rgba(0, 0, 0, 0.6); color: #fff; white-space: nowrap; }
+        .stage-lanes-marks { position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
+        /* A fixed height: its text comes and goes with each picture, and the Figure under it must not move (it is drawn at its box's size). */
+        .track-stage-figure-head { display: flex; align-items: center; padding: 0 2px; height: 18px; flex: 0 0 auto; overflow: hidden; }
+        .track-stage-figure-head > [data-stage-figure-headline] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
         .track-stage-diff { display: flex; flex-direction: column; flex: 0 0 35%; min-height: 0; border-top: 1px solid var(--line); }
         .track-stage-diff > canvas { flex: 1 1 0; width: 100%; min-height: 0; }
         .track-stage-diff-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; padding: 0 2px; }
@@ -724,32 +717,35 @@ export function renderComparisonStyles(): string {
             cursor: text;
         }
         .track-offset-input { width: 5em; font-size: inherit; font-family: var(--font-mono); text-align: right; background: var(--vscode-input-background, #1e1e1e); color: var(--vscode-input-foreground, #d4d4d4); border: 1px solid var(--vscode-input-border, #3c3c3c); border-radius: 2px; }
-        .track-canvas-stack { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-        .track-canvas-wrap { display: flex; position: relative; overflow: hidden; background: var(--track-bg); }
-        .track-spec-wrap { display: flex; position: relative; overflow: hidden; background: var(--track-bg); }
+        .track-canvas-stack { flex: 1; position: relative; min-width: 0; }
         /* A trigger's tracks: a mark per event over the lane (▶ plays it, × leaves it out), the lane's count in its corner. */
         .stage-event-marks { position: absolute; top: 0; pointer-events: none; }
         .stage-event-mark { position: absolute; top: 2px; transform: translateX(-50%); display: flex; gap: 1px; pointer-events: auto; }
         .stage-event-mark button { font: 10px/14px sans-serif; padding: 0 3px; border: 1px solid var(--line); border-radius: 3px; background: var(--track-bg); color: var(--text); cursor: pointer; }
         .stage-event-mark.is-out [data-action="stage-event-play"] { opacity: 0.5; }
         .stage-event-count { position: absolute; font: 10px sans-serif; color: var(--muted); }
-        .track-split { flex: none; height: 5px; cursor: row-resize; background: var(--line); opacity: 0.5; }
+        .track-split { position: absolute; left: 0; right: 0; top: var(--row-wave, 60px); z-index: 2; height: 5px; cursor: row-resize; background: var(--line); opacity: 0.5; }
+        /* A channel's waveform and spectrogram are one Figure in one box; the split lies over the room between its lanes. */
+        .track-row-figure { position: relative; overflow: hidden; background: var(--track-bg); height: calc(var(--row-wave, 60px) + var(--row-spec, 60px) + 5px); }
+        /* The Figure draws its bitmap at the device's pixels (fill: true); this rule keeps the canvas at its row's size. */
+        .track-row-figure > canvas[data-figure] { display: block; width: 100%; height: 100%; outline: none; cursor: crosshair; }
+        .track-row-figure > canvas[data-figure]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+        .track-row-layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+        .track-row-says { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 11px; pointer-events: none; z-index: 1; white-space: pre-line; text-align: center; }
+        .track-row-says[hidden] { display: none; }
         /* The keyboard's place: a focused lane, the cursor spectrum or a resize edge has a ring in the theme's focus colour (the mouse's focus has none). */
-        .track-canvas, #spectrum-overlay-canvas { outline: none; }
-        .track-canvas:focus-visible, #spectrum-overlay-canvas:focus-visible, .entry-table td.entry-mark:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+        .tracks-figure > canvas { outline: none; }
+        .tracks-figure > canvas:focus-visible, .entry-table td.entry-mark:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
         [role="separator"] { touch-action: none; }
         [role="separator"]:focus { outline: none; }
         [role="separator"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; background: color-mix(in srgb, var(--accent) 45%, transparent); opacity: 1; }
         .track-split:hover, body.is-split-resizing .track-split { opacity: 1; background: color-mix(in srgb, var(--accent) 45%, transparent); }
-        body.is-stage-view .track-split, body.is-stage-view .track-spec-wrap { display: none; }
-        /* The waveform view's cursor, loop and band are not the step's: their layer is out of sight over a step's plot. */
-        body.is-stage-view .track-waveform-overlay { display: none; }
-        body.is-stage-view .track-canvas-wrap { padding-right: 0; }
+        /* The steps view draws its own plots over the rows: a row keeps its header and an empty box of the rows' height. */
+        body.is-stage-view .track-split, body.is-stage-view .track-row-figure > * { display: none; }
+        body.is-stage-view .track-row-figure { height: var(--row-wave, 60px); }
         /* A step's picture is one per recording (the channel its role compares, R11): drawn on the first lane, the
            others are left out rather than empty, and the channel names over the lanes with them. */
         body.is-stage-view .track-channel-lane:not([data-channel-index="0"]), body.is-stage-view .track-channel-lane-header { display: none; }
-        .track-axis-canvas { flex: none; display: block; }
-        .track-canvas { display: block; width: 100%; height: 80px; cursor: crosshair; }
         .height-resizer { position: absolute; z-index: 5; cursor: row-resize; background: transparent; }
         .height-resizer:hover,
         body.is-height-resizing .height-resizer { background: color-mix(in srgb, var(--accent) 45%, transparent); }
@@ -813,14 +809,9 @@ export function renderComparisonStyles(): string {
         .spectrum-axis-legend-file { max-width: 10em; overflow: hidden; text-overflow: ellipsis; }
         .spectrum-axis-legend-channel { flex: none; white-space: pre; }
         .spectrum-axis-legend-reference { color: var(--muted); flex: none; margin-right: 4px; }
-        /* Gain, phase and γ² stacked, each a plot of its own (R1). */
+        /* Gain, phase and γ² one above another, the lanes of one Figure (screens/tracksFigure.ts) that fills the box. */
         #pair-spectrum-plot { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-        /* A replacement request is computing; the plot still shows the previous inputs. */
-        #pair-spectrum-wrap.is-stale #pair-spectrum-plot,
-        #pair-spectrum-wrap.is-stale #pair-spectrum-summary { opacity: 0.45; }
-        .pair-lane-canvas { display: block; width: 100%; flex: 1 1 0; min-height: 0; cursor: crosshair; }
-        /* The bottom plot carries the shared frequency axis's numbers (12 px more), so the three plots are as tall. */
-        .pair-lane-canvas[data-pair-lane="coherence"] { flex-basis: 12px; }
+        #pair-spectrum-figure { flex: 1 1 auto; height: auto; min-height: 0; }
         #pair-spectrum-message {
             position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
             font-size: 11px; color: var(--muted); text-align: center; padding: 0 12px; pointer-events: none;
@@ -832,7 +823,11 @@ export function renderComparisonStyles(): string {
         .pair-ref-btn.is-active { color: var(--accent); }
         .pair-ref-btn.is-active .pair-ref-badge { display: inline; }
         .spectrum-height-resizer { left: 0; right: 0; top: -3px; height: 6px; }
-        #spectrum-overlay-canvas { display: block; width: 100%; height: 140px; cursor: crosshair; }
+        /* A Figure of the bottom panel (screens/tracksFigure.ts): its canvas fills the box the panel sizes. */
+        .tracks-figure { position: relative; width: 100%; height: 140px; overflow: hidden; }
+        .tracks-figure > canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; cursor: crosshair; }
+        .tracks-figure[hidden], .tracks-figure-empty[hidden] { display: none; }
+        .tracks-figure-empty { height: 140px; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 11px; }
         #spectrum-section-header .panel-toggle:first-of-type { margin-left: auto; }
         /* Maximized: the tracks keep a strip for moving the cursor and the plot takes the rest; flex-basis 0 lets the runtime size the canvas from the wrap. */
         .spectrum-maximized > #tracks-wrapper { flex: 0 1 auto; max-height: 30%; }

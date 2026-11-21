@@ -36,44 +36,6 @@ function buildDummyAudioDataUri(): string {
     return `data:audio/wav;base64,${Buffer.concat([header, pcm]).toString('base64')}`;
 }
 
-function buildDummyWaveform(pointCount: number, phase: number) {
-    const min: number[] = [];
-    const max: number[] = [];
-    const minT: number[] = [];
-    const maxT: number[] = [];
-    const samples: number[] = [];
-
-    for (let pointIndex = 0; pointIndex < pointCount; pointIndex += 1) {
-        const center = (pointIndex + 0.5) / pointCount;
-        const slow = Math.sin(2 * Math.PI * (center * 1.5 + phase));
-        const fast = Math.sin(2 * Math.PI * (center * 7 + phase));
-        const envelope = 0.35 + 0.3 * ((1 + Math.sin(2 * Math.PI * (center + phase))) / 2);
-        const peak = Math.min(0.96, envelope * (0.45 + 0.35 * Math.abs(fast)) + 0.08 * Math.abs(slow));
-        const bias = 0.08 * slow;
-        min.push(Number((bias - peak).toFixed(4)));
-        max.push(Number((bias + peak).toFixed(4)));
-        minT.push(Number(Math.max(0, center - 0.4 / pointCount).toFixed(4)));
-        maxT.push(Number(Math.min(1, center + 0.4 / pointCount).toFixed(4)));
-        samples.push(Math.round((0.5 + 0.5 * fast) * 255));
-    }
-
-    return { min, max, minT, maxT, samples, absolutePeak: 0.96 };
-}
-
-function buildDummySpectrogram(timeBins: number, frequencyBins: number, phase: number): number[][] {
-    return Array.from({ length: timeBins }, (_, timeIndex) => {
-        return Array.from({ length: frequencyBins }, (_, frequencyIndex) => {
-            const timeNorm = timeIndex / Math.max(1, timeBins - 1);
-            const freqNorm = frequencyIndex / Math.max(1, frequencyBins - 1);
-            const ridge = Math.sin(2 * Math.PI * (timeNorm * 1.8 + phase)) * 0.18 + 0.45;
-            const distance = Math.abs(freqNorm - ridge);
-            const bandEnergy = Math.max(0, 1 - distance * 3.5);
-            const shimmer = 0.5 + 0.5 * Math.sin(2 * Math.PI * (timeNorm * 6 + freqNorm * 2 + phase));
-            return Math.round(-92 + bandEnergy * 70 + shimmer * 12);
-        });
-    });
-}
-
 const DUMMY_AUDIO_DATA_URI = buildDummyAudioDataUri();
 
 function buildVsCodeApiStub(nonce: string): string {
@@ -117,20 +79,6 @@ function extractNonce(html: string): string {
     return nonceMatch[1];
 }
 
-function readWaveformPipelineJs(): string {
-    try {
-        return readFileSync(
-            join(__dirname, '..', '..', 'dist', 'webview', 'comparisonWaveform.js'),
-            'utf8',
-        );
-    } catch (error: unknown) {
-        if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
-            throw new Error('Cannot read dist/webview/comparisonWaveform.js — run `npm run compile` first');
-        }
-        throw error;
-    }
-}
-
 function readComparisonRuntimeJs(): string {
     try {
         return readFileSync(
@@ -149,10 +97,6 @@ function finalizePreviewHtml(html: string, options?: { injectVsCodeApiStub?: boo
     const nonce = extractNonce(html);
     let finalizedHtml = html
         .replace(/<meta http-equiv="Content-Security-Policy"[^>]+>\n/u, '')
-        .replace(
-            '<script src="__WAVEFORM_PIPELINE__"></script>',
-            `<script nonce="${nonce}">${readWaveformPipelineJs()}</script>`,
-        )
         .replace(
             '<script src="__COMPARISON_RUNTIME__"></script>',
             `<script nonce="${nonce}">${readComparisonRuntimeJs()}</script>`,
@@ -177,11 +121,9 @@ function buildResultsPreviewHtmlInternal(options?: {
     injectVsCodeApiStub?: boolean;
     injectPreviewDemo?: boolean;
     includeDemoAudio?: boolean;
-    includeSpectrogram?: boolean;
     channelCount?: number;
 }): string {
     const channelCount = options?.channelCount ?? 1;
-    const includeSpectrogram = options?.includeSpectrogram !== false;
     return finalizePreviewHtml(getRenderHtml({
         mode: 'results',
         results: [
@@ -194,23 +136,11 @@ function buildResultsPreviewHtmlInternal(options?: {
                 channelCount,
                 sampleCount: DUMMY_AUDIO_SAMPLE_RATE * DUMMY_AUDIO_DURATION_SECONDS,
                 channels: Array.from({ length: channelCount }, (_, channelIndex) => {
-                    const phase = 0.08 + channelIndex * 0.17;
                     return {
                         label: channelIndex === 0 ? 'L' : 'R',
                         peakAbsolute: 0.96, fullScale: true,
                         // As the backend names every channel's level reference.
                         sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS',
-                        waveform: buildDummyWaveform(96, phase),
-                        spectrogram: includeSpectrogram ? {
-                            values: buildDummySpectrogram(64, 32, phase),
-                            timeBins: 64,
-                            frequencyBins: 32,
-                            windowSize: 512,
-                            hopSize: 128,
-                            maxFrequencyHz: DUMMY_AUDIO_SAMPLE_RATE / 2,
-                            minDb: -90,
-                            maxDb: 0,
-                        } : null,
                     };
                 }),
             },
@@ -249,7 +179,6 @@ export function buildSelectionPreviewHtml(): string {
 export function buildExtensionHostPathPreviewHtml(): string {
     return buildResultsPreviewHtmlInternal({
         includeDemoAudio: true,
-        includeSpectrogram: false,
         channelCount: 2,
     });
 }

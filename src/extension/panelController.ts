@@ -49,16 +49,16 @@ import {
 } from './targetDiscovery';
 
 export interface PanelBackend extends Pick<AnalysisClient,
-    | 'requestRange'
-    | 'requestTrackDetail'
+    | 'requestTrackAnswers'
     | 'releaseTrackDetail'
-    | 'requestSpectrumSlice'
-    | 'requestPairSpectrum'
+    | 'requestCursorAnswers'
+    | 'requestPairAnswers'
+    | 'requestRegionPeak'
     | 'exportWavLoop'
     | 'buildRecipe'
     | 'scan'
-    | 'scanSpec'
-    | 'stageCombine'
+    | 'figure'
+    | 'abandonRequests'
     | 'calibrationFor'> {}
 
 export interface PanelAnalysis {
@@ -160,7 +160,7 @@ const defaultHost: PanelControllerHost = {
 };
 
 /** The calibration revisions a panel's results are checked against, and their change events. */
-export type PanelCalibration = Pick<CalibrationStore, 'analysisRevision' | 'onDidChange' | 'configureTrack'>;
+export type PanelCalibration = Pick<CalibrationStore, 'analysisRevision' | 'onDidChange' | 'configureTrack' | 'profile'>;
 
 /** The Python environment status a panel shows, and its change events. */
 export type PanelPythonEnvironment = Pick<PythonEnvironment, 'getCurrentPythonEnvironmentState' | 'onDidChangePythonEnvironmentState'>;
@@ -185,7 +185,11 @@ export async function analysedUnder(filePaths: readonly string[], stftOptions: S
     return new Map(await Promise.all(filePaths.map(async (filePath) => [filePath, JSON.stringify([stft, await version(filePath) ?? null])] as [string, string])));
 }
 
+/** How many panels have been opened: each names its figure requests apart in the one backend. */
+let panelsOpened = 0;
+
 export class PanelController implements vscode.Disposable {
+    private readonly figurePrefix = `panel${++panelsOpened}:`;
     private readonly sessions = new Map<PanelHandle, PanelSession<PanelHandle>>();
     private readonly calibrationRefreshQueues = new WeakMap<PanelSession<PanelHandle>, Promise<void>>();
     private readonly calibrationChangeDisposable: vscode.Disposable;
@@ -207,7 +211,7 @@ export class PanelController implements vscode.Disposable {
                 // The entry table's scans of the file (a track or not) are of the old calibration: told under each path the
                 // panel names it by (the event's key is canonical, calibrationFileKey: symlinks, /private/tmp, drive case).
                 for (const filePath of session.knownFilePaths().filter((known) => calibrationFileKey(known) === event.filePath)) {
-                    void session.postMessage({ type: 'entry-calibration-changed', filePath });
+                    void session.postMessage({ type: 'entry-calibration-changed', filePath, calibrated: !!calibration.profile(filePath) });
                 }
                 // The event carries the canonical key, which differs from the panel's path on Windows (drive-letter
                 // case, resolved root) and for symlinked files; refresh under every path the panel shows for it.
@@ -485,26 +489,29 @@ export class PanelController implements vscode.Disposable {
             saveReportFolder: async (folder, files) => {
                 const picked = await this.host.showOpenDialog({ canSelectFiles: false, canSelectFolders: true, canSelectMany: false, openLabel: this.strings().compareReport });
                 if (!picked?.[0]) return;
-                const target = path.join(picked[0].fsPath, folder);
-                await fs.mkdir(target, { recursive: true });
+                // A folder of its own: one of that name there already (a report made in the same second) is left as
+                // it is, and this one is numbered, so two reports' files are never mixed.
+                let target = path.join(picked[0].fsPath, folder);
+                for (let n = 2; ; n += 1) {
+                    try { await fs.mkdir(target); break; } catch (error) {
+                        if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || n > 99) throw error;
+                        target = path.join(picked[0].fsPath, `${folder}-${n}`);
+                    }
+                }
                 for (const file of files) await fs.writeFile(path.join(target, file.name), file.bytes);
                 this.host.showInformation(this.strings().reportSaved + target);
             },
             entry: {
-                // The file's version as the backend's file_version knows it (size, mtime, ctime, inode): the same file
-                // unchanged gets its stored metrics back without a scan; one copied over with its times kept (cp -p) does not.
-                identity: async (filePath) => {
-                    this.assertListed(session, filePath);
-                    return storedScanIdentity(filePath);
-                },
-                calibration: (filePath) => JSON.stringify(this.backend.calibrationFor(filePath) ?? null),
-                spec: () => this.backend.scanSpec(),
-                scan: async (filePath, region, recipe, stage, detail, reference, spectrumBins) => {
+                calibrated: (filePath) => !!this.backend.calibrationFor(filePath),
+                scan: async (filePath, stage, region, recipe, reference) => {
                     this.assertListed(session, filePath);
                     if (reference) { this.assertListed(session, reference.filePath); }
-                    return this.backend.scan({ filePath, recipe: recipe ?? await this.entryRecipe(), ...(region ? { region } : {}), ...(stage ? { stage } : {}), ...(detail ? { detail } : {}), ...(reference ? { reference } : {}), ...(spectrumBins ? { spectrumBins } : {}) });
+                    return this.backend.scan({ filePath, recipe: recipe ?? await this.entryRecipe(), stage, ...(region ? { region } : {}), ...(reference ? { reference } : {}) });
                 },
-                combine: payload => this.backend.stageCombine(payload),
+                // The figure service's requests as the webview's answers/ sent them; a superseded draw is cancelled (figure-cancel).
+                // Under this panel's own ids in the backend's request table, so another panel's never collide with them.
+                figure: (command, payload, requestId) => this.backend.figure(command, payload, `${this.figurePrefix}${requestId}`),
+                cancelFigure: requestIds => this.backend.abandonRequests(requestIds.map(requestId => `${this.figurePrefix}${requestId}`)),
                 recipe: () => this.entryRecipe(),
                 readHead: async (filePath, length) => {
                     this.assertListed(session, filePath);
@@ -517,7 +524,7 @@ export class PanelController implements vscode.Disposable {
                         await handle.close();
                     }
                 },
-                // A folder's index, session and CSV go to files in the workspace storage; the rest to the state database.
+                // A folder's session and CSV go to files in the workspace storage; the rest to the state database.
                 read: (key) => (this.folderStore && isFolderKey(key) ? this.folderStore.read(key) : this.context.workspaceState.get(key)),
                 write: (key, value) => (this.folderStore && isFolderKey(key) ? this.folderStore.write(key, value) : this.context.workspaceState.update(key, value)),
             },
@@ -533,7 +540,7 @@ export class PanelController implements vscode.Disposable {
 
     private entryRecipeFile?: Promise<RecipeDocument>;
 
-    /** The workspace storage (else the extension's global storage) for a folder's index and session; none in tests. */
+    /** The workspace storage (else the extension's global storage) for a folder's session and CSV; none in tests. */
     private folderStoreMade = false;
     private folderStoreValue?: ReturnType<typeof createFolderStore>;
     private get folderStore(): ReturnType<typeof createFolderStore> | undefined {

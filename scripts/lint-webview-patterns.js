@@ -138,12 +138,20 @@ function collectDialogEscapeFindings(source, filePath) {
 // draws must be taken off the list.
 const CANVAS_DRAWING_FILES = [
     'src/shared/gui-core/index.ts',
-    'src/webview/plot/waveformLayer.ts',
     'src/webview/runtime/canvasOverlays.ts',
-    'src/webview/runtime/compareReport.ts',
     'src/webview/runtime/exportDownloads.ts',
-    'src/webview/runtime/stagePanes.ts',
-    'src/webview/waveform/waveformRenderer.ts',
+    // The time ruler over the Tracks rows: the ticks and the name of the time axis the rows share. It draws no
+    // measured value: only the window on screen (docs/figure-list.md).
+    'src/webview/runtime/timeRuler.ts',
+    // The Figure: the one painter of the new path (figure-design.md 第 2 節 C).
+    'src/webview/figure/figure.ts',
+    // The Figure's image lane: its cells and colour bar, called by figure.ts only.
+    'src/webview/figure/imageLane.ts',
+    // The Figure's bins lane: a distribution's bars, dots and ticks, called by figure.ts only.
+    'src/webview/figure/binsLane.ts',
+    // A figure's PNG with its lines named: a strip of names and colour strokes above the Figure's own canvas,
+    // which it copies. It draws no picture and no value: the names and colours handed to it.
+    'src/webview/figure/pngLegend.ts',
 ];
 // Path building and every fill/stroke; `.fill(` / `.stroke(` count only with no argument or a Path2D / fill rule, so
 // Array.prototype.fill(value) does not match. Comments are stripped first, so a leftover comment neither draws nor keeps a file listed.
@@ -170,7 +178,7 @@ function collectCanvasDrawingFindings(filePaths) {
             out.push({
                 filePath,
                 line: lineNumberAt(source, match.index),
-                description: 'Only the files in CANVAS_DRAWING_FILES (scripts/lint-webview-patterns.js) draw on a canvas; draw this chart through the shared plot code instead of adding a new painter.',
+                description: 'Only the files in CANVAS_DRAWING_FILES (scripts/lint-webview-patterns.js) draw on a canvas; a figure is drawn by the Figure (src/webview/figure/) from the picture the figure service sends, never by a new painter.',
                 excerpt: excerptAt(source, match.index),
             });
         }
@@ -186,8 +194,8 @@ function collectCanvasDrawingFindings(filePaths) {
     return out;
 }
 
-// A minus sign is written by plotText.ts alone (R7), so every number reads the same and none keeps a hyphen.
-const MINUS_FILE = 'src/webview/plot/plotText.ts';
+// A minus sign is written by shell/numberText.ts alone (R7), so every number reads the same and none keeps a hyphen.
+const MINUS_FILE = 'src/webview/shell/numberText.ts';
 // Either a hyphen replaced by a minus, or a minus sign alone in a string (a sign picked by hand: `x < 0 ? '−' : ''`).
 const handMadeMinusRegex = /\.replace\(\s*\/\^?-\/[gu]*\s*,\s*['"`]\u2212['"`]|(['"`])\u2212\1/u;
 /** @param {string[]} filePaths */
@@ -208,7 +216,7 @@ function collectMinusFindings(filePaths) {
 }
 
 // The report (and the formatters it shares with the comparison, and the track header's peak and level) writes its numbers for people too: a number turned
-// to text there goes through plotText.ts (levelText, withMinus), so a negative one gets a true minus, never "-1.8 dBFS".
+// to text there goes through src/webview/shell/numberText.ts (levelText, withMinus), so a negative one gets a true minus, never "-1.8 dBFS".
 const REPORT_NUMBER_FILES = ['src/shared/report/', 'src/shared/utils/format.ts', 'src/webview/runtime/calibrationDecorations.ts'];
 const numberTextRegex = /\.to(?:Fixed|Precision|Exponential)\(/gu;
 /** @param {string[]} filePaths */

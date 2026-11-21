@@ -64,12 +64,12 @@ test('a failed spectrogram request reaches the lane as the localized summary wit
         lazyContext: () => ({ analysisRevision: 0 }),
         lazyFailed: (_request: unknown, reason: string) => { announced.push(reason); },
         client: {
-            requestTrackDetail: () => Promise.reject(rejectedWith({ code: 'input-error', kind: 'analysis-settings', message: SCIPY })),
+            requestTrackAnswers: () => Promise.reject(rejectedWith({ code: 'input-error', kind: 'analysis-settings', message: SCIPY })),
         },
     } as unknown as ComparisonSessionPorts;
 
     await new ComparisonSessionController(ports).handle({
-        type: 'request-track-detail', requestId: 'd1', analysisId: 'a', settingsSignature: 's', trackIndex: 0, filePath: '/short.wav', sourceVersion: undefined,
+        type: 'request-track-detail', requestId: 'd1', analysisId: 'a', settingsSignature: 's', trackIndex: 0, filePath: '/short.wav', sourceVersion: undefined, answers: 'log',
     });
 
     const expected = `${ja.errorAnalysisSettings}\n${SCIPY}`;

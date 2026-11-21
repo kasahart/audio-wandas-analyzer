@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildTrackSnapshot, type SnapshotTrack, type TrackSnapshotSource } from '../webview/runtime/comparisonSnapshot';
-import type { ComparisonTrackState, SpectrumSlice, TrackId } from '../webview/runtime/types';
+import type { ComparisonTrackState, TrackId } from '../webview/runtime/types';
 
 function result(filePath: string, durationSeconds = 2): ComparisonTrackState {
     return {
@@ -11,7 +11,7 @@ function result(filePath: string, durationSeconds = 2): ComparisonTrackState {
         durationSeconds,
         channelCount: 1,
         sampleCount: 8000 * durationSeconds,
-        channels: [{ label: 'L', peakAbsolute: 0.5, fullScale: true, sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS', waveform: { min: [-0.5], max: [0.5], samples: [0], absolutePeak: 0.5 }, spectrogram: null }],
+        channels: [{ label: 'L', peakAbsolute: 0.5, fullScale: true, sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS' }],
     };
 }
 
@@ -22,12 +22,10 @@ function track(index: number, overrides: Partial<SnapshotTrack> = {}): SnapshotT
         result: result(`/t${index}.wav`),
         offsetSeconds: 0,
         hidden: false,
-        waveformCoverage: null,
         ...overrides,
     };
 }
 
-const SLICE: SpectrumSlice = { values: [-60, -40, -20], frequencyBins: 3, maxFrequencyHz: 4000, minDb: -60, maxDb: -20 };
 
 function source(tracks: SnapshotTrack[], peeked: number[]): TrackSnapshotSource {
     return {
@@ -35,9 +33,8 @@ function source(tracks: SnapshotTrack[], peeked: number[]): TrackSnapshotSource 
         globalSpan: { startSec: 0, endSec: 2, spanSec: 2 },
         zoomStart: 0.25,
         zoomEnd: 0.75,
-        spectrumView: { freqStart: 0, freqEnd: 1, dbMin: null, dbMax: null },
         spectrogramDisplay: { dbMin: null, dbMax: null, maxFrequencyHz: null },
-        peekSlice(item) { peeked.push(item.trackIndex); return item.trackIndex === 0 ? SLICE : null; },
+        spectrumLine(item) { peeked.push(item.trackIndex); return item.trackIndex === 0; },
         waveformAxisLabels: item => ['wave ' + item.trackIndex],
         spectrumTexts: () => ['−20', 'drawn'],
         spectrogramTexts: item => ['lane ' + item.trackIndex],

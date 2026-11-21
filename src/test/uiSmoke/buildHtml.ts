@@ -1,10 +1,80 @@
 import {
-    buildExtensionHostPathPreviewHtml,
-    buildResultsPreviewHtml,
+    buildExtensionHostPathPreviewHtml as extensionHostPathPreviewHtml,
+    buildResultsPreviewHtml as resultsPreviewHtml,
     buildSelectionPreviewHtml,
 } from '../../tools/comparisonPreview';
+import { withKnownRecordings } from './knownRecording';
 import { getStrings } from '../../shared/i18n/strings';
 import { UI_SMOKE_READS } from './fullReadStandIn';
+
+/** The figure service's stand-in for a page of either stub: see the comment it starts with. */
+const UI_SMOKE_FIGURES = `
+// The figure service (python-backend/figures/) for the pictures a test answers with: the real service run by the test
+// (figureStandIn.ts, python-backend/tests/figure_stand_in.py), handed each picture the spec names. The real-backend
+// bridge (realBackend.ts) answers instead where the backend scanned the pictures itself (__uiSmokeRealFigures).
+if (window.__settle) window.__settle.awaitHost(['figure-request']);
+function uiSmokeFigureAnswers(message) {
+    const keys = (message.payload && message.payload.spec && message.payload.spec.keys) || [];
+    const answers = {};
+    const sent = window.__uiSmokeFigureSent || (window.__uiSmokeFigureSent = {});
+    keys.forEach(function(entry) {
+        // A kept answer a test let go (window.__uiSmokeLetGo: its key), as a backend's store that made room: the
+        // service holds nothing under it (or a part of it) any more.
+        if (window.__uiSmokeLetGo && window.__uiSmokeLetGo[entry.key.split('#')[0]]) { answers[entry.key] = null; delete sent[entry.key]; return; }
+        // One event of a trigger's (or their mean): its step's picture's event of that number (transport/figure_answers.py EVENT_MARK).
+        // When a trigger's events fired (transport/figure_answers.py EVENTS_MARK): its step's picture's events' numbers and times.
+        if (entry.key.slice(-7) === '#events') {
+            const fired = window.__uiSmokeStageData[entry.key.slice(0, -7)];
+            if (fired && fired.events) answers[entry.key] = { fired: fired.events.map(function(item) { return { id: item.id, time: item.time }; }) };
+            return;
+        }
+        const mark = entry.key.indexOf('#event:');
+        if (mark >= 0) {
+            const step = window.__uiSmokeStageData[entry.key.slice(0, mark)], which = entry.key.slice(mark + 7);
+            const events = (step && step.events) || [];
+            if (!events.length) return;
+            const stepInput = window.__uiSmokeStageInput[entry.key.slice(0, mark)] || {};
+            const one = which === 'mean' ? null : events.find(function(item) { return String(item.id) === which; });
+            if (which !== 'mean' && !one) return;
+            const xs = (one && one.xs) || events[0].xs || step.xs;
+            const values = one ? one.values : xs.map(function(_, i) { let sum = 0, n = 0; events.forEach(function(item) { const value = item.values[i]; if (value !== null && value !== undefined && isFinite(value)) { sum += value; n += 1; } }); return n ? sum / n : null; });
+            answers[entry.key] = { event: true, xs: xs, values: values, quantity: step.quantity, unit: step.unit,
+                identity: [stepInput.unit || '', stepInput.ref === undefined || stepInput.ref === null ? 1 : Number(stepInput.ref), stepInput.levelReferenceLabel || ''] };
+            return;
+        }
+        const view = window.__uiSmokeStageData[entry.key];
+        if (!view || (view.kind !== 'line' && view.kind !== 'bar' && view.kind !== 'heatmap')) return;
+        // A picture the service was handed already (it keeps what it is handed) is not sent again: a figure of many
+        // long lines asks often.
+        if (sent[entry.key] === view) return;
+        sent[entry.key] = view;
+        const input = window.__uiSmokeStageInput[entry.key] || {};
+        // An image (a spectrogram, a roughness, a cepstrogram): its cells, rows over its ys.
+        if (view.kind === 'heatmap') {
+            answers[entry.key] = { kind: 'heatmap', xs: view.xs, ys: view.ys, matrix: view.matrix, quantity: view.quantity, unit: view.unit, yAxis: view.yAxis || 'frequency', yLimits: view.yLimits || null,
+                yScale: view.yScale || null, xLimits: view.xLimits || null, cellPx: view.cellPx || null,
+                identity: [input.unit || '', input.ref === undefined || input.ref === null ? 1 : Number(input.ref), input.levelReferenceLabel || ''] };
+            return;
+        }
+        answers[entry.key] = { xs: view.xs, values: view.values, kind: view.kind, xScale: view.xScale, quantity: view.quantity, xLimits: view.xLimits || null,
+            x: view.x, unit: view.unit, measure: view.measure, measureExponent: view.measureExponent, pair: view.pair,
+            signal: !!view.waveform, waveform: view.waveform || null, xSource: view.xSource || null,
+            identity: [input.unit || '', input.ref === undefined || input.ref === null ? 1 : Number(input.ref), input.levelReferenceLabel || ''] };
+    });
+    return answers;
+}
+function uiSmokeFigure(message) {
+    if (!window.__uiSmokeFigure) return;
+    window.__uiSmokeFigure({ command: message.command, payload: message.payload, answers: uiSmokeFigureAnswers(message) }).then(function(reply) {
+        if (message.command !== 'figure-release') {
+            window.postMessage(reply.error !== undefined
+                ? { type: 'figure-result', requestId: message.requestId, command: message.command, failed: reply.error }
+                : { type: 'figure-result', requestId: message.requestId, command: message.command, result: reply.result }, '*');
+        }
+        if (window.__settle) window.__settle.answered(message.requestId);
+    });
+}
+`;
 
 function buildVsCodeApiStub(nonce: string): string {
     return `<script nonce="${nonce}">
@@ -14,115 +84,55 @@ window.__uiSmokeClipboardWrites = [];
 window.__uiSmokeState = {};
 window.__AWA_TEST_HOOKS__ = true;
 // Smoke pages open with the cursor spectrum unfolded (a fresh panel folds it); a test sets __uiSmokeViewState for a fresh one.
-// The backend's stage-combine for the pictures a test answers with: each picture is taken as the step's full
-// resolution, named by a key as the backend names the values it keeps, and combined point by point.
+// The pictures a test answers with, kept as the backend keeps a step's values: each is taken as the step's full
+// resolution and named by a key (the figure service's stand-in below is handed them).
 window.__uiSmokeStageData = {};
-// The backend's levelBins (stage_combine.level_bins) for a picture a test answers with, its values taken as every
-// value: a level's power mean of 10^(dB/10), a waveform's mean square, in stretches of its axis (R6's order), each
-// saying which it is (of), as the backend's do.
-function uiSmokeLevelBins(view) {
-    const xs = view.xs || [];
-    // A trigger's events: the mean square of every event's samples (stage_combine._event_level_bins, A44).
-    if (view.events && view.events.length) {
-        let sum = 0, n = 0, low = Infinity, high = -Infinity;
-        view.events.forEach(function(event) { (event.values || []).forEach(function(value, i) { if (value === null || !isFinite(value)) return; sum += value * value; n += 1; low = Math.min(low, event.xs[i]); high = Math.max(high, event.xs[i]); }); });
-        return n ? { of: 'square', edges: [low, high > low ? high : low + 1], power: [sum / n], count: [n] } : null;
-    }
-    const db = view.quantity === 'level' || view.quantity === 'gain';
-    if ((view.kind !== 'line' && view.kind !== 'bar') || (!db && !view.waveform) || !xs.length) return null;
-    const powers = view.waveform
-        ? view.waveform.max.map(function(high, i) { const low = view.waveform.min[i] || 0; return ((high || 0) * (high || 0) + low * low) / 2; })
-        : (view.values || []).map(function(value) { return value === null ? null : value <= -250 ? 0 : Math.pow(10, value / 10); });
-    const at = view.waveform
-        ? view.waveform.max.map(function(_, i) { return ((view.waveform.minT[i] || 0) + (view.waveform.maxT[i] || 0)) / 2; })
-        : xs;
-    const low = Math.min.apply(null, at), high = Math.max.apply(null, at);
-    const edges = [low, high > low ? high : low + 1];
-    let power = 0, count = 0;
-    powers.forEach(function(value) { if (value !== null && isFinite(value)) { power += value; count += 1; } });
-    return { of: view.waveform ? 'square' : 'dbPower', edges: edges, power: [count ? power / count : 0], count: [count] };
-}
 function uiSmokeSourceAxis(places) {
     const axis = { count: places.length, first: places[0], last: places[places.length - 1] };
     if (places.length > 1) axis.step = places[1] - places[0];
     return axis;
 }
+// What each picture's levels are in, as its scan read them (the backend keeps it with the values: StageData.calibration).
+window.__uiSmokeStageInput = {};
 window.addEventListener('message', function(event) {
     const data = event.data;
     const stage = data && data.type === 'compare-scan-result' && data.result && data.result.stage;
-    if (!stage || stage.kind === 'none' || stage.data) return;
+    if (!stage) return;
+    // A scan is answered as the backend answers it (frames/stage_view.py describe): the test's picture is kept as the
+    // step's answer, and the page is told only what it is, with no drawn point.
+    // The words of a description (the protocol's StageView): the page refuses a result with any other field.
+    const words = ['frame', 'kind', 'x', 'xScale', 'quantity', 'unit', 'yAxis', 'pair', 'signal', 'measure', 'measureExponent', 'data', 'events'];
+    const describe = function() {
+        const told = data.result.stage;
+        if (told.waveform) told.signal = true;
+        Object.keys(told).forEach(function(field) { if (words.indexOf(field) < 0) delete told[field]; });
+        if (told.events) told.events = told.events.map(function(item) { return { id: item.id, time: item.time }; });
+    };
+    if (stage.kind === 'none' || stage.data) { describe(); return; }
     const key = 'k:' + data.filePath + ':' + Object.keys(window.__uiSmokeStageData).length;
     stage.data = key;
-    const bins = stage.levelBins || uiSmokeLevelBins(stage);
-    if (bins) stage.levelBins = bins;
-    // The source axes the backend sends with every picture (stage_view.source_axis): the stand-in thins nothing, so a
-    // whole picture's points are its source, unless the test gave its own. A zoomed part's are not: it says none.
-    if (!stage.detail && !stage.xSource && stage.xs && stage.xs.length) stage.xSource = uiSmokeSourceAxis(stage.xs);
-    if (!stage.detail && stage.kind === 'heatmap' && !stage.ySource && stage.ys && stage.ys.length) stage.ySource = uiSmokeSourceAxis(stage.ys);
-    window.__uiSmokeStageData[key] = stage;
+    window.__uiSmokeStageInput[key] = data.result.input || null;
+    // The axis the kept values are on, for the figure stand-in (a signal's samples are placed by it): the points the
+    // test gave, unless it gave an axis of its own. The page is told none of this.
+    if (!stage.xSource && stage.xs && stage.xs.length) stage.xSource = uiSmokeSourceAxis(stage.xs);
+    window.__uiSmokeStageData[key] = Object.assign({}, stage);
+    describe();
 }, true);
 ${UI_SMOKE_READS}
-function uiSmokeCombine(message) {
-    const combined = uiSmokeCombined(message);
-    if (!message.read || !combined.ok) return combined;
-    // A readout's read (R7): the points of the picture it reads, around the place asked for.
-    const read = message.read;
-    const view = read.of === 'diff' ? combined.diff : message.base.length > 1 ? combined.base : window.__uiSmokeStageData[message.base[0]];
-    const points = uiSmokeReadPoints(view, read);
-    return points ? { ok: true, points: points } : { ok: true };
-}
-function uiSmokeCombined(message) {
-    const views = message.base.map(function(key) { return window.__uiSmokeStageData[key]; });
-    const compare = message.compare ? window.__uiSmokeStageData[message.compare] : null;
-    if (views.some(function(view) { return !view; }) || (message.compare && !compare)) {
-        return { ok: false, missing: message.base.concat(message.compare ? [message.compare] : []).filter(function(key) { return !window.__uiSmokeStageData[key]; }) };
-    }
-    const first = views[0];
-    const same = function(view) { return view.kind === first.kind && view.x === first.x && view.quantity === first.quantity && (view.xs || []).length === (first.xs || []).length && (view.ys || []).length === (first.ys || []).length; };
-    if (!views.every(same) || (compare && !same(compare))) return { ok: true };
-    const median = function(values) {
-        if (values.some(function(value) { return value === null || value === undefined; })) return null;
-        const sorted = values.slice().sort(function(a, b) { return a - b; });
-        const mid = Math.floor(sorted.length / 2);
-        return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-    };
-    const strip = function(view) { const out = Object.assign({}, view); delete out.waveform; delete out.events; delete out.data; delete out.levelBins; return out; };
-    const base = first.matrix
-        ? Object.assign(strip(first), { matrix: first.matrix.map(function(row, r) { return row.map(function(_, c) { return median(views.map(function(view) { return view.matrix[r][c]; })); }); }) })
-        : Object.assign(strip(first), { values: (first.values || []).map(function(_, i) { return median(views.map(function(view) { return view.values[i]; })); }) });
-    const result = { ok: true };
-    delete base.levelBins;
-    const baseBins = uiSmokeLevelBins(base);
-    if (baseBins) base.levelBins = baseBins;
-    if (views.length > 1) result.base = base;
-    if (!compare || /Segments$/.test(first.frame)) return result;
-    // A Δ is sent unrounded, as the backend sends it (R1, stage_combine._sent): only its text is rounded.
-    const minus = function(a, b) { return a === null || b === null ? null : a - b; };
-    const diff = compare.matrix
-        ? Object.assign(strip(compare), { matrix: compare.matrix.map(function(row, r) { return row.map(function(value, c) { return minus(value, base.matrix[r][c]); }); }) })
-        : Object.assign(strip(compare), { values: (compare.values || []).map(function(value, i) { return minus(value, base.values[i]); }) });
-    // Its largest difference, found among the values the test answered with (taken as every value), as the backend's
-    // stage_combine.difference_peak finds it: what the Δ pane's headline names.
-    let peak = null;
-    if (diff.matrix) diff.matrix.forEach(function(row, r) { row.forEach(function(value, c) { if (value !== null && (diff.whole ? diff.whole[c] !== false : true) && (!peak || Math.abs(value) > Math.abs(peak.value))) peak = { x: diff.xs[c], y: diff.ys[r], value: value }; }); });
-    else (diff.values || []).forEach(function(value, i) { if (value !== null && (!peak || Math.abs(value) > Math.abs(peak.value))) peak = { x: diff.xs[i], value: value }; });
-    if (peak) diff.peak = peak;
-    result.diff = diff;
-    return result;
-}
+${UI_SMOKE_FIGURES}
 window.acquireVsCodeApi = function() {
     return {
         postMessage(message) {
             window.__uiSmokePostedMessages.push(message);
             const read = uiSmokeReadAnswer(message);
             if (read) { window.setTimeout(function() { window.postMessage(read, '*'); }, 0); return; }
-            // The cursor spectrum's slice, as the backend answers it: until it is in, the spectrogram column drawn is not read (R7).
+            // The cursor spectrum's answers, as the backend gives them: a key a channel, its line kept for the figure stand-in.
             const slice = uiSmokeSliceAnswer(message);
             if (slice) { window.setTimeout(function() { window.postMessage(slice, '*'); }, 0); return; }
-            if (message && message.type === 'compare-combine' && !window.__uiSmokeHoldCombine) {
-                const answer = uiSmokeCombine(message);
-                window.setTimeout(function() { window.postMessage({ type: 'compare-combine-result', requestId: message.requestId, result: answer }, '*'); }, 0);
-            }
+            // A row's kept answers on the Figure path (held off where a real backend answers: realBackend.ts).
+            const rows = window.__uiSmokeRealFigures ? null : uiSmokeRowAnswers(message);
+            if (rows) { window.setTimeout(function() { window.postMessage(rows, '*'); }, 0); return; }
+            if (message && message.type === 'figure-request' && !window.__uiSmokeRealFigures) { uiSmokeFigure(message); return; }
         },
         setState() {},
         getState() { return window.__uiSmokeViewState === undefined ? { spectrumCollapsed: false } : window.__uiSmokeViewState; },
@@ -163,6 +173,8 @@ function buildExtensionHostApiStub(nonce: string, responseDelayMs: number): stri
 window.__uiSmokePostedMessages = [];
 window.__uiSmokeState = {};
 window.__AWA_TEST_HOOKS__ = true;
+window.__uiSmokeStageData = {};
+window.__uiSmokeStageInput = {};
 ${UI_SMOKE_READS}
 window.__uiSmokeHostMetrics = {
     requests: [],
@@ -171,15 +183,11 @@ window.__uiSmokeHostMetrics = {
     inFlight: 0,
     maxInFlight: 0,
 };
-// A cursor spectrum is a row cut for display (192 points); the CSV export asks for every bin of an 8192-point FFT.
-const uiSmokeSpectrumBins = function(message) {
-    return message.fullResolution ? ${UI_SMOKE_HOST_GRID.spectrumBins} : 192;
-};
-// A test may set window.__uiSmokeSpikeHz: one bin there stands at −2 dB in an answer at full resolution only, a
-// line a spectrum cut for display (192 points) does not have.
+// A cursor spectrum's line is every bin of an 8192-point FFT, as the backend keeps it.
+// A test may set window.__uiSmokeSpikeHz: one bin there stands at −2 dB.
 const uiSmokeSpectrumValues = function(cursorNorm, channelIndex, bins) {
     const spikeHz = window.__uiSmokeSpikeHz;
-    const spike = bins > 192 && typeof spikeHz === 'number' ? Math.round(spikeHz / 4000 * (bins - 1)) : -1;
+    const spike = typeof spikeHz === 'number' ? Math.round(spikeHz / ${UI_SMOKE_HOST_GRID.maxHz} * (bins - 1)) : -1;
     return Array.from({ length: bins }, function(_, index) {
         if (index === spike) return -2;
         const frequencyNorm = index / (bins - 1);
@@ -187,98 +195,54 @@ const uiSmokeSpectrumValues = function(cursorNorm, channelIndex, bins) {
         return -100 + Math.max(0, 1 - Math.abs(frequencyNorm - ridge) * 8) * 88;
     });
 };
+const uiSmokeFullScale = { unit: 'FS', ref: 1, label: 'dBFS' };
 const uiSmokeThirdOctaveCentersHz = [25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800, 1000,
     1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000];
 const uiSmokeBandResponse = function(message) {
     const centers = message.bandsPerOctave === 1 ? uiSmokeThirdOctaveCentersHz.filter(function(_, index) { return index % 3 === 1; }) : uiSmokeThirdOctaveCentersHz;
-    return {
-        type: 'spectrum-slice-result',
-        requestId: message.requestId,
-        analysisId: message.analysisId,
-        settingsSignature: message.settingsSignature,
-        trackIndex: message.trackIndex,
-        filePath: message.filePath,
-        frequencyBins: centers.length,
-        maxFrequencyHz: 22387.2,
-        minFrequencyHz: 22.39,
-        bandsPerOctave: message.bandsPerOctave,
-        bandCentersHz: centers,
-        windowStartNorm: message.cursorNorm - 0.02,
-        windowEndNorm: message.cursorNorm + 0.02,
-        window: 'boxcar',
-        channels: [0, 1].map(function(channelIndex) {
-            return {
-                channelIndex: channelIndex,
-                values: centers.map(function(_, index) { return -60 + index - channelIndex * 6; }),
-                // Bands are never cut for display: every band is sent as bins too (x-whole), as the backend does.
-                bins: centers.map(function(_, index) { return -60 + index - channelIndex * 6; }),
-                minDb: -66,
-                maxDb: -60 + centers.length,
-            };
-        }),
-        computeMs: 7.1,
-    };
+    return uiSmokeCursorAnswers(message, [0, 1].map(function(channelIndex) {
+        const values = centers.map(function(_, index) { return -60 + index - channelIndex * 6; });
+        return { channelIndex: channelIndex, xs: centers, values: values, level: uiSmokeFullScale, x: 'band', xScale: 'log', xLimits: [22.39, 22387.2] };
+    }), { windowStartNorm: message.cursorNorm - 0.02, windowEndNorm: message.cursorNorm + 0.02, window: 'boxcar' });
 };
 const uiSmokeSpectrumResponse = function(message) {
     if (message.bandsPerOctave) {
         return uiSmokeBandResponse(message);
     }
-    const bins = uiSmokeSpectrumBins(message);
-    const identity = {
-        type: 'spectrum-slice-result',
-        requestId: message.requestId,
-        analysisId: message.analysisId,
-        settingsSignature: message.settingsSignature,
-        trackIndex: message.trackIndex,
-        filePath: message.filePath,
-        frequencyBins: bins,
-        maxFrequencyHz: ${UI_SMOKE_HOST_GRID.maxHz},
-        ...(message.fullResolution ? {} : { frequenciesHz: Array.from({ length: bins }, function(_, index) { return index / (bins - 1) * 4000; }) }),
-        windowStartNorm: message.cursorNorm - 0.02,
-        windowEndNorm: message.cursorNorm + 0.02,
-        window: 'hann',
-    };
-    if (Number.isInteger(message.channelIndex)) {
-        if (message.fullResolution) uiSmokeServe('spectrum', message.filePath, message.channelIndex, uiSmokeSpectrumValues(message.cursorNorm, message.channelIndex, bins));
-        return Object.assign(identity, {
-            channelIndex: message.channelIndex,
-            values: uiSmokeSpectrumValues(message.cursorNorm, message.channelIndex, bins),
-            ...(message.fullResolution ? { bins: uiSmokeSpectrumValues(message.cursorNorm, message.channelIndex, bins) } : {}),
-            minDb: -100,
-            maxDb: 0,
-        });
-    }
-    if (message.fullResolution) [0, 1].forEach(function(channelIndex) { uiSmokeServe('spectrum', message.filePath, channelIndex, uiSmokeSpectrumValues(message.cursorNorm, channelIndex, bins)); });
-    return Object.assign(identity, {
-        channels: [0, 1].map(function(channelIndex) {
-            return {
-                channelIndex: channelIndex,
-                values: uiSmokeSpectrumValues(message.cursorNorm, channelIndex, bins),
-                // Every bin (x-whole) only for a row not cut for display (no frequenciesHz), as the backend does.
-                ...(message.fullResolution ? { bins: uiSmokeSpectrumValues(message.cursorNorm, channelIndex, bins) } : {}),
-                minDb: -100,
-                maxDb: 0,
-            };
-        }),
-        computeMs: 7.1,
-    });
+    const bins = ${UI_SMOKE_HOST_GRID.spectrumBins};
+    const xs = Array.from({ length: bins }, function(_, index) { return index / (bins - 1) * ${UI_SMOKE_HOST_GRID.maxHz}; });
+    return uiSmokeCursorAnswers(message, [0, 1].map(function(channelIndex) {
+        const values = uiSmokeSpectrumValues(message.cursorNorm, channelIndex, bins);
+        return { channelIndex: channelIndex, xs: xs, values: values, level: uiSmokeFullScale, xLimits: [0, ${UI_SMOKE_HOST_GRID.maxHz}] };
+    }), { windowStartNorm: message.cursorNorm - 0.02, windowEndNorm: message.cursorNorm + 0.02 });
 };
+// A pair's three lines (gain in dB, phase in degrees, coherence), kept by key a response.
 const uiSmokePairResponse = function(message) {
     const bins = ${UI_SMOKE_HOST_GRID.pairBins};
-    const answer = {
-        type: 'pair-spectrum-result',
+    const xs = Array.from({ length: bins }, function(_, bin) { return bin / (bins - 1) * ${UI_SMOKE_HOST_GRID.maxHz}; });
+    const plain = { unit: '', ref: 1, label: '' };
+    return {
+        type: 'pair-answers-result',
         requestId: message.requestId,
         analysisId: message.analysisId,
         settingsSignature: message.settingsSignature,
         filePath: message.reference.filePath,
         channelIndex: message.reference.channelIndex,
-        frequencyBins: bins,
-        maxFrequencyHz: ${UI_SMOKE_HOST_GRID.maxHz},
+        scale: message.answers || 'linear',
         nFft: 256,
         hopLength: 64,
         window: 'hann',
-        computeMs: 3.2,
         responses: message.responses.map(function(source, index) {
+            const lines = {
+                gain: Array.from({ length: bins }, function(_, bin) { return -6 * bin / (bins - 1) - index * 3; }),
+                phase: Array.from({ length: bins }, function(_, bin) { return -180 * bin / (bins - 1); }),
+                coherence: Array.from({ length: bins }, function(_, bin) { return 1 - 0.5 * bin / (bins - 1); }),
+            };
+            const keys = {};
+            ['gain', 'phase', 'coherence'].forEach(function(part) {
+                keys[part] = uiSmokeKeepLine(['pair', message.reference.filePath, message.reference.channelIndex, source.filePath, source.channelIndex, part, message.startSeconds, message.endSeconds, message.settingsSignature].join('|'),
+                    Object.assign({ xs: xs, values: lines[part], quantity: part, xLimits: [0, ${UI_SMOKE_HOST_GRID.maxHz}] }, part === 'phase' ? { unit: 'deg' } : {}), part === 'gain' ? uiSmokeFullScale : plain);
+            });
             return {
                 filePath: source.filePath,
                 channelIndex: source.channelIndex,
@@ -287,32 +251,22 @@ const uiSmokePairResponse = function(message) {
                 endSeconds: message.endSeconds === undefined ? 1 : message.endSeconds,
                 averages: index === 0 ? 32 : 6,
                 resampled: index === 1,
-                gainDb: Array.from({ length: bins }, function(_, bin) { return -6 * bin / (bins - 1) - index * 3; }),
-                phaseRad: Array.from({ length: bins }, function(_, bin) { return -Math.PI * bin / (bins - 1); }),
-                coherence: Array.from({ length: bins }, function(_, bin) { return 1 - 0.5 * bin / (bins - 1); }),
-                unit: 'FS',
-                axisLabel: 'Gain [dB]',
+                keys: keys,
             };
         }),
     };
-    answer.responses.forEach(function(response) {
-        uiSmokeServe('pair-gain', response.filePath, response.channelIndex, response.gainDb);
-        uiSmokeServe('pair-phase', response.filePath, response.channelIndex, response.phaseRad);
-        uiSmokeServe('pair-coherence', response.filePath, response.channelIndex, response.coherence);
-    });
-    return answer;
 };
+${UI_SMOKE_FIGURES}
 window.acquireVsCodeApi = function() {
     return {
         postMessage(message) {
             window.__uiSmokePostedMessages.push(message);
             const read = uiSmokeReadAnswer(message);
             if (read) { window.setTimeout(function() { window.postMessage(read, '*'); }, ${responseDelayMs}); return; }
-            // A readout's read of a slice at every bin (R7) is answered beside the cursor spectrum's own requests.
-            if (message && message.type === 'request-spectrum-slice' && message.read) {
-                window.setTimeout(function() { window.postMessage(uiSmokeSpectrumResponse(message), '*'); }, ${responseDelayMs});
-                return;
-            }
+            // A row's kept answers on the Figure path, after the host's delay.
+            const rows = uiSmokeRowAnswers(message);
+            if (rows) { window.setTimeout(function() { window.postMessage(rows, '*'); }, ${responseDelayMs}); return; }
+            if (message && message.type === 'figure-request') { uiSmokeFigure(message); return; }
             if (message && message.type === 'request-pair-spectrum') {
                 window.setTimeout(function() { window.postMessage(uiSmokePairResponse(message), '*'); }, ${responseDelayMs});
                 return;
@@ -345,7 +299,7 @@ window.acquireVsCodeApi = function() {
 };
 const originalClearRect = CanvasRenderingContext2D.prototype.clearRect;
 CanvasRenderingContext2D.prototype.clearRect = function() {
-    if (this.canvas && this.canvas.id === 'spectrum-overlay-canvas') {
+    if (this.canvas && this.canvas.closest && this.canvas.closest('#spectrum-overlay-plot')) {
         window.__uiSmokeHostMetrics.spectrumPaints.push(performance.now());
     }
     return originalClearRect.apply(this, arguments);
@@ -396,6 +350,16 @@ function replaceAppState(html: string, mutate: (state: PreviewState) => void): s
     const state = JSON.parse(html.slice(valueStart, valueEnd)) as PreviewState;
     mutate(state);
     return html.slice(0, valueStart) + JSON.stringify(state) + html.slice(valueEnd);
+}
+
+/** The results preview, each channel with its known recording (knownRecording.ts): a waveform and a spectrogram. */
+function buildResultsPreviewHtml(): string {
+    return replaceAppState(resultsPreviewHtml(), state => withKnownRecordings(state.results));
+}
+
+/** The Extension Host path's preview, each channel with its known waveform (its spectrogram is asked for). */
+function buildExtensionHostPathPreviewHtml(): string {
+    return replaceAppState(extensionHostPathPreviewHtml(), state => withKnownRecordings(state.results, false));
 }
 
 function measurement(
@@ -471,6 +435,31 @@ export function buildUiSmokeHtml(): string {
     return finalizeUiSmokeHtml(buildResultsPreviewHtml());
 }
 
+/**
+ * The results preview with its one track a
+ * real file of that sample rate and length, which a real backend answers for (realBackend.ts bridgeComparison).
+ * `analysis`: the backend's analysis of that file (its `analyze` reply), whose version and STFT the track then carries.
+ */
+export function buildUiSmokeRowFiguresHtml(filePath: string, of: { sampleRateHz: number; durationSeconds: number; autoStft?: boolean; analysis?: { sourceVersion?: unknown; stftSignature?: unknown } }): string {
+    const html = finalizeUiSmokeHtml(replaceAppState(buildResultsPreviewHtml(), (state) => {
+        const first = state.results[0];
+        first.filePath = filePath;
+        first.fileName = filePath.split('/').pop() ?? filePath;
+        first['sampleRateHz'] = of.sampleRateHz;
+        first['durationSeconds'] = of.durationSeconds;
+        // What the backend's own analysis of the file names it by, as a host hands it on: the file's version and the
+        // STFT of the analysis. The page takes a row's answer only when it is of these (lazyResponses.ts isOfShownVersion).
+        if (of.analysis?.sourceVersion !== undefined) first['sourceVersion'] = of.analysis.sourceVersion;
+        if (of.analysis?.stftSignature !== undefined) first['stftSignature'] = of.analysis.stftSignature;
+        state.results = [first];
+        if (of.autoStft) (state['spectrogramSettings'] as { auto: boolean }).auto = true;
+    }));
+    const hooks = 'window.__AWA_TEST_HOOKS__ = true;';
+    if (!html.includes(hooks)) throw new Error('Could not find the test hooks line in the ui-smoke stub');
+    // The page's own stand-ins for the rows' answers and the figure service are held off from the start: the backend answers.
+    return html.replace(hooks, `${hooks}\nwindow.__uiSmokeRealFigures = true;`);
+}
+
 /** The results preview with `count` copies of its first file, none of them with a spectrogram yet (they ask for it) unless kept. */
 export function buildUiSmokeManyTracksHtml(count: number, keepSpectrograms = false): string {
     return finalizeUiSmokeHtml(replaceAppState(buildResultsPreviewHtml(), (state) => {
@@ -485,10 +474,22 @@ export function buildUiSmokeManyTracksHtml(count: number, keepSpectrograms = fal
     }));
 }
 
+/**
+ * Makes a fixture's spectrogram say the truth of its cells: its lowest and highest level (`minDb`, `maxDb`) are the
+ * lowest and highest of its cells, as a backend's are. (The figure service decides the colours from the cells it is
+ * handed; the old lanes took them from these two numbers.) No cell of the 0 Hz row, which no image counts.
+ */
+function cellsReachTheirEnds(spectrogram: { values: number[][]; minDb: number; maxDb: number }): void {
+    spectrogram.values = spectrogram.values.map(column => column.map(value => Math.min(spectrogram.maxDb, Math.max(spectrogram.minDb, value))));
+    const column = spectrogram.values[0];
+    if (column && column.length > 2) { column[1] = spectrogram.minDb; column[2] = spectrogram.maxDb; }
+}
+
 /** Two takes of the preview file: the second at a quarter of the amplitude, 20 dB down (in `quietUnit` if given) and with the colour scale on auto. */
 export function buildUiSmokeTwoLevelsHtml(quietUnit?: string): string {
     return finalizeUiSmokeHtml(replaceAppState(buildResultsPreviewHtml(), (state) => {
         const first = state.results[0];
+        first.channels.forEach((channel) => cellsReachTheirEnds(channel['spectrogram'] as { values: number[][]; minDb: number; maxDb: number }));
         const quiet = JSON.parse(JSON.stringify(first)) as PreviewResult;
         quiet.filePath = '/preview/quiet.wav';
         quiet.fileName = 'quiet.wav';
@@ -513,14 +514,45 @@ export function buildUiSmokeTwoLevelsHtml(quietUnit?: string): string {
     }));
 }
 
+/**
+ * `count` takes of the preview file, every one but the last at a quarter of the amplitude and 20 dB down, with the
+ * colour scale on auto: the loudest recording is far below the rows in view.
+ */
+export function buildUiSmokeLoudLastHtml(count: number): string {
+    return finalizeUiSmokeHtml(replaceAppState(buildResultsPreviewHtml(), (state) => {
+        const first = state.results[0];
+        first.channels.forEach((channel) => cellsReachTheirEnds(channel['spectrogram'] as { values: number[][]; minDb: number; maxDb: number }));
+        state.results = Array.from({ length: count }, (_, i) => {
+            const copy = JSON.parse(JSON.stringify(first)) as PreviewResult;
+            copy.filePath = `/preview/take${String(i).padStart(2, '0')}.wav`;
+            copy.fileName = `take${String(i).padStart(2, '0')}.wav`;
+            if (i < count - 1) copy.channels.forEach((channel) => {
+                const waveform = channel['waveform'] as { min: number[]; max: number[]; absolutePeak: number };
+                waveform.min = waveform.min.map((v) => v / 4);
+                waveform.max = waveform.max.map((v) => v / 4);
+                waveform.absolutePeak /= 4;
+                channel['peakAbsolute'] = waveform.absolutePeak;
+                const spectrogram = channel['spectrogram'] as { values: number[][]; minDb: number; maxDb: number };
+                spectrogram.values = spectrogram.values.map((row) => row.map((v) => v - 20));
+                spectrogram.minDb -= 20;
+                spectrogram.maxDb -= 20;
+            });
+            return copy;
+        });
+        const settings = state['spectrogramSettings'] as { display: Record<string, number | null> };
+        settings.display = { dbMin: null, dbMax: null, maxFrequencyHz: null };
+    }));
+}
+
 /** The preview file with its colour scale on auto over a spectrogram whose extremes are not round (-120…-23.21 dB). */
 export function buildUiSmokeFractionalLevelsHtml(): string {
     return finalizeUiSmokeHtml(replaceAppState(buildResultsPreviewHtml(), (state) => {
         state.results.splice(1);
         state.results[0].channels.forEach((channel) => {
-            const spectrogram = channel['spectrogram'] as { minDb: number; maxDb: number };
+            const spectrogram = channel['spectrogram'] as { values: number[][]; minDb: number; maxDb: number };
             spectrogram.minDb = -120;
             spectrogram.maxDb = -23.21;
+            cellsReachTheirEnds(spectrogram);
         });
         const settings = state['spectrogramSettings'] as { display: Record<string, number | null> };
         settings.display = { dbMin: null, dbMax: null, maxFrequencyHz: null };

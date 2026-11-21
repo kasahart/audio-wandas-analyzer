@@ -61,11 +61,11 @@ npm run verify:e2e
 | Register commands / wire VS Code actions | `src/extension/index.ts` |
 | Comparison panel shell / HTML container | `src/webview/panels/ComparisonPanel.ts` |
 | Webview interaction logic | `src/webview/runtime/` |
-| Waveform rendering pipeline | `src/webview/waveform/waveformRenderer.ts` |
+| Drawing a figure | `src/webview/figure/figure.ts`, `src/webview/charts/`, `python-backend/figures/` |
 | Shared data contracts | `src/shared/analysis/analysisTypes.ts` |
-| Full-file backend analysis | `python-backend/analyzer.py` |
-| Waveform decimation | `python-backend/decimator.py` |
-| High-resolution range analysis | `python-backend/analysis_service.py` (`waveform_range`) |
+| Full-file backend analysis | `python-backend/services/analyzer.py` |
+| Thinning the points drawn | `python-backend/figures/thinning.py` |
+| The answers kept for the Tracks figures | `python-backend/services/analysis_service.py`, `python-backend/services/tracks_answers.py` |
 | TS unit tests | `src/test/` |
 | Webview browser smoke tests | `src/test/uiSmoke/` |
 | VS Code E2E | `src/e2e/` |
@@ -116,14 +116,14 @@ The [Pages workflow](../.github/workflows/pages.yml) builds pull requests and de
 
 ## 7. Webview-specific gotchas
 
-- `src/webview/waveform/waveformRenderer.ts` is the single source of truth for comparison waveform rendering.
-- `npm run compile` rebuilds `dist/webview/comparisonWaveform.js` and `dist/webview/comparisonRuntime.js` through `scripts/build-webview.js`.
+- Every chart is drawn by the one Figure (`src/webview/figure/figure.ts`) from a picture of the figure service (`python-backend/figures/`).
+- `npm run compile` rebuilds `dist/webview/comparisonRuntime.js` through `scripts/build-webview.js`.
 - If you add or change a user-facing GUI action, update the GUI triggerability inventory in `src/shared/gui/guiTriggerabilityInventory.ts` and keep the matching regression coverage in sync.
 - If a bug only shows up in a real browser, use `npm run test:ui` instead of relying only on jsdom-based tests.
 
 ## 8. Python/backend notes
 
-- Prefer existing `wandas`-based paths in `python-backend/analyzer.py`, `decimator.py`, and `analysis_service.py` / `analysis_engine.py` over reimplementing DSP logic.
+- Prefer existing `wandas`-based paths in `python-backend/services/` (`analyzer.py`, `analysis_service.py`, `analysis_engine.py`) over reimplementing DSP logic.
 - Python tests live next to the backend modules as `python-backend/test_*.py`.
 - The extension host and backend communicate through JSON over child-process stdio; keep that boundary explicit and small.
 

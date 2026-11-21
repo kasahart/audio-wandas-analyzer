@@ -109,7 +109,7 @@ export function blockProblems(blocks: readonly Block[]): string[] {
 
 test('every code block of the plot contracts guide compiles against the code as it is, and each line it says the compiler refuses is refused', () => {
     const blocks = tsBlocks(readFileSync(path.join(repoRoot, GUIDE), 'utf8'));
-    assert.ok(blocks.length >= 5, 'the guide\'s blocks are found');
+    assert.ok(blocks.length >= 4, 'the guide\'s blocks are found');
     assert.deepEqual(blockProblems(blocks), []);
 });
 
@@ -117,7 +117,7 @@ test('the guide check fails on a block that names a function that does not exist
     const fence = '```';
     const guide = (hidden: string, code: string, comment = true): string => `${comment ? `<!-- guide-check file=src/webview/runtime/guideMutant.ts\n${hidden}\n-->\n` : ''}${fence}ts\n${code}\n${fence}\n`;
     const problems = (markdown: string): string[] => blockProblems(tsBlocks(markdown));
-    const honest = guide('import { localLine } from \'./fullRead\';\nimport type { WholeLine } from \'../../shared/provenance\';\ndeclare const values: WholeLine;', 'export const full = localLine([1, 2], values);');
+    const honest = guide('declare const value: number;', 'export const full: number = value;');
     assert.deepEqual(problems(honest), []);
     assert.match(problems(guide('declare const view: { x: number };', 'export const made = mintWhole(view.x);')).join('\n'), /does not compile: Cannot find name 'mintWhole'/u);
     assert.match(problems(guide('', 'export const made = 1;', false)).join('\n'), /has no "<!-- guide-check/u);

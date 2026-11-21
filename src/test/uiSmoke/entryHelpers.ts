@@ -45,7 +45,10 @@ function scanEntry100(): ScannedFile[] | undefined {
 }
 
 
-/** Opens the entry screen and answers its request for stored results the way a host does: the Recipe, one result per file, done. */
+/**
+ * Opens the entry screen and answers it the way a host does: the folder's Recipe, session and CSV (entry-conditions),
+ * and what each file's header says. No scan is asked for and none is answered: the entry analyses nothing.
+ */
 export interface OpenEntryOptions {
     language?: string;
     /** The conditions the host reports, e.g. a metadata table it found, and the listed file it was read from. */
@@ -53,40 +56,56 @@ export interface OpenEntryOptions {
     metadataPath?: string;
     /** The entry Recipe the host reports for the step bar. */
     recipe?: unknown;
-    /** Answers only this many files and leaves the scan running. */
-    answered?: number;
     /** The folder's stored session and CSV, as a host gives them back at open. */
     session?: Record<string, unknown>;
     csv?: { name: string; text: string };
-    /** What the files' headers say, by path: a channel count or an error. Every probe is answered and finished; `null` leaves it running. */
-    headers?: Record<string, number | string | { channels: number; durationS: number }> | null;
+    /**
+     * What the files' headers say, by path: a channel count, an error, or its channels, length and rate. A file not
+     * named here is answered with its fixture's own header (`result.input`). `null` leaves the probe running.
+     */
+    headers?: Record<string, number | string | { channels: number; durationS: number; sampleRate?: number; calibrated?: boolean }> | null;
     /** The table opens beside the tracks; most table checks widen it first (⤢), as a user looking at many rows does. */
     docked?: boolean;
 }
 
+type Header = number | string | { channels: number; durationS: number; sampleRate?: number; calibrated?: boolean };
+
+/**
+ * A fixture file's own header, as the host's probe reads it: its channels, length, rate and whether it is calibrated.
+ * A file the fixture could not read has no header: the probe says why, which is how the entry knows it is unreadable.
+ */
+function headerOf(file: ScannedFile): Header | undefined {
+    if (file.result.ok === false) return typeof file.result.reason === 'string' && file.result.reason ? file.result.reason : 'not a WAV header';
+    const input = file.result.input as { channels?: unknown[]; durationS?: number; fs?: number; calibrationStatus?: string } | undefined;
+    if (!input || !Array.isArray(input.channels) || typeof input.durationS !== 'number') return undefined;
+    return { channels: input.channels.length, durationS: input.durationS, ...(typeof input.fs === 'number' ? { sampleRate: input.fs } : {}), calibrated: input.calibrationStatus === 'calibrated' };
+}
+
 export async function openEntry(page: Page, files: ScannedFile[], options: OpenEntryOptions | string = {}): Promise<number> {
-    const { language = 'en', table = null, metadataPath, recipe, answered = files.length, headers = {}, session, csv, docked = false } = typeof options === 'string' ? { language: options } : options;
+    const { language = 'en', table = null, metadataPath, recipe, headers = {}, session, csv, docked = false } = typeof options === 'string' ? { language: options } : options;
     const listed = [...files.map(file => file.filePath), ...(metadataPath ? [metadataPath] : [])];
     await page.setContent(buildUiSmokeEntryHtml(listed, language), { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#entry-screen')).toBeVisible();
     await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
     if (!docked) await page.locator('[data-action="entry-maximize"]').click();
     const request = await page.waitForFunction(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; requestId?: string }> })
-        .__uiSmokePostedMessages.find(message => message.type === 'entry-scan'));
+        .__uiSmokePostedMessages.find(message => message.type === 'entry-open'));
     const { requestId } = await request.jsonValue() as { requestId: string };
-    if (headers) await answerProbe(page, headers);
-    return page.evaluate(({ requestId, files, table, metadataPath, recipe, answered, session, csv }) => new Promise<number>(resolve => {
+    if (headers) {
+        const own: Record<string, Header> = {};
+        for (const file of files) { const header = headerOf(file); if (header !== undefined) own[file.filePath] = header; }
+        await answerProbe(page, { ...own, ...headers });
+    }
+    return page.evaluate(({ requestId, count, table, metadataPath, recipe, session, csv }) => new Promise<number>(resolve => {
         const started = performance.now();
         window.postMessage({ type: 'entry-conditions', requestId, table, ...(metadataPath ? { metadataPath } : {}), ...(recipe ? { recipe } : {}), ...(session ? { session } : {}), ...(csv ? { csv } : {}) }, '*');
-        for (const file of files.slice(0, answered)) window.postMessage({ type: 'entry-scan-result', requestId, filePath: file.filePath, result: file.result }, '*');
-        if (answered === files.length) window.postMessage({ type: 'entry-scan-done', requestId }, '*');
-        // Answered results draw as rows (one per channel): the table is ready once they are there.
+        // The listed files draw as rows: the table is ready once they are there.
         const check = (): void => {
-            if (!answered || document.querySelectorAll('[data-entry-rows] tr.entry-row').length >= Math.min(answered, 20)) resolve(performance.now() - started);
+            if (!count || document.querySelectorAll('[data-entry-rows] tr.entry-row').length >= Math.min(count, 20)) resolve(performance.now() - started);
             else requestAnimationFrame(check);
         };
         check();
-    }), { requestId, files, table, metadataPath, recipe, answered, session, csv });
+    }), { requestId, count: files.length, table, metadataPath, recipe, session, csv });
 }
 
 /** Visible words outside the rows: numbers, Δ and ✕ marks, file names in the slot chips do not count. */
@@ -113,7 +132,7 @@ export async function pickCsv(page: Page, name: string, text: string): Promise<v
 }
 
 /** Answers the entry screen's latest header probe as a host does: one result per named file, then done. */
-export async function answerProbe(page: Page, headers: Record<string, number | string | { channels: number; durationS: number }>): Promise<void> {
+export async function answerProbe(page: Page, headers: Record<string, Header>): Promise<void> {
     const probe = await page.waitForFunction(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string }> })
         .__uiSmokePostedMessages.filter(message => message.type === 'entry-probe').at(-1));
     const { requestId, filePaths } = await probe.jsonValue() as unknown as { requestId: string; filePaths: string[] };

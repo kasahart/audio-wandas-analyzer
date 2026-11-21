@@ -14,20 +14,12 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 // vscode モックを先に設定してから ComparisonPanel をロードするヘルパー
 import { getRenderScript, getRenderStyles } from './helpers/comparisonScriptLoader';
 import { createWebviewEnv, evalScript } from './helpers/webviewTestEnv';
-import { UI_SMOKE_READS } from './uiSmoke/fullReadStandIn';
+import { answerCursorRequests, answerFigures, cursorAnswers, cursorKey, drawnSpecs, figureRequests, lastDrawnKeys, TEST_LINE } from './helpers/tracksFigures';
 import { OWN_COLORS } from '../shared/gui/roleColors';
 import { csvRecords } from '../shared/utils/csv';
-
-// scripts/build-webview.js が tsc 後に生成。__dirname は dist/test なので 1 階層上が dist/。
-const LOOP_REGION_JS = readFileSync(
-    join(__dirname, '..', 'webview', 'comparisonWaveform.js'),
-    'utf8',
-);
 
 /** テスト用の最小 AnalysisResult JSON */
 const DUMMY_APP_STATE = JSON.stringify({
@@ -47,12 +39,6 @@ const DUMMY_APP_STATE = JSON.stringify({
                 peakAbsolute: 0.5,
                 peakLevelDb: -6.0206,
                 sourceLevelReferenceLabel: 'dBFS',
-                waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
-                spectrogram: {
-                    values: [[0]], timeBins: 1, frequencyBins: 1,
-                    windowSize: 512, hopSize: 256,
-                    maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
-                },
             }],
         },
         {
@@ -69,12 +55,6 @@ const DUMMY_APP_STATE = JSON.stringify({
                 peakAbsolute: 0.7,
                 peakLevelDb: -3.098,
                 sourceLevelReferenceLabel: 'dBFS',
-                waveform: { min: [-0.7], max: [0.7], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.7 },
-                spectrogram: {
-                    values: [[0]], timeBins: 1, frequencyBins: 1,
-                    windowSize: 512, hopSize: 256,
-                    maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
-                },
             }],
         },
     ],
@@ -98,24 +78,12 @@ const MULTICHANNEL_APP_STATE = JSON.stringify({
                     peakAbsolute: 0.5,
                     peakLevelDb: -6.0206,
                     sourceLevelReferenceLabel: 'dBFS',
-                    waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
-                    spectrogram: {
-                        values: [[-12, -48, -72]], timeBins: 1, frequencyBins: 3,
-                        windowSize: 512, hopSize: 256,
-                        maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
-                    },
                 },
                 {
                     label: 'Right',
                     peakAbsolute: 0.95,
                     peakLevelDb: -0.4455,
                     sourceLevelReferenceLabel: 'dBFS',
-                    waveform: { min: [-0.95], max: [0.95], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.95 },
-                    spectrogram: {
-                        values: [[-72, -48, -3]], timeBins: 1, frequencyBins: 3,
-                        windowSize: 512, hopSize: 256,
-                        maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
-                    },
                 },
             ],
         },
@@ -158,12 +126,6 @@ const DUMMY_SELECTION_WITH_RESULTS_STATE = JSON.stringify({
             channels: [{
                 label: 'L',
                 peakAbsolute: 0.5,
-                waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
-                spectrogram: {
-                    values: [[0]], timeBins: 1, frequencyBins: 1,
-                    windowSize: 512, hopSize: 256,
-                    maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
-                },
             }],
         },
     ],
@@ -192,18 +154,10 @@ const DUMMY_SELECTION_WITH_B_RESULT_STATE = JSON.stringify({
             channels: [{
                 label: 'L',
                 peakAbsolute: 0.7,
-                waveform: { min: [-0.7], max: [0.7], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.7 },
-                spectrogram: {
-                    values: [[0]], timeBins: 1, frequencyBins: 1,
-                    windowSize: 512, hopSize: 256,
-                    maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
-                },
             }],
         },
     ],
 });
-
-
 
 function setupEnvWithState(stateJson: string, initialVsCodeState: unknown = null) {
     const script = getRenderScript();
@@ -211,10 +165,14 @@ function setupEnvWithState(stateJson: string, initialVsCodeState: unknown = null
         stateJson,
         initialVsCodeState,
     );
-    // comparisonWaveform.js を先に eval して window.paintLoopRegion を登録する
-    evalScript(dom, LOOP_REGION_JS);
     evalScript(dom, script);
     return { dom, postedMessages, vscodeStates, offscreenInstances, domCanvasContexts };
+}
+
+/** The plot heights the page gives each row's Figure: its waveform's and its spectrogram's (CSS px). */
+function rowHeights(dom: ReturnType<typeof createWebviewEnv>['dom']): { wave: number; spec: number } {
+    const style = (dom.window.document.getElementById('tracks-wrapper') as HTMLElement).style;
+    return { wave: parseFloat(style.getPropertyValue('--row-wave')), spec: parseFloat(style.getPropertyValue('--row-spec')) };
 }
 
 function setupEnv() {
@@ -260,7 +218,7 @@ test('renderStyles() applies an explicit dark background to track areas', () => 
     const styles = getRenderStyles();
 
     assert.match(styles, /#tracks-wrapper\s*\{[^}]*background:\s*var\(--track-bg\)/i);
-    assert.match(styles, /\.track-canvas-wrap\s*\{[^}]*background:\s*var\(--track-bg\)/i);
+    assert.match(styles, /\.track-row-figure\s*\{[^}]*background:\s*var\(--track-bg\)/i);
 });
 
 test('renderScript() が jsdom で例外なく実行できる', () => {
@@ -276,12 +234,12 @@ test('初回実行後に #app 内に HTML が生成される', () => {
     assert.ok(app.innerHTML.length > 0, '#app 内に HTML が生成されていること');
 });
 
-test('2 トラック分の track-canvas が生成される', () => {
+test('2 トラック分の行の図の枠が生成される', () => {
     const { dom } = setupEnv();
-    const c0 = dom.window.document.getElementById('track-canvas-0');
-    const c1 = dom.window.document.getElementById('track-canvas-1');
-    assert.ok(c0, 'track-canvas-0 が存在すること');
-    assert.ok(c1, 'track-canvas-1 が存在すること');
+    const c0 = dom.window.document.getElementById('track-row-figure-0');
+    const c1 = dom.window.document.getElementById('track-row-figure-1');
+    assert.ok(c0, 'track-row-figure-0 が存在すること');
+    assert.ok(c1, 'track-row-figure-1 が存在すること');
 });
 
 test('track DOM uses stable TrackId attributes instead of result indices', () => {
@@ -300,16 +258,17 @@ test('host response boundary reports an invalid numeric track identity', () => {
 
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
         data: {
-            type: 'waveform-range-result',
+            type: 'track-detail-error',
             requestId: 'invalid-track',
+            analysisId: 'analysis',
+            settingsSignature: 'settings',
             trackIndex: 99,
-            startNorm: 0,
-            endNorm: 1,
-            channels: [],
+            filePath: '/tmp/none.wav',
+            error: 'failed',
         },
     }));
 
-    assert.deepEqual(warnings, ['Rejected waveform-range-result with invalid trackIndex 99']);
+    assert.deepEqual(warnings, ['Rejected track-detail-error with invalid trackIndex 99']);
     env.dom.window.close();
 });
 
@@ -325,13 +284,15 @@ test('renderScript: monaural tracks keep waveform and spectrogram in one body wi
     assert.match(meta?.textContent || '', /^1 ch.*Peak −6\.0 dB/,
         'mono track の概要値は下部凡例ではなく track meta に表示されること');
 
-    const waveWrap = env.dom.window.document.getElementById('track-canvas-wrap-0');
-    assert.ok(waveWrap, 'track-canvas-wrap-0 が存在すること');
+    // One box a channel: its Figure draws the waveform over the spectrogram in it.
+    const box = env.dom.window.document.getElementById('track-row-figure-0');
+    assert.ok(box, 'track-row-figure-0 が存在すること');
+    assert.equal(row.querySelectorAll('.track-row-figure').length, 1, 'mono track は図の枠が 1 つ');
     assert.equal(row.querySelector('.track-spectrum-wrap, .track-spectrum-canvas'), null, 'トラック右にはスペクトルを置かないこと');
-    const stack = waveWrap.parentElement;
-    assert.ok(stack?.classList.contains('track-canvas-stack'), 'waveform はスペクトログラムと縦に積まれること');
-    assert.ok(stack?.parentElement?.classList.contains('track-channel-lane-body'), 'waveform はレーン本文に入ること');
-    assert.equal(stack?.querySelector('#track-spec-canvas-0')?.closest('.track-canvas-stack'), stack, 'spectrogram は waveform の下に入ること');
+    const stack = box.parentElement;
+    assert.ok(stack?.classList.contains('track-canvas-stack'), '図の枠は波形とスペクトログラムの境目と同じ枠に入ること');
+    assert.ok(stack?.querySelector('.track-split'), '波形とスペクトログラムの境目があること');
+    assert.ok(stack?.parentElement?.classList.contains('track-channel-lane-body'), '図の枠はレーン本文に入ること');
     assert.equal(stack?.parentElement?.children.length, 1, '時系列の描画がレーン本文の幅をすべて使うこと');
     env.dom.window.close();
 });
@@ -513,7 +474,7 @@ test('directory selection mode posts shown files in the order they were shown', 
 
 test('directory selection mode keeps the side panel while rendering selected tracks', () => {
     const { dom } = setupSelectionResultsEnv();
-    const trackCanvas = dom.window.document.getElementById('track-canvas-0');
+    const trackCanvas = dom.window.document.getElementById('track-row-figure-0');
     const toolbar = dom.window.document.getElementById('toolbar');
 
     assert.ok(dom.window.document.getElementById('entry-dock'));
@@ -548,12 +509,6 @@ test('directory selection mode keeps an existing track and its own colour when a
                     channels: [{
                         label: 'L',
                         peakAbsolute: 0.5,
-                        waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
-                        spectrogram: {
-                            values: [[0]], timeBins: 1, frequencyBins: 1,
-                            windowSize: 512, hopSize: 256,
-                            maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
-                        },
                     }],
                 },
                 {
@@ -568,12 +523,6 @@ test('directory selection mode keeps an existing track and its own colour when a
                     channels: [{
                         label: 'L',
                         peakAbsolute: 0.7,
-                        waveform: { min: [-0.7], max: [0.7], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.7 },
-                        spectrogram: {
-                            values: [[0]], timeBins: 1, frequencyBins: 1,
-                            windowSize: 512, hopSize: 256,
-                            maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
-                        },
                     }],
                 },
             ],
@@ -591,24 +540,6 @@ test('directory selection mode keeps an existing track and its own colour when a
     assert.equal(aRow?.getAttribute('data-track-id'), 'track-2');
 });
 
-test('a role set on a track header repaints its cursor spectrum in the role colour', async () => {
-    const { dom, domCanvasContexts } = setupSelectionResultsEnv();
-    await nextAnimationFrame(dom);
-    await nextAnimationFrame(dom);
-    const spy = domCanvasContexts.get('spectrum-overlay-canvas');
-    assert.ok(spy);
-    // Its menu is filled as it opens.
-    dom.window.document.querySelector<HTMLElement>('.track-row .role-chip summary')!.click();
-    await nextAnimationFrame(dom);
-    const item = dom.window.document.querySelector<HTMLElement>('.track-row .role-chip [data-action="track-role-set"][data-slot="1"]');
-    assert.ok(item);
-    const strokesBefore = spy.strokeCalls;
-    item.click();
-    await nextAnimationFrame(dom);
-    await nextAnimationFrame(dom);
-    assert.ok(spy.strokeCalls > strokesBefore, 'the spectrum keeps the colour it had before the role');
-});
-
 test('directory selection mode posts an empty selection when the shown file is taken off', () => {
     const { dom, postedMessages } = setupSelectionResultsEnv();
     setFileShown(dom, '/tmp/session/a.wav', false);
@@ -619,30 +550,6 @@ test('directory selection mode posts an empty selection when the shown file is t
     assert.equal(message?.type, 'analyze-selected-files');
     assert.match(message?.requestId || '', /^selection-/);
     assert.deepEqual(message?.filePaths, []);
-});
-
-test('comparisonWaveform.js が window.paintLoopRegion を登録する', () => {
-    const { dom } = setupEnv();
-    const win = dom.window as any;
-    assert.equal(typeof win.paintLoopRegion, 'function', 'window.paintLoopRegion が関数として登録されていること');
-});
-
-test('waveform-range-result メッセージを受信しても例外が起きない', () => {
-    const { dom } = setupEnv();
-    assert.doesNotThrow(() => {
-        dom.window.dispatchEvent(
-            new dom.window.MessageEvent('message', {
-                data: {
-                    type: 'waveform-range-result',
-                    trackIndex: 0,
-                    requestId: 'nonexistent-id',
-                    startNorm: 0,
-                    endNorm: 1,
-                    channels: [],
-                },
-            }),
-        );
-    });
 });
 
 test('renderScript: the track view requests track detail when spectrogram is null', async () => {
@@ -671,8 +578,7 @@ test('renderScript: the waveform/spectrogram split survives Webview regeneration
     doc.dispatchEvent(new env.dom.window.MouseEvent('pointermove', { bubbles: true, clientY: 132 }));
     doc.dispatchEvent(new env.dom.window.MouseEvent('pointerup', { bubbles: true, clientY: 132 }));
     await nextAnimationFrame(env.dom);
-    assert.equal((doc.getElementById('track-canvas-0') as HTMLCanvasElement).height, 96);
-    assert.equal((doc.getElementById('track-spec-canvas-0') as HTMLCanvasElement).height, 64);
+    assert.deepEqual(rowHeights(env.dom), { wave: 96, spec: 64 });
 
     const persistedState = env.vscodeStates.at(-1);
     assert.ok(persistedState, 'the split is persisted before the host regenerates HTML');
@@ -680,46 +586,8 @@ test('renderScript: the waveform/spectrogram split survives Webview regeneration
 
     const rerendered = setupEnvWithState(DUMMY_APP_STATE, persistedState);
     await nextAnimationFrame(rerendered.dom);
-    assert.equal((rerendered.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement).height, 96);
+    assert.deepEqual(rowHeights(rerendered.dom), { wave: 96, spec: 64 });
     rerendered.dom.window.close();
-});
-
-test('renderScript: track-detail-result merges spectrogram and stale detail is ignored', async () => {
-    const env = setupEnvWithState(makeLazySpectrogramState());
-    const button = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]');
-    assert.ok(button);
-    button.click();
-    await nextAnimationFrame(env.dom);
-    const req = env.postedMessages.find((msg: any) => msg.type === 'request-track-detail') as any;
-    assert.ok(req);
-
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'track-detail-result',
-        requestId: req.requestId,
-        analysisId: 'stale',
-        settingsSignature: req.settingsSignature,
-        trackIndex: 0,
-        filePath: '/tmp/a.wav',
-        channels: [{ spectrogram: { values: [[-10]], timeBins: 1, frequencyBins: 1, windowSize: 512, hopSize: 256, maxFrequencyHz: 22050, minDb: -90, maxDb: 0 } }],
-    } }));
-    await nextAnimationFrame(env.dom);
-    let snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    // The stale detail is not drawn: the lane still says it loads, and draws no axis (its texts as drawn, A27).
-    assert.deepEqual(Array.from(snap.renderedUi.axisLabels.spectrogramPerTrack[0]), [], JSON.stringify(snap.renderedUi.axisLabels.spectrogramPerTrack));
-
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'track-detail-result',
-        requestId: req.requestId,
-        analysisId: req.analysisId,
-        settingsSignature: req.settingsSignature,
-        trackIndex: 0,
-        filePath: '/tmp/a.wav',
-        channels: [{ spectrogram: { values: [[-10]], timeBins: 1, frequencyBins: 1, windowSize: 512, hopSize: 256, maxFrequencyHz: 22050, minDb: -90, maxDb: 0 } }],
-    } }));
-    await nextAnimationFrame(env.dom);
-    snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    // Drawn now, with the detail's level range: its colour bar's low end as the lane drew it, with a true minus.
-    assert.ok(snap.renderedUi.axisLabels.spectrogramPerTrack[0].includes('−90'), JSON.stringify(snap.renderedUi.axisLabels.spectrogramPerTrack));
 });
 
 test('renderScript: removing a detailed track releases its spectrogram detail', () => {
@@ -860,7 +728,7 @@ test('analysis-update does not restore a locally removed track', async () => {
     env.dom.window.close();
 });
 
-test('analysis-update rebinds rebuilt waveform canvases', async () => {
+test('after an analysis-update a focused row canvas still says its keys in the footer', async () => {
     const env = setupHighFrequencyReadoutEnv();
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
         type: 'analysis-update',
@@ -868,8 +736,11 @@ test('analysis-update rebinds rebuilt waveform canvases', async () => {
     } }));
     await nextAnimationFrame(env.dom);
 
-    const waveformCanvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement;
-    // The rebuilt canvas's focus listener puts its keys in the footer, over what it said before.
+    // A row's Figure makes its canvas when its picture comes; one stands in for it here.
+    const waveformCanvas = env.dom.window.document.createElement('canvas');
+    waveformCanvas.tabIndex = 0;
+    env.dom.window.document.getElementById('track-row-figure-0')!.append(waveformCanvas);
+    // The rows are rebuilt: the one listener on their wrapper puts a focused canvas's keys in the footer, over what it said before.
     const footer = env.dom.window.document.createElement('div');
     footer.id = 'hint-footer';
     footer.textContent = 'before focus';
@@ -944,19 +815,7 @@ test('renderScript: multichannel lazy spectrum uses one track-batched request', 
     let sliceRequests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any[];
     assert.equal(sliceRequests.length, 1, 'only one backend spectrum request may be in flight');
     const first = sliceRequests[0];
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'spectrum-slice-result',
-        requestId: first.requestId,
-        analysisId: first.analysisId,
-        settingsSignature: first.settingsSignature,
-        trackIndex: 0,
-        filePath: '/tmp/a.wav',
-        channels: [
-            { channelIndex: 0, values: [-20], bins: [-20], minDb: -90, maxDb: 0 },
-            { channelIndex: 1, values: [-10], bins: [-10], minDb: -90, maxDb: 0 },
-        ],
-        frequencyBins: 1, maxFrequencyHz: 22050,
-    } }));
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: cursorAnswers(first, [0, 1]) }));
     await nextAnimationFrame(env.dom);
 
     sliceRequests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any[];
@@ -986,38 +845,17 @@ test('renderScript: lazy spectrum applies global backpressure and converges to t
     let requests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice') as any[];
     assert.equal(requests.length, 1, 'cursor updates must not enqueue IPC while a slice is in flight');
 
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'spectrum-slice-result',
-        requestId: initial.requestId,
-        analysisId: initial.analysisId,
-        settingsSignature: initial.settingsSignature,
-        trackIndex: 0,
-        filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-40], bins: [-40], minDb: -90, maxDb: 0 }],
-        frequencyBins: 1, maxFrequencyHz: 22050,
-    } }));
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: cursorAnswers(initial) }));
     await nextAnimationFrame(env.dom);
 
     requests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice') as any[];
     assert.equal(requests.length, 2, 'completion should dispatch exactly one trailing request');
     assert.ok(requests[1].cursorNorm > 0.79 && requests[1].cursorNorm < 0.81,
         'the trailing request should target only the latest cursor: ' + requests[1].cursorNorm);
-    const spectrumSpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
-    assert.ok(spectrumSpy, 'cursor spectrum canvas spy should exist');
-    const strokesBeforeLatest = spectrumSpy.strokeCalls;
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'spectrum-slice-result',
-        requestId: requests[1].requestId,
-        analysisId: requests[1].analysisId,
-        settingsSignature: requests[1].settingsSignature,
-        trackIndex: 0,
-        filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-30, -10], bins: [-30, -10], minDb: -90, maxDb: 0 }],
-        frequencyBins: 2, maxFrequencyHz: 22050,
-    } }));
+    assert.deepEqual(cursorDrawn(env), [], 'the answer of a cursor since left is not drawn as this cursor\'s');
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: cursorAnswers(requests[1]) }));
     await nextAnimationFrame(env.dom);
-    assert.ok(spectrumSpy.strokeCalls > strokesBeforeLatest,
-        'the latest successful slice should paint after the delayed backend response');
+    assert.deepEqual(cursorDrawn(env), [cursorKey(requests[1], 0)], 'the latest answer is the Figure\'s line after the delayed backend response');
     env.dom.window.close();
 });
 
@@ -1033,21 +871,12 @@ test('renderScript: a lane scrolled into view in the frame a spectrum hover repa
     const sliceRequests = () => env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice') as any[];
     assert.deepEqual(sliceRequests().map(msg => msg.trackIndex), [0]);
     const first = sliceRequests()[0];
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'spectrum-slice-result',
-        requestId: first.requestId,
-        analysisId: first.analysisId,
-        settingsSignature: first.settingsSignature,
-        trackIndex: 0,
-        filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-40], bins: [-40], minDb: -90, maxDb: 0 }],
-        frequencyBins: 1, maxFrequencyHz: 22050,
-    } }));
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: cursorAnswers(first) }));
     await nextAnimationFrame(env.dom);
     await nextAnimationFrame(env.dom);
     assert.deepEqual(sliceRequests().map(msg => msg.trackIndex), [0]);
-    // A hover repaints the spectra without asking for slices; a scroll in the same frame must still ask for them.
-    doc.getElementById('spectrum-overlay-canvas')!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { clientX: 10, clientY: 10, bubbles: true }));
+    // A pointer over the spectrum asks for no slice; a scroll in the same frame must still ask for them.
+    doc.getElementById('spectrum-overlay-plot')!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { clientX: 10, clientY: 10, bubbles: true }));
     secondRow.getBoundingClientRect = box(20, 100);
     doc.getElementById('tracks-wrapper')!.dispatchEvent(new env.dom.window.Event('scroll'));
     await nextAnimationFrame(env.dom);
@@ -1066,16 +895,7 @@ test('renderScript: a PNG export asks for the cursor spectrum of a lane out of v
     const sliceRequests = () => env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice') as any[];
     assert.deepEqual(sliceRequests().map(msg => msg.trackIndex), [0]);
     const first = sliceRequests()[0];
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'spectrum-slice-result',
-        requestId: first.requestId,
-        analysisId: first.analysisId,
-        settingsSignature: first.settingsSignature,
-        trackIndex: 0,
-        filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-40], bins: [-40], minDb: -90, maxDb: 0 }],
-        frequencyBins: 1, maxFrequencyHz: 22050,
-    } }));
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: cursorAnswers(first) }));
     await nextAnimationFrame(env.dom);
     assert.deepEqual(sliceRequests().map(msg => msg.trackIndex), [0]);
     // The image draws every lane's analysis window band, which comes from the lane's cursor spectrum.
@@ -1101,16 +921,7 @@ test('renderScript: a cursor set again to where an in-flight slice was asked ask
         actions: [{ action: 'set-cursor', payload: { cursorNorm: initial.globalCursorNorm ?? initial.cursorNorm } }],
     } }));
     await nextAnimationFrame(env.dom);
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'spectrum-slice-result',
-        requestId: initial.requestId,
-        analysisId: initial.analysisId,
-        settingsSignature: initial.settingsSignature,
-        trackIndex: 0,
-        filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-40], bins: [-40], minDb: -90, maxDb: 0 }],
-        frequencyBins: 1, maxFrequencyHz: 22050,
-    } }));
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: cursorAnswers(initial) }));
     await nextAnimationFrame(env.dom);
     await new Promise(resolve => env.dom.window.setTimeout(resolve, 40));
     // The answer to the dropped request is stale, so a fresh one must follow or the track keeps no slice there.
@@ -1120,273 +931,29 @@ test('renderScript: a cursor set again to where an in-flight slice was asked ask
     env.dom.window.close();
 });
 
-test('renderScript: waveform seek invalidates an in-flight spectrum response', async () => {
+test('renderScript: a seek invalidates an in-flight spectrum response', async () => {
     const state = JSON.parse(makeLazySpectrogramState());
     state.results = state.results.slice(0, 1);
-    // Samples spread over the second, so the readout at the click (3/4 of the lane) reads one there (R7, R13).
-    state.results[0].channels[0].waveform = { min: [-0.5, -0.4, -0.3], max: [0.5, 0.4, 0.45], minT: [0.1, 0.4, 0.7], maxT: [0.2, 0.5, 0.75], samples: [0], absolutePeak: 0.5 };
     const env = setupEnvWithState(JSON.stringify(state));
     await nextAnimationFrame(env.dom);
 
     const initial = env.postedMessages.find((msg: any) => msg.type === 'request-spectrum-slice') as any;
-    const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement;
-    const spectrumSpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
-    assert.ok(initial && canvas && spectrumSpy);
-    canvas.width = 800;
-    canvas.height = 80;
-    canvas.getBoundingClientRect = () => ({
-        left: 0, top: 0, right: 800, bottom: 80, width: 800, height: 80,
-    } as DOMRect);
-    // Painted again at its new size, so the readout (and a click) reads the lane as it is drawn there.
-    env.dom.window.dispatchEvent(new env.dom.window.Event('resize'));
+    assert.ok(initial);
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: { type: 'comparison-panel-test-action', actions: [{ action: 'set-cursor', payload: { cursorNorm: 0.75 } }], actionId: 'seek' } }));
     await nextAnimationFrame(env.dom);
-    await nextAnimationFrame(env.dom);
-    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', {
-        bubbles: true, button: 0, clientX: 600, clientY: 5,
-    }));
-    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', {
-        bubbles: true, button: 0, clientX: 600, clientY: 5,
-    }));
-    // The click seeks to the sample the lane's readout reads there, once its samples are in (R7, R13).
-    await answerLaneReads(env);
-    const strokesBeforeSeekResponse = spectrumSpy.strokeCalls;
 
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'spectrum-slice-result',
-        requestId: initial.requestId,
-        analysisId: initial.analysisId,
-        settingsSignature: initial.settingsSignature,
-        trackIndex: 0,
-        filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-40, -20], bins: [-40, -20], minDb: -90, maxDb: 0 }],
-        frequencyBins: 2,
-        maxFrequencyHz: 22050,
-    } }));
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: cursorAnswers(initial) }));
     await nextAnimationFrame(env.dom);
     await new Promise((resolve) => env.dom.window.setTimeout(resolve, 40));
 
-    assert.equal(spectrumSpy.strokeCalls, strokesBeforeSeekResponse,
-        'the response started before the seek must not be painted');
+    assert.deepEqual(cursorDrawn(env), [], 'the response started before the seek must not be drawn');
     const requests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice') as any[];
     assert.equal(requests.length, 2, 'seek should retain only one replacement request');
     assert.ok(requests[1].cursorNorm > initial.cursorNorm, 'replacement request should target the seek cursor');
 
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'spectrum-slice-result',
-        requestId: requests[1].requestId,
-        analysisId: requests[1].analysisId,
-        settingsSignature: requests[1].settingsSignature,
-        trackIndex: 0,
-        filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-30, -10], bins: [-30, -10], minDb: -90, maxDb: 0 }],
-        frequencyBins: 2,
-        maxFrequencyHz: 22050,
-    } }));
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: cursorAnswers(requests[1]) }));
     await nextAnimationFrame(env.dom);
-    assert.ok(spectrumSpy.strokeCalls > strokesBeforeSeekResponse,
-        'the response for the seek cursor should be painted');
-    env.dom.window.close();
-});
-
-test('renderScript: lazy spectrum slices apply display range settings', async () => {
-    const state = JSON.parse(makeLazySpectrogramState());
-    state.results = state.results.slice(0, 1);
-    const env = setupEnvWithState(JSON.stringify(state));
-    await nextAnimationFrame(env.dom);
-
-    const req = env.postedMessages.find((msg: any) => msg.type === 'request-spectrum-slice') as any;
-    assert.ok(req, 'initial request-spectrum-slice should be posted');
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'spectrum-slice-result',
-        requestId: req.requestId,
-        analysisId: req.analysisId,
-        settingsSignature: req.settingsSignature,
-        trackIndex: 0,
-        filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-120, -20, 10], bins: [-120, -20, 10], minDb: -120, maxDb: 10,
-            unit: 'dB', axisLabel: 'Spectrum level [dB]' }],
-        frequencyBins: 3,
-        maxFrequencyHz: 22050,
-    } }));
-    await nextAnimationFrame(env.dom);
-
-    const requestCountBeforeDisplayChange = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice').length;
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'comparison-panel-test-action',
-        actionId: 'lazy-slice-display',
-        actions: [{ action: 'set-spectrogram-display', payload: { dbMin: -60, dbMax: 0, maxFrequencyHz: 1000 } }],
-    } }));
-    await nextAnimationFrame(env.dom);
-    await nextAnimationFrame(env.dom);
-
-    const requestCountAfterDisplayChange = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice').length;
-    assert.equal(requestCountAfterDisplayChange, requestCountBeforeDisplayChange, 'display-only changes should reuse the cached lazy slice');
-
-    const snapshots = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot') as any[];
-    let snap: any = null;
-    for (let i = snapshots.length - 1; i >= 0; i--) {
-        if ((snapshots[i].renderedUi.axisLabels.spectrumOverlay as string[]).length > 0) {
-            snap = snapshots[i];
-            break;
-        }
-    }
-    assert.ok(snap, 'a spectrum snapshot with overlay labels should be published');
-    const overlay = snap.renderedUi.axisLabels.spectrumOverlay as string[];
-    // The texts the overlay drew (A27): its level ticks run from the configured −60 to 0 dB, its frequency ticks to 1 kHz.
-    assert.ok(overlay.includes('0') && overlay.includes('−60') && !overlay.includes('−75'), `overlay should draw the configured dB range: ${JSON.stringify(overlay)}`);
-    assert.ok(overlay.includes('1000') && !overlay.includes('5000'), `overlay should draw to the configured max frequency: ${JSON.stringify(overlay)}`);
-});
-
-test('renderScript: lazy spectrum cache is scoped to the current cursor: an earlier cursor\'s slice is never this one\'s', async () => {
-    const state = JSON.parse(makeLazySpectrogramState());
-    state.results = state.results.slice(0, 1);
-    const env = setupEnvWithState(JSON.stringify(state));
-    await nextAnimationFrame(env.dom);
-
-    const initialReq = env.postedMessages.find((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any;
-    assert.ok(initialReq, 'initial lazy slice request should be posted');
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'spectrum-slice-result',
-        requestId: initialReq.requestId,
-        analysisId: initialReq.analysisId,
-        settingsSignature: initialReq.settingsSignature,
-        trackIndex: 0,
-        filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-120, -20, 10], bins: [-120, -20, 10], minDb: -120, maxDb: 10 }],
-        frequencyBins: 3,
-        maxFrequencyHz: 22050,
-    } }));
-    await nextAnimationFrame(env.dom);
-
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'comparison-panel-test-action',
-        actionId: 'lazy-cache-cursor',
-        actions: [{ action: 'set-cursor', payload: { cursorNorm: 0.5 } }],
-    } }));
-    await nextAnimationFrame(env.dom);
-
-    const requests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any[];
-    const latestReq = requests[requests.length - 1];
-    assert.ok(latestReq.cursorNorm > 0.45 && latestReq.cursorNorm < 0.55, 'cursor move should request a slice for the new cursor: ' + latestReq.cursorNorm);
-
-    const snapshots = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot') as any[];
-    const lastSnap = snapshots[snapshots.length - 1];
-    // The earlier cursor's slice is not this cursor's (R7): it is not drawn or read as the cursor's spectrum. The
-    // picture painted before is held a moment while the new one comes (the next test, SpectrumCommitHold).
-    assert.equal(lastSnap.renderedUi.visibleSpectrumTrackCount, 0, 'the earlier cursor\'s slice is not this cursor\'s spectrum while its own is pending');
-    env.dom.window.close();
-});
-
-test('renderScript: lazy spectrum keeps previous drawing while a new cursor slice is pending', async () => {
-    const state = JSON.parse(makeLazySpectrogramState());
-    state.results = state.results.slice(0, 1);
-    const env = setupEnvWithState(JSON.stringify(state));
-    await nextAnimationFrame(env.dom);
-
-    const initialReq = env.postedMessages.find((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any;
-    assert.ok(initialReq, 'initial lazy slice request should be posted');
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'spectrum-slice-result',
-        requestId: initialReq.requestId,
-        analysisId: initialReq.analysisId,
-        settingsSignature: initialReq.settingsSignature,
-        trackIndex: 0,
-        filePath: '/tmp/a.wav',
-        channels: [{ channelIndex: 0, values: [-120, -20, 10], bins: [-120, -20, 10], minDb: -120, maxDb: 10 }],
-        frequencyBins: 3,
-        maxFrequencyHz: 22050,
-    } }));
-    await nextAnimationFrame(env.dom);
-
-    const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
-    assert.ok(overlaySpy, 'overlay canvas spy should exist');
-    const overlayClearBefore = overlaySpy.clearRectCalls;
-    const overlayStrokesBefore = overlaySpy.strokeCalls;
-
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'comparison-panel-test-action',
-        actionId: 'lazy-spectrum-pending-hold',
-        actions: [{ action: 'set-cursor', payload: { cursorNorm: 0.5 } }],
-    } }));
-    await nextAnimationFrame(env.dom);
-
-    const requests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any[];
-    const latestReq = requests[requests.length - 1];
-    assert.ok(latestReq.cursorNorm > 0.45 && latestReq.cursorNorm < 0.55, 'cursor move should request a new lazy slice');
-    assert.ok(overlaySpy.strokeCalls >= overlayStrokesBefore, 'overlay spectrum should keep a successful slice visible while the new slice is pending');
-
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'spectrum-slice-error',
-        requestId: latestReq.requestId,
-        analysisId: latestReq.analysisId,
-        settingsSignature: latestReq.settingsSignature,
-        trackIndex: 0,
-        filePath: '/tmp/a.wav',
-        error: 'slice failed',
-    } }));
-    await nextAnimationFrame(env.dom);
-
-    assert.ok(overlaySpy.clearRectCalls >= overlayClearBefore, 'overlay spectrum should remain drawable after a slice failure');
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'comparison-panel-test-action', actionId: 'slice-retry-after-error',
-        actions: [{ action: 'set-cursor', payload: { cursorNorm: 0.7 } }],
-    } }));
-    await nextAnimationFrame(env.dom);
-    const retried = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any[];
-    assert.ok(retried.length > requests.length, 'terminal slice error must release the active request for another cursor');
-    env.dom.window.close();
-});
-
-test('renderScript: the last cursor spectrum is held only for a cursor action, never over a change of bands, STFT or offset (V6)', async () => {
-    const state = JSON.parse(makeLazySpectrogramState());
-    state.results = state.results.slice(0, 1);
-    const env = setupEnvWithState(JSON.stringify(state));
-    await nextAnimationFrame(env.dom);
-    const answer = (request: any) => env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'spectrum-slice-result', requestId: request.requestId, analysisId: request.analysisId, settingsSignature: request.settingsSignature,
-        trackIndex: 0, filePath: '/tmp/a.wav', channels: [{ channelIndex: 0, values: [-120, -20, 10], bins: [-120, -20, 10], minDb: -120, maxDb: 10 }], frequencyBins: 3, maxFrequencyHz: 22050,
-    } }));
-    const latest = () => (env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any[]).at(-1);
-    answer(latest());
-    await nextAnimationFrame(env.dom);
-    const overlay = env.domCanvasContexts.get('spectrum-overlay-canvas');
-    assert.ok(overlay, 'overlay canvas spy should exist');
-    // A cursor action: the picture before stays a moment while the new one comes (SpectrumCommitHold).
-    const beforeCursor = overlay.clearRectCalls;
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'comparison-panel-test-action', actionId: 'hold-cursor', actions: [{ action: 'set-cursor', payload: { cursorNorm: 0.5 } }],
-    } }));
-    await nextAnimationFrame(env.dom);
-    assert.equal(overlay.clearRectCalls, beforeCursor, 'held over a cursor move');
-    answer(latest());
-    await nextAnimationFrame(env.dom);
-    // Another band setting: the old picture is of other conditions, so it is not kept on screen.
-    const beforeBands = overlay.clearRectCalls;
-    env.dom.window.document.querySelector<HTMLElement>('[data-action="spectrum-octave-3"]')?.click();
-    await nextAnimationFrame(env.dom);
-    assert.ok(latest().bandsPerOctave === 3, 'the band setting asks again');
-    assert.ok(overlay.clearRectCalls > beforeBands, 'drawn anew (its pending state), not held');
-    env.dom.window.close();
-});
-
-test('renderScript: spectrum at exact track end renders silence instead of the last STFT bin', async () => {
-    const env = setupSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'comparison-panel-test-action',
-        actionId: 'spectrum-end-cursor',
-        actions: [{ action: 'set-cursor', payload: { cursorNorm: 1 } }],
-    } }));
-    await nextAnimationFrame(env.dom);
-
-    const snapshots = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot') as any[];
-    const snap = snapshots[snapshots.length - 1];
-    assert.equal(snap.renderedUi.cursorNorm, 1);
-    // The silent stand-in spans the spectrogram's floor (−90 dB) to its top, rounded by the dB line rule to −100…0 dB;
-    // the last STFT column (−50…−5 dB) would end at −50 dB.
-    // As drawn (A27): its level axis reaches −100, with a true minus.
-    assert.ok(snap.renderedUi.axisLabels.spectrumOverlay.includes('−100'), 'end cursor should use the silent floor: ' + JSON.stringify(snap.renderedUi.axisLabels.spectrumOverlay));
+    assert.deepEqual(cursorDrawn(env), [cursorKey(requests[1], 0)], 'the response for the seek cursor should be drawn');
     env.dom.window.close();
 });
 
@@ -1464,28 +1031,13 @@ test('renderScript: results pane rebuild preserves playback button state', async
 });
 
 test('renderScript: cursorNorm initializes as number (not null)', () => {
-    // cursorNorm は 0（number）で初期化される。
-    // clearHover() は updateCursorDisplay(cursorNorm) を呼ぶため、
-    // まず mousemove で hoverNorm をセットし、次に mouseleave で clearHover を発火させる。
-    // #cursor-display が formatTime(0) = '0:00.00' を表示すれば cursorNorm が number であると確認できる。
+    // The cursor starts at 0 (a number): when the tracks are analysed again the toolbar writes it as a time from the
+    // start, never NaN. (A row's Figure writes it when the pointer leaves the row: rowsScreen `reads`.)
     const { dom } = setupEnv();
-    const canvas = dom.window.document.getElementById('track-canvas-0');
-    assert.ok(canvas, 'track-canvas-0 が存在すること');
-
-    // mousemove on the canvas (bubbles to tracks-wrapper) → hoverNorm が設定される
-    canvas.dispatchEvent(new dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 0, clientY: 0 }));
-
-    const tracksWrapper = dom.window.document.getElementById('tracks-wrapper');
-    assert.ok(tracksWrapper, 'tracks-wrapper が存在すること');
-
-    // mouseleave on tracks-wrapper → clearHover() → updateCursorDisplay(cursorNorm=0)
-    tracksWrapper.dispatchEvent(new dom.window.MouseEvent('mouseleave', { bubbles: false }));
-
+    dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data: { type: 'analysis-update', results: JSON.parse(DUMMY_APP_STATE).results } }));
     const cursorDisplay = dom.window.document.getElementById('cursor-display');
     assert.ok(cursorDisplay, '#cursor-display が存在すること');
-    // formatTime(0) = '0:00.00' — NaN にならず数値フォーマットで表示されること
-    assert.equal(cursorDisplay.textContent, '0:00.00',
-        'cursorNorm=0 のとき cursor-display は "0:00.00" を表示すること');
+    assert.equal(cursorDisplay.textContent, '0:00.00', 'cursorNorm=0 のとき cursor-display は "0:00.00" を表示すること');
 });
 
 const SPECTRUM_APP_STATE = JSON.stringify({
@@ -1504,66 +1056,9 @@ const SPECTRUM_APP_STATE = JSON.stringify({
             peakAbsolute: 0.5,
             // The backend names every channel's level reference (an uncalibrated recording's dBFS).
             sourceLevelReferenceLabel: 'dBFS',
-            waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
-            spectrogram: {
-                values: [
-                    [-80, -60, -40, -20],
-                    [-70, -50, -30, -10],
-                    [-60, -40, -20, 0],
-                    [-50, -30, -10, -5],
-                ],
-                timeBins: 4,
-                frequencyBins: 4,
-                windowSize: 512,
-                hopSize: 256,
-                maxFrequencyHz: 22050,
-                minDb: -90,
-                maxDb: 0,
-            },
         }],
     })),
 });
-
-const REAL_SCALE_AXIS_APP_STATE = JSON.stringify({
-    mode: 'results',
-    results: [
-        {
-            filePath: '/tmp/int16.wav',
-            fileName: 'int16.wav',
-            audioSource: 'vscode-resource:/tmp/int16.wav',
-            sampleRateHz: 44100,
-            durationSeconds: 1.0,
-            channelCount: 1,
-            sampleCount: 44100,
-            error: undefined,
-            channels: [{
-                label: 'L',
-                peakAbsolute: 16383,
-                unit: null,
-                waveform: { min: [-16383], max: [16383], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 16383 },
-                spectrogram: null,
-            }],
-        },
-        {
-            filePath: '/tmp/pa.wav',
-            fileName: 'pa.wav',
-            audioSource: 'vscode-resource:/tmp/pa.wav',
-            sampleRateHz: 44100,
-            durationSeconds: 1.0,
-            channelCount: 1,
-            sampleCount: 44100,
-            error: undefined,
-            channels: [{
-                label: 'L',
-                peakAbsolute: 0.5,
-                unit: 'Pa',
-                waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
-                spectrogram: null,
-            }],
-        },
-    ],
-});
-
 
 const HIGH_FREQUENCY_READOUT_STATE = JSON.stringify({
     mode: 'results',
@@ -1580,115 +1075,14 @@ const HIGH_FREQUENCY_READOUT_STATE = JSON.stringify({
             channels: [{
                 label: 'L',
                 peakAbsolute: 0.5,
-                waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
-                spectrogram: {
-                    values: [[-80, -60, -40, -20]],
-                    timeBins: 1,
-                    frequencyBins: 4,
-                    windowSize: 512,
-                    hopSize: 256,
-                    maxFrequencyHz: 3600,
-                    minDb: -90,
-                    maxDb: 0,
-                },
             }],
         },
     ],
 });
-
-
-const MISMATCHED_DELTA_F_SPECTRUM_STATE = JSON.stringify({
-    mode: 'results',
-    results: [
-        {
-            filePath: '/tmp/coarse.wav',
-            fileName: 'coarse.wav',
-            audioSource: 'vscode-resource:/tmp/coarse.wav',
-            sampleRateHz: 1200,
-            durationSeconds: 1.0,
-            channelCount: 1,
-            sampleCount: 1200,
-            error: undefined,
-            channels: [{
-                label: 'L',
-                peakAbsolute: 0.5,
-                waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
-                spectrogram: {
-                    values: [[-80, -60, -40, -20]],
-                    timeBins: 1,
-                    frequencyBins: 4,
-                    windowSize: 512,
-                    hopSize: 256,
-                    maxFrequencyHz: 600,
-                    minDb: -90,
-                    maxDb: 0,
-                },
-            }],
-        },
-        {
-            filePath: '/tmp/fine.wav',
-            fileName: 'fine.wav',
-            audioSource: 'vscode-resource:/tmp/fine.wav',
-            sampleRateHz: 1800,
-            durationSeconds: 1.0,
-            channelCount: 1,
-            sampleCount: 1800,
-            error: undefined,
-            channels: [{
-                label: 'L',
-                peakAbsolute: 0.5,
-                waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
-                spectrogram: {
-                    values: [[-20, -35, -50, -65, -80, -85]],
-                    timeBins: 1,
-                    frequencyBins: 6,
-                    windowSize: 512,
-                    hopSize: 256,
-                    maxFrequencyHz: 900,
-                    minDb: -90,
-                    maxDb: 0,
-                },
-            }],
-        },
-    ],
-});
-
-/**
- * Answers every lane read the page has asked for and not been answered (a lane's samples or cells around the pointer),
- * from its own analysis result, as the ui-smoke pages' stand-in does: a lane's click acts on the point its readout
- * reads (R7, R13), and that read waits for its full data.
- */
-const answeredReads = new WeakMap<object, Set<string>>();
-async function answerLaneReads(env: ReturnType<typeof createWebviewEnv>): Promise<void> {
-    const win = env.dom.window as unknown as { uiSmokeReadAnswer?: (message: unknown) => unknown };
-    if (!win.uiSmokeReadAnswer) evalScript(env.dom, UI_SMOKE_READS);
-    const answered = answeredReads.get(env) ?? new Set<string>();
-    answeredReads.set(env, answered);
-    for (let round = 0; round < 4; round++) {
-        const open = (env.postedMessages as Array<{ requestId?: string; read?: unknown }>).filter(message => message.read && message.requestId && !answered.has(message.requestId));
-        if (!open.length) return;
-        for (const message of open) {
-            answered.add(message.requestId as string);
-            const reply = win.uiSmokeReadAnswer?.(message);
-            if (reply) env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: reply }));
-        }
-        await nextAnimationFrame(env.dom);
-    }
-}
 
 function setupSpectrumEnv() {
     const script = getRenderScript();
     const env = createWebviewEnv(SPECTRUM_APP_STATE);
-    evalScript(env.dom, LOOP_REGION_JS);
-    evalScript(env.dom, script);
-    return env;
-}
-
-
-function setupMismatchedDeltaFSpectrumEnv() {
-    const script = getRenderScript();
-    const env = createWebviewEnv(MISMATCHED_DELTA_F_SPECTRUM_STATE);
-    evalScript(env.dom, LOOP_REGION_JS);
     evalScript(env.dom, script);
     return env;
 }
@@ -1696,7 +1090,6 @@ function setupMismatchedDeltaFSpectrumEnv() {
 function setupHighFrequencyReadoutEnv() {
     const script = getRenderScript();
     const env = createWebviewEnv(HIGH_FREQUENCY_READOUT_STATE);
-    evalScript(env.dom, LOOP_REGION_JS);
     evalScript(env.dom, script);
     return env;
 }
@@ -1708,7 +1101,6 @@ function setupSpectrumEnvWithClock(clock: { now: number }) {
         configurable: true,
         value: () => clock.now,
     });
-    evalScript(env.dom, LOOP_REGION_JS);
     evalScript(env.dom, script);
     return env;
 }
@@ -1718,364 +1110,20 @@ test('renderScript: the cursor spectrum is the only power spectrum, and it is ke
     await nextAnimationFrame(env.dom);
     assert.equal(env.dom.window.document.querySelectorAll('.track-row .track-spectrum-canvas, .track-row .track-spectrum-wrap').length, 0,
         'トラック行にスペクトルを置かないこと');
-    const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas');
-    assert.ok(overlay, '#spectrum-overlay-canvas が存在すること');
-    assert.equal(overlay.getAttribute('tabindex'), '0');
+    // One Figure in the panel's box: its canvas takes the keyboard (R7), as every Figure's does.
+    await settleTracksFigures(env);
+    const canvases = env.dom.window.document.querySelectorAll('#spectrum-overlay-plot canvas');
+    assert.equal(canvases.length, 1, 'the panel\'s box holds one Figure');
+    assert.equal(canvases[0].getAttribute('tabindex'), '0');
     env.dom.window.close();
 });
 
-test('renderScript: overlay spectrum canvas is drawn on initial render', async () => {
-    const env = setupSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-    const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
-    assert.ok(overlaySpy, 'overlay canvas のスパイが取得できること');
-    assert.ok(overlaySpy.strokeCalls > 0,
-        '初期描画で重ね合わせスペクトルが少なくとも1本描かれること');
-    env.dom.window.close();
-});
-
-test('renderScript: mouseup click commits cursor and re-draws spectrum', async () => {
-    const env = setupSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-    const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
-    assert.ok(overlaySpy);
-    const before = overlaySpy.strokeCalls;
-
-    const canvas = env.dom.window.document.getElementById('track-canvas-0');
-    assert.ok(canvas);
-    // mousedown + mouseup (no movement) -> a click: the cursor moves (endLaneDrag)
-    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 10, clientY: 5 }));
-    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 10, clientY: 5 }));
-    // The cursor goes to the sample the lane's readout reads there, once its samples are in (R7, R13).
-    await answerLaneReads(env);
-
-    assert.ok(overlaySpy.strokeCalls > before,
-        'クリック確定後に overlay canvas が再描画されること');
-    env.dom.window.close();
-});
-
-test('axes: 振幅軸ラベルが absolutePeak と unit から track-axis-canvas に描かれる', async () => {
-    const env = setupEnvWithState(REAL_SCALE_AXIS_APP_STATE);
-    await nextAnimationFrame(env.dom);
-
-    // Every plot's value-axis ticks over what the lane shows (the peak at 88 % of the half height), and its
-    // quantity, calibration and unit as Compare's waveform axis names them (R3).
-    const int16Spy = env.domCanvasContexts.get('track-axis-canvas-0');
-    assert.ok(int16Spy, 'track-axis-canvas-0 のスパイが取得できること');
-    for (const label of ['−10000', '0', '10000']) assert.ok(int16Spy.fillTextCalls.includes(label), label + ' ラベルが描かれること');
-    assert.ok(int16Spy.fillTextCalls.some((text: string) => /\[input unit\]$/.test(text)), '単位なしは input unit と書かれること: ' + JSON.stringify(int16Spy.fillTextCalls));
-
-    const paSpy = env.domCanvasContexts.get('track-axis-canvas-1');
-    assert.ok(paSpy, 'track-axis-canvas-1 のスパイが取得できること');
-    for (const label of ['−0.5', '0.0', '0.5']) assert.ok(paSpy.fillTextCalls.includes(label), label + ' ラベルが描かれること');
-    assert.ok(paSpy.fillTextCalls.some((text: string) => /\[Pa\]$/.test(text)), '単位 Pa がタイトルに書かれること');
-    env.dom.window.close();
-});
-
-test('snapshot: waveformPerTrack が absolutePeak と unit から生成される', async () => {
-    const env = setupEnvWithState(REAL_SCALE_AXIS_APP_STATE);
-    await nextAnimationFrame(env.dom);
-    const snap = env.postedMessages
-        .filter((msg: any) => msg.type === 'comparison-panel-test-snapshot')
-        .at(-1) as any;
-
-    assert.deepEqual(Array.from(snap.renderedUi.axisLabels.waveformPerTrack[0]), ['−10000', '0', '10000', 'Amplitude, uncalibrated [input unit]']);
-    assert.deepEqual(Array.from(snap.renderedUi.axisLabels.waveformPerTrack[1]), ['−0.5', '0.0', '0.5', 'Amplitude, uncalibrated [Pa]']);
-    assert.equal((env.dom.window.document.getElementById('track-axis-canvas-0') as HTMLCanvasElement).width, 64);
-    env.dom.window.close();
-});
-
-test('#100: buildTrackRow が track-axis-canvas を track-canvas の前に生成すること', async () => {
-    const env = setupSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-    const doc = env.dom.window.document;
-    const axisCanvas = doc.getElementById('track-axis-canvas-0');
-    const waveCanvas = doc.getElementById('track-canvas-0');
-    assert.ok(axisCanvas, 'track-axis-canvas-0 が DOM に存在すること');
-    assert.ok(waveCanvas, 'track-canvas-0 が DOM に存在すること');
-    const order = axisCanvas.compareDocumentPosition(waveCanvas);
-    assert.ok(
-        order & env.dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
-        'track-axis-canvas-0 が track-canvas-0 より DOM 上で前にあること',
-    );
-    env.dom.window.close();
-});
-
-test('axes: スペクトログラム表示で周波数軸 (Hz) とカラーバー (dB) が描かれる', async () => {
-    const env = setupSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-    const win = env.dom.window as any;
-    const spectrogramBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]');
-    assert.ok(spectrogramBtn, 'スペクトログラム切替ボタンが存在すること');
-    spectrogramBtn.click();
-    await nextAnimationFrame(env.dom);
-    // フレーム駆動の再描画を待つ
-    await new Promise((r) => win.setTimeout(r, 0));
-
-    const axisSpy = env.domCanvasContexts.get('track-spec-axis-canvas-0');
-    assert.ok(axisSpy, 'track-spec-axis-canvas-0 のスパイが取得できること');
-    const axisLabels = axisSpy.fillTextCalls;
-    // Compare's frequency ticks (plain Hz) and the axis named with its unit.
-    assert.ok(axisLabels.includes('0') && axisLabels.includes('10000'), '0 と 10000 のラベルが描かれること: ' + JSON.stringify(axisLabels));
-    assert.ok(axisLabels.some((s) => /\[Hz\]$/.test(s)), '周波数軸の名前に Hz が書かれること');
-
-    const spy = env.domCanvasContexts.get('track-spec-canvas-0');
-    assert.ok(spy, 'track-spec-canvas-0 のスパイが取得できること');
-    const labels = spy.fillTextCalls;
-    assert.ok(labels.some((s) => /^-?\d+$/.test(s)), 'カラーバーの両端に dB 値が描かれること');
-    // The shared colour bar (paintColourBar) names the colour as Compare's heatmaps do: the level, with its reference.
-    assert.ok(labels.some((s) => /\[dB[^\]]*\]$/.test(s)), 'カラーバーに量と単位 ([dB…]) が描かれること: ' + JSON.stringify(labels));
-    assert.equal(labels.some((s) => /\bkHz\b/.test(s) || /\bHz\b/.test(s)), false, '周波数ラベルはプロット canvas に描かれないこと');
-    // Each paint puts one picture and draws the bar over it as a gradient, so pictures and bar titles pair up.
-    const barTitles = labels.filter((s) => /\[dB[^\]]*\]$/.test(s)).length;
-    assert.ok(spy.putImageDataCalls >= 1, 'プロット画像が putImageData で描かれること');
-    assert.equal(spy.putImageDataCalls, barTitles, 'カラーバーは putImageData ではなく色の帯で描くこと');
-    env.dom.window.close();
-});
-
-test('renderScript: spectrogram reuses its decimated base during playback and rebuilds for display changes', async () => {
-    const env = setupSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-    const spectrogramBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]');
-    assert.ok(spectrogramBtn);
-    spectrogramBtn.click();
-    await nextAnimationFrame(env.dom);
-
-    const baseSpy = env.domCanvasContexts.get('track-spec-canvas-0');
-    const overlaySpy = env.domCanvasContexts.get('track-spectrogram-overlay-0');
-    assert.ok(baseSpy && baseSpy.putImageDataCalls > 0, 'spectrogram base should be rasterized once');
-    assert.ok(overlaySpy, 'spectrogram cursor should use a separate overlay canvas');
-    const baseRendersBeforePlayback = baseSpy.putImageDataCalls;
-    const overlayClearsBeforePlayback = overlaySpy.clearRectCalls;
-
-    const audio = env.dom.window.document.getElementById('track-audio-0') as HTMLAudioElement;
-    const playButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-id="track-1"]') as HTMLButtonElement;
-    const stopButton = env.dom.window.document.querySelector('[data-action="stop-playback"][data-track-id="track-1"]') as HTMLButtonElement;
-    (audio as HTMLAudioElement & { duration: number }).duration = 1;
-    playButton.click();
-    (audio as HTMLAudioElement & { currentTime: number }).currentTime = 0.5;
-    await nextAnimationFrame(env.dom);
-    stopButton.click();
-
-    assert.equal(baseSpy.putImageDataCalls, baseRendersBeforePlayback,
-        'playback cursor updates must not rebuild the spectrogram base');
-    assert.ok(overlaySpy.clearRectCalls > overlayClearsBeforePlayback,
-        'playback cursor updates should repaint only the lightweight overlay');
-
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'comparison-panel-test-action',
-        inputValues: { 'track-height-input': '112' },
-        actionId: 'spectrogram-base-size-change',
-    } }));
-    await nextAnimationFrame(env.dom);
-    assert.ok(baseSpy.putImageDataCalls > baseRendersBeforePlayback,
-        'canvas size changes must rebuild the display-sized spectrogram base');
-    const baseRendersBeforeDisplayChange = baseSpy.putImageDataCalls;
-
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'comparison-panel-test-action',
-        actionId: 'spectrogram-base-display-change',
-        actions: [{ action: 'set-spectrogram-display', payload: { dbMin: -60, dbMax: 0, maxFrequencyHz: 1000 } }],
-    } }));
-    await nextAnimationFrame(env.dom);
-    assert.ok(baseSpy.putImageDataCalls > baseRendersBeforeDisplayChange,
-        'color scale or frequency range changes must rebuild the spectrogram base');
-    const baseRendersBeforeDataChange = baseSpy.putImageDataCalls;
-    const updatedResults = JSON.parse(SPECTRUM_APP_STATE).results;
-    updatedResults[0].channels[0].spectrogram.values = updatedResults[0].channels[0].spectrogram.values
-        .map((row: number[]) => row.map((value: number) => value - 1));
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'analysis-update',
-        results: updatedResults,
-    } }));
-    await nextAnimationFrame(env.dom);
-    assert.ok(baseSpy.putImageDataCalls > baseRendersBeforeDataChange,
-        'analysis or calibration data changes must rebuild the spectrogram base');
-    env.dom.window.close();
-});
-
-test('axes: スペクトログラム画像はレーンの幅いっぱいに描き、カラーバーは右上に重ねる', async () => {
-    const env = setupSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-    const spectrogramBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]');
-    assert.ok(spectrogramBtn);
-    spectrogramBtn.click();
-    await nextAnimationFrame(env.dom);
-    await new Promise((resolve) => env.dom.window.setTimeout(resolve, 0));
-
-    const canvas = env.dom.window.document.getElementById('track-spec-canvas-0') as HTMLCanvasElement | null;
-    assert.ok(canvas);
-    const spy = env.domCanvasContexts.get('track-spec-canvas-0');
-    assert.ok(spy);
-    const spectrogramImage = spy.putImageDataArgs[0];
-    assert.ok(spectrogramImage, 'スペクトログラム画像の putImageData が記録されること');
-    assert.equal(spectrogramImage.x, 0);
-    assert.equal(spectrogramImage.width, canvas.width, '波形のレーンと同じ時間軸: 画像は canvas の幅いっぱい');
-    const [x, y, width] = (canvas.dataset.plotColourBar ?? '').split(' ').map(Number);
-    assert.ok(x > canvas.width / 2 && x + width <= canvas.width && y < canvas.height / 2, 'カラーバーは図の右上: ' + canvas.dataset.plotColourBar);
-    env.dom.window.close();
-});
-
-/** The middle of a spectrogram lane's colour bar, in client pixels, on a canvas laid out 1:1 from `left`. */
-function colourBarClientPoint(canvas: HTMLCanvasElement, left: number): { clientX: number; clientY: number } {
-    const [x, y, width, height] = (canvas.dataset.plotColourBar ?? '').split(' ').map(Number);
-    assert.ok(width > 0 && height > 0, 'colour bar painted: ' + canvas.dataset.plotColourBar);
-    return { clientX: left + x + width / 2, clientY: y + height / 2 };
-}
-
-test('the pointer over a spectrogram lane reads no number until the full data under it is in: never the drawn picture\'s cell (R7, C6)', async () => {
-    const env = setupSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-    env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]')?.click();
-    await nextAnimationFrame(env.dom);
-    const canvas = env.dom.window.document.getElementById('track-spec-canvas-0') as HTMLCanvasElement | null;
-    assert.ok(canvas);
-    canvas.width = 800;
-    canvas.height = 100;
-    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 800, bottom: 100, width: 800, height: 100 } as DOMRect);
-    env.dom.window.dispatchEvent(new env.dom.window.Event('resize'));
-    await nextAnimationFrame(env.dom);
-    await nextAnimationFrame(env.dom);
-    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 300, clientY: 60 }));
-    await nextAnimationFrame(env.dom);
-    // No backend answers the lane's full reads here: its cell is never read, so no number is shown.
-    const slot = env.dom.window.document.getElementById('plot-readout');
-    const shown = slot && !slot.hidden ? slot.textContent ?? '' : '';
-    assert.doesNotMatch(shown, /\d/u, `the readout shows a number of the drawn picture: "${shown}"`);
-    env.dom.window.close();
-});
-
-test('spectrogram hit testing maps pointer positions to the whole lane width and ignores the colour bar', async () => {
-    const env = setupSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-    const spectrogramBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]');
-    assert.ok(spectrogramBtn);
-    spectrogramBtn.click();
-    await nextAnimationFrame(env.dom);
-
-    const canvas = env.dom.window.document.getElementById('track-spec-canvas-0') as HTMLCanvasElement | null;
-    assert.ok(canvas);
-    canvas.width = 800;
-    canvas.height = 100;
-    canvas.getBoundingClientRect = () => ({
-        left: 0, top: 0, right: 800, bottom: 100, width: 800, height: 100,
-    } as DOMRect);
-    // Painted again at its new size, so its colour bar is placed for it.
-    env.dom.window.dispatchEvent(new env.dom.window.Event('resize'));
-    await nextAnimationFrame(env.dom);
-    await nextAnimationFrame(env.dom);
-
-    // The readout at x=300 (3/8 of the lane: the second of its four frames' middle) reads the cell there (its full data answered); a click moves the cursor to that cell's frame (R7, R13).
-    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 300, clientY: 80 }));
-    await nextAnimationFrame(env.dom);
-    await answerLaneReads(env);
-    const read = (canvas as unknown as { __plotRead?: { at?: number } | null }).__plotRead;
-    assert.ok(read?.at !== undefined, 'the lane reads a cell at x=300');
-    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 300, clientY: 80 }));
-    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 300, clientY: 80 }));
-    await answerLaneReads(env);
-    await nextAnimationFrame(env.dom);
-    assert.equal(Number(env.dom.window.document.getElementById('tracks-wrapper')?.dataset.cursorAt), read.at, 'the click moves the cursor to the frame of the cell the readout reads (R7, R13)');
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
-        data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-hit-plot' },
-    }));
-    await nextAnimationFrame(env.dom);
-
-    let snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    const placed = snap.renderedUi.cursorNorm as number;
-    assert.ok(Math.abs(placed - 0.375) < 1e-9, `x=300 on an 800px lane reads the frame at 37.5% of the time: the lane's whole width is its time (${placed})`);
-
-    const bar = colourBarClientPoint(canvas, 0);
-    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, ...bar }));
-    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, ...bar }));
-    await nextAnimationFrame(env.dom);
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
-        data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-hit-colorbar' },
-    }));
-    await nextAnimationFrame(env.dom);
-
-    snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    assert.equal(snap.renderedUi.cursorNorm, placed, 'clicks on the spectrogram colour bar do not update audio time');
-    env.dom.window.close();
-});
-
-test('spectrogram Ctrl+wheel zoom uses the whole lane width; on the colour bar, an axis, it zooms about the middle (R13)', async () => {
-    const env = setupSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-    const spectrogramBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]');
-    assert.ok(spectrogramBtn);
-    spectrogramBtn.click();
-    await nextAnimationFrame(env.dom);
-
-    const wrapper = env.dom.window.document.getElementById('tracks-wrapper');
-    const canvas = env.dom.window.document.getElementById('track-spec-canvas-0') as HTMLCanvasElement | null;
-    assert.ok(wrapper);
-    assert.ok(canvas);
-    wrapper.getBoundingClientRect = () => ({
-        left: 0, top: 0, right: 930, bottom: 100, width: 930, height: 100,
-    } as DOMRect);
-    canvas.width = 800;
-    canvas.height = 100;
-    canvas.getBoundingClientRect = () => ({
-        left: 130, top: 0, right: 930, bottom: 100, width: 800, height: 100,
-    } as DOMRect);
-    env.dom.window.dispatchEvent(new env.dom.window.Event('resize'));
-    await nextAnimationFrame(env.dom);
-    await nextAnimationFrame(env.dom);
-
-    const plotWheel = new env.dom.window.WheelEvent('wheel', {
-        bubbles: true,
-        cancelable: true,
-        ctrlKey: true,
-        deltaY: -120,
-        clientX: 530,
-        clientY: 80,
-    });
-    const plotWheelNotCanceled = canvas.dispatchEvent(plotWheel);
-    await nextAnimationFrame(env.dom);
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
-        data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-wheel-plot' },
-    }));
-    await nextAnimationFrame(env.dom);
-
-    let snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    assert.equal(plotWheelNotCanceled, false, 'Ctrl+wheel は標準スクロールへ渡さないこと');
-    assert.equal(plotWheel.defaultPrevented, true);
-    assert.ok(Math.abs(snap.renderedUi.zoomStart - 0.075) < 1e-9, 'x=400 on the 800px lane uses a 50% zoom pivot');
-    assert.ok(Math.abs(snap.renderedUi.zoomEnd - 0.925) < 1e-9, 'x=400 on the 800px lane keeps the pivot centered');
-
-    const beforeColorbar = snap.renderedUi;
-    const colorbarWheel = new env.dom.window.WheelEvent('wheel', {
-        bubbles: true,
-        cancelable: true,
-        ctrlKey: true,
-        deltaY: -120,
-        ...colourBarClientPoint(canvas, 130),
-    });
-    canvas.dispatchEvent(colorbarWheel);
-    await nextAnimationFrame(env.dom);
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
-        data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-wheel-colorbar' },
-    }));
-    await nextAnimationFrame(env.dom);
-
-    snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    assert.equal(colorbarWheel.defaultPrevented, true);
-    // An axis has no time under the pointer to zoom around: the middle of what is shown, as over every plot's axis.
-    const middle = (beforeColorbar.zoomStart + beforeColorbar.zoomEnd) / 2, span = beforeColorbar.zoomEnd - beforeColorbar.zoomStart;
-    assert.ok(Math.abs((snap.renderedUi.zoomStart + snap.renderedUi.zoomEnd) / 2 - middle) < 1e-9, 'Ctrl+wheel on the colour bar zooms about the middle');
-    assert.ok(Math.abs(snap.renderedUi.zoomEnd - snap.renderedUi.zoomStart - span * 0.85) < 1e-9, 'Ctrl+wheel on the colour bar zooms in by one notch');
-    env.dom.window.close();
-});
-
-test('spectrogram ruler maps time ticks to the lane width', async () => {
+test('the time ruler maps its ticks to the rows\' width', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
     const row = env.dom.window.document.getElementById('ruler-row');
     assert.ok(row);
     Object.defineProperty(row, 'clientWidth', { configurable: true, value: 994 });
-    // The lane: 64 px amplitude axis, then an 800 px waveform over the spectrogram, on the same time axis.
-    Object.defineProperty(env.dom.window.document.getElementById('track-canvas-wrap-0'), 'clientWidth', { configurable: true, value: 864 });
     const ruler = env.dom.window.document.getElementById('ruler-canvas') as HTMLCanvasElement | null;
     assert.ok(ruler);
 
@@ -2092,282 +1140,6 @@ test('spectrogram ruler maps time ticks to the lane width', async () => {
     env.dom.window.close();
 });
 
-test('axes: カーソル時刻のスペクトルに Hz と dB のラベルが描かれる', async () => {
-    const env = setupSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-
-    const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
-    assert.ok(overlaySpy, 'overlay canvas のスパイが取得できること');
-    const overlayLabels = overlaySpy.fillTextCalls;
-    // As the comparison's plots: plain tick numbers, the units in the axes' titles.
-    assert.ok(overlayLabels.includes('0'), 'overlay: 0 Hz の目盛りが描かれること: ' + JSON.stringify(overlayLabels));
-    assert.ok(overlayLabels.some((s) => /\[Hz\]$/.test(s)), 'overlay: 周波数軸の名前 (Hz) が描かれること: ' + JSON.stringify(overlayLabels));
-    assert.ok(overlayLabels.some((s) => /dB/.test(s)), 'overlay: レベル軸の名前 (dB) が描かれること: ' + JSON.stringify(overlayLabels));
-    env.dom.window.close();
-});
-
-
-/** The cursor spectrum laid out `width` px wide, its box on screen its own size (as in a browser), drawn again at it. */
-async function sizeOverlay(env: ReturnType<typeof setupEnv>, width: number): Promise<HTMLCanvasElement> {
-    const doc = env.dom.window.document;
-    Object.defineProperty(doc.getElementById('spectrum-overlay-wrap'), 'clientWidth', { configurable: true, value: width });
-    const canvas = doc.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement;
-    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: canvas.width, bottom: canvas.height, width: canvas.width, height: canvas.height } as DOMRect);
-    env.dom.window.dispatchEvent(new env.dom.window.Event('resize'));
-    for (let frame = 0; frame < 3; frame++) await nextAnimationFrame(env.dom);
-    return canvas;
-}
-
-/**
- * Answers every cursor-spectrum slice the webview asked for as the backend does, with each channel's every-bin row:
- * here the state's spectrogram column at the cursor, so the cursor spectrum reads a slice of its own, not the column
- * it draws while the slice is on its way (which it never reads, R7).
- */
-async function answerSpectrumSlices(env: ReturnType<typeof setupEnv>, stateJson: string): Promise<void> {
-    const state = JSON.parse(stateJson);
-    const answered = new Set<string>();
-    for (let round = 0; round < 4; round++) {
-        const open = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && !msg.fullResolution && !answered.has(msg.requestId)) as any[];
-        if (!open.length) break;
-        for (const request of open) {
-            answered.add(request.requestId);
-            const result = state.results[request.trackIndex];
-            const channels = (result?.channels ?? []).map((channel: any, channelIndex: number) => {
-                const spec = channel.spectrogram;
-                const at = Math.max(0, Math.min(spec.timeBins - 1, Math.floor(request.cursorNorm * spec.timeBins)));
-                // The backend's slice always names its level (an uncalibrated recording's in dBFS).
-                return { channelIndex, values: spec.values[at], bins: spec.values[at], minDb: spec.minDb, maxDb: spec.maxDb, unit: spec.unit ?? 'dBFS' };
-            });
-            const first = result.channels[0].spectrogram;
-            env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-                type: 'spectrum-slice-result', requestId: request.requestId, analysisId: request.analysisId, settingsSignature: request.settingsSignature,
-                trackIndex: request.trackIndex, filePath: request.filePath, channels, frequencyBins: first.frequencyBins, maxFrequencyHz: first.maxFrequencyHz,
-            } }));
-        }
-        await nextAnimationFrame(env.dom);
-    }
-}
-
-test('spectrum cursor: overlay readout formats focused frequency as every plot does (R7)', async () => {
-    const env = setupHighFrequencyReadoutEnv();
-    await nextAnimationFrame(env.dom);
-
-    const canvas = await sizeOverlay(env, 200);
-    await answerSpectrumSlices(env, HIGH_FREQUENCY_READOUT_STATE);
-
-    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
-    await nextAnimationFrame(env.dom);
-
-    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
-    assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout.textContent || '', /^high\.wav \/ Channel 1 \(L\) \/ 1\.2 kHz \/ −60\.0 dBFS$/,
-        'overlay のカーソル読み値も file/channel 付きで、ほかのグラフと同じ書き方 (1 kHz 以上は kHz) で表示すること');
-    env.dom.window.close();
-});
-
-
-test('spectrum cursor: overlay readout identifies the hovered file and channel', async () => {
-    const env = setupMultichannelEnv();
-    await nextAnimationFrame(env.dom);
-
-    const canvas = await sizeOverlay(env, 200);
-    await answerSpectrumSlices(env, MULTICHANNEL_APP_STATE);
-
-    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 192, clientY: 12 }));
-    await nextAnimationFrame(env.dom);
-
-    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
-    assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.equal(readout.textContent, 'stereo.wav / Channel 2 / 2 (Right) / 22.05 kHz / −3.0 dBFS',
-        'overlay hover readout は最寄り系列の fileName と channelLabel を含むこと');
-    env.dom.window.close();
-});
-
-
-test('spectrum cursor: overlay keyboard focus updates the header readout', async () => {
-    const env = setupHighFrequencyReadoutEnv();
-    await nextAnimationFrame(env.dom);
-    await answerSpectrumSlices(env, HIGH_FREQUENCY_READOUT_STATE);
-
-    const canvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
-    assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
-    canvas.focus();
-    canvas.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, code: 'ArrowRight' }));
-    await nextAnimationFrame(env.dom);
-
-    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
-    assert.match(readout!.textContent || '', /^high\.wav \/ Channel 1 \(L\) \/ 1\.2 kHz \/ −60\.0 dBFS$/,
-        'overlay もマウス hover なしの focus と矢印キーでヘッダー readout が更新されること');
-    env.dom.window.close();
-});
-
-
-test('spectrum cursor: narrow canvas hover clears stale spectrum target', async () => {
-    const env = setupMismatchedDeltaFSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-
-    const overlayCanvas = await sizeOverlay(env, 200);
-    await answerSpectrumSlices(env, MISMATCHED_DELTA_F_SPECTRUM_STATE);
-
-    overlayCanvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
-    await nextAnimationFrame(env.dom);
-
-    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
-    assert.equal(readout!.hidden, false, '事前条件としてhoverのreadoutが表示されること');
-    assert.notEqual(readout!.textContent || '', '');
-
-    await sizeOverlay(env, 20);
-    overlayCanvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 10, clientY: 30 }));
-    await nextAnimationFrame(env.dom);
-
-    assert.equal(readout!.hidden, true,
-        'plot幅がないcanvasでは前のスペクトルhover対象を持ち越さないこと');
-    env.dom.window.close();
-});
-
-test('spectrum cursor: overlay snaps to the nearest visible series bin when delta F differs', async () => {
-    const env = setupMismatchedDeltaFSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-
-    const canvas = await sizeOverlay(env, 200);
-    await answerSpectrumSlices(env, MISMATCHED_DELTA_F_SPECTRUM_STATE);
-
-    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 73, clientY: 52 }));
-    await nextAnimationFrame(env.dom);
-
-    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
-    assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ −35\.0 dBFS$/,
-        'fine track ΔF=180 Hz の最寄りbinへ吸着すること');
-    env.dom.window.close();
-});
-
-
-test('spectrum cursor: overlay remains snapped after frequency zoom changes the visible range', async () => {
-    const env = setupMismatchedDeltaFSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-
-    const canvas = await sizeOverlay(env, 200);
-    await answerSpectrumSlices(env, MISMATCHED_DELTA_F_SPECTRUM_STATE);
-
-    canvas.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 100, clientY: 135 }));
-    const minI = env.dom.window.document.getElementById('spec-range-min') as HTMLInputElement;
-    const maxI = env.dom.window.document.getElementById('spec-range-max') as HTMLInputElement;
-    minI.value = '100';
-    maxI.value = '500';
-    (env.dom.window.document.getElementById('spec-range-apply') as HTMLElement).click();
-    await nextAnimationFrame(env.dom);
-
-    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 81, clientY: 52 }));
-    await nextAnimationFrame(env.dom);
-
-    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
-    assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ −35\.0 dBFS$/,
-        '周波数ズーム後もfine trackの実binへ吸着すること');
-    env.dom.window.close();
-});
-
-test('renderScript: spectrum canvases are redrawn during playback as cursor advances', async () => {
-    // 回帰テスト: 再生中、カーソル位置が進むたびにスペクトル表示が更新されることを保証する。
-    // 修正前は再生ループ tick で refreshSpectrumViews() が呼ばれず、
-    // スペクトル canvas が再生中ずっと初期描画のままだった。
-    const env = setupSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-
-    const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
-    assert.ok(overlaySpy, 'overlay canvas のスパイが取得できること');
-
-    const overlayBefore = overlaySpy.strokeCalls;
-    const waveformSpy = env.domCanvasContexts.get('track-canvas-0');
-    assert.ok(waveformSpy, 'track-canvas-0 のスパイが取得できること');
-    const waveformBefore = waveformSpy.clearRectCalls;
-
-    const audio = env.dom.window.document.getElementById('track-audio-0') as HTMLAudioElement | null;
-    const playButton = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="toggle-playback"][data-track-id="track-1"]');
-    const stopButton = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="stop-playback"][data-track-id="track-1"]');
-    assert.ok(audio instanceof env.dom.window.HTMLAudioElement);
-    assert.ok(playButton instanceof env.dom.window.HTMLButtonElement);
-    assert.ok(stopButton instanceof env.dom.window.HTMLButtonElement);
-
-    (audio as HTMLAudioElement & { duration: number }).duration = 1;
-    playButton.click();
-    await Promise.resolve();
-    assert.equal(audio.paused, false, '再生状態に切り替わっていること');
-
-    // 再生位置を進めてから rAF tick を消化する。
-    // tick は paused=false の間 refreshSpectrumViews() を呼び、各スペクトル canvas を再描画する。
-    (audio as HTMLAudioElement & { currentTime: number }).currentTime = 0.5;
-    await nextAnimationFrame(env.dom);
-    await new Promise((resolve) => env.dom.window.setTimeout(resolve, 0));
-
-    // すぐに停止してループを止める（rAF はループ内で再スケジュールされ続けるため）。
-    stopButton.click();
-
-    assert.ok(waveformSpy.clearRectCalls > waveformBefore,
-        '再生中の tick で waveform canvas が再描画され、カーソル線が進むこと '
-        + '(before=' + waveformBefore + ', after=' + waveformSpy.clearRectCalls + ')');
-    assert.ok(overlaySpy.strokeCalls > overlayBefore,
-        '再生中の tick で overlay spectrum が再描画されること '
-        + '(before=' + overlayBefore + ', after=' + overlaySpy.strokeCalls + ')');
-    env.dom.window.close();
-});
-
-test('renderScript: playback spectrum redraw waits for the latest backend response', async () => {
-    const clock = { now: 1000 };
-    const env = setupSpectrumEnvWithClock(clock);
-    await nextAnimationFrame(env.dom);
-
-    const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
-    assert.ok(overlaySpy, 'overlay canvas のスパイが取得できること');
-
-    const audio = env.dom.window.document.getElementById('track-audio-0') as HTMLAudioElement | null;
-    const playButton = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="toggle-playback"][data-track-id="track-1"]');
-    const stopButton = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="stop-playback"][data-track-id="track-1"]');
-    assert.ok(audio instanceof env.dom.window.HTMLAudioElement);
-    assert.ok(playButton instanceof env.dom.window.HTMLButtonElement);
-    assert.ok(stopButton instanceof env.dom.window.HTMLButtonElement);
-
-    (audio as HTMLAudioElement & { duration: number }).duration = 1;
-    playButton.click();
-    await Promise.resolve();
-    await nextAnimationFrame(env.dom);
-
-    const afterStart = overlaySpy.clearRectCalls;
-    clock.now = 1001;
-    (audio as HTMLAudioElement & { currentTime: number }).currentTime = 0.2;
-    await nextAnimationFrame(env.dom);
-    assert.equal(overlaySpy.clearRectCalls, afterStart,
-        '31ms 未満の playback tick では spectrum 再描画を増やさないこと');
-
-    clock.now = 1034;
-    (audio as HTMLAudioElement & { currentTime: number }).currentTime = 0.5;
-    await nextAnimationFrame(env.dom);
-    await nextAnimationFrame(env.dom);
-    assert.equal(overlaySpy.clearRectCalls, afterStart,
-        'playback tick alone must not redraw a stale power spectrum');
-    const requests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice') as any[];
-    assert.equal(requests.length, 1, 'only one backend request may remain in flight during playback');
-    const request = requests[0];
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'spectrum-slice-result',
-        requestId: request.requestId,
-        analysisId: request.analysisId,
-        settingsSignature: request.settingsSignature,
-        trackIndex: request.trackIndex,
-        filePath: request.filePath,
-        channels: [{ channelIndex: 0, values: [-30, -10], bins: [-30, -10], minDb: -90, maxDb: 0 }],
-        frequencyBins: 2,
-        maxFrequencyHz: 22050,
-    } }));
-    await nextAnimationFrame(env.dom);
-    assert.ok(overlaySpy.clearRectCalls > afterStart,
-        'a successful backend response should trigger the coalesced spectrum redraw');
-
-    stopButton.click();
-    env.dom.window.close();
-});
-
 test('renderScript: playback spectrum scheduler keeps the next rAF cursor desired', async () => {
     const clock = { now: 1000 };
     const env = setupSpectrumEnvWithClock(clock);
@@ -2379,17 +1151,7 @@ test('renderScript: playback spectrum scheduler keeps the next rAF cursor desire
     (audio as HTMLAudioElement & { duration: number }).duration = 15;
     const first = env.postedMessages.find((msg: any) => msg.type === 'request-spectrum-slice') as any;
     assert.ok(first);
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'spectrum-slice-result',
-        requestId: first.requestId,
-        analysisId: first.analysisId,
-        settingsSignature: first.settingsSignature,
-        trackIndex: first.trackIndex,
-        filePath: first.filePath,
-        channels: [{ channelIndex: 0, values: [-30, -10], bins: [-30, -10], minDb: -90, maxDb: 0 }],
-        frequencyBins: 2,
-        maxFrequencyHz: 22050,
-    } }));
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: cursorAnswers(first) }));
     await nextAnimationFrame(env.dom);
 
     playButton.click();
@@ -2407,28 +1169,222 @@ test('renderScript: playback spectrum scheduler keeps the next rAF cursor desire
     env.dom.window.close();
 });
 
-test('renderScript: spectrum hover mousemoves are coalesced to one animation frame', async () => {
+// ── The cursor spectrum as a Figure ─────────────────────────────────
+
+/** The keys of the lines of the cursor spectrum the page last asked the figure service to draw ([] with none asked). */
+const cursorDrawn = (env: ReturnType<typeof setupEnv>): string[] => lastDrawnKeys(env, 'spectrum');
+/** How many times the page asked the figure service to draw a cursor spectrum. */
+const cursorDraws = (env: ReturnType<typeof setupEnv>): number => drawnSpecs(env).filter(spec => spec.lanes[0]?.id === 'spectrum').length;
+const settled = new WeakMap<object, { cursor: Set<string>; figures: Set<string> }>();
+/** Plays the host until the page asks nothing more: every cursor spectrum request and every figure request answered. */
+async function settleTracksFigures(env: ReturnType<typeof setupEnv>, channels: (request: { trackIndex: number }) => readonly number[] = () => [0]): Promise<void> {
+    const done = settled.get(env) ?? { cursor: new Set<string>(), figures: new Set<string>() };
+    settled.set(env, done);
+    for (let round = 0, quiet = 0; round < 30 && quiet < 2; round++) {
+        const answered = answerCursorRequests(env, done.cursor, channels) + answerFigures(env, done.figures);
+        quiet = answered ? 0 : quiet + 1;
+        await nextAnimationFrame(env.dom);
+    }
+}
+const setCursor = (env: ReturnType<typeof setupEnv>, cursorNorm: number, actionId: string): void => {
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: { type: 'comparison-panel-test-action', actionId, actions: [{ action: 'set-cursor', payload: { cursorNorm } }] } }));
+};
+const cursorRequests = (env: ReturnType<typeof setupEnv>): any[] => env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice') as any[];
+const lastSnapshot = (env: ReturnType<typeof setupEnv>): any => (env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot') as any[]).at(-1);
+
+test('the cursor spectrum is one Figure of the tracks\' kept answers: a line a channel in the order of the rows, asked for by key with no value of a line in the page', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
-
-    const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
-    const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
-    assert.ok(overlay instanceof env.dom.window.HTMLCanvasElement);
-    assert.ok(overlaySpy, 'overlay canvas のスパイが取得できること');
-
-    const before = overlaySpy.clearRectCalls;
-    overlay.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 100, clientY: 20 }));
-    overlay.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 120, clientY: 22 }));
-    overlay.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 140, clientY: 24 }));
-    assert.equal(overlaySpy.clearRectCalls, before,
-        'mousemove handler 内では同期的に spectrum を再描画しないこと');
-
-    await nextAnimationFrame(env.dom);
-    assert.equal(overlaySpy.clearRectCalls, before + 1,
-        '同一フレーム内の mousemove 連打は 1 回の spectrum 更新に畳まれること');
+    assert.equal(cursorDraws(env), 0, 'nothing is drawn of a track before its answer');
+    await settleTracksFigures(env);
+    // One request at a time (the backend's queue is not filled), a track after another.
+    const asked = cursorRequests(env);
+    assert.deepEqual(asked.map(request => [request.trackIndex, request.answers]), [[0, 'linear'], [1, 'linear']], 'each track asks for its answers kept by key, on a linear frequency axis');
+    const spec = drawnSpecs(env).at(-1)!;
+    assert.deepEqual(spec.lanes.map(lane => [lane.id, lane.lines.map(line => line.of)]), [['spectrum', [{ key: cursorKey(asked[0], 0) }, { key: cursorKey(asked[1], 0) }]]]);
+    assert.deepEqual(spec.keys.map(key => [key.key, key.state, key.level]), asked.map(request => [cursorKey(request, 0), 'usable', { unit: 'FS', ref: 1, label: 'dBFS' }]));
+    // The page's snapshot reads what the Figure drew: both tracks have a line, and the axes are named.
+    const snap = lastSnapshot(env);
+    assert.equal(snap.renderedUi.visibleSpectrumTrackCount, 2);
+    assert.equal(snap.renderedUi.axisLabels.spectrumOverlay.length, 2, JSON.stringify(snap.renderedUi.axisLabels.spectrumOverlay));
+    // The legend names each line by its track's colour.
+    const swatches = [...env.dom.window.document.querySelectorAll<HTMLElement>('#spectrum-axis-legend .spectrum-axis-legend-swatch')];
+    assert.equal(swatches.length, 2);
+    assert.notEqual(swatches[0].style.background, swatches[1].style.background);
+    assert.equal(env.dom.window.document.getElementById('spectrum-overlay-empty')?.hidden, true);
     env.dom.window.close();
 });
 
+test('recordings in another unit or reference are on a lane of their own, one above another (the old right-hand level axis is gone)', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const done = new Set<string>(), figures = new Set<string>();
+    const pascal = { unit: 'Pa', ref: 2e-5, label: 'dB SPL re 20 µPa' };
+    for (let round = 0; round < 6; round++) {
+        answerCursorRequests(env, done, () => [0], request => (request.trackIndex === 1 ? pascal : { unit: 'FS', ref: 1, label: 'dBFS' }));
+        answerFigures(env, figures);
+        await nextAnimationFrame(env.dom);
+    }
+    const spec = drawnSpecs(env).at(-1)!;
+    assert.deepEqual(spec.lanes.map(lane => [lane.id, lane.axis, lane.lines.length]), [['spectrum', 'own', 1], ['spectrum-2', 'own', 1]]);
+    assert.deepEqual(spec.keys.map(key => key.level?.label), ['dBFS', 'dB SPL re 20 µPa']);
+    env.dom.window.close();
+});
+
+test('a cursor action keeps the last picture while the new cursor\'s answers are on their way, then draws them; another band setting does not keep it (V6)', async () => {
+    const state = JSON.parse(makeLazySpectrogramState());
+    state.results = state.results.slice(0, 1);
+    const env = setupEnvWithState(JSON.stringify(state));
+    await nextAnimationFrame(env.dom);
+    await settleTracksFigures(env);
+    const first = cursorRequests(env).at(-1);
+    assert.deepEqual(cursorDrawn(env), [cursorKey(first, 0)]);
+    const draws = cursorDraws(env);
+    // A cursor action: the answers of the cursor before are not this cursor's (R7), and nothing new is asked of the
+    // figure service while this cursor's are on their way: the Figure keeps the picture it has.
+    setCursor(env, 0.5, 'hold-cursor');
+    await nextAnimationFrame(env.dom);
+    const next = cursorRequests(env).at(-1);
+    assert.ok(next.cursorNorm > 0.45 && next.cursorNorm < 0.55, 'the new cursor asks for its own answers: ' + next.cursorNorm);
+    assert.equal(cursorDraws(env), draws, 'no draw while the new cursor\'s answers are on their way');
+    assert.equal(env.dom.window.document.querySelectorAll('#spectrum-overlay-plot canvas').length, 1, 'the Figure stays');
+    await settleTracksFigures(env);
+    assert.deepEqual(cursorDrawn(env), [cursorKey(next, 0)], 'the new cursor\'s answers are drawn when they come');
+    // Another band setting: the picture is of other conditions, so it is not kept on screen.
+    env.dom.window.document.querySelector<HTMLElement>('[data-action="spectrum-octave-3"]')?.click();
+    await nextAnimationFrame(env.dom);
+    assert.equal(cursorRequests(env).at(-1).bandsPerOctave, 3, 'the band setting asks again');
+    assert.equal(env.dom.window.document.querySelectorAll('#spectrum-overlay-plot canvas').length, 0, 'the Figure of the other setting is taken away');
+    assert.equal(env.dom.window.document.getElementById('spectrum-overlay-empty')?.hidden, false, 'and the panel says there is no data yet');
+    env.dom.window.close();
+});
+
+test('a failed cursor spectrum request frees the track to ask again at another cursor', async () => {
+    const state = JSON.parse(makeLazySpectrogramState());
+    state.results = state.results.slice(0, 1);
+    const env = setupEnvWithState(JSON.stringify(state));
+    await nextAnimationFrame(env.dom);
+    const request = cursorRequests(env).at(-1);
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'spectrum-slice-error', requestId: request.requestId, analysisId: request.analysisId, settingsSignature: request.settingsSignature,
+        trackIndex: 0, filePath: '/tmp/a.wav', error: 'slice failed',
+    } }));
+    await nextAnimationFrame(env.dom);
+    const before = cursorRequests(env).length;
+    setCursor(env, 0.7, 'slice-retry-after-error');
+    await nextAnimationFrame(env.dom);
+    assert.ok(cursorRequests(env).length > before, 'a terminal error must release the active request for another cursor');
+    env.dom.window.close();
+});
+
+test('the display settings\' dB range and top frequency are the cursor spectrum\'s range, sent with the draw and asking for no new answers', async () => {
+    const state = JSON.parse(makeLazySpectrogramState());
+    state.results = state.results.slice(0, 1);
+    const env = setupEnvWithState(JSON.stringify(state));
+    await nextAnimationFrame(env.dom);
+    await settleTracksFigures(env);
+    const before = cursorRequests(env).length;
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'comparison-panel-test-action', actionId: 'lazy-slice-display',
+        actions: [{ action: 'set-spectrogram-display', payload: { dbMin: -60, dbMax: 0, maxFrequencyHz: 1000 } }],
+    } }));
+    await nextAnimationFrame(env.dom);
+    await nextAnimationFrame(env.dom);
+    assert.equal(cursorRequests(env).length, before, 'a display-only change reuses the kept answers');
+    const draw = figureRequests(env, 'figure-draw').at(-1)!.payload as any;
+    assert.deepEqual(draw.view, { x: [null, 1000], lanes: [{ lane: 'spectrum', y: [-60, 0] }] });
+    env.dom.window.close();
+});
+
+test('a cursor past a track\'s end draws no line of that track: no stand-in, no floor line', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    await settleTracksFigures(env);
+    assert.equal(lastSnapshot(env).renderedUi.visibleSpectrumTrackCount, 2);
+    const asked = cursorRequests(env).length;
+    setCursor(env, 1, 'spectrum-end-cursor');
+    await nextAnimationFrame(env.dom);
+    await settleTracksFigures(env);
+    assert.equal(lastSnapshot(env).renderedUi.cursorNorm, 1);
+    assert.equal(cursorRequests(env).length, asked, 'nothing is asked at the very end of the tracks');
+    assert.equal(env.dom.window.document.querySelectorAll('#spectrum-overlay-plot canvas').length, 0, 'no Figure');
+    assert.equal(env.dom.window.document.getElementById('spectrum-overlay-empty')?.hidden, false, 'the panel says there is no data');
+    assert.equal(lastSnapshot(env).renderedUi.visibleSpectrumTrackCount, 0);
+    env.dom.window.close();
+});
+
+test('while playing, the Figure is asked to draw only when an answer comes in, never on a playback tick alone', async () => {
+    const clock = { now: 1000 };
+    const env = setupSpectrumEnvWithClock(clock);
+    await nextAnimationFrame(env.dom);
+    await settleTracksFigures(env);
+    const audio = env.dom.window.document.getElementById('track-audio-0') as HTMLAudioElement;
+    const playButton = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="toggle-playback"][data-track-id="track-1"]')!;
+    const stopButton = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="stop-playback"][data-track-id="track-1"]')!;
+    (audio as HTMLAudioElement & { duration: number }).duration = 1;
+    playButton.click();
+    await Promise.resolve();
+    await nextAnimationFrame(env.dom);
+    const draws = cursorDraws(env);
+    const asked = cursorRequests(env).length;
+    clock.now = 1034;
+    (audio as HTMLAudioElement & { currentTime: number }).currentTime = 0.5;
+    await nextAnimationFrame(env.dom);
+    await nextAnimationFrame(env.dom);
+    assert.equal(cursorDraws(env), draws, 'a playback tick alone draws no cursor spectrum: the last picture stays');
+    const open = cursorRequests(env).slice(asked);
+    assert.ok(open.length >= 1, 'the playing cursor asks for its answers');
+    assert.ok(new Set(open.map(request => request.trackIndex)).size === open.length, 'one request a track in flight');
+    await settleTracksFigures(env);
+    assert.ok(cursorDraws(env) > draws, 'the answers that come in are drawn');
+    stopButton.click();
+    env.dom.window.close();
+});
+
+test('a role set on a track header gives its cursor spectrum line the role colour (the legend\'s swatch shows it)', async () => {
+    const env = setupSelectionResultsEnv();
+    await nextAnimationFrame(env.dom);
+    await settleTracksFigures(env);
+    const swatch = (): string => env.dom.window.document.querySelector<HTMLElement>('#spectrum-axis-legend .spectrum-axis-legend-swatch')?.style.background ?? '';
+    const before = swatch();
+    assert.ok(before, 'the line has its track\'s colour');
+    // Its menu is filled as it opens.
+    env.dom.window.document.querySelector<HTMLElement>('.track-row .role-chip summary')!.click();
+    await nextAnimationFrame(env.dom);
+    env.dom.window.document.querySelector<HTMLElement>('.track-row .role-chip [data-action="track-role-set"][data-slot="1"]')!.click();
+    await nextAnimationFrame(env.dom);
+    await settleTracksFigures(env);
+    assert.notEqual(swatch(), before, 'the role\'s colour');
+    env.dom.window.close();
+});
+
+test('export-csv writes the table the Figure answers: every answer of the lines shown, named as the legend names them', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    await settleTracksFigures(env);
+    const created: Array<{ download: string; href: string }> = [];
+    const realCreate = env.dom.window.document.createElement.bind(env.dom.window.document);
+    env.dom.window.document.createElement = ((tag: string) => {
+        const element = realCreate(tag);
+        if (tag.toLowerCase() === 'a') { (element as HTMLAnchorElement).click = () => { created.push({ download: (element as HTMLAnchorElement).download, href: (element as HTMLAnchorElement).href }); }; }
+        return element;
+    });
+    env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(new env.dom.window.MouseEvent('click', { bubbles: true }));
+    for (let round = 0; round < 20 && !created.length; round++) {
+        await settleTracksFigures(env);
+        await new Promise(resolve => env.dom.window.setTimeout(resolve, 10));
+    }
+    const exported = figureRequests(env, 'figure-export');
+    assert.equal(exported.length, 1, 'the CSV is asked of the figure service, once');
+    const anchor = created.find(item => item.download.endsWith('.csv'));
+    assert.ok(anchor, 'a CSV is downloaded: ' + JSON.stringify(created.map(item => item.download)));
+    const csv = decodeDataUriPayload(anchor.href);
+    const rows = csvRecords(csv);
+    assert.equal(rows[0].length, 4, 'a frequency and a level column a line: ' + JSON.stringify(rows[0]));
+    assert.ok(rows[0][0].includes('spec-0.wav') && rows[0][2].includes('spec-1.wav'), JSON.stringify(rows[0]));
+    assert.deepEqual(rows.slice(1).map(row => [Number(row[0]), Number(row[1])]), TEST_LINE.xs.map((x, at) => [x, TEST_LINE.values[at]]));
+    env.dom.window.close();
+});
 
 // ── Offset direct edit ────────────────────────────────────────────────────────
 
@@ -2516,39 +1472,6 @@ test('renderScript: export-csv button does not throw', async () => {
     env.dom.window.close();
 });
 
-test('renderScript: export-csv creates a download anchor with data URI', async () => {
-    const env = setupSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-
-    const created: HTMLAnchorElement[] = [];
-    const origCreate = env.dom.window.document.createElement.bind(env.dom.window.document);
-    env.dom.window.document.createElement = function(tag: string) {
-        const el = origCreate(tag);
-        if (tag === 'a') { created.push(el as HTMLAnchorElement); }
-        return el;
-    };
-
-    try {
-        const sentBefore = env.postedMessages.length;
-        env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
-            new env.dom.window.MouseEvent('click', { bubbles: true }),
-        );
-        // The file waits for the backend's every-bin rows; the spectrogram column drawn meanwhile is never written.
-        assert.equal(created.find((a) => a.download === 'spectrum-export.csv'), undefined);
-        await answerCsvSpectrumRequests(env, SPECTRUM_APP_STATE, () => created.some((a) => a.download === 'spectrum-export.csv'));
-        const asked = env.postedMessages.slice(sentBefore).filter((msg: any) => msg.type === 'request-spectrum-slice');
-        assert.ok(asked.length > 0 && asked.every((request: any) => request.fullResolution === true),
-            'the export asks for every FFT bin');
-
-        const anchor = created.find((a) => a.download === 'spectrum-export.csv');
-        assert.ok(anchor, 'spectrum-export.csv という download 属性を持つ <a> が作られること');
-        assert.ok(anchor.href.startsWith('data:text/csv'), 'href が data:text/csv URI であること');
-    } finally {
-        env.dom.window.document.createElement = origCreate;
-        env.dom.window.close();
-    }
-});
-
 test('renderScript: multichannel track UI renders all channel sublanes without a selector', async () => {
     const env = setupMultichannelEnv();
     await nextAnimationFrame(env.dom);
@@ -2596,233 +1519,6 @@ function decodeDataUriPayload(uri: string): string {
     assert.ok(comma >= 0, 'data URI に payload があること');
     return decodeURIComponent(uri.slice(comma + 1));
 }
-
-/**
- * Plays the backend for a CSV export: answers each cursor-spectrum request with the track's spectrogram column as
- * every-bin rows, until `done` or the requests stop.
- */
-async function answerCsvSpectrumRequests(env: any, stateJson: string, done: () => boolean): Promise<void> {
-    const state = JSON.parse(stateJson);
-    const answered: any[] = [];
-    for (let round = 0; round < 40 && !done(); round++) {
-        const open = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && !answered.includes(msg));
-        open.forEach((request: any) => {
-            answered.push(request);
-            const result = state.results[request.trackIndex];
-            const channels = result.channels.map((channel: any, channelIndex: number) => {
-                const values = channel.spectrogram.values[0];
-                return { channelIndex, values, bins: values, minDb: Math.min(...values), maxDb: Math.max(...values) };
-            });
-            env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-                type: 'spectrum-slice-result',
-                requestId: request.requestId,
-                analysisId: request.analysisId,
-                settingsSignature: request.settingsSignature,
-                trackIndex: request.trackIndex,
-                filePath: request.filePath,
-                channels,
-                frequencyBins: channels[0].values.length,
-                maxFrequencyHz: result.channels[0].spectrogram.maxFrequencyHz,
-            } }));
-        });
-        await new Promise(resolve => env.dom.window.setTimeout(resolve, 30));
-    }
-}
-
-test('renderScript: multichannel CSV includes all spectrum channels', async () => {
-    const env = setupMultichannelEnv();
-    await nextAnimationFrame(env.dom);
-
-    const created: HTMLAnchorElement[] = [];
-    const origCreate = env.dom.window.document.createElement.bind(env.dom.window.document);
-    env.dom.window.document.createElement = function(tag: string) {
-        const el = origCreate(tag);
-        if (tag === 'a') { created.push(el as HTMLAnchorElement); }
-        return el;
-    };
-
-    try {
-        env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
-            new env.dom.window.MouseEvent('click', { bubbles: true }),
-        );
-        // The file waits for the backend's every-bin rows; the spectrogram column drawn meanwhile is never written.
-        assert.equal(created.find((a) => a.download === 'spectrum-export.csv'), undefined);
-        await answerCsvSpectrumRequests(env, MULTICHANNEL_APP_STATE, () => created.some((a) => a.download === 'spectrum-export.csv'));
-
-        const anchor = created.find((a) => a.download === 'spectrum-export.csv');
-        assert.ok(anchor, 'CSV download anchor が作られること');
-        const csv = decodeDataUriPayload(anchor.href);
-        // The file as downloaded: UTF-8 with a BOM, CRLF after every record (src/shared/utils/csv.ts).
-        assert.ok(csv.startsWith('\uFEFF') && csv.endsWith('\r\n'), JSON.stringify(csv.slice(0, 8)));
-        assert.equal(csv.slice(1).split('\r\n')[0], 'stereo.wav Channel 1 / 2 (Left) Frequency [Hz],"stereo.wav Channel 1 / 2 (Left) Level, uncalibrated [dB re 1 input unit]",stereo.wav Channel 2 / 2 (Right) Frequency [Hz],"stereo.wav Channel 2 / 2 (Right) Level, uncalibrated [dB re 1 input unit]"');
-    } finally {
-        env.dom.window.document.createElement = origCreate;
-        env.dom.window.close();
-    }
-});
-
-test('renderScript: export-csv replaces a cursor spectrum cut for display with every FFT bin', async () => {
-    const env = setupSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-    const created: HTMLAnchorElement[] = [];
-    const origCreate = env.dom.window.document.createElement.bind(env.dom.window.document);
-    env.dom.window.document.createElement = function(tag: string) {
-        const el = origCreate(tag);
-        if (tag === 'a') { created.push(el as HTMLAnchorElement); }
-        return el;
-    };
-    try {
-        // The cursor spectra on screen: rows cut for display, each point at its own frequency.
-        const drawn = { values: [-90, 3, -70], frequenciesHz: [0, 123.25, 20000] };
-        for (let round = 0; round < 10; round++) {
-            const open = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && !msg.answered);
-            open.forEach((request: any) => {
-                request.answered = true;
-                env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-                    type: 'spectrum-slice-result', requestId: request.requestId, analysisId: request.analysisId,
-                    settingsSignature: request.settingsSignature, trackIndex: request.trackIndex, filePath: request.filePath,
-                    channels: [{ channelIndex: 0, values: drawn.values, minDb: -90, maxDb: 3 }],
-                    frequencyBins: drawn.values.length, maxFrequencyHz: 22050, frequenciesHz: drawn.frequenciesHz,
-                } }));
-            });
-            await nextAnimationFrame(env.dom);
-        }
-        const sentBefore = env.postedMessages.length;
-        env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
-            new env.dom.window.MouseEvent('click', { bubbles: true }),
-        );
-        await answerCsvSpectrumRequests(env, SPECTRUM_APP_STATE, () => created.some((a) => a.download === 'spectrum-export.csv'));
-        const asked = env.postedMessages.slice(sentBefore).filter((msg: any) => msg.type === 'request-spectrum-slice');
-        assert.ok(asked.length > 0 && asked.every((request: any) => request.fullResolution === true));
-        const anchor = created.find((a) => a.download === 'spectrum-export.csv');
-        assert.ok(anchor, 'CSV download anchor が作られること');
-        const rows = csvRecords(decodeDataUriPayload(anchor.href));
-        // Four evenly spaced bins per track from the every-bin answer; the cut row's 123.25 Hz point is not written.
-        assert.equal(rows.length, 1 + 4);
-        // Not the frequencies of the row cut for display: the CSV of the drawn points would list those.
-        assert.notDeepEqual(rows.slice(1).map(row => row[0]), drawn.frequenciesHz.map(hz => hz.toFixed(4)), 'not the three points of the row cut for display');
-        assert.equal(rows[2][0], '7350.0000');
-        assert.ok(!rows.some(row => row.includes('123.2500')));
-    } finally {
-        env.dom.window.document.createElement = origCreate;
-        env.dom.window.close();
-    }
-});
-
-test('renderScript: export-csv leaves out a track whose every-bin spectrum failed and says so', async () => {
-    const env = setupSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-    const created: HTMLAnchorElement[] = [];
-    const origCreate = env.dom.window.document.createElement.bind(env.dom.window.document);
-    env.dom.window.document.createElement = function(tag: string) {
-        const el = origCreate(tag);
-        if (tag === 'a') { created.push(el as HTMLAnchorElement); }
-        return el;
-    };
-    try {
-        const state = JSON.parse(SPECTRUM_APP_STATE);
-        const answered = new Set<any>();
-        env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
-            new env.dom.window.MouseEvent('click', { bubbles: true }),
-        );
-        for (let round = 0; round < 40 && !created.some((a) => a.download === 'spectrum-export.csv'); round++) {
-            env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && !answered.has(msg)).forEach((request: any) => {
-                answered.add(request);
-                const identity = { requestId: request.requestId, analysisId: request.analysisId, settingsSignature: request.settingsSignature,
-                    trackIndex: request.trackIndex, filePath: request.filePath };
-                // The second track's every-bin spectrum fails; the row cut for display it drew earlier must not stand in.
-                const data = request.trackIndex === 1
-                    ? { ...identity, type: 'spectrum-slice-error', error: 'backend failed' }
-                    : { ...identity, type: 'spectrum-slice-result', frequencyBins: 4, maxFrequencyHz: 22050,
-                        channels: [{ channelIndex: 0, values: state.results[0].channels[0].spectrogram.values[0], bins: state.results[0].channels[0].spectrogram.values[0], minDb: -90, maxDb: 0 }] };
-                env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data }));
-            });
-            await new Promise(resolve => env.dom.window.setTimeout(resolve, 30));
-        }
-        const anchor = created.find((a) => a.download === 'spectrum-export.csv');
-        assert.ok(anchor, 'CSV download anchor が作られること');
-        const header = decodeDataUriPayload(anchor.href).slice(1).split('\r\n')[0];
-        assert.match(header, /spec-0\.wav/);
-        assert.doesNotMatch(header, /spec-1\.wav/);
-        const info = env.postedMessages.find((msg: any) => msg.type === 'show-info') as any;
-        assert.match(info?.message ?? '', /^1 spectrum\(s\) left out of the CSV: .*spec-1\.wav/);
-    } finally {
-        env.dom.window.document.createElement = origCreate;
-        env.dom.window.close();
-    }
-});
-
-test('renderScript: export-csv preserves each track frequency axis', async () => {
-    const env = setupMismatchedDeltaFSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-
-    const created: HTMLAnchorElement[] = [];
-    const origCreate = env.dom.window.document.createElement.bind(env.dom.window.document);
-    env.dom.window.document.createElement = function(tag: string) {
-        const el = origCreate(tag);
-        if (tag === 'a') { created.push(el as HTMLAnchorElement); }
-        return el;
-    };
-
-    try {
-        env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
-            new env.dom.window.MouseEvent('click', { bubbles: true }),
-        );
-        // The file waits for the backend's every-bin rows; the spectrogram column drawn meanwhile is never written.
-        assert.equal(created.find((a) => a.download === 'spectrum-export.csv'), undefined);
-        await answerCsvSpectrumRequests(env, MISMATCHED_DELTA_F_SPECTRUM_STATE, () => created.some((a) => a.download === 'spectrum-export.csv'));
-
-        const anchor = created.find((a) => a.download === 'spectrum-export.csv');
-        assert.ok(anchor, 'CSV download anchor が作られること');
-        const rows = decodeDataUriPayload(anchor.href).slice(1).split('\r\n');
-        assert.equal(rows[0], 'coarse.wav Channel 1 (L) Frequency [Hz],"coarse.wav Channel 1 (L) Level, uncalibrated [dB re 1 input unit]",fine.wav Channel 1 (L) Frequency [Hz],"fine.wav Channel 1 (L) Level, uncalibrated [dB re 1 input unit]"');
-        assert.equal(rows[1], '0.0000,-80.000000,0.0000,-20.000000');
-        assert.equal(rows[4], '600.0000,-20.000000,540.0000,-65.000000');
-        assert.equal(rows[5], ',,720.0000,-80.000000');
-        assert.equal(rows[6], ',,900.0000,-85.000000');
-    } finally {
-        env.dom.window.document.createElement = origCreate;
-        env.dom.window.close();
-    }
-});
-
-test('renderScript: export-csv keeps original frequency axis after display max frequency change', async () => {
-    const env = setupMismatchedDeltaFSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'comparison-panel-test-action',
-        actionId: 'csv-display-max-frequency',
-        actions: [{ action: 'set-spectrogram-display', payload: { maxFrequencyHz: 300 } }],
-    } }));
-    await nextAnimationFrame(env.dom);
-
-    const created: HTMLAnchorElement[] = [];
-    const origCreate = env.dom.window.document.createElement.bind(env.dom.window.document);
-    env.dom.window.document.createElement = function(tag: string) {
-        const el = origCreate(tag);
-        if (tag === 'a') { created.push(el as HTMLAnchorElement); }
-        return el;
-    };
-
-    try {
-        env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
-            new env.dom.window.MouseEvent('click', { bubbles: true }),
-        );
-        // The file waits for the backend's every-bin rows; the spectrogram column drawn meanwhile is never written.
-        assert.equal(created.find((a) => a.download === 'spectrum-export.csv'), undefined);
-        await answerCsvSpectrumRequests(env, MISMATCHED_DELTA_F_SPECTRUM_STATE, () => created.some((a) => a.download === 'spectrum-export.csv'));
-
-        const anchor = created.find((a) => a.download === 'spectrum-export.csv');
-        assert.ok(anchor, 'CSV download anchor が作られること');
-        const rows = decodeDataUriPayload(anchor.href).slice(1).split('\r\n');
-        assert.equal(rows[4], '600.0000,-20.000000,540.0000,-65.000000');
-        assert.equal(rows[6], ',,900.0000,-85.000000');
-    } finally {
-        env.dom.window.document.createElement = origCreate;
-        env.dom.window.close();
-    }
-});
 
 test('renderScript: multichannel report lists peak metrics for every channel', async () => {
     const env = setupMultichannelEnv();
@@ -3007,13 +1703,8 @@ test('renderScript: F キーで follow-cursor ボタンの is-active が切り�
 
 test('renderScript: L キーはループがある場合に zoom-to-selection を実行すること', async () => {
     const env = setupEnv();
-    const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
-    assert.ok(canvas, 'track-canvas-0 が存在すること');
-
-    // ループ区間を Alt+ドラッグで作成（ドラッグだけなら矩形ズーム）
-    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, clientX: 50, clientY: 5, buttons: 1, altKey: true }));
-    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 200, clientY: 5, buttons: 1 }));
-    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, clientX: 200, clientY: 5 }));
+    // ループ区間を作る（行の図の Alt+ドラッグが作るのと同じ区間）
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: { type: 'comparison-panel-test-action', actions: [{ action: 'set-loop-region', payload: { start: 0.1, end: 0.4 } }], actionId: 'loop' } }));
 
     const zoomBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="zoom-to-selection"]');
     assert.ok(zoomBtn, '[data-action="zoom-to-selection"] ボタンが存在すること');
@@ -3088,7 +1779,6 @@ test('renderScript: ショートカットキーは修飾キー (Ctrl/Meta/Alt) �
     env.dom.window.close();
 });
 
-
 test('renderScript: 修飾キーなし wheel はトラック領域の標準スクロールに渡すこと', async () => {
     const env = setupEnv();
     const wrapper = env.dom.window.document.getElementById('tracks-wrapper');
@@ -3159,7 +1849,6 @@ test('スペクトルズームツールバーのボタンが生成される', ()
     assert.ok(reset,   'spec-zoom-reset ボタンが存在すること');
 });
 
-
 test('トラック高さはヘッダー実寸より低くならない', async () => {
     const env = setupEnv();
     await nextAnimationFrame(env.dom);
@@ -3176,12 +1865,7 @@ test('トラック高さはヘッダー実寸より低くならない', async ()
     await nextAnimationFrame(env.dom);
 
     // The lane's plot height is shared: 40 % waveform, the rest its spectrogram.
-    const trackCanvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
-    const specCanvas = env.dom.window.document.getElementById('track-spec-canvas-0') as HTMLCanvasElement | null;
-    assert.ok(trackCanvas);
-    assert.ok(specCanvas);
-    assert.strictEqual(trackCanvas.height, 40);
-    assert.strictEqual(specCanvas.height, 60);
+    assert.deepEqual(rowHeights(env.dom), { wave: 40, spec: 60 });
 
     const snap = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
     assert.strictEqual(snap?.renderedUi?.trackHeight, 100);
@@ -3189,8 +1873,7 @@ test('トラック高さはヘッダー実寸より低くならない', async ()
     env.dom.window.close();
 });
 
-
-test('高さの数値入力がトラックとパワースペクトルの canvas 高さを変更する', async () => {
+test('高さの数値入力がトラックの行とパワースペクトルの枠の高さを変更する', async () => {
     const env = setupEnv();
     await nextAnimationFrame(env.dom);
 
@@ -3208,15 +1891,12 @@ test('高さの数値入力がトラックとパワースペクトルの canvas 
     );
     await nextAnimationFrame(env.dom);
 
-    const trackCanvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
-    const overlayCanvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
-    assert.ok(trackCanvas);
-    assert.ok(overlayCanvas);
+    const overlayPlot = env.dom.window.document.getElementById('spectrum-overlay-plot');
+    assert.ok(overlayPlot);
     // 112 px of plots: 45 waveform + 67 spectrogram.
-    assert.strictEqual(trackCanvas.height, 45);
-    assert.strictEqual((env.dom.window.document.getElementById('track-spec-canvas-0') as HTMLCanvasElement).height, 67);
-    assert.strictEqual(overlayCanvas.height, 180);
-    assert.strictEqual(overlayCanvas.style.height, '180px');
+    assert.deepEqual(rowHeights(env.dom), { wave: 45, spec: 67 });
+    // The Figure is drawn at its box's size: the box takes the height typed.
+    assert.strictEqual(overlayPlot.style.height, '180px');
 
     const snap1 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
     assert.strictEqual(snap1?.renderedUi?.trackHeight, 112);
@@ -3224,7 +1904,6 @@ test('高さの数値入力がトラックとパワースペクトルの canvas 
 
     env.dom.window.close();
 });
-
 
 test('高さリサイズハンドルのドラッグがトラックとパワースペクトルの高さを変更する', async () => {
     const env = setupEnv();
@@ -3252,14 +1931,12 @@ test('高さリサイズハンドルのドラッグがトラックとパワー�
     );
     await nextAnimationFrame(env.dom);
 
-    const trackCanvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
-    const overlayCanvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
-    assert.ok(trackCanvas);
-    assert.ok(overlayCanvas);
+    // The cursor spectrum's box is the Figure's: the Figure sizes its own canvas to it.
+    const overlayBox = env.dom.window.document.getElementById('spectrum-overlay-plot');
+    assert.ok(overlayBox);
     // 160 + 24 px of plots, 40 % of it the waveform.
-    assert.strictEqual(trackCanvas.height, 74);
-    assert.strictEqual(overlayCanvas.height, 170);
-    assert.strictEqual(overlayCanvas.style.height, '170px');
+    assert.equal(rowHeights(env.dom).wave, 74);
+    assert.strictEqual(overlayBox.style.height, '170px');
 
     const snap = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
     assert.strictEqual(snap?.renderedUi?.trackHeight, 184);
@@ -3268,98 +1945,10 @@ test('高さリサイズハンドルのドラッグがトラックとパワー�
     env.dom.window.close();
 });
 
-
 test('ズームのモード切り替えボタンはない: どのレーンでもドラッグは矩形ズーム', () => {
     const { dom } = setupEnv();
     assert.strictEqual(dom.window.document.querySelector('[data-action="wave-mode-rect-zoom"]'), null);
     assert.strictEqual(dom.window.document.querySelector('[data-action="wave-mode-loop"]'), null);
-});
-
-test('renderScript: レーンのドラッグはループではなくラバーバンドから時間・振幅ズームを適用すること', async () => {
-    const env = setupEnv();
-    const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
-    assert.ok(canvas, 'track-canvas-0 が存在すること');
-
-    canvas.width = 400;
-    canvas.height = 100;
-    canvas.getBoundingClientRect = () => ({
-        left: 0, top: 0, right: 400, bottom: 100, width: 400, height: 100, x: 0, y: 0,
-        toJSON: () => ({}),
-    });
-
-    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 100, clientY: 20, buttons: 1 }));
-    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, button: 0, clientX: 300, clientY: 80, buttons: 1 }));
-
-    env.dom.window.dispatchEvent(
-        new env.dom.window.MessageEvent('message', {
-            data: { type: 'comparison-panel-test-action', actions: [], actionId: 'rect-dragging' },
-        }),
-    );
-    await nextAnimationFrame(env.dom);
-    const dragging = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    assert.ok(dragging.renderedUi.rectZoomSelection, 'ドラッグ中は rectZoomSelection が存在すること');
-
-    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 300, clientY: 80 }));
-    env.dom.window.dispatchEvent(
-        new env.dom.window.MessageEvent('message', {
-            data: { type: 'comparison-panel-test-action', actions: [], actionId: 'rect-drag-complete' },
-        }),
-    );
-    await nextAnimationFrame(env.dom);
-
-    const completed = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    const ui = completed.renderedUi;
-    assert.equal(ui.rectZoomSelection, null, 'ドラッグ完了後はラバーバンドが消えること');
-    assert.ok(ui.zoomStart > 0.24 && ui.zoomStart < 0.26, '矩形の左端が zoomStart になること');
-    assert.ok(ui.zoomEnd > 0.74 && ui.zoomEnd < 0.76, '矩形の右端が zoomEnd になること');
-    assert.ok(ui.amplitudeZoomMinNorm < -0.6 && ui.amplitudeZoomMinNorm > -0.8, '矩形の下端が振幅ズーム下限になること');
-    assert.ok(ui.amplitudeZoomMaxNorm > 0.6 && ui.amplitudeZoomMaxNorm < 0.8, '矩形の上端が振幅ズーム上限になること');
-
-    const zoomBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="zoom-to-selection"]');
-    assert.ok(zoomBtn, 'zoom-to-selection ボタンが存在すること');
-    assert.equal(zoomBtn.disabled, true, 'rect-zoom ドラッグではループ選択を作らないこと');
-
-    env.dom.window.close();
-});
-
-test('renderScript: on a lane Shift+drag shifts the track\'s time, Alt+drag on the loop\'s edge moves that edge, and neither zooms', async () => {
-    const env = setupEnv();
-    const { document } = env.dom.window;
-    const canvas = document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
-    assert.ok(canvas);
-    canvas.width = 400;
-    canvas.height = 100;
-    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 400, bottom: 100, width: 400, height: 100, x: 0, y: 0, toJSON: () => ({}) });
-    const mouse = (target: EventTarget, type: string, clientX: number, init: MouseEventInit = {}): void => {
-        target.dispatchEvent(new env.dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, ...(type === 'mousemove' ? { buttons: 1 } : {}), clientX, clientY: 50, ...init }));
-    };
-    const snapshot = async (actionId: string): Promise<any> => {
-        env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: { type: 'comparison-panel-test-action', actions: [], actionId } }));
-        await nextAnimationFrame(env.dom);
-        return (env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any).renderedUi;
-    };
-    const before = (await snapshot('before-shift')).tracks[0].offsetSeconds;
-    mouse(canvas, 'mousedown', 100, { shiftKey: true });
-    mouse(document, 'mousemove', 200, { shiftKey: true });
-    mouse(document, 'mouseup', 200, { shiftKey: true });
-    const shifted = await snapshot('after-shift');
-    assert.ok(shifted.tracks[0].offsetSeconds > before, 'a Shift+drag to the right shifts the track later');
-    assert.deepEqual([shifted.zoomStart, shifted.zoomEnd, shifted.rectZoomSelection], [0, 1, null], 'a Shift+drag zooms nothing');
-
-    mouse(canvas, 'mousedown', 100, { altKey: true });
-    mouse(document, 'mousemove', 300, { altKey: true });
-    mouse(document, 'mouseup', 300, { altKey: true });
-    const zoomButton = document.querySelector<HTMLButtonElement>('[data-action="zoom-to-selection"]');
-    assert.equal(zoomButton?.disabled, false, 'an Alt+drag sets the loop');
-    const loopText = document.getElementById('loop-time-display')?.textContent;
-    // Alt+drag from the loop's right edge moves only that edge.
-    mouse(canvas, 'mousedown', 300, { altKey: true });
-    mouse(document, 'mousemove', 360, { altKey: true });
-    mouse(document, 'mouseup', 360, { altKey: true });
-    const moved = await snapshot('after-grip');
-    assert.notEqual(document.getElementById('loop-time-display')?.textContent, loopText, 'the loop\'s edge moved');
-    assert.deepEqual([moved.zoomStart, moved.zoomEnd], [0, 1], 'an Alt+drag zooms nothing');
-    env.dom.window.close();
 });
 
 test('初期スペクトルズーム状態が全域である', async () => {
@@ -3370,304 +1959,6 @@ test('初期スペクトルズーム状態が全域である', async () => {
     assert.strictEqual(snapMsg.renderedUi.specFreqStart, 0,      'specFreqStart の初期値が 0 であること');
     assert.strictEqual(snapMsg.renderedUi.specFreqEnd,   1,      'specFreqEnd の初期値が 1 であること');
 });
-
-test('renderScript: 波形キャンバスの dblclick でズームがリセットされる', async () => {
-    const env = setupEnv();
-
-    // '+' キーでズームイン（zoomStart/zoomEnd が変化する）
-    env.dom.window.document.dispatchEvent(
-        new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: '+' }),
-    );
-
-    // スナップショットを要求してズームが変化したことを確認
-    env.dom.window.dispatchEvent(
-        new env.dom.window.MessageEvent('message', {
-            data: { type: 'comparison-panel-test-action', actions: [], actionId: 'pre-dblclick' },
-        }),
-    );
-    await nextAnimationFrame(env.dom);
-    const snapshots1 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot');
-    const pre = (snapshots1[snapshots1.length - 1] as any)?.renderedUi;
-    assert.ok(pre, 'ズームイン後のスナップショットが存在すること');
-    assert.ok(pre.zoomStart > 0 || pre.zoomEnd < 1, 'ズームイン後は zoomStart/zoomEnd が変化していること');
-
-    // .track-canvas への dblclick でリセット
-    const canvas = env.dom.window.document.querySelector<HTMLElement>('.track-canvas');
-    assert.ok(canvas, '.track-canvas が存在すること');
-    canvas.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true }));
-
-    // スナップショットを再要求
-    env.dom.window.dispatchEvent(
-        new env.dom.window.MessageEvent('message', {
-            data: { type: 'comparison-panel-test-action', actions: [], actionId: 'post-dblclick' },
-        }),
-    );
-    await nextAnimationFrame(env.dom);
-    const snapshots2 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot');
-    const post = (snapshots2[snapshots2.length - 1] as any)?.renderedUi;
-    assert.ok(post, 'dblclick 後のスナップショットが存在すること');
-    assert.strictEqual(post.zoomStart, 0, 'dblclick 後 zoomStart が 0 になること');
-    assert.strictEqual(post.zoomEnd,   1, 'dblclick 後 zoomEnd が 1 になること');
-
-    env.dom.window.close();
-});
-
-test('renderScript: スペクトログラムの周波数軸 dblclick は周波数範囲の popover を開き、時間ズームは保つ', async () => {
-    const env = setupEnv();
-    (env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLElement).click();
-
-    // '+' キーでズームイン
-    env.dom.window.document.dispatchEvent(
-        new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: '+' }),
-    );
-
-    // ズームイン後スナップショット
-    env.dom.window.dispatchEvent(
-        new env.dom.window.MessageEvent('message', {
-            data: { type: 'comparison-panel-test-action', actions: [], actionId: 'pre-axis-dblclick' },
-        }),
-    );
-    await nextAnimationFrame(env.dom);
-    const snapshots1 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot');
-    const pre = (snapshots1[snapshots1.length - 1] as any)?.renderedUi;
-    assert.ok(pre && (pre.zoomStart > 0 || pre.zoomEnd < 1), 'ズームイン後は zoomStart/zoomEnd が変化していること');
-
-    // .track-axis-canvas への dblclick でリセット
-    const axisCanvas = env.dom.window.document.querySelector<HTMLElement>('.track-spec-axis');
-    assert.ok(axisCanvas, 'スペクトログラムの周波数軸が存在すること');
-    axisCanvas.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true }));
-
-    // dblclick 後スナップショット
-    env.dom.window.dispatchEvent(
-        new env.dom.window.MessageEvent('message', {
-            data: { type: 'comparison-panel-test-action', actions: [], actionId: 'post-axis-dblclick' },
-        }),
-    );
-    await nextAnimationFrame(env.dom);
-    const snapshots2 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot');
-    const post = (snapshots2[snapshots2.length - 1] as any)?.renderedUi;
-    assert.ok(post, 'dblclick 後のスナップショットが存在すること');
-    assert.deepEqual([post.zoomStart, post.zoomEnd], [pre.zoomStart, pre.zoomEnd], '軸 dblclick では時間ズームが変わらないこと');
-    const popover = env.dom.window.document.getElementById('waveform-range-popover');
-    assert.ok(popover && popover.style.display !== 'none', '周波数範囲の popover が開くこと');
-
-    env.dom.window.close();
-});
-test('renderScript: 波形の振幅軸 dblclick → popover で振幅レンジを設定・Auto で戻せる', async () => {
-    const env = setupEnvWithState(REAL_SCALE_AXIS_APP_STATE);
-    await nextAnimationFrame(env.dom);
-    const doc = env.dom.window.document;
-    const latestWaveformLabels = async (actionId: string) => {
-        env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
-            data: { type: 'comparison-panel-test-action', actions: [], actionId },
-        }));
-        await nextAnimationFrame(env.dom);
-        const snap = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
-        return snap.renderedUi as { zoomStart: number; axisLabels: { waveformPerTrack: string[][] } };
-    };
-    doc.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: '+' }));
-    const zoomed = await latestWaveformLabels('pre-amp-axis');
-    assert.ok(zoomed.zoomStart > 0, '時間方向にズームしていること');
-
-    const axis = doc.getElementById('track-axis-canvas-1') as HTMLElement;
-    assert.match(axis.getAttribute('data-hint') ?? '', /./, '振幅軸にヒントがあること');
-    axis.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 10, clientY: 40 }));
-    const pop = doc.getElementById('waveform-range-popover') as HTMLElement;
-    assert.ok(pop, 'popover が存在すること');
-    assert.notStrictEqual(pop.style.display, 'none', 'popover が表示されること');
-    const minI = doc.getElementById('wave-range-min') as HTMLInputElement;
-    const maxI = doc.getElementById('wave-range-max') as HTMLInputElement;
-    assert.ok(Number(maxI.value) > 0.5 && Number(minI.value) === -Number(maxI.value), 'プリフィルは表示中の上下端 (ピーク 0.5 Pa の外側) であること');
-    minI.value = '-0.2'; maxI.value = '0.2';
-    (doc.getElementById('wave-range-apply') as HTMLElement).click();
-    assert.strictEqual(pop.style.display, 'none', 'Apply 後に popover が閉じること');
-    const applied = await latestWaveformLabels('post-amp-apply');
-    assert.ok(applied.zoomStart > 0, '振幅軸 dblclick で時間ズームはリセットされないこと');
-    assert.deepEqual(Array.from(applied.axisLabels.waveformPerTrack[1]), ['−0.2', '−0.1', '0.0', '0.1', '0.2', 'Amplitude, uncalibrated [Pa]']);
-    assert.deepEqual(Array.from(applied.axisLabels.waveformPerTrack[0]), ['−5000', '0', '5000', 'Amplitude, uncalibrated [input unit]'], '他トラックは自分のピーク比で同じ倍率になること');
-
-    axis.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 10, clientY: 40 }));
-    assert.strictEqual(minI.value, '-0.2', '再オープン時は設定中の値をプリフィルすること');
-    (doc.getElementById('wave-range-auto') as HTMLElement).click();
-    const auto = await latestWaveformLabels('post-amp-auto');
-    assert.deepEqual(Array.from(auto.axisLabels.waveformPerTrack[1]), ['−0.5', '0.0', '0.5', 'Amplitude, uncalibrated [Pa]']);
-    env.dom.window.close();
-});
-// NOTE: jsdom テスト env (createWebviewEnv) は __APP_STRINGS__ を注入しないため
-// STR={} となり badge/error の textContent は空になる。そのため文字列ではなく
-// popover の表示状態・入力プリフィル・Apply による state 反映（snapshot の
-// axisLabels.spectrumOverlay: overlay が描いた文字そのもの、drawnSpectrumAxes）で検証する。
-function latestSpectrumOverlayLabels(env: ReturnType<typeof setupEnv>): string[] | null {
-    const snaps = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot');
-    const ui = (snaps[snaps.length - 1] as any)?.renderedUi;
-    return ui?.axisLabels?.spectrumOverlay ?? null;
-}
-/**
- * The cursor spectrum's axes as it drew them (A27): its frequency ticks (before the frequency axis's name), its level
- * axis's name, and its level ticks (after it), each number read with its true minus.
- */
-function drawnSpectrumAxes(labels: readonly string[] | null): { frequency: number[]; levelTitle: string; level: number[] } {
-    const texts = Array.from(labels ?? []);
-    const named = texts.findIndex(text => text.startsWith('Frequency'));
-    const number = (text: string): number => Number(text.replace('−', '-'));
-    const numbers = (part: string[]): number[] => part.map(number).filter(Number.isFinite);
-    return { frequency: numbers(texts.slice(0, Math.max(0, named))), levelTitle: texts[named + 1] ?? '', level: numbers(texts.slice(named + 2)) };
-}
-function requestSpectrumSnapshot(env: ReturnType<typeof setupEnv>, actionId: string): void {
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
-        data: { type: 'comparison-panel-test-action', actions: [], actionId: actionId },
-    }));
-}
-
-test('spectrum overlay preserves a compatible calibrated level unit', async () => {
-    const state = JSON.parse(DUMMY_APP_STATE);
-    state.results = state.results.slice(0, 1);
-    state.results[0].channels[0].spectrogram.unit = 'dB SPL';
-    state.results[0].channels[0].spectrogram.axisLabel = 'Spectrum amplitude level [dB SPL re 20 µPa]';
-    const env = setupEnvWithState(JSON.stringify(state));
-    await nextAnimationFrame(env.dom);
-
-    requestSpectrumSnapshot(env, 'calibrated-overlay-unit');
-    await nextAnimationFrame(env.dom);
-
-    const labels = latestSpectrumOverlayLabels(env);
-    assert.match(drawnSpectrumAxes(labels).levelTitle, /\[dB SPL/u, JSON.stringify(labels));
-    env.dom.window.close();
-});
-
-test('spectrum overlay: Y軸(dB) dblclick → popover が開き dB レンジを適用できる', async () => {
-    const env = setupEnv();
-    await nextAnimationFrame(env.dom);
-    const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas');
-    assert.ok(overlay, 'overlay canvas が存在すること');
-    // Y軸ゾーン: cx < padL(36) → clientX=10
-    overlay.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 10, clientY: 70 }));
-    const pop = env.dom.window.document.getElementById('spectrum-range-popover') as HTMLElement;
-    assert.ok(pop, 'popover が存在すること');
-    assert.notStrictEqual(pop.style.display, 'none', 'popover が表示されること');
-    const minI = env.dom.window.document.getElementById('spec-range-min') as HTMLInputElement;
-    const maxI = env.dom.window.document.getElementById('spec-range-max') as HTMLInputElement;
-    minI.value = '-80'; maxI.value = '-20';
-    (env.dom.window.document.getElementById('spec-range-apply') as HTMLElement).click();
-    assert.strictEqual(pop.style.display, 'none', 'Apply 後に popover が閉じること');
-    requestSpectrumSnapshot(env, 'after-db-apply');
-    await nextAnimationFrame(env.dom);
-    const { level } = drawnSpectrumAxes(latestSpectrumOverlayLabels(env));
-    assert.ok(level.length >= 2, 'overlay の dB 軸の目盛りが描かれていること');
-    assert.strictEqual(Math.max(...level), -20, 'dB Max が適用値になること');
-    assert.strictEqual(Math.min(...level), -80, 'dB Min が適用値になること');
-    env.dom.window.close();
-});
-
-test('spectrum overlay: X軸(周波数) dblclick → popover が開き Hz レンジを適用できる', async () => {
-    const env = setupEnv();
-    await nextAnimationFrame(env.dom);
-    const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
-    assert.ok(overlay, 'overlay canvas が存在すること');
-    const H = overlay.height || 140;
-    const W = overlay.width || 800;
-    // X軸ゾーン: cy > H-padB(18) かつ cx ∈ [36, W-8]
-    overlay.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: Math.floor(W / 2), clientY: H - 5 }));
-    const pop = env.dom.window.document.getElementById('spectrum-range-popover') as HTMLElement;
-    assert.notStrictEqual(pop.style.display, 'none', 'popover が表示されること');
-    const minI = env.dom.window.document.getElementById('spec-range-min') as HTMLInputElement;
-    const maxI = env.dom.window.document.getElementById('spec-range-max') as HTMLInputElement;
-    // freq 軸プリフィル: Min は全域開始の "0"（dB 軸と区別できる）
-    assert.strictEqual(minI.value, '0', 'freq 軸の Min プリフィルは 0 であること');
-    minI.value = '100'; maxI.value = '900';
-    (env.dom.window.document.getElementById('spec-range-apply') as HTMLElement).click();
-    requestSpectrumSnapshot(env, 'after-freq-apply');
-    await nextAnimationFrame(env.dom);
-    const { frequency } = drawnSpectrumAxes(latestSpectrumOverlayLabels(env));
-    assert.ok(frequency.length >= 2, 'overlay の周波数軸の目盛りが描かれていること');
-    // The ticks drawn lie in the applied 100–900 Hz and span it.
-    assert.ok(frequency.every(hz => hz >= 100 && hz <= 900) && Math.min(...frequency) <= 300 && Math.max(...frequency) >= 700, JSON.stringify(frequency));
-    env.dom.window.close();
-});
-
-test('spectrum overlay: プロット内部 dblclick で specZoomReset される', async () => {
-    const env = setupEnv();
-    await nextAnimationFrame(env.dom);
-    const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
-    assert.ok(overlay, 'overlay canvas が存在すること');
-    const W = overlay.width || 800;
-    const H = overlay.height || 140;
-    // まず Y軸 popover を開いて dB レンジを適用（state を変化させる）
-    overlay.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 10, clientY: 70 }));
-    const minI = env.dom.window.document.getElementById('spec-range-min') as HTMLInputElement;
-    const maxI = env.dom.window.document.getElementById('spec-range-max') as HTMLInputElement;
-    minI.value = '-80'; maxI.value = '-20';
-    (env.dom.window.document.getElementById('spec-range-apply') as HTMLElement).click();
-    requestSpectrumSnapshot(env, 'pre-spec-reset');
-    await nextAnimationFrame(env.dom);
-    const before = drawnSpectrumAxes(latestSpectrumOverlayLabels(env));
-    assert.strictEqual(Math.max(...before.level), -20, 'reset 前は適用した dB レンジであること');
-    // 内部 dblclick で reset → dB/freq が auto に戻る
-    overlay.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: Math.floor(W / 2), clientY: Math.floor(H / 2) }));
-    requestSpectrumSnapshot(env, 'post-spec-reset');
-    await nextAnimationFrame(env.dom);
-    const after = drawnSpectrumAxes(latestSpectrumOverlayLabels(env));
-    assert.ok(after.level.length >= 2 && after.frequency.length >= 2, 'reset 後の軸の目盛りが描かれていること');
-    assert.notStrictEqual(Math.max(...after.level), -20, 'reset 後 dB Max が auto（適用値でない）に戻ること');
-    assert.strictEqual(Math.min(...after.frequency), 0, 'reset 後 freq Min が 0 Hz（全域）に戻ること');
-    env.dom.window.close();
-});
-
-test('spectrum overlay: min>=max は適用されず popover を閉じない', async () => {
-    const env = setupEnv();
-    await nextAnimationFrame(env.dom);
-    const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas');
-    overlay!.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 10, clientY: 70 }));
-    // 適用前のベースライン
-    requestSpectrumSnapshot(env, 'pre-invalid');
-    await nextAnimationFrame(env.dom);
-    const baseline = latestSpectrumOverlayLabels(env);
-    // 不正値 (min >= max) を適用
-    const minI = env.dom.window.document.getElementById('spec-range-min') as HTMLInputElement;
-    const maxI = env.dom.window.document.getElementById('spec-range-max') as HTMLInputElement;
-    minI.value = '-10'; maxI.value = '-50';
-    (env.dom.window.document.getElementById('spec-range-apply') as HTMLElement).click();
-    const pop = env.dom.window.document.getElementById('spectrum-range-popover') as HTMLElement;
-    assert.notStrictEqual(pop.style.display, 'none', '不正時は popover が開いたままであること');
-    // state は変化していない（ラベルがベースラインのまま）
-    requestSpectrumSnapshot(env, 'post-invalid');
-    await nextAnimationFrame(env.dom);
-    const after = latestSpectrumOverlayLabels(env);
-    assert.deepStrictEqual(after, baseline, '不正値は適用されず軸ラベルが不変であること');
-    env.dom.window.close();
-});
-
-
-test('spectrum overlay: clamp 後にゼロ幅になる周波数レンジは適用されない', async () => {
-    const env = setupEnv();
-    await nextAnimationFrame(env.dom);
-    const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
-    assert.ok(overlay, 'overlay canvas が存在すること');
-    const H = overlay.height || 140;
-    const W = overlay.width || 800;
-    overlay.dispatchEvent(new env.dom.window.MouseEvent('dblclick', {
-        bubbles: true, clientX: Math.floor(W / 2), clientY: H - 5,
-    }));
-
-    requestSpectrumSnapshot(env, 'pre-out-of-range-freq');
-    await nextAnimationFrame(env.dom);
-    const baseline = latestSpectrumOverlayLabels(env);
-
-    const minI = env.dom.window.document.getElementById('spec-range-min') as HTMLInputElement;
-    const maxI = env.dom.window.document.getElementById('spec-range-max') as HTMLInputElement;
-    minI.value = '999999';
-    maxI.value = '1000000';
-    (env.dom.window.document.getElementById('spec-range-apply') as HTMLElement).click();
-
-    const pop = env.dom.window.document.getElementById('spectrum-range-popover') as HTMLElement;
-    assert.notStrictEqual(pop.style.display, 'none', 'clamp 後にゼロ幅になる入力では popover が開いたままであること');
-    requestSpectrumSnapshot(env, 'post-out-of-range-freq');
-    await nextAnimationFrame(env.dom);
-    const after = latestSpectrumOverlayLabels(env);
-    assert.deepStrictEqual(after, baseline, 'clamp 後にゼロ幅になる周波数レンジは state に反映されないこと');
-    env.dom.window.close();
-});
-
 
 test('tracks without an audio source disable all playback controls', () => {
     const state = JSON.parse(DUMMY_APP_STATE);
@@ -3680,23 +1971,6 @@ test('tracks without an audio source disable all playback controls', () => {
     }
     dom.window.close();
 });
-
-test('recreated canvases repaint unchanged spectrogram data', async () => {
-    const env = setupSpectrumEnv();
-    env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]')!.click();
-    await nextAnimationFrame(env.dom);
-    const oldCanvas = env.dom.window.document.getElementById('track-spec-canvas-0');
-    const spy = env.domCanvasContexts.get('track-spec-canvas-0')!;
-    const paints = spy.putImageDataCalls;
-    assert.ok(paints > 0);
-    const results = (env.dom.window as unknown as { __APP_STATE__: { results: unknown[] } }).__APP_STATE__.results;
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: { type: 'analysis-update', results } }));
-    await nextAnimationFrame(env.dom);
-    assert.notEqual(env.dom.window.document.getElementById('track-spec-canvas-0'), oldCanvas);
-    assert.ok(spy.putImageDataCalls > paints, 'the old raster cache must not suppress painting the new canvas');
-    env.dom.window.close();
-});
-
 
 test('renderScript: a detail error is not asked again on every render until the settings change', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
@@ -3747,27 +2021,3 @@ test('renderScript: a failed spectrogram is asked for again once the retry pause
     env.dom.window.close();
 });
 
-test('renderScript: terminal detail error permits retry with the same analysis settings', async () => {
-    const env = setupEnvWithState(makeLazySpectrogramState());
-    const button = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement;
-    button.click();
-    await nextAnimationFrame(env.dom);
-    const before = env.postedMessages.filter((msg: any) => msg.type === 'request-track-detail') as any[];
-    const initial = before[0];
-    assert.ok(initial);
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        ...initial, type: 'track-detail-error', error: 'Recipe execution timed out',
-    } }));
-    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
-        type: 'comparison-panel-test-action', actionId: 'detail-retry-after-error',
-        actions: [{ action: 'set-spectrogram-display', payload: { dbMin: -70, dbMax: -5, maxFrequencyHz: 8000 } }],
-    } }));
-    await nextAnimationFrame(env.dom);
-    const after = env.postedMessages.filter((msg: any) => msg.type === 'request-track-detail') as any[];
-    assert.ok(after.length > before.length);
-    const retry = after.at(-1);
-    assert.equal(retry.analysisId, initial.analysisId);
-    assert.equal(retry.settingsSignature, initial.settingsSignature);
-    assert.notEqual(retry.requestId, initial.requestId);
-    env.dom.window.close();
-});

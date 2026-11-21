@@ -29,7 +29,7 @@ test('the shared commands go through the native validator', () => {
     const analyze = withoutResponseEnvelope(fixtures.find(fixture => fixture.command === 'analyze')!.response);
     assert.deepEqual(parseWorkerResult('analyze', analyze), analyze);
     assert.throws(() => parseWorkerResult('analyze', { filePath: '/sources/a.wav' }), /Invalid analyze success response/);
-    assert.throws(() => parseWorkerResult('track-detail', undefined), /Invalid track-detail success response/);
+    assert.throws(() => parseWorkerResult('track-answers', undefined), /Invalid track-answers success response/);
 });
 
 test('Worker messages are a boot report or a correlated reply; anything else is dropped', () => {

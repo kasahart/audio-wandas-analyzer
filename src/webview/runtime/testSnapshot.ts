@@ -1,6 +1,5 @@
-import type { SpectrogramData, SpectrogramSettings } from '../../shared/analysis/analysisTypes';
+import type { SpectrogramSettings } from '../../shared/analysis/analysisTypes';
 import { runtimeIntlLocale } from '../../shared/utils/format';
-import type { WaveformCoverage } from './types';
 
 export interface LatestSpectrogramSnapshot {
     windowSize: number | null;
@@ -71,7 +70,7 @@ export function shellSnapshot(doc: Document, audioContextState: string | null) {
 }
 
 export function latestSpectrogramSnapshot(
-    firstSpec: SpectrogramData | null | undefined,
+    firstSpec: { windowSize: number; hopSize: number } | null | undefined,
     settings: SpectrogramSettings | null,
 ): LatestSpectrogramSnapshot | undefined {
     if (!firstSpec && !settings) {
@@ -97,15 +96,5 @@ export function visibleFileRange(
     return {
         startNorm: Math.max(0, (zoomStart - placement.offsetNorm) / placement.trackDurRatio),
         endNorm: Math.min(1, (zoomEnd - placement.offsetNorm) / placement.trackDurRatio),
-    };
-}
-
-export function waveformCoverageSnapshot(coverage: WaveformCoverage | null | undefined) {
-    return {
-        waveformCoversViewportLeft: !!coverage && coverage.coversLeft,
-        waveformCoversViewportRight: !!coverage && coverage.coversRight,
-        waveformMinDrawX: coverage ? coverage.minX : null,
-        waveformMaxDrawX: coverage ? coverage.maxX : null,
-        waveformCanvasWidth: coverage ? coverage.canvasWidth : null,
     };
 }

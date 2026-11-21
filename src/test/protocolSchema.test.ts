@@ -40,23 +40,16 @@ test('schema commands report the same invalid field as the Python validator', ()
     }
 });
 
-test('range results are checked by the schema plus the envelope length invariant', () => {
-    const envelope = { min: [0, 1], max: [1, 2], samples: [0.5, 1.5], absolutePeak: 2 };
-    const result = { startNorm: 0, endNorm: 1, channels: [envelope] };
-    assert.deepEqual(parseBackendResult('range', result), result);
-    assert.equal(schemaViolation('RangeResult', { ...result, channels: [{ ...envelope, absolutePeak: Number.NaN }] }), 'channels[0].absolutePeak');
-    assert.equal(schemaViolation('RangeResult', { ...result, analysisRevision: 1.5 }), 'analysisRevision');
-    assert.equal(schemaViolation('RangeResult', { ...result, analysisRevision: -1 }), 'analysisRevision', 'results keep the non-negative revision check');
-    assert.throws(() => parseBackendResult('range', { ...result, channels: [{ ...envelope, samples: [0] }] }), /Invalid range success response/);
-});
+const CHANNEL = { label: 'ch0', peakAbsolute: 2, fullScale: true, sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS' };
+const ANALYSIS = { filePath: 'tone.wav', fileName: 'tone.wav', sampleRateHz: 16000, durationSeconds: 1, channelCount: 1, sampleCount: 16000, channels: [CHANNEL] };
 
-test('spectrum-slice results are checked by the schema plus the per-channel bin invariant', () => {
-    const channel = { channelIndex: 0, values: [-10, -20], minDb: -20, maxDb: -10, referenceValue: 2e-5 };
-    const result = { trackIndex: 0, analysisId: 'a', settingsSignature: 's', filePath: 'tone.wav', channels: [channel], frequencyBins: 2, maxFrequencyHz: 8000, windowStartNorm: 0.4, windowEndNorm: 0.6, window: 'hann', computeMs: 1 };
-    assert.deepEqual(parseBackendResult('spectrum-slice', result), result);
-    assert.equal(schemaViolation('SpectrumSliceResult', { ...result, channels: [{ ...channel, referenceValue: 0 }] }), 'channels[0].referenceValue');
-    assert.throws(() => parseBackendResult('spectrum-slice', { ...result, channels: [] }), /Invalid spectrum-slice success response/);
-    assert.throws(() => parseBackendResult('spectrum-slice', { ...result, frequencyBins: 3 }), /Invalid spectrum-slice success response/);
+test('results are checked by the schema', () => {
+    assert.deepEqual(parseBackendResult('region-peak', { peak: 2 }), { peak: 2 });
+    assert.equal(schemaViolation('RegionPeakResult', { peak: Number.NaN }), 'peak');
+    assert.equal(schemaViolation('AnalysisResult', { ...ANALYSIS, channels: [{ ...CHANNEL, peakAbsolute: Number.NaN }] }), 'channels[0].peakAbsolute');
+    assert.equal(schemaViolation('AnalysisResult', { ...ANALYSIS, analysisRevision: 1.5 }), 'analysisRevision');
+    assert.equal(schemaViolation('AnalysisResult', { ...ANALYSIS, analysisRevision: -1 }), 'analysisRevision', 'results keep the non-negative revision check');
+    assert.throws(() => parseBackendResult('region-peak', { peak: 'loud' }), /Invalid region-peak success response/);
 });
 
 test('invalid response fixtures report the same path as Python and fail ajv', () => {
@@ -70,44 +63,30 @@ test('invalid response fixtures report the same path as Python and fail ajv', ()
     }
 });
 
-test('scan results are either a one-line failure or a full per-channel result', () => {
-    const ok = {
-        ok: true, conditionId: 'c', input: { id: 'i', fs: 16000, channels: [0, 1], durationS: 2, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true },
-        leqDbA: [-9, -21], peakHz: [1000, 3150], spectrumDb: [[-9], [-21]], thirdOctDb: [[null], [-23]], crest: [1.4, 1.4],
-        specVersion: 1, wandasVersion: '0.9.0', elapsedMs: 80,
-    };
-    assert.deepEqual(parseBackendResult('scan', ok), ok);
+test('a scan result is a one-line failure or one step\'s description, with no drawn point and nothing measured beside it', () => {
+    const input = { id: 'i', fs: 16000, channels: [0, 1], durationS: 2, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true };
+    const stage = { ok: true, input, stage: { frame: 'NOctFrame', kind: 'bar', x: 'band', quantity: 'level', unit: 'Pa', data: 'k1' }, specVersion: 4, wandasVersion: '0.9.0', elapsedMs: 9 };
+    assert.deepEqual(parseBackendResult('scan', stage), stage);
     assert.deepEqual(parseBackendResult('scan', { ok: false, reason: 'Unable to read audio' }), { ok: false, reason: 'Unable to read audio' });
     assert.throws(() => parseBackendResult('scan', { ok: false }), /Invalid scan success response/);
-    assert.throws(() => parseBackendResult('scan', { ok: false, reason: 'x', leqDbA: [] }), /Invalid scan success response/);
-    assert.throws(() => parseBackendResult('scan', { ...ok, reason: 'x' }), /Invalid scan success response/);
-    assert.throws(() => parseBackendResult('scan', { ...ok, crest: undefined }), /Invalid scan success response/);
-    assert.throws(() => parseBackendResult('scan', { ...ok, leqDbA: [-9] }), /Invalid scan success response/);
-    // A step's picture comes alone: the input and the picture, none of the metrics.
-    const stage = { ok: true, input: ok.input, stage: { frame: 'NOctFrame', kind: 'bar', xs: [25], values: [-40] }, specVersion: 4, wandasVersion: '0.9.0', elapsedMs: 9 };
-    assert.deepEqual(parseBackendResult('scan', stage), stage);
-    assert.throws(() => parseBackendResult('scan', { ...stage, conditionId: 'c' }), /Invalid scan success response/);
+    assert.throws(() => parseBackendResult('scan', { ok: false, reason: 'x', input }), /Invalid scan success response/);
+    assert.throws(() => parseBackendResult('scan', { ...stage, reason: 'x' }), /Invalid scan success response/);
+    assert.throws(() => parseBackendResult('scan', { ...stage, stage: undefined }), /Invalid scan success response/);
     assert.throws(() => parseBackendResult('scan', { ...stage, input: undefined }), /Invalid scan success response/);
 });
 
-test('analyze and track-detail results keep the invariants the schema cannot express', () => {
-    const envelope = { min: [0, 1], max: [1, 2], samples: [0.5, 1.5], absolutePeak: 2 };
-    const spectrogram = { values: [[-10, -20]], timeBins: 1, frequencyBins: 2, windowSize: 64, hopSize: 32, maxFrequencyHz: 8000, minDb: -20, maxDb: -10 };
-    const channel = { label: 'ch0', peakAbsolute: 2, fullScale: true, sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS', waveform: envelope, spectrogram: null };
-    const result = { filePath: 'tone.wav', fileName: 'tone.wav', sampleRateHz: 16000, durationSeconds: 1, channelCount: 1, sampleCount: 16000, channels: [channel] };
-    const detail = { trackIndex: 0, analysisId: 'a', settingsSignature: 's', filePath: 'tone.wav', channels: [{ ...channel, spectrogram }] };
-    assert.deepEqual(parseBackendResult('analyze', result), result);
-    assert.deepEqual(parseBackendResult('track-detail', detail), detail);
+test('analyze results keep the invariants the schema cannot express, and carry no picture', () => {
+    assert.deepEqual(parseBackendResult('analyze', ANALYSIS), ANALYSIS);
     const invalidAnalyze = [
-        { ...result, channelCount: 2 },
-        { ...result, channels: [{ ...channel, waveform: { ...envelope, samples: [0] } }] },
-        { ...result, channels: [{ ...channel, spectrogram: { ...spectrogram, timeBins: 2 } }] },
-        { ...result, calibrationProfile: { schemaVersion: 1, channels: 'none' } },
+        { ...ANALYSIS, channelCount: 2 },
+        // A row's waveform and spectrogram are figures: an analysis that carries one is not the protocol's.
+        { ...ANALYSIS, channels: [{ ...CHANNEL, waveform: { min: [0], max: [1], absolutePeak: 1 } }] },
+        { ...ANALYSIS, channels: [{ ...CHANNEL, spectrogram: null }] },
+        { ...ANALYSIS, calibrationProfile: { schemaVersion: 1, channels: 'none' } },
     ];
     for (const value of invalidAnalyze) {
         assert.throws(() => parseBackendResult('analyze', value), /Invalid analyze success response/, JSON.stringify(value));
     }
-    assert.throws(() => parseBackendResult('track-detail', { ...detail, channels: [{ ...channel, spectrogram: { ...spectrogram, frequencyBins: 3 } }] }), /Invalid track-detail success response/);
 });
 
 test('error payloads, notifications and Worker limits come from the schema', () => {
@@ -129,10 +108,9 @@ test('error payloads, notifications and Worker limits come from the schema', () 
 });
 
 test('undefined properties count as absent, as after JSON serialization', () => {
-    const envelope = { min: [0], max: [1], samples: [0.5], absolutePeak: 1 };
-    const result = { startNorm: 0, endNorm: 1, channels: [envelope], calibrationSignature: undefined, analysisRevision: undefined };
-    assert.equal(schemaViolation('RangeResult', result), null);
-    assert.equal(schemaViolation('RangeResult', { ...result, startNorm: undefined }), 'startNorm');
+    const result = { ...ANALYSIS, calibrationSignature: undefined, analysisRevision: undefined };
+    assert.equal(schemaViolation('AnalysisResult', result), null);
+    assert.equal(schemaViolation('AnalysisResult', { ...result, fileName: undefined }), 'fileName');
 });
 
 test('schema cases report the same path as Python and agree with ajv', () => {

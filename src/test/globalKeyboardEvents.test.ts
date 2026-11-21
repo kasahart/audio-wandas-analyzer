@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { attachGlobalKeyboardListeners } from '../webview/runtime/globalKeyboardEvents';
-import { keyRouterFor } from '../webview/runtime/keyRouter';
+import { keyRouterFor } from '../webview/shell/keyRouter';
 
 function setup(options: { helpHidden?: boolean } = {}) {
-    const { window } = new JSDOM('<!doctype html><body><div id="help-overlay"></div><canvas class="track-canvas" tabindex="0"></canvas><input id="text"></body>');
+    const { window } = new JSDOM('<!doctype html><body><div id="help-overlay"></div><div class="track-row-figure"><canvas tabindex="0"></canvas></div><input id="text"></body>');
     const doc = window.document;
     const help = doc.getElementById('help-overlay') as HTMLElement;
     help.hidden = options.helpHidden ?? true;
@@ -30,7 +30,7 @@ test('attachGlobalKeyboardListeners routes keydown intents and prevents their de
     const { calls, key, focus } = setup();
     assert.equal(key('keydown', { code: 'Space', key: ' ' }), true);
     assert.equal(key('keydown', { code: 'Digit0', key: '0' }), true);
-    focus('.track-canvas');
+    focus('.track-row-figure canvas');
     assert.equal(key('keydown', { code: 'ArrowRight', key: 'ArrowRight', shiftKey: true }), true);
     assert.equal(key('keydown', { code: 'Space', key: ' ' }), true);
     assert.equal(key('keydown', { code: 'KeyQ', key: 'q' }), false);
@@ -90,8 +90,8 @@ test('a focused role chip keeps its digits from the lanes', () => {
 test('two bundles on one window share its router: the help closes before a popover of the other bundle', async () => {
     const { window } = new JSDOM('<!doctype html><body></body>');
     // A second copy of the module, as the static build's host and comparison bundles each carry one.
-    delete require.cache[require.resolve('../webview/runtime/keyRouter')];
-    const second = await import('../webview/runtime/keyRouter');
+    delete require.cache[require.resolve('../webview/shell/keyRouter')];
+    const second = await import('../webview/shell/keyRouter');
     assert.notEqual(keyRouterFor, second.keyRouterFor);
     const calls: string[] = [];
     keyRouterFor(window).add({ layer: 'popover', keydown: event => { calls.push(`about:${event.key}`); return event.key === 'Escape'; } });

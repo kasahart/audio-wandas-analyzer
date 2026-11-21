@@ -9,25 +9,17 @@ import pytest
 import soundfile as sf
 import wandas as wd
 
-from analysis_engine import AnalysisEngine, compute_spectrogram
-from analysis_service import AnalysisService
-from analyzer import (
-    SPECTRUM_DISPLAY_POINT_LIMIT,
+from conftest import assert_not_drawn
+from services.analysis_engine import AnalysisEngine, compute_spectrogram
+from services.analysis_service import AnalysisService
+from services.analyzer import (
     AnalysisResult,
     ChannelSummary,
     MeasurementMetadata,
-    SpectrogramPayload,
-    _build_spectrogram,
-    _cursor_buckets,
     level_scale_metadata,
-    min_max_spectrum,
-    resample_frequency_bins,
     spectrogram_frame_centers,
     spectrogram_window_frames,
 )
-from conftest import assert_not_drawn
-from decimator import bucket_edges
-from stage_view import min_max_indices, rows_bucket_count
 
 _SCALE = level_scale_metadata(wd.from_numpy(np.zeros((1, 8)), sampling_rate=8).channels[0].level_reference, "STFT")
 
@@ -35,10 +27,6 @@ _SCALE = level_scale_metadata(wd.from_numpy(np.zeros((1, 8)), sampling_rate=8).c
 @pytest.fixture
 def service() -> AnalysisService:
     return AnalysisService(AnalysisEngine(cache_limit_bytes=64 * 1024 * 1024))
-
-
-def _mean_power_db(values_db: list[float]) -> float:
-    return float(10.0 * np.log10(np.mean(np.power(10.0, np.asarray(values_db) / 10.0))))
 
 
 def _typed_dict_keys(typed_dict: type) -> set[str]:
@@ -65,15 +53,10 @@ def test_service_analyze_defaults(tmp_path: Path, service: AnalysisService) -> N
     _write_sine_wav(wav)
     result = service.analyze(wav)
     ch = result["channels"][0]
-    spec = service.track_detail(wav)["channels"][0]["spectrogram"]
-    assert spec["windowSize"] > 0
-    assert spec["hopSize"] > 0
     assert ch["unit"] == "FS"
     assert set(result) == _typed_dict_keys(AnalysisResult)
     assert set(ch) == _typed_dict_keys(ChannelSummary)
     assert set(ch["measurement"]) == _typed_dict_keys(MeasurementMetadata)
-    # The band keys come only with a band zoom (test_a_band_zoomed_track_detail_draws_the_band_from_its_own_fft_bins).
-    assert set(spec) == _typed_dict_keys(SpectrogramPayload) - {"bandLowHz", "bandHighHz"}
     assert result["units"]["spectrumLevel"] == {
         "unit": "dBFS",
         "axisLabel": "Spectrum amplitude level [dBFS]",
@@ -112,10 +95,10 @@ def test_service_includes_channel_unit(
     result = service.analyze(path)
 
     assert result["channels"][0]["unit"] == "Pa"
-    assert result["channels"][0]["waveform"]["absolutePeak"] == pytest.approx(0.5)
+    assert result["channels"][0]["peakAbsolute"] == pytest.approx(0.5)
 
 
-def test_service_defaults_to_summary_without_spectrogram(
+def test_service_analyze_sends_no_picture(
     tmp_path: Path, service: AnalysisService, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     frame = wd.from_numpy(np.array([0.0, 0.5, -0.5]), sampling_rate=1000)
@@ -123,7 +106,8 @@ def test_service_defaults_to_summary_without_spectrogram(
     path.touch()
     monkeypatch.setattr(wd, "read", _read_as(frame))
     result = service.analyze(path)
-    assert result["channels"][0]["spectrogram"] is None
+    # A row's waveform and spectrogram are figures (figures/service.py), never part of the analysis.
+    assert "waveform" not in result["channels"][0] and "spectrogram" not in result["channels"][0]
 
 
 def test_service_summary_skips_rms_and_full_file_fft(
@@ -147,47 +131,6 @@ def test_service_summary_skips_rms_and_full_file_fft(
     assert result["channels"][0]["peakAbsolute"] == pytest.approx(0.5)
 
 
-def test_service_reports_wandas_db_for_representative_sine(
-    tmp_path: Path, service: AnalysisService, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    sample_rate = 1024
-    sample_count = 1024
-    amplitude = 0.5
-    frequency_hz = 128.0
-    time = np.arange(sample_count, dtype=np.float64) / sample_rate
-    samples = amplitude * np.sin(2 * math.pi * frequency_hz * time)
-    frame = wd.ChannelFrame.from_numpy(samples, sampling_rate=sample_rate)
-    path = tmp_path / "sine.wav"
-    path.touch()
-    monkeypatch.setattr(wd, "read", _read_as(frame))
-
-    result = service.track_detail(
-        path,
-        stft_options={"n_fft": 256, "overlap_percent": 50, "window": "boxcar"},
-    )
-
-    expected_db = 20 * math.log10(amplitude)
-    channel = result["channels"][0]
-    assert channel["spectrogram"]["maxDb"] == pytest.approx(expected_db, abs=0.01)
-    assert channel["spectrogram"]["axisLabel"] == "STFT amplitude level [dB re 1 input unit]"
-
-
-def test_service_waveform_range_uses_same_pcm_scale_as_overview(tmp_path: Path, service: AnalysisService) -> None:
-    wav = tmp_path / "tone.wav"
-    _write_sine_wav(wav, seconds=1.0)
-
-    overview = service.analyze(wav)["channels"][0]["waveform"]
-    range_result = service.waveform_range(wav, start_norm=0.25, end_norm=0.75, point_count=128)
-    range_waveform = range_result["channels"][0]
-
-    assert overview["absolutePeak"] == pytest.approx(0.5, abs=0.01)
-    assert range_waveform["absolutePeak"] == pytest.approx(0.5, abs=0.01)
-    assert range_waveform["absolutePeak"] == pytest.approx(overview["absolutePeak"], rel=0.05)
-    assert min(range_waveform["minT"]) >= 0.24
-    assert max(range_waveform["maxT"]) >= 0.74
-    assert max(range_waveform["maxT"]) <= 0.76
-
-
 def test_service_analyze_accepts_flac_from_supported_ui_formats(tmp_path: Path, service: AnalysisService) -> None:
     flac = tmp_path / "tone.flac"
     sr = 16000
@@ -201,213 +144,7 @@ def test_service_analyze_accepts_flac_from_supported_ui_formats(tmp_path: Path, 
     assert result["fileName"] == "tone.flac"
     assert result["sampleRateHz"] == sr
     assert result["channelCount"] == 1
-    assert result["channels"][0]["waveform"]["absolutePeak"] == pytest.approx(0.5, abs=0.01)
-
-
-def test_service_analyze_with_stft_options(tmp_path: Path, service: AnalysisService) -> None:
-    wav = tmp_path / "tone.wav"
-    _write_sine_wav(wav)
-    result = service.track_detail(
-        wav,
-        stft_options={"n_fft": 512, "overlap_percent": 75, "window": "hamming"},
-    )
-    spec = result["channels"][0]["spectrogram"]
-    assert spec["windowSize"] == 512
-    assert spec["hopSize"] == 128
-
-
-def test_spectrogram_time_reduction_averages_linear_power() -> None:
-    spec = _build_spectrogram(
-        np.array([[-60.0, -20.0], [0.0, -40.0]], dtype=np.float64),
-        sample_rate_hz=48_000,
-        window_size=512,
-        hop_size=128,
-        scale=_SCALE,
-        time_bin_limit=1,
-        frequency_bin_limit=2,
-    )
-
-    assert spec["timeBins"] == 1
-    assert spec["frequencyBins"] == 2
-    assert spec["values"][0] == pytest.approx(
-        [
-            _mean_power_db([-60.0, 0.0]),
-            _mean_power_db([-20.0, -40.0]),
-        ]
-    )
-
-
-def test_spectrogram_colour_range_is_every_full_cells_not_the_cells_averaged_to_draw() -> None:
-    # A long STFT the lane draws averaged in time and frequency: one short loud cell and one narrow deep cell are
-    # averaged away in the drawn cells, but they are the full STFT's ends and the colour bar's.
-    rng = np.random.default_rng(7)
-    full = rng.uniform(-62.0, -58.0, size=(6000, 2049))
-    full[3001, 700] = -3.5
-    full[1200, 1500] = -97.25
-    spec = _build_spectrogram(full, sample_rate_hz=48_000, window_size=4096, hop_size=1024, scale=_SCALE)
-
-    drawn = np.asarray(spec["values"])
-    assert drawn.shape[0] < full.shape[0] and drawn.shape[1] < full.shape[1]
-    # The drawn cells lost both ends, so a range from them would not be the full data's.
-    assert drawn.max() < -20.0 and drawn.min() > -70.0
-    assert spec["maxDb"] == -3.5
-    assert spec["minDb"] == -97.25
-    assert_not_drawn(spec["maxDb"], float(drawn.max()))
-    assert_not_drawn(spec["minDb"], float(drawn.min()))
-
-
-def test_spectrogram_colour_range_counts_digital_silence_as_its_own_level() -> None:
-    full = np.full((3000, 1025), -50.0)
-    full[:500] = -240.0  # wandas' dB of an all-zero frame
-    full[600, 3] = -np.inf
-    spec = _build_spectrogram(full, sample_rate_hz=48_000, window_size=2048, hop_size=512, scale=_SCALE)
-
-    # The drawn cells floor their averages at -120 dB; the range is every finite cell's, silence included.
-    assert spec["minDb"] == pytest.approx(-240.0)
-    assert spec["maxDb"] == pytest.approx(-50.0)
-    assert min(min(row) for row in spec["values"]) >= spec["minDb"]
-
-
-def test_spectrogram_frequency_reduction_averages_linear_power() -> None:
-    spec = _build_spectrogram(
-        np.array([[-60.0, 0.0], [-20.0, -40.0]], dtype=np.float64),
-        sample_rate_hz=48_000,
-        window_size=512,
-        hop_size=128,
-        scale=_SCALE,
-        time_bin_limit=2,
-        frequency_bin_limit=1,
-    )
-
-    assert spec["timeBins"] == 2
-    assert spec["frequencyBins"] == 1
-    assert [row[0] for row in spec["values"]] == pytest.approx(
-        [
-            _mean_power_db([-60.0, 0.0]),
-            _mean_power_db([-20.0, -40.0]),
-        ]
-    )
-
-
-def test_frequency_reduction_uses_bands_centered_on_display_coordinates() -> None:
-    values = np.array([[-60.0, 0.0, -20.0, -40.0, -30.0, -10.0, -50.0]])
-    reduced = resample_frequency_bins(values, 3)
-    np.testing.assert_allclose(
-        reduced[0],
-        [_mean_power_db(values[0, :2]), _mean_power_db(values[0, 2:5]), _mean_power_db(values[0, 5:])],
-    )
-
-
-@pytest.mark.parametrize("source_bins", [257, 513, 1025, 2049])
-def test_every_reduced_peak_stays_within_half_a_display_bin(source_bins: int) -> None:
-    values = np.full((source_bins, source_bins), -120.0)
-    np.fill_diagonal(values, 0.0)
-    reduced = resample_frequency_bins(values, 192)
-    peak_positions = np.argmax(reduced, axis=1) / 191
-    source_positions = np.arange(source_bins) / (source_bins - 1)
-    assert np.max(np.abs(peak_positions - source_positions)) <= 0.5 / 191 + 1e-12
-    assert peak_positions[0] == 0.0
-    assert peak_positions[-1] == 1.0
-
-
-@pytest.mark.parametrize("bin_count", [2049, 4097, 8193, 32769])
-@pytest.mark.parametrize("channels", [1, 2, 8])
-def test_a_cut_spectrum_fits_the_budget_in_buckets_equally_wide_on_its_linear_axis(
-    bin_count: int, channels: int
-) -> None:
-    rows = np.random.default_rng(bin_count + channels).normal(-60.0, 10.0, size=(channels, bin_count))
-    shown, frequencies = min_max_spectrum(rows, 24000.0)
-    assert frequencies is not None and shown.shape == (channels, frequencies.size)
-    assert frequencies.size <= SPECTRUM_DISPLAY_POINT_LIMIT and np.all(np.diff(frequencies) > 0)
-    bins = np.rint(frequencies * (bin_count - 1) / 24000.0).astype(int)
-    # DC is drawn, and the bins drawn are as dense at the top as at the bottom: the buckets are equally wide on the
-    # cursor spectrum's linear axis (R2), never wider high up as log buckets are.
-    assert bins[0] == 0
-    width = bin_count / _cursor_buckets(bin_count, channels)
-    assert np.max(np.diff(bins)) < 2 * width + 1
-
-
-def test_rows_within_the_display_budget_are_sent_whole() -> None:
-    rows = np.zeros((2, SPECTRUM_DISPLAY_POINT_LIMIT))
-    shown, frequencies = min_max_spectrum(rows, 4000.0)
-    assert shown is rows and frequencies is None
-
-
-@pytest.mark.parametrize("bin_count", [2049, 8193])
-def test_every_tone_keeps_its_level_and_bin_frequency_when_cut_for_display(bin_count: int) -> None:
-    rows = np.full((1, bin_count), -120.0)
-    tones = np.arange(3, bin_count, 97)
-    rows[0, tones] = 0.0
-    shown, frequencies = min_max_spectrum(rows, 6000.0)
-    assert frequencies is not None and shown.shape == (1, frequencies.size)
-    assert frequencies.size <= SPECTRUM_DISPLAY_POINT_LIMIT and np.all(np.diff(frequencies) > 0)
-    bin_hz = 6000.0 / (bin_count - 1)
-    # Each tone is drawn at its own bin's frequency with its own level.
-    for tone in tones:
-        index = int(np.argmin(np.abs(frequencies - tone * bin_hz)))
-        assert frequencies[index] == pytest.approx(tone * bin_hz) and shown[0, index] == 0.0
-
-
-def test_a_cut_row_keeps_each_buckets_lowest_and_highest_bin_as_compare_does() -> None:
-    bin_count = 8193
-    rng = np.random.default_rng(0)
-    rows = rng.normal(-60.0, 10.0, size=(2, bin_count))
-    shown, frequencies = min_max_spectrum(rows, 24000.0)
-    assert frequencies is not None and shown.shape[1] == frequencies.size <= SPECTRUM_DISPLAY_POINT_LIMIT
-    bins = np.rint(frequencies * (bin_count - 1) / 24000.0).astype(int)
-    # Every value drawn is a real bin of that channel.
-    np.testing.assert_array_equal(shown, rows[:, bins])
-    # Each channel's line holds, per bucket, the bins Compare's decimation (stage_view.min_max_indices) picks, in
-    # the scale of the axis the cursor spectrum is drawn on: linear, so the buckets are equally wide (R2).
-    freqs = np.arange(bin_count) * (24000.0 / (bin_count - 1))
-    buckets = rows_bucket_count(np.arange(bin_count, dtype=np.float64), 2, SPECTRUM_DISPLAY_POINT_LIMIT - 1, False)
-    edges = bucket_edges(bin_count, buckets)
-    for channel in range(2):
-        picked = min_max_indices(freqs, rows[channel], buckets, False)
-        assert np.isin(picked, bins).all()
-        for start, end in list(zip(edges[:-1], edges[1:], strict=True))[::37]:
-            drawn = (bins >= start) & (bins < end)
-            assert shown[channel, drawn].min() == rows[channel, start:end].min()
-            assert shown[channel, drawn].max() == rows[channel, start:end].max()
-
-
-def test_a_narrow_high_peak_of_a_cut_row_on_its_linear_axis_is_kept_at_its_own_frequency() -> None:
-    """The cursor spectrum's FFT axis is linear: cut for display, it is thinned in equally wide buckets (R2: buckets
-    in the axis's own scale). Two narrow peaks 100 bins apart near the top, a few pixels apart on that axis, are both
-    drawn at their own bins. In log buckets (one about 600 bins wide there) only the higher one was kept."""
-    bin_count = 32769
-    rows = np.full((1, bin_count), -100.0)
-    peaks = {30100: -10.0, 30200: -20.0}
-    for peak, level in peaks.items():
-        rows[0, peak] = level
-    shown, frequencies = min_max_spectrum(rows, 24000.0)
-    assert frequencies is not None
-    bins = np.rint(frequencies * (bin_count - 1) / 24000.0).astype(int).tolist()
-    for peak, level in peaks.items():
-        assert peak in bins and shown[0, bins.index(peak)] == level, (
-            f"R2 (docs/display-rules.md) broke: the narrow peak at bin {peak} is not drawn at its own frequency and "
-            "level. A line is thinned in buckets of its axis's own scale: the cursor spectrum's linear axis takes "
-            "equally wide buckets (analyzer.min_max_spectrum passes log=False to stage_view.min_max_rows)."
-        )
-
-
-def test_spectrogram_reduction_clamps_silent_power_to_finite_db() -> None:
-    spec = _build_spectrogram(
-        np.full((2, 2), -np.inf, dtype=np.float64),
-        sample_rate_hz=48_000,
-        window_size=512,
-        hop_size=128,
-        scale=_SCALE,
-        time_bin_limit=1,
-        frequency_bin_limit=1,
-    )
-
-    value = spec["values"][0][0]
-    assert np.isfinite(value)
-    assert value == pytest.approx(-120.0)
-    assert spec["minDb"] == pytest.approx(-120.0)
-    assert spec["maxDb"] == pytest.approx(-120.0)
-    assert spec["unit"] == "dB"
+    assert result["channels"][0]["peakAbsolute"] == pytest.approx(0.5, abs=0.01)
 
 
 def test_service_analyze_rejects_bad_options(tmp_path: Path, service: AnalysisService) -> None:
@@ -451,8 +188,8 @@ def test_service_analyze_keeps_multichannel_peak_amplitudes_separate(tmp_path: P
 
 @pytest.mark.parametrize("factor", [1.0, 10.0])
 def test_sparse_auto_stft_matches_wandas_and_bounds_long_file_frames(factor: float) -> None:
-    from analysis_engine import compute_spectrogram
-    from analyzer import resolve_stft_params
+    from services.analysis_engine import compute_spectrogram
+    from services.analyzer import resolve_stft_params
 
     sr = 48000
     samples = (0.25 * np.sin(2 * np.pi * 750 * np.arange(sr * 60) / sr)).astype(np.float32)
@@ -493,41 +230,17 @@ def test_sparse_auto_stft_matches_wandas_and_bounds_long_file_frames(factor: flo
     [(0.0, 1.0, (0, 100)), (0.25, 0.505, (25, 50)), (-0.5, 1.5, (0, 100)), (0.9, 0.1, (90, 10))],
 )
 def test_sample_range_clamps_normalized_selection(start: float, end: float, expected: tuple[int, int]) -> None:
-    from analyzer import sample_range
+    from services.analyzer import sample_range
 
     assert sample_range(start, end, 100) == expected
 
 
 @pytest.mark.parametrize("sample_count", [65, 300, 301, 511, 512])
 def test_auto_stft_window_is_even_for_short_files(sample_count: int) -> None:
-    from analyzer import resolve_stft_params
+    from services.analyzer import resolve_stft_params
 
     n_fft, _, _ = resolve_stft_params(sample_count, None)
     assert n_fft % 2 == 0
-
-
-def test_spectrogram_time_centers_follow_stft_window_centers() -> None:
-    frame = wd.from_numpy(np.zeros((1, 4800)), sampling_rate=48_000)
-    spectrogram = frame.stft(n_fft=512, hop_length=128, window="hann")
-    centers = spectrogram_frame_centers(spectrogram)
-    assert centers is not None
-    assert centers.shape == (spectrogram.n_frames,)
-    # Each centre is where the window that produced that frame peaks, starting before the file start.
-    assert centers[0] == pytest.approx(spectrogram.frame_time_origin)
-    np.testing.assert_allclose(np.diff(centers), 128 / 48_000)
-
-    spec = _build_spectrogram(
-        np.zeros((spectrogram.n_frames, 4)),
-        sample_rate_hz=48_000,
-        window_size=512,
-        hop_size=128,
-        scale=_SCALE,
-        time_bin_limit=8,
-        frame_centers_sec=centers,
-    )
-    # Columns are every time axis's buckets (decimator.bucket_starts, np.array_split's), each at its frames' centre.
-    expected = [float(np.mean(group)) for group in np.array_split(centers, 8)]
-    assert spec["timeCentersSec"] == pytest.approx(expected)
 
 
 def test_sparse_spectrogram_time_centers_use_the_display_hop() -> None:
@@ -563,108 +276,9 @@ def test_spectrogram_window_frames_keeps_the_frames_in_the_window_and_one_beside
     assert spectrogram_window_frames(centers, 1.0, (0.0, 0.001)) == slice(0, 2)
 
 
-def test_zoomed_track_detail_draws_the_window_from_every_frame_in_it(tmp_path: Path, service: AnalysisService) -> None:
-    # R3: a zoomed lane asks for its window, and gets every STFT frame centred in it instead of the whole file's
-    # 720 display columns stretched.
-    wav = tmp_path / "long.wav"
-    _write_sine_wav(wav, seconds=30.0)
-    options = {"n_fft": 256, "overlap_percent": 75, "window": "hann"}
-    whole = service.track_detail(wav, stft_options=options)["channels"][0]["spectrogram"]
-    zoomed = service.track_detail(wav, stft_options=options, time_window=(0.4, 0.45))["channels"][0]["spectrogram"]
-    hop_sec = 64 / 16000
-    assert len(whole["timeCentersSec"]) == 720
-    centers = np.asarray(zoomed["timeCentersSec"])
-    assert centers[0] <= 12.0 <= centers[1] and centers[-2] <= 13.5 <= centers[-1]
-    assert np.all(np.diff(centers) == pytest.approx(hop_sec))
-    assert len(centers) == pytest.approx(1.5 / hop_sec, abs=3)
-
-
-def test_a_band_zoomed_track_detail_draws_the_band_from_its_own_fft_bins(
-    tmp_path: Path, service: AnalysisService
-) -> None:
-    # R3 up the frequency axis: two tones 31 Hz apart share one of the whole range's 192 rows (about 42 Hz each at
-    # 16 kHz) and read as one; the band asked for gets its own FFT bins (7.8 Hz apart), so they are two.
-    rate, seconds = 16000, 2.0
-    t = np.arange(int(rate * seconds)) / rate
-    tones = (1000.0, 1031.25)
-    wav = tmp_path / "two-tones.wav"
-    signal = 0.3 * np.sin(2 * np.pi * tones[0] * t) + 0.3 * np.sin(2 * np.pi * tones[1] * t)
-    sf.write(wav, signal.astype(np.float32), rate)
-    options = {"n_fft": 2048, "overlap_percent": 50, "window": "hann"}
-    whole = service.track_detail(wav, stft_options=options)["channels"][0]["spectrogram"]
-    band = service.track_detail(wav, stft_options=options, frequency_band=(900.0, 1100.0))["channels"][0]["spectrogram"]
-    bin_hz = rate / 2048
-
-    def peaks(spec: dict, low: float, high: float) -> list[float]:
-        values = np.asarray(spec["values"], dtype=float).mean(axis=0)
-        rows = np.linspace(low, high, spec["frequencyBins"])
-        inside = (rows >= 900) & (rows <= 1100)
-        level, hz = values[inside], rows[inside]
-        return [
-            hz[k]
-            for k in range(1, len(level) - 1)
-            if level[k] > level[k - 1] and level[k] >= level[k + 1] and level[k] > level.max() - 6
-        ]
-
-    assert "bandLowHz" not in whole and whole["frequencyBins"] == 192
-    assert len(peaks(whole, 0.0, whole["maxFrequencyHz"])) <= 1
-    # The band's bins: those inside it and one beside each end, at their own frequencies.
-    assert band["bandLowHz"] == pytest.approx((np.ceil(900 / bin_hz) - 1) * bin_hz)
-    assert band["bandHighHz"] == pytest.approx((np.floor(1100 / bin_hz) + 1) * bin_hz)
-    assert band["frequencyBins"] == round((band["bandHighHz"] - band["bandLowHz"]) / bin_hz) + 1
-    assert band["maxFrequencyHz"] == whole["maxFrequencyHz"] and band["timeBins"] == whole["timeBins"]
-    found = peaks(band, band["bandLowHz"], band["bandHighHz"])
-    assert len(found) == 2
-    assert np.allclose(sorted(found), tones, atol=bin_hz)
-
-
-def test_a_zoom_window_costs_its_own_frames_and_samples_not_the_whole_files(
-    tmp_path: Path, service: AnalysisService, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # The STFT is cut before its dB conversion, and the envelope is built from the window's samples only.
-    wav = tmp_path / "long.wav"
-    _write_sine_wav(wav, seconds=30.0)
-    options = {"n_fft": 256, "overlap_percent": 75, "window": "hann"}
-    service.track_detail(wav, stft_options=options)
-    converted: list[int] = []
-    original = wd.SpectrogramFrame.dB.fget
-    assert original is not None
-
-    def recording_db(self: wd.SpectrogramFrame) -> np.ndarray:
-        converted.append(int(self.n_frames))
-        return original(self)
-
-    monkeypatch.setattr(wd.SpectrogramFrame, "dB", property(recording_db))
-    zoomed = service.track_detail(wav, stft_options=options, time_window=(0.4, 0.45))["channels"][0]
-    assert converted and max(converted) < 400  # the window's ~377 frames, not the file's 7500
-    waveform = zoomed["waveform"]
-    assert min(waveform["minT"]) >= 0.4 - 1e-6 and max(waveform["maxT"]) <= 0.45 + 1e-6
-
-
-def test_with_automatic_settings_a_zoom_window_gets_its_own_hop_and_its_columns(
-    tmp_path: Path, service: AnalysisService
-) -> None:
-    # The automatic hop spreads the whole file's ~720 frames over the file, so cutting them gives a 5 % window ~36
-    # columns. The window instead gets an STFT of its own, with the file's window size and a hop for its length.
-    wav = tmp_path / "long.wav"
-    _write_sine_wav(wav, seconds=30.0)
-    whole = service.track_detail(wav)["channels"][0]["spectrogram"]
-    zoomed = service.track_detail(wav, time_window=(0.4, 0.45))["channels"][0]["spectrogram"]
-    assert whole["timeBins"] == 720
-    assert zoomed["timeBins"] == 720 and zoomed["hopSize"] < whole["hopSize"] / 10
-    assert zoomed["windowSize"] == whole["windowSize"] and zoomed["frequencyBins"] == whole["frequencyBins"]
-    centers = np.asarray(zoomed["timeCentersSec"])
-    assert centers[0] <= 12.0 + 0.01 and centers[-1] >= 13.5 - 0.01
-    assert centers[0] >= 12.0 - 0.05 and centers[-1] <= 13.5 + 0.05
-    # The tone's level is the whole file's: the window's STFT is the same transform, not a rescaled one.
-    assert zoomed["maxDb"] == pytest.approx(whole["maxDb"], abs=0.05)
-
-
-def test_channel_peak_is_every_samples_largest_magnitude_not_the_envelope_drawn(
-    tmp_path: Path, service: AnalysisService
-) -> None:
-    # Ten seconds of a quiet tone and one negative sample far below it: the envelope drawn thins the samples to a few
-    # thousand points; the header's peak and its level are every sample's.
+def test_channel_peak_is_every_samples_largest_magnitude(tmp_path: Path, service: AnalysisService) -> None:
+    # Ten seconds of a quiet tone and one negative sample far below it: the header's peak and its level are every
+    # sample's, never a thinned picture's.
     rate = 48_000
     times = np.arange(10 * rate) / rate
     samples = 0.25 * np.sin(2 * np.pi * 97 * times)
@@ -675,11 +289,10 @@ def test_channel_peak_is_every_samples_largest_magnitude_not_the_envelope_drawn(
     channel = service.analyze(audio)["channels"][0]
 
     read = sf.read(audio, dtype="float64")[0]
-    assert len(channel["waveform"]["max"]) < len(read) / 10
     assert channel["peakAbsolute"] == pytest.approx(float(np.max(np.abs(read))))
     assert channel["peakAbsolute"] == pytest.approx(0.8125)
     assert channel["peakLevelDb"] == pytest.approx(20 * math.log10(0.8125), abs=1e-6)
     # A waveform thinned by averaging to as many points as are drawn never holds the one sample.
-    width = len(read) // len(channel["waveform"]["max"])
+    width = len(read) // 1200
     averaged = np.abs(read[: len(read) // width * width].reshape(-1, width).mean(axis=1))
     assert_not_drawn(channel["peakAbsolute"], float(averaged.max()))

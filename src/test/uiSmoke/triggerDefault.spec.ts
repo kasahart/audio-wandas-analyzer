@@ -8,15 +8,16 @@ import { bridgeComparison, RealBackend, runFixture } from './realBackend';
 
 /**
  * The level a new trigger starts at is half the peak of the compared channels over the region, read from every
- * sample (display rules R1; regionPeak.ts). Two things are checked here, in the real page:
+ * sample (display rules R1): one answer of the backend's for them all ('region-peak', AnalysisService.region_peak),
+ * which the page only asks for and keeps (comparisonRuntime.ts `peak`). Two things are checked here, in the real page:
  *
  * 1. End to end with the real backend (backend_server.py, as the host runs it), on recordings whose region's largest
- *    sample is NOT in the envelope a lane draws (src/test/fixtures/triggerPeak): the trigger starts at half the true
+ *    sample is NOT in the thinned picture this page is given for its rows (src/test/fixtures/triggerPeak, THINNED): the trigger starts at half the true
  *    peak; added while the read is still on its way it keeps its own level and the footer says so.
  * 2. With many files open, the samples are asked for only when ＋ can add a trigger, and only of the compared slots.
  *
  * If either fails, look at comparisonRuntime.ts (`peak:` given to the comparison), trackStageMode.ts (where it is
- * handed to the step bar) and stepBar.ts (`state.peak?.()`): the chain from the lanes' full data to the new step.
+ * handed to the step bar) and stepBar.ts (`state.peak?.()`): the chain from the backend's answer to the new step.
  */
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
 const STR = getStrings('en');
@@ -25,17 +26,17 @@ const REGION = { start: 1, end: 1.5 };
 /** The fixture's recordings: 4 s at 8 kHz; over the region the base peaks at 0.32, the compared one at 0.20. */
 const SECONDS = 4, SAMPLES = 32_000, TRUE_PEAK = 0.32;
 
-type Read = { x: number[]; level?: string; channel?: number };
-type RangeRequest = { type: string; requestId: string; filePath: string; trackIndex: number; startNorm: number; endNorm: number; points: number; read?: Read };
+type PeakSource = { filePath: string; channels: number[]; startNorm: number; endNorm: number; sourceVersion?: string };
+type PeakRequest = { type: string; requestId: string; sources: PeakSource[] };
 type Envelope = { min: number[]; max: number[]; minT: number[]; maxT: number[]; absolutePeak: number };
 
 /**
- * The reads of a stretch's level and peak the page has posted for the lanes' samples: 'request-waveform-range' with a
- * "square" level read. `stretch` (the file's 0..1) keeps those of one stretch; without it, every one.
+ * The peaks the page has asked the backend for ('request-region-peak': one request names every compared recording,
+ * its channels and its stretch). `stretch` (the file's 0..1) keeps those of one stretch; without it, every one.
  */
-const peakReads = async (page: Page, stretch?: [number, number]): Promise<RangeRequest[]> => (await page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: RangeRequest[] }).__uiSmokePostedMessages
-    .filter(message => message.type === 'request-waveform-range' && message.read?.level === 'square')))
-    .filter(message => !stretch || (message.read!.x[0] === stretch[0] && message.read!.x[1] === stretch[1]));
+const peakReads = async (page: Page, stretch?: [number, number]): Promise<PeakRequest[]> => (await page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: PeakRequest[] }).__uiSmokePostedMessages
+    .filter(message => message.type === 'request-region-peak')))
+    .filter(message => !stretch || message.sources.every(source => source.startNorm === stretch[0] && source.endNorm === stretch[1]));
 
 /** The trigger's level in the chain the comparison last asked the backend to run. */
 const triggerLevel = (page: Page): Promise<unknown> => page.evaluate(TRIGGER => {
@@ -96,7 +97,8 @@ const pickTrigger = (page: Page): Promise<void> => page.locator(`.track-stage-ba
 
 let backend: RealBackend | undefined;
 let files: ScannedFile[] | undefined;
-let envelopes = new Map<string, Envelope>();
+/** The page's known data for each row (fullReadStandIn.ts): a picture thinned to two points, without the region's peak. */
+const THINNED: Envelope = { min: [-0.25, -0.25], max: [0.25, 0.25], minT: [0.3, 0.8], maxT: [0.3, 0.8], absolutePeak: 0.25 };
 let folder = '';
 let recipe: Record<string, unknown> = {};
 let fixtureError = '';
@@ -110,10 +112,7 @@ test.beforeAll(async () => {
         backend = new RealBackend();
         const scanned: ScannedFile[] = [];
         for (const filePath of written.out.trim().split('\n')) {
-            scanned.push({ filePath, result: await backend.request({ cmd: 'scan', filePath, recipe }) });
-            // The envelope the lanes draw is the backend's own (analyze), so the test's premise is about the real one.
-            const analysis = await backend.request({ cmd: 'analyze', filePath, analysisRevision: 0 }) as { channels: Array<{ waveform: Envelope }> };
-            envelopes.set(filePath, analysis.channels[0].waveform);
+            scanned.push({ filePath, result: await backend.request({ cmd: 'scan', filePath, recipe, stage: String(recipe.output) }) });
         }
         files = scanned;
     } catch (error) {
@@ -123,10 +122,9 @@ test.beforeAll(async () => {
 test.afterAll(() => {
     backend?.close();
     if (folder) rmSync(folder, { recursive: true, force: true });
-    envelopes = new Map();
 });
 
-/** What the deleted envelope calculation gave: the largest |extreme| of the drawn envelope whose time is in the region. */
+/** What a calculation on the drawn points would give: the largest |extreme| of the picture whose time is in the region. */
 function envelopePeak(envelope: Envelope): number {
     const from = REGION.start / SECONDS, to = REGION.end / SECONDS;
     let peak = 0;
@@ -141,40 +139,42 @@ test('a trigger added on a region starts at half the region\'s true peak, read f
     test.skip(!files, `no Python backend with wandas: ${fixtureError}`);
     test.setTimeout(120_000);
     const paths = files!.map(file => file.filePath);
-    // The premise: the envelope the lanes draw does not hold the region's largest sample. If this fails the fixture no
-    // longer proves anything (the backend's envelope changed): move the samples in fixtures/triggerPeak/generate.py.
-    for (const filePath of paths) expect(Math.abs(envelopePeak(envelopes.get(filePath)!) - TRUE_PEAK), `${path.basename(filePath)}: the drawn envelope must not hold the region's peak`).toBeGreaterThan(0.01);
+    // The premise: the picture the page holds for its rows does not hold the region's largest sample, so only the
+    // backend's read of every sample can give it.
+    expect(Math.abs(envelopePeak(THINNED) - TRUE_PEAK), 'the drawn picture must not hold the region\'s peak').toBeGreaterThan(0.01);
     await page.setViewportSize({ width: 1280, height: 900 });
     await openEntry(page, files!, { language: 'en', recipe });
     // The lanes' reads are answered by this test from the real backend, not by the page's stand-in.
     await page.evaluate(() => { (window as unknown as { __uiSmokeTestAnswersReads: boolean }).__uiSmokeTestAnswersReads = true; });
     const stop = await bridgeComparison(page, backend!, recipe);
     await compareTwoFiles(page);
-    await postAnalysis(page, paths, SECONDS, SAMPLES, filePath => envelopes.get(filePath)!);
+    await postAnalysis(page, paths, SECONDS, SAMPLES, () => THINNED);
     await toTimeSignal(page);
     await setRegion(page);
-    /** The real backend's answer to each read, posted as the host does ('range' with the read); the peaks it gave. */
-    const answerReads = async (asked: RangeRequest[]): Promise<Map<string, number | undefined>> => {
-        const peaks = new Map<string, number | undefined>();
+    /** The real backend's answer to each request, posted as the host does ('region-peak'); the peaks it gave. */
+    const answerReads = async (asked: PeakRequest[]): Promise<number[]> => {
+        const peaks: number[] = [];
         for (const read of asked) {
-            const result = await backend!.request({ cmd: 'range', filePath: read.filePath, startNorm: read.startNorm, endNorm: read.endNorm, points: read.points, read: read.read }) as { points?: { level?: { peak?: number } } };
-            peaks.set(read.filePath, result.points?.level?.peak);
-            await page.evaluate(message => window.postMessage(message, '*'), { type: 'waveform-range-result', requestId: read.requestId, trackIndex: read.trackIndex, startNorm: read.startNorm, endNorm: read.endNorm, channels: [], points: result.points });
+            const result = await backend!.request({ cmd: 'region-peak', sources: read.sources.map(({ sourceVersion: _version, ...source }) => source) }) as { peak: number };
+            peaks.push(result.peak);
+            await page.evaluate(message => window.postMessage(message, '*'), { type: 'region-peak-result', requestId: read.requestId, peak: result.peak });
         }
         return peaks;
     };
-    // The ＋ opened to set the region offered a trigger too, over the whole file then: those reads are answered first
-    // (a source sends one read at a time). The region's own samples have not been asked for yet.
-    await expect.poll(async () => (await peakReads(page)).length).toBe(2);
-    await answerReads(await peakReads(page));
+    // The ＋ opened to set the region offered a trigger too, over the whole file then: that request is answered first.
+    // The region's own samples have not been asked for yet.
+    await expect.poll(async () => (await peakReads(page)).length).toBe(1);
+    // (Over the whole file the peak is the 0.70 just outside the region.)
+    expect(await answerReads(await peakReads(page))).toEqual([expect.closeTo(0.7, 12)]);
     const stretch: [number, number] = [REGION.start / SECONDS, REGION.end / SECONDS];
     expect(await peakReads(page, stretch), 'the region\'s samples are not asked for before ＋ can add a trigger on it').toHaveLength(0);
 
-    // ＋ offers a trigger: each compared channel's samples over the region are asked for, as the file's 0..1.
+    // ＋ offers a trigger: one request names each compared recording's channel over the region, as the file's 0..1.
     await openAdd(page);
-    await expect.poll(async () => (await peakReads(page, stretch)).length).toBe(2);
+    await expect.poll(async () => (await peakReads(page, stretch)).length).toBe(1);
     const reads = await peakReads(page, stretch);
-    expect(reads.map(read => read.filePath).sort()).toEqual([...paths].sort());
+    expect(reads[0].sources.map(source => source.filePath).sort()).toEqual([...paths].sort());
+    expect(reads[0].sources.map(source => source.channels)).toEqual([[0], [0]]);
 
     // Not answered yet: a trigger added now keeps the step's own level, and the footer says the peak is not read.
     await pickTrigger(page);
@@ -187,9 +187,9 @@ test('a trigger added on a region starts at half the region\'s true peak, read f
     await chip.locator('[data-action="step-delete"]').dispatchEvent('click');
     await expect(chip).toHaveCount(0);
 
-    // The real backend answers each read: the region's true peak of each recording.
-    const peaks = await answerReads(reads);
-    for (const filePath of paths) expect(peaks.get(filePath), `${path.basename(filePath)}: the backend's peak of the region`).toBeCloseTo(filePath.endsWith('base.wav') ? TRUE_PEAK : 0.2, 12);
+    // The real backend answers: the region's true peak, the larger of the two recordings' (0.32 and 0.20), not the
+    // 0.70 just outside the region nor what the drawn envelope holds.
+    expect(await answerReads(reads), 'the backend\'s peak of the region').toEqual([expect.closeTo(TRUE_PEAK, 12)]);
 
     // Added again: half the true peak of the louder channel, to two figures; nothing is asked a second time.
     await openAdd(page);
@@ -197,7 +197,7 @@ test('a trigger added on a region starts at half the region\'s true peak, read f
     await expect(page.locator('#hint-footer')).toContainText(STR.stepAdded.split('{op}')[1]);
     await expect.poll(() => triggerLevel(page), 'the trigger starts at half the region\'s true peak (0.32 → 0.16); 0.1 means the peak never reached the step bar (comparisonRuntime `peak:` → trackStageMode → stepBar)').toBe(0.16);
     await expect(chip).toHaveText(`${STR.stepTrigger} 0.16`);
-    expect(await peakReads(page, stretch), 'the answers are kept (fetchedSource): not asked again').toHaveLength(2);
+    expect(await peakReads(page, stretch), 'the answer is kept (laneReads.ts): not asked again').toHaveLength(1);
     expect(await stop(), 'the backend refused no request').toEqual([]);
 });
 
@@ -222,23 +222,24 @@ test('with a hundred files open and thirty of them on the tracks, the samples fo
     await toTimeSignal(page);
     const bar = page.locator('.track-stage-bar');
     // Drawn, repainted and hovered, with no menu open: nothing is asked.
-    const overlay = (await page.locator('[data-stage-canvas="overlay"]').boundingBox())!;
+    // The overlay of the sound itself: the new path's Figure.
+    const overlay = (await page.locator('[data-stage-figure] canvas[data-figure]').boundingBox())!;
     await page.mouse.move(overlay.x + overlay.width / 2, overlay.y + overlay.height / 2);
     await page.setViewportSize({ width: 1200, height: 900 });
     await page.mouse.move(0, 0);
     expect(await peakReads(page), 'no samples are asked for while the comparison is only drawn').toHaveLength(0);
 
-    // ＋ offers a trigger: one read per compared slot (each one channel), none for the other 28 files.
+    // ＋ offers a trigger: one request, of the two compared slots (each one channel), none of the other 28 files.
     await openAdd(page);
-    await expect.poll(async () => (await peakReads(page)).length).toBe(2);
-    expect((await peakReads(page)).map(read => read.filePath).sort()).toEqual([...compared].sort());
-    // Picked, closed and opened again, and repainted: still those two (the answers are kept).
+    await expect.poll(async () => (await peakReads(page)).length).toBe(1);
+    expect((await peakReads(page))[0].sources.map(source => source.filePath).sort()).toEqual([...compared].sort());
+    // Picked, closed and opened again, and repainted: still that one (the answer is kept).
     await pickTrigger(page);
     await expect(bar.locator('.step-chip', { hasText: STR.stepTrigger })).toHaveText(`${STR.stepTrigger} 0.25`);
     await page.setViewportSize({ width: 1280, height: 900 });
     await bar.locator('[data-action="step-add"]').click();
     await page.keyboard.press('Escape');
-    expect(await peakReads(page), 'two reads in all, for thirty files on the tracks').toHaveLength(2);
+    expect(await peakReads(page), 'one request in all, of two recordings, for thirty files on the tracks').toHaveLength(1);
 });
 
 test('opened from the tracks with 31 recordings and no slot chosen, the comparison is of two of them and only those two are read for a trigger\'s level: never all 31 (R1)', async ({ page }) => {
@@ -261,8 +262,8 @@ test('opened from the tracks with 31 recordings and no slot chosen, the comparis
     await expect(page.locator('.track-stage')).toBeVisible();
     await toTimeSignal(page);
     await openAdd(page);
-    await expect.poll(async () => (await peakReads(page)).length).toBe(2);
+    await expect.poll(async () => (await peakReads(page)).length).toBe(1);
     await pickTrigger(page);
     await expect(page.locator('#hint-footer')).toContainText(STR.stepAdded.split('{op}')[1]);
-    expect(new Set((await peakReads(page)).map(read => read.filePath)).size, 'the two recordings compared, of 31 on the tracks').toBe(2);
+    expect(new Set((await peakReads(page)).flatMap(read => read.sources.map(source => source.filePath))).size, 'the two recordings compared, of 31 on the tracks').toBe(2);
 });

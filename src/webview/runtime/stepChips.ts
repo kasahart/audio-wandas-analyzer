@@ -7,7 +7,6 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { recipeSteps, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
 import { INPUT_FRAME } from '../../shared/recipe/recipeCatalog';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
-import { outsideRecipe } from './compareReport';
 import { titledHintAttr as hintAttr } from './hintFooter';
 import { currentStepId, INPUT_STAGE, lastRunningStep, orderedSteps, removable, shownStep, stepFlow, stepLimits, type StepBarState, type StepBarStrings } from './stepBarModel';
 import { invalidReason, stepLabel } from './stepLabels';
@@ -82,21 +81,15 @@ export function stepChipHtml(step: RecipeStep, context: StepChipsContext): strin
     return `<span class="${classes.join(' ')}" data-step-id="${escapeHtml(step.id)}"${movable ? ' draggable="true"' : ''}>${body}${gear}${reset}${bypass}${cross}</span>`;
 }
 
-function outsideTagsHtml(recipe: RecipeDocument, strings: StepBarStrings): string {
-    const welch = recipeSteps(recipe).find(step => step.name === 'welch');
-    return outsideRecipe(strings, welch?.params).map(item => `<span class="awa-tag" ${hintAttr(item.text)}>${escapeHtml(item.tag)}</span>`).join('');
-}
-
 const addHtml = (after: RecipeStep | undefined, context: StepChipsContext, action: 'step-add' | 'step-insert' = 'step-add'): string => {
     const { strings, menu } = context;
     return `<button type="button" class="step-add" ${action === 'step-add' ? 'data-action="step-add"' : 'data-action="step-insert"'} data-after="${escapeHtml(after?.id ?? '')}" aria-label="${escapeHtml(action === 'step-add' ? strings.stepAdd : strings.stepMenuTitle)}" aria-expanded="${!!menu && menu.after === (after?.id ?? null)}" ${hintAttr(strings.stepMenuTitle.replace('{frame}', after ? (after.invalid === undefined ? after.output : after.input) : INPUT_FRAME))}>＋</button>`;
 };
 
-/** The bar's row of chips, and the row of what the app computes outside the Recipe while the bar is opened. */
+/** The bar's row of chips. */
 export function stepChipsHtml(context: StepChipsContext): string {
     const { recipe, state, strings, expanded } = context;
     const { chain, tail } = stepFlow(recipe, state);
-    const version = state.specVersion !== undefined ? ` (${strings.stepMetrics} v${state.specVersion})` : '';
     const toggle = `<button type="button" class="step-more" data-action="step-expand" aria-expanded="${expanded}" ${hintAttr(expanded ? strings.stepClose : strings.stepOpen)}>${expanded ? '‹' : '…'}</button>`;
     const name = context.preset
         ? `<button type="button" class="step-preset" data-action="step-preset-open" aria-haspopup="menu" aria-expanded="${context.preset.open}" ${hintAttr(strings.stepPresetMenu)}>${escapeHtml(context.preset.label)}${ICON.open}</button>`
@@ -122,5 +115,5 @@ export function stepChipsHtml(context: StepChipsContext): string {
     steps.forEach(step => { const at = full.findIndex(item => item.id === step.id); parts.push(link(at > 0 ? full[at - 1] : null), node(step)); });
     parts.push('<span class="step-arrow" aria-hidden="true">→</span>', addHtml(last, context));
     const row = `<div class="step-row">${parts.join('')}<span class="step-gap"></span>${toggle}</div>`;
-    return expanded ? row + `<div class="step-row step-outside-row"><span class="step-outside-heading">${escapeHtml(strings.stepOutsideHeading)}${escapeHtml(version)}</span>${outsideTagsHtml(recipe, strings)}</div>` : row;
+    return row;
 }

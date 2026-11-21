@@ -1,5 +1,4 @@
-import { amplitudeNormToCanvasY, type NormalizedRange } from './waveformInteraction';
-import type { RectZoomSelection } from './types';
+import { type NormalizedRange } from './waveformInteraction';
 
 interface DashedLineStyle {
     color: string;
@@ -7,26 +6,10 @@ interface DashedLineStyle {
 }
 
 export const CURSOR_LINE_STYLE: DashedLineStyle = { color: '#ffffff', alpha: 0.7 };
-export const HOVER_LINE_STYLE: DashedLineStyle = { color: '#aaaaaa', alpha: 0.4 };
 
 /** The cursor over a waveform lane takes the theme's text colour: white vanishes on a light lane. */
 export function waveformCursorLineStyle(textColor: string): DashedLineStyle {
     return textColor ? { color: textColor, alpha: CURSOR_LINE_STYLE.alpha } : CURSOR_LINE_STYLE;
-}
-
-export interface CanvasTimeHit {
-    x: number;
-    timeWidth: number;
-    norm: number;
-}
-
-/** Maps a pointer X to normalized file time; null when it falls outside the time axis (e.g. on the colorbar). */
-export function canvasTimeHit(rectLeft: number, clientX: number, timeWidth: number, view: NormalizedRange): CanvasTimeHit | null {
-    const x = clientX - rectLeft;
-    if (x < 0 || x > timeWidth) {
-        return null;
-    }
-    return { x, timeWidth, norm: view.start + (x / timeWidth) * (view.end - view.start) };
 }
 
 export interface ClientRectLike {
@@ -34,19 +17,6 @@ export interface ClientRectLike {
     top: number;
     width: number;
     height: number;
-}
-
-/** Converts client coordinates to canvas backing-store pixels, so hit tests stay correct when CSS scales the canvas. */
-export function clientToCanvasPixels(clientX: number, clientY: number, rect: ClientRectLike, width: number, height: number): { x: number; y: number } {
-    return {
-        x: (clientX - rect.left) * (width / (rect.width || width)),
-        y: (clientY - rect.top) * (height / (rect.height || height)),
-    };
-}
-
-export function clampedCanvasNorm(rectLeft: number, clientX: number, timeWidth: number, view: NormalizedRange): number {
-    const x = Math.max(0, Math.min(timeWidth, clientX - rectLeft));
-    return Math.max(0, Math.min(1, view.start + (x / timeWidth) * (view.end - view.start)));
 }
 
 export function drawDashedTimeLine(
@@ -74,39 +44,6 @@ export function drawDashedTimeLine(
     ctx.moveTo(x, 0);
     ctx.lineTo(x, height);
     ctx.stroke();
-    ctx.restore();
-}
-
-export function drawRectZoomSelection(
-    ctx: CanvasRenderingContext2D,
-    selection: RectZoomSelection,
-    view: NormalizedRange,
-    amplitude: NormalizedRange & { explicit?: boolean },
-    width: number,
-    height: number,
-): void {
-    const span = view.end - view.start;
-    if (span <= 0) {
-        return;
-    }
-    const x0 = (selection.startNorm - view.start) / span * width;
-    const x1 = (selection.endNorm - view.start) / span * width;
-    const y0 = amplitudeNormToCanvasY(selection.startAmpNorm, height, amplitude.start, amplitude.end, amplitude.explicit);
-    const y1 = amplitudeNormToCanvasY(selection.endAmpNorm, height, amplitude.start, amplitude.end, amplitude.explicit);
-    const left = Math.max(0, Math.min(x0, x1));
-    const right = Math.min(width, Math.max(x0, x1));
-    const top = Math.max(0, Math.min(y0, y1));
-    const bottom = Math.min(height, Math.max(y0, y1));
-    if (right <= left || bottom <= top) {
-        return;
-    }
-    ctx.save();
-    ctx.fillStyle = 'rgba(100, 160, 255, 0.16)';
-    ctx.strokeStyle = 'rgba(100, 160, 255, 0.95)';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([5, 3]);
-    ctx.fillRect(left, top, right - left, bottom - top);
-    ctx.strokeRect(left, top, right - left, bottom - top);
     ctx.restore();
 }
 
@@ -188,5 +125,98 @@ export function drawAnalysisWindowBand(
     ctx.strokeStyle = 'rgba(' + color + ', 0.9)';
     ctx.lineWidth = 1;
     ctx.stroke();
+    ctx.restore();
+}
+
+/**
+ * A layer laid over a box of several plots (a Tracks row's Figure: its waveform and spectrogram lanes): sized to the
+ * box in device pixels, cleared, then `paint` is called once a plot, drawing in that plot's own pixels (its top left
+ * at 0, 0) and cut to it. `plots`: where each was drawn in the box (CSS px).
+ */
+export function paintOverPlots(
+    layer: HTMLCanvasElement, box: { width: number; height: number }, ratio: number,
+    plots: ReadonlyArray<{ id: string; frame: { left: number; top: number; width: number; height: number } }>,
+    paint: (ctx: CanvasRenderingContext2D, width: number, height: number, plot: string) => void,
+): void {
+    const ctx = layer.getContext('2d');
+    if (!ctx) return;
+    const width = Math.max(1, Math.round(box.width * ratio)), height = Math.max(1, Math.round(box.height * ratio));
+    if (layer.width !== width) layer.width = width;
+    if (layer.height !== height) layer.height = height;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+    for (const plot of plots) {
+        const w = Math.round(plot.frame.width * ratio), h = Math.round(plot.frame.height * ratio);
+        ctx.save();
+        ctx.translate(Math.round(plot.frame.left * ratio), Math.round(plot.frame.top * ratio));
+        ctx.beginPath();
+        ctx.rect(0, 0, w, h);
+        ctx.clip();
+        paint(ctx, w, h, plot.id);
+        ctx.restore();
+    }
+}
+
+/**
+ * The loop region over a row: what is outside it dimmed, the region tinted, a grip line and a corner mark at each
+ * end. `loopStart`/`loopEnd` and the window shown (`zoomStart`..`zoomEnd`) are fractions of the timeline.
+ */
+export function paintLoopRegion(
+    ctx: CanvasRenderingContext2D,
+    W: number,
+    H: number,
+    loopStart: number,
+    loopEnd: number,
+    zoomStart: number,
+    zoomEnd: number,
+): void {
+    if (loopStart >= loopEnd) { return; }
+    const span = zoomEnd - zoomStart;
+    if (span <= 0) { return; }
+    const toX = (norm: number) => (norm - zoomStart) / span * W;
+    const x0 = toX(loopStart);
+    const x1 = toX(loopEnd);
+    const left = Math.max(0, x0);
+    const right = Math.min(W, x1);
+    if (right <= left) { return; }
+
+    ctx.save();
+    ctx.setLineDash([]);
+
+    // 区間外を暗く
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    ctx.fillRect(0, 0, left, H);
+    ctx.fillRect(right, 0, W - right, H);
+
+    // 区間内を青くハイライト
+    ctx.fillStyle = 'rgba(100, 160, 255, 0.15)';
+    ctx.fillRect(left, 0, right - left, H);
+
+    // グリップハンドル（縦線）
+    ctx.strokeStyle = 'rgba(100, 160, 255, 0.9)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(left, 0);
+    ctx.lineTo(left, H);
+    ctx.moveTo(right, 0);
+    ctx.lineTo(right, H);
+    ctx.stroke();
+
+    // 三角マーカー
+    const TH = 8;
+    ctx.fillStyle = 'rgba(100, 160, 255, 0.9)';
+    ctx.beginPath();
+    ctx.moveTo(left, 0);
+    ctx.lineTo(left + TH, 0);
+    ctx.lineTo(left, TH);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(right, 0);
+    ctx.lineTo(right - TH, 0);
+    ctx.lineTo(right, TH);
+    ctx.closePath();
+    ctx.fill();
+
     ctx.restore();
 }

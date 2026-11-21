@@ -2,6 +2,8 @@ import { expect, test, type Page } from './canvasAudit';
 import { getStrings } from '../../shared/i18n/strings';
 import { HELP_SECTIONS } from '../../webview/runtime/shortcuts';
 import { buildUiSmokeHtml } from './buildHtml';
+import { rowFigure } from './tracksFigures';
+
 
 test('keyboard shortcut dialog lists all documented shortcuts', async ({ page }) => {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
@@ -112,12 +114,12 @@ async function zoomSpan(page: Page): Promise<number> {
     });
 }
 
-test('a focused waveform canvas has a ring in the theme\'s focus colour and says its file, channel and kind', async ({ page }) => {
+test('a focused row canvas has a ring in the theme\'s focus colour and says its file, channel and kind', async ({ page }) => {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
     await page.evaluate(showTrack);
-    const canvas = page.locator('.track-canvas:not(.track-spec-canvas)').first();
-    await expect(canvas).toHaveAttribute('aria-label', 'keys.wav · Channel 1 (L) · waveform');
-    await expect(page.locator('.track-spec-canvas').first()).toHaveAttribute('aria-label', 'keys.wav · Channel 1 (L) · spectrogram');
+    // A channel's waveform and spectrogram are one canvas (one Figure): one name for both.
+    const canvas = page.locator(rowFigure());
+    await expect(canvas).toHaveAttribute('aria-label', 'keys.wav · Channel 1 (L) · waveform and spectrogram');
     await canvas.focus();
     await expect(canvas).toBeFocused();
     await expect(canvas).toHaveCSS('outline-style', 'solid');

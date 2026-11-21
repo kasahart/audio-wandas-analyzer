@@ -2,32 +2,24 @@
  * The plot contract table gathered from its charts' files (charts/<id>.ts, one per chart so branches changing
  * different charts do not collide). docs/plot-contracts.md is rendered from it (render.ts); src/test/plotContracts.test.ts
  * holds it to the code.
+ *
+ * The comparison's figures (the overlay, its Δ, a lane a recording, the lanes under a trigger), the Tracks screen's
+ * rows (a channel's waveform and spectrogram, their axes and colour bar; only the time ruler over them is the
+ * screen's own, charts/time-ruler.ts) and its two bottom figures (the cursor
+ * spectrum, the pair figure) are on the new figure path and are no charts of this table: their contract is the figure service's and the Figure's own tests
+ * (docs/figure-list.md lists which figure is on which path).
  */
-import { compareOverlay } from './charts/compare-overlay';
-import { compareDelta } from './charts/compare-delta';
-import { compareLanes } from './charts/compare-lanes';
-import { triggerLanes } from './charts/trigger-lanes';
-import { trackWaveform } from './charts/track-waveform';
-import { trackSpectrogram } from './charts/track-spectrogram';
-import { trackAxes } from './charts/track-axes';
 import { trackHeader } from './charts/track-header';
 import { trackPng } from './charts/track-png';
-import { cursorSpectrum } from './charts/cursor-spectrum';
-import { spectrumCsv } from './charts/spectrum-csv';
+import { timeRuler } from './charts/time-ruler';
 import { pairView } from './charts/pair-view';
-import { colourBar } from './charts/colour-bar';
-import { entryHeld } from './charts/entry-held';
-import { entryOverview } from './charts/entry-overview';
-import { entryDistribution } from './charts/entry-distribution';
 import { entryTable } from './charts/entry-table';
-import { reportOverlay } from './charts/report-overlay';
-import { reportDelta } from './charts/report-delta';
 import { reportFiles } from './charts/report-files';
 import { analysisReport } from './charts/analysis-report';
 import type { Chart, ChartContract, ContractRow, Severity } from './model';
 
 /** Every chart's file, in the order the doc lists them. A file in charts/ not listed here fails the test. */
-export const CONTRACTS: readonly ChartContract[] = [compareOverlay, compareDelta, compareLanes, triggerLanes, trackWaveform, trackSpectrogram, trackAxes, trackHeader, trackPng, cursorSpectrum, spectrumCsv, pairView, colourBar, entryHeld, entryOverview, entryDistribution, entryTable, reportOverlay, reportDelta, reportFiles, analysisReport];
+export const CONTRACTS: readonly ChartContract[] = [trackHeader, timeRuler, trackPng, pairView, entryTable, reportFiles, analysisReport];
 
 export const CHARTS: readonly Chart[] = CONTRACTS.map(contract => contract.chart);
 export const ROWS: readonly ContractRow[] = CONTRACTS.flatMap(contract => contract.rows.map(row => ({ ...row, chart: contract.chart.id })));

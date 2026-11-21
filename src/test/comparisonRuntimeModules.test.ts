@@ -8,11 +8,6 @@ import {
 } from '../webview/runtime/playback';
 import { parseBoundedInteger, positionPopover } from '../webview/runtime/settingsPopover';
 import { PersistedStateStore, sanitizePersistedState } from '../webview/runtime/stateStore';
-import {
-    amplitudeNormToCanvasY,
-    canvasYToAmplitudeNorm,
-    zoomNormalizedRange,
-} from '../webview/runtime/waveformInteraction';
 import type { PersistedWebviewState, RuntimeWindow, WebviewHostApi } from '../webview/runtime/types';
 
 test('playback mapping converts between track time and the global timeline', () => {
@@ -21,15 +16,6 @@ test('playback mapping converts between track time and the global timeline', () 
     assert.equal(globalNormFromTrackTime(mapping, 2), 0.75);
     assert.equal(trackTimeFromGlobalNorm(mapping, 0.75), 2);
     assert.equal(trackTimeFromGlobalNorm(mapping, 1), 4);
-});
-
-test('waveform interaction keeps normalized zoom and amplitude transforms bounded', () => {
-    const zoomed = zoomNormalizedRange({ start: 0, end: 0.4 }, 2);
-    assert.equal(zoomed.start, 0);
-    assert.ok(Math.abs(zoomed.end - 0.6) < Number.EPSILON);
-    const y = amplitudeNormToCanvasY(0.25, 100, -0.5, 0.5);
-    assert.equal(canvasYToAmplitudeNorm(y, 100, -0.5, 0.5), 0.25);
-    assert.equal(canvasYToAmplitudeNorm(0, 0, -1, 1), 0);
 });
 
 test('settings helpers clamp input and keep popovers inside the viewport', () => {
@@ -54,7 +40,7 @@ test('persisted state store merges patches through the host boundary', () => {
 test('the saved view state comes back whole, with values of another type left out', () => {
     const saved: PersistedWebviewState = {
         waveShare: 0.3, spectrumBandsPerOctave: 3, sidebarCollapsed: true, spectrumCollapsed: false, linkScales: true,
-        entrySlots: ['/a.wav', null], entryDerived: [], entryRecipe: { nodes: [] }, entryCsv: { name: 'meta.csv', text: 'file\na.wav\n' },
+        entrySlots: ['/a.wav', null], entryRecipe: { nodes: [] }, entryCsv: { name: 'meta.csv', text: 'file\na.wav\n' },
     };
     // Every field the runtime keeps survives a reload: an opened spectrum stays open, the bands and the CSV stay.
     assert.deepEqual(sanitizePersistedState(JSON.parse(JSON.stringify(saved))), saved);
@@ -73,16 +59,6 @@ test('host message validation rejects unknown and incomplete payloads', () => {
     assert.equal(isHostInboundMessage({ type: 'directory-selection', rootPath: '/sources', rootLabel: '', filePaths: [] }), true);
     assert.equal(isHostInboundMessage({ type: 'directory-selection', rootPath: '/sources', rootLabel: 3, filePaths: [] }), false);
 });
-
-test('host message validation requires octave bands to match the bins they label', () => {
-    const slice = { type: 'spectrum-slice-result', requestId: 'r', analysisId: 'a', settingsSignature: 's', trackIndex: 0, filePath: '/a.wav',
-        channels: [{ channelIndex: 0, values: [-10, -20], minDb: -20, maxDb: -10 }], frequencyBins: 2, maxFrequencyHz: 22387 };
-    const bands = { bandsPerOctave: 3, bandCentersHz: [500, 630], minFrequencyHz: 22.39 };
-    assert.equal(isHostInboundMessage({ ...slice, ...bands }), true);
-    assert.equal(isHostInboundMessage({ ...slice, ...bands, bandCentersHz: [500] }), false);
-    assert.equal(isHostInboundMessage({ ...slice, ...bands, minFrequencyHz: undefined }), false);
-});
-
 
 test('static host subscription ignores window messages and validates its own payloads', () => {
     let subscribed: ((message: unknown) => void) | undefined;

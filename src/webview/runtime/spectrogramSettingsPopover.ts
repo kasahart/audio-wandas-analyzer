@@ -3,7 +3,7 @@ import { STFT_OVERLAP_PERCENT_OPTIONS, type SpectrogramDisplaySettings, type Spe
 import type { UiStrings } from '../../shared/i18n/strings';
 import { eventTarget } from './domAdapter';
 import { hintAttr, hoverHintAttr } from './hintFooter';
-import { keyRouterFor } from './keyRouter';
+import { keyRouterFor } from '../shell/keyRouter';
 
 export type SpectrogramSettingsPopoverStrings = Pick<UiStrings,
     'specSettingsAuto' | 'specSettingsStftLegend' | 'specSettingsNFft' | 'specSettingsOverlap' | 'specSettingsWindow'

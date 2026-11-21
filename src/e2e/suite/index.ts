@@ -28,7 +28,7 @@ interface TestSnapshot {
     lastActionId?: string;
     renderedUi?: {
         /** The entry table and the comparison, as their own snapshots report them. */
-        entry?: { open: boolean; docked: boolean; rows: number; scanned: number; slots: (string | null)[] };
+        entry?: { open: boolean; docked: boolean; rows: number; slots: (string | null)[] };
         comparison?: { open: boolean; stage: string | null; frame: string | null; kind: string | null; stageValues: number; stageMedian: number | null; invalidSteps: number };
         hasToolbar: boolean;
         intlLocale: string;
@@ -244,7 +244,6 @@ export async function run(): Promise<void> {
                 assert.equal(snapshot.title, 'Audio Analyzer: sine-440.wav');
                 assert.equal(snapshot.resultCount, 1);
                 assert.deepEqual(snapshot.fileNames, ['sine-440.wav']);
-                assert.match(snapshot.html, /comparisonWaveform\.js/u);
                 assert.match(snapshot.html, /comparisonRuntime\.js/u);
                 assert.match(snapshot.html, /id="app"/u);
                 assert.ok(snapshot.renderedUi, 'Rendered UI snapshot should be captured');
@@ -501,13 +500,13 @@ export async function run(): Promise<void> {
             name: 'HPSS steps added from the comparison run in the VS Code backend (wandas[effects] brings librosa)',
             run: async () => {
                 invalidateFixtureCache();
-                // A folder opens on the entry table, which scans its files with the chain.
+                // A folder opens on the entry table, which lists its files (it analyses nothing).
                 await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH);
-                const scanned = await pollSnapshot('entry-scanned', snapshot => {
+                const scanned = await pollSnapshot('entry-listed', snapshot => {
                     const entry = snapshot.renderedUi?.entry;
-                    return !!(entry?.open || entry?.docked) && entry.rows > 0 && entry.scanned === entry.rows;
+                    return !!(entry?.open || entry?.docked) && entry.rows > 0;
                 }, COMMAND_TIMEOUT_MS);
-                assert.ok(scanned.renderedUi?.entry?.rows, `entry table did not scan: ${JSON.stringify(scanned.renderedUi?.entry)}`);
+                assert.ok(scanned.renderedUi?.entry?.rows, `entry table did not list its files: ${JSON.stringify(scanned.renderedUi?.entry)}`);
                 await openComparison('hpss', scanned);
                 const click = (selector: string) => ({ action: 'mouse-event', payload: { type: 'click', selector } });
                 /** Presses a chip and waits for the comparison to draw that step's Frame for the compared file. */
@@ -547,9 +546,9 @@ export async function run(): Promise<void> {
             run: async () => {
                 invalidateFixtureCache();
                 await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH);
-                const scanned = await pollSnapshot('entry-scanned', snapshot => {
+                const scanned = await pollSnapshot('entry-listed', snapshot => {
                     const entry = snapshot.renderedUi?.entry;
-                    return !!(entry?.open || entry?.docked) && entry.rows > 0 && entry.scanned === entry.rows;
+                    return !!(entry?.open || entry?.docked) && entry.rows > 0;
                 }, COMMAND_TIMEOUT_MS);
                 await openComparison('cepstrum', scanned);
                 const click = (selector: string) => ({ action: 'mouse-event', payload: { type: 'click', selector } });
@@ -592,9 +591,9 @@ export async function run(): Promise<void> {
             run: async () => {
                 invalidateFixtureCache();
                 await analyzeDebugPath(MULTI_TRACK_DEBUG_AUDIO_PATH);
-                const scanned = await pollSnapshot('correlation-scanned', snapshot => {
+                const scanned = await pollSnapshot('correlation-listed', snapshot => {
                     const entry = snapshot.renderedUi?.entry;
-                    return !!(entry?.open || entry?.docked) && entry.rows > 1 && entry.scanned === entry.rows;
+                    return !!(entry?.open || entry?.docked) && entry.rows > 1;
                 }, COMMAND_TIMEOUT_MS);
                 const click = (selector: string) => ({ action: 'mouse-event', payload: { type: 'click', selector } });
                 const key = (name: string) => ({ action: 'press-key', payload: { key: name } });

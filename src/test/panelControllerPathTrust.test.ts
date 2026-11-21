@@ -106,8 +106,8 @@ function folderPanel(options: { listing?: (root: string) => Record<string, Array
         analyzeFiles: async (filePaths: string[]) => filePaths.map(filePath => ({ filePath, fileName: path.basename(filePath), sampleRateHz: 16000,
             durationSeconds: 1, channelCount: 0, sampleCount: 16000, channels: [], analysisRevision: 0 } satisfies AnalysisResultWithError)),
     };
-    const controller = new PanelController(context, backend, analysis, exports, { analysisRevision: () => 0, onDidChange: () => ({ dispose() {} }), configureTrack: async () => undefined }, pythonEnvironment, factory, host);
-    // Waits for the reply that ends the request (entry-scan-done, ...) or, for an export, a few turns of the loop.
+    const controller = new PanelController(context, backend, analysis, exports, { analysisRevision: () => 0, onDidChange: () => ({ dispose() {} }), profile: () => undefined, configureTrack: async () => undefined }, pythonEnvironment, factory, host);
+    // Waits for the reply that ends the request (compare-scan-done, ...) or, for an export, a few turns of the loop.
     const send = async (message: unknown, done?: string) => {
         const before = published.length;
         receive!(message);
@@ -117,16 +117,6 @@ function folderPanel(options: { listing?: (root: string) => Record<string, Array
     };
     return { root, inside, outside, controller, panel, published, scanned, exported, errors, infos, send };
 }
-
-test('entry scan reaches the disk and the backend only for files the folder lists', async () => {
-    const env = folderPanel();
-    await env.controller.analyzeTarget(uri(env.root) as vscode.Uri);
-    await env.send({ type: 'entry-scan', requestId: 'scan-1', rootPath: env.root, filePaths: [env.inside, env.outside] }, 'entry-scan-done');
-    assert.deepEqual(env.scanned.map(request => request.filePath), [env.inside]);
-    const results = env.published.filter(message => message['type'] === 'entry-scan-result');
-    const rejected = results.find(message => message['filePath'] === env.outside);
-    assert.deepEqual(rejected?.['result'], { ok: false, reason: `Not a file this panel lists: ${env.outside}` });
-});
 
 test('entry probe reads headers of listed files only', async () => {
     const env = folderPanel();
@@ -142,9 +132,9 @@ test('compare scan rejects an unlisted file, as a target or as the reference', a
     const env = folderPanel();
     await env.controller.analyzeTarget(uri(env.root) as vscode.Uri);
     const recipe = { schema: 'wandas.recipe', nodes: [], output: 'out' };
-    await env.send({ type: 'compare-scan', requestId: 'row-1', filePaths: [env.outside, env.inside], recipe }, 'compare-scan-done');
+    await env.send({ type: 'compare-scan', requestId: 'row-1', filePaths: [env.outside, env.inside], recipe, stage: 'out' }, 'compare-scan-done');
     assert.deepEqual(env.scanned.map(request => request.filePath), [env.inside]);
-    await env.send({ type: 'compare-scan', requestId: 'track-1', filePaths: [env.inside], recipe,
+    await env.send({ type: 'compare-scan', requestId: 'track-1', filePaths: [env.inside], recipe, stage: 'out',
         reference: { filePath: env.outside, step: 'welch', recipe } }, 'compare-scan-done');
     assert.equal(env.scanned.length, 1, 'a scan against an unlisted reference must not reach the backend');
     const last = env.published.filter(message => message['type'] === 'compare-scan-result').at(-1);
@@ -163,7 +153,7 @@ test('WAV export plans only the listed files and opens no dialog when none are',
 test('files shown without a folder may be scanned; others may not', async () => {
     const env = folderPanel();
     await env.controller.analyzeFiles([env.inside]);
-    await env.send({ type: 'entry-scan', requestId: 'scan-2', filePaths: [env.inside, env.outside] }, 'entry-scan-done');
+    await env.send({ type: 'compare-scan', requestId: 'scan-2', filePaths: [env.inside, env.outside], recipe: { schema: 'wandas.recipe', nodes: [], output: 'out' }, stage: 'out' }, 'compare-scan-done');
     assert.deepEqual(env.scanned.map(request => request.filePath), [env.inside]);
 });
 
@@ -392,7 +382,7 @@ test('a track\'s calibration button reaches the store through the panel\'s one m
         language: () => 'en',
     } as unknown as PanelControllerHost;
     const configured: AnalysisResultWithError[] = [];
-    const calibration = { analysisRevision: () => 0, onDidChange: () => ({ dispose() {} }), configureTrack: async (result: AnalysisResultWithError) => { configured.push(result); } };
+    const calibration = { analysisRevision: () => 0, onDidChange: () => ({ dispose() {} }), profile: () => undefined, configureTrack: async (result: AnalysisResultWithError) => { configured.push(result); } };
     const context = { extensionUri: uri('/extension'), workspaceState: { get: <T>(_key: string, fallback?: T) => fallback, update: async () => undefined } } as unknown as SpectrogramSettingsContext & { extensionUri: vscode.Uri };
     const controller = new PanelController(context, {} as PanelBackend, { warmup() {}, analyzeFiles: async () => [shown] }, {} as ExportFlows, calibration, pythonEnvironment, factory, host);
     await controller.analyzeFiles(['/a.wav']);

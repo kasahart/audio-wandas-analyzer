@@ -12,7 +12,7 @@
     {
       "id": "node-0",
       "operation": "wandas.audio.loudness_zwtv",
-      "version": 1,
+      "version": 2,
       "inputs": [
         "input-0"
       ],

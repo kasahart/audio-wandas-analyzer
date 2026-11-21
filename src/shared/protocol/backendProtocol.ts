@@ -1,7 +1,6 @@
 import type { UiStrings } from '../i18n/strings';
 import { isCalibrationProfile } from '../analysis/calibrationModel';
 import { BACKEND_PROTOCOL_SCHEMA } from './generated/backendProtocolSchema';
-import type { Drawn } from '../provenance';
 import type {
     AnalyzePayload,
     BackendErrorPayload,
@@ -10,35 +9,35 @@ import type {
     BackendStartedNotification,
     BuildRecipePayload,
     BuildRecipeResult,
+    CursorAnswersPayload,
+    CursorAnswersResult,
+    TrackAnswersPayload,
+    TrackAnswersResult,
     ExportWavLoopPayload,
     ExportWavLoopResult,
-    PairSpectrumPayload,
-    PairSpectrumResult,
-    RangePayload,
-    RangeResult,
+    FigureCountPayload,
+    FigureCountResult,
+    FigureDrawPayload,
+    FigureDrawResult,
+    FigureExportPayload,
+    FigureExportResult,
+    FigureReadPayload,
+    FigureReadResult,
+    FigureReleasePayload,
+    FigureReleaseResult,
+    PairAnswersPayload,
+    PairAnswersResult,
+    RegionPeakPayload,
+    RegionPeakResult,
     ReleaseTrackDetailPayload,
     ScanPayload,
     ScanResult,
-    ScanSpecPayload,
-    ScanSpecResult,
-    SpectrumSlicePayload,
-    SpectrumSliceResult,
-    StageCombinePayload,
-    StageCombineResult,
-    StageDetail,
-    StagePoints,
-    StageRead,
     StageView,
-    TrackDetailPayload,
-    TrackDetailResult,
 } from './generated/backendProtocolSchema';
 import { schemaViolation } from './schemaValidation';
 import type {
     AnalysisResult,
     CalibrationProfile,
-    ChannelSummary,
-    SpectrogramData,
-    WaveformEnvelope,
 } from '../analysis/analysisTypes';
 
 export type {
@@ -49,27 +48,20 @@ export type {
     BackendStartedNotification,
     BuildRecipePayload,
     BuildRecipeResult,
+    CursorAnswersPayload,
+    CursorAnswersResult,
+    TrackAnswersPayload,
+    TrackAnswersResult,
     ExportWavLoopPayload,
     ExportWavLoopResult,
-    PairSpectrumPayload,
-    PairSpectrumResult,
-    RangePayload,
-    RangeResult,
+    PairAnswersPayload,
+    PairAnswersResult,
+    RegionPeakPayload,
+    RegionPeakResult,
     ReleaseTrackDetailPayload,
     ScanPayload,
     ScanResult,
-    ScanSpecPayload,
-    ScanSpecResult,
-    SpectrumSlicePayload,
-    SpectrumSliceResult,
-    StageCombinePayload,
-    StageCombineResult,
-    StageDetail,
-    StagePoints,
-    StageRead,
     StageView,
-    TrackDetailPayload,
-    TrackDetailResult,
 };
 
 export interface CalibrationRequestContext {
@@ -81,30 +73,41 @@ export type ReleaseTrackDetailResult = Record<never, never>;
 
 export interface BackendCommandMap {
     analyze: { payload: AnalyzePayload; result: AnalysisResult };
-    range: { payload: RangePayload; result: RangeResult };
-    'track-detail': { payload: TrackDetailPayload; result: TrackDetailResult };
     'release-track-detail': { payload: ReleaseTrackDetailPayload; result: ReleaseTrackDetailResult };
-    'spectrum-slice': { payload: SpectrumSlicePayload; result: SpectrumSliceResult };
-    'pair-spectrum': { payload: PairSpectrumPayload; result: PairSpectrumResult };
+    // The Tracks screen's two bottom figures' answers, kept by key for the figure service (python-backend/services/tracks_answers.py).
+    // The reply names each kept line's key and sends no value.
+    'cursor-answers': { payload: CursorAnswersPayload; result: CursorAnswersResult };
+    'pair-answers': { payload: PairAnswersPayload; result: PairAnswersResult };
+    // A Tracks row's answers (each channel's samples and STFT levels), kept by key the same way.
+    'track-answers': { payload: TrackAnswersPayload; result: TrackAnswersResult };
+    'region-peak': { payload: RegionPeakPayload; result: RegionPeakResult };
     'export-wav-loop': { payload: ExportWavLoopPayload; result: ExportWavLoopResult };
     'build-recipe': { payload: BuildRecipePayload; result: BuildRecipeResult };
     scan: { payload: ScanPayload; result: ScanResult };
-    'scan-spec': { payload: ScanSpecPayload; result: ScanSpecResult };
-    'stage-combine': { payload: StageCombinePayload; result: StageCombineResult };
+    // The figure service (python-backend/figures/; docs/figure-design.md 第 5, 6 節): every Figure
+    // of the webview asks it (src/webview/answers/figureRequests.ts).
+    'figure-draw': { payload: FigureDrawPayload; result: FigureDrawResult };
+    'figure-read': { payload: FigureReadPayload; result: FigureReadResult };
+    'figure-export': { payload: FigureExportPayload; result: FigureExportResult };
+    'figure-release': { payload: FigureReleasePayload; result: FigureReleaseResult };
+    'figure-count': { payload: FigureCountPayload; result: FigureCountResult };
 }
 
 export const BACKEND_COMMANDS = [
     'analyze',
-    'range',
-    'track-detail',
     'release-track-detail',
-    'spectrum-slice',
-    'pair-spectrum',
+    'cursor-answers',
+    'track-answers',
+    'pair-answers',
+    'region-peak',
     'export-wav-loop',
     'build-recipe',
     'scan',
-    'scan-spec',
-    'stage-combine',
+    'figure-draw',
+    'figure-read',
+    'figure-export',
+    'figure-release',
+    'figure-count',
 ] as const satisfies ReadonlyArray<keyof BackendCommandMap>;
 
 export type BackendCommand = typeof BACKEND_COMMANDS[number];
@@ -113,10 +116,10 @@ export type BackendResult<K extends BackendCommand> = BackendCommandMap[K]['resu
 export type BackendRequest<K extends BackendCommand> = { cmd: K; requestId: string } & BackendPayload<K>;
 export type BackendSuccessEnvelope<K extends BackendCommand> = { requestId: string } & BackendResult<K>;
 
-/** Error codes from `python-backend/backend_errors.py`; hosts branch on these, never on the message text. */
+/** Error codes from `python-backend/services/backend_errors.py`; hosts branch on these, never on the message text. */
 export const BACKEND_ERROR_CODES = BACKEND_PROTOCOL_SCHEMA.$defs.BackendErrorPayload.properties.code.enum;
 export type BackendErrorCode = BackendErrorPayload['code'];
-/** What went wrong, from `python-backend/backend_errors.py`; picks the summary the user reads. */
+/** What went wrong, from `python-backend/services/backend_errors.py`; picks the summary the user reads. */
 export const BACKEND_ERROR_KINDS = BACKEND_PROTOCOL_SCHEMA.$defs.BackendErrorPayload.properties.kind.enum;
 export type BackendErrorKind = BackendErrorPayload['kind'];
 
@@ -191,66 +194,12 @@ export function isJsonObject(value: unknown): value is { [key: string]: unknown 
 }
 
 
-/**
- * A message as it came over the wire, before its numbers are typed (its drawn points `Drawn`, provenance.ts): what the
- * cross-field checks below read. They compare how long a message's arrays are; none of their values is used, so
- * they read the message, never a picture.
- */
-type Wire<T> = T extends Drawn ? unknown : T extends ReadonlyArray<infer Item> ? ReadonlyArray<Wire<Item>> : T extends object ? { readonly [K in keyof T]: Wire<T[K]> } : T;
-
-/** Cross-field invariant the schema cannot express: every per-point array has the same length. */
-function hasAlignedEnvelopeArrays(envelope: Wire<WaveformEnvelope>): boolean {
-    const pointCount = envelope.min.length;
-    return [envelope.max, envelope.samples, envelope.minT, envelope.maxT]
-        .every(points => points === undefined || points.length === pointCount);
-}
-
-/** Cross-field invariant the schema cannot express: timeBins rows of frequencyBins values. */
-function hasSpectrogramShape(spectrogram: Wire<SpectrogramData>): boolean {
-    return spectrogram.values.length === spectrogram.timeBins
-        && spectrogram.values.every(row => row.length === spectrogram.frequencyBins);
-}
-
-function hasChannelInvariants(channel: Wire<ChannelSummary>): boolean {
-    return hasAlignedEnvelopeArrays(channel.waveform)
-        && (channel.spectrogram === null || hasSpectrogramShape(channel.spectrogram));
-}
-
 /** Schema plus the channel count and the calibration profile's own checks (calibrationModel.ts). */
 function isAnalysisResult(value: unknown): value is AnalysisResult {
     if (schemaViolation('AnalysisResult', value) !== null) return false;
-    const wire = value as Wire<AnalysisResult>;
     const result = value as AnalysisResult;
-    return wire.channels.length === wire.channelCount
-        && wire.channels.every(hasChannelInvariants)
+    return result.channels.length === result.channelCount
         && (result.calibrationProfile === undefined || isCalibrationProfile(result.calibrationProfile));
-}
-
-function isRangeResult(value: unknown): value is RangeResult {
-    return schemaViolation('RangeResult', value) === null
-        && (value as Wire<RangeResult>).channels.every(hasAlignedEnvelopeArrays);
-}
-
-function isTrackDetailResult(value: unknown): value is TrackDetailResult {
-    return schemaViolation('TrackDetailResult', value) === null
-        && (value as Wire<TrackDetailResult>).channels.every(hasChannelInvariants);
-}
-
-function isSpectrumSliceResult(value: unknown): value is SpectrumSliceResult {
-    if (schemaViolation('SpectrumSliceResult', value) !== null) return false;
-    const result = value as Wire<SpectrumSliceResult>;
-    return result.channels.length > 0 && result.channels.every(channel => channel.values.length === result.frequencyBins)
-        && (result.bandCentersHz === undefined || result.bandCentersHz.length === result.frequencyBins)
-        && (result.frequenciesHz === undefined || (result.bandCentersHz === undefined && result.frequenciesHz.length === result.frequencyBins));
-}
-
-function isPairSpectrumResult(value: unknown): value is PairSpectrumResult {
-    if (schemaViolation('PairSpectrumResult', value) !== null) return false;
-    const result = value as PairSpectrumResult;
-    return result.responses.every(response => {
-        const bins = response.status === 'ok' ? result.frequencyBins : 0;
-        return [response.gainDb, response.phaseRad, response.coherence].every(values => values.length === bins);
-    });
 }
 
 function isExportWavLoopResult(value: unknown): value is ExportWavLoopResult {
@@ -265,56 +214,31 @@ function isBuildRecipeResult(value: unknown): value is BuildRecipeResult {
     return schemaViolation('BuildRecipeResult', value) === null;
 }
 
-const STAGE_METRIC_KEYS = ['conditionId', 'leqDbA', 'peakHz', 'spectrumDb', 'spectrumBinsDb', 'spectrumBinHz', 'thirdOctDb', 'crest', 'endFrame'] as const;
-const SCAN_SUCCESS_KEYS = [
-    'conditionId', 'input', 'leqDbA', 'peakHz', 'spectrumDb', 'thirdOctDb', 'crest', 'specVersion', 'wandasVersion', 'elapsedMs',
-] as const;
-
+/** A scan is one step's picture of a file (its input and the picture), or the one-line reason it could not be had. */
 function isScanResult(value: unknown): value is ScanResult {
     if (schemaViolation('ScanResult', value) !== null) return false;
     const result = value as ScanResult;
-    if (!result.ok) return typeof result.reason === 'string' && [...SCAN_SUCCESS_KEYS, 'spectrumBinsDb', 'spectrumBinHz'].every(key => result[key as keyof ScanResult] === undefined);
-    // A step's picture alone (scan with `stage`): the file's input and the picture, none of the metrics.
-    if (result.stage !== undefined && result.leqDbA === undefined) {
-        return result.reason === undefined && result.input !== undefined && STAGE_METRIC_KEYS.every(key => result[key] === undefined);
-    }
-    if (result.reason !== undefined || !SCAN_SUCCESS_KEYS.every(key => result[key] !== undefined) || result.input === undefined) return false;
-    // Every per-channel array follows input.channels.
-    const channels = result.input.channels.length;
-    return [result.leqDbA, result.peakHz, result.spectrumDb, result.thirdOctDb, result.crest]
-        .every(values => values !== undefined && values.length === channels)
-        // Every bin as well (optional): one row per channel, with the bins' spacing.
-        && (result.spectrumBinsDb === undefined || (result.spectrumBinsDb.length === channels && typeof result.spectrumBinHz === 'number'));
-}
-
-/** A scan's spec as the stored index keeps it: the analysis spec and wandas versions it names (a scan result, or the backend's scan-spec). */
-export const scanSpecOf = (spec: { specVersion?: number; wandasVersion?: string }): string => `${spec.specVersion ?? ''}|${spec.wandasVersion ?? ''}`;
-
-function isScanSpecResult(value: unknown): value is ScanSpecResult {
-    return schemaViolation('ScanSpecResult', value) === null;
-}
-
-function isStageCombineResult(value: unknown): value is StageCombineResult {
-    if (schemaViolation('StageCombineResult', value) !== null) return false;
-    const result = value as StageCombineResult;
-    // Missing keys come alone; a combination never names any.
-    return result.ok ? result.missing === undefined : result.missing !== undefined && !result.base && !result.diff;
+    if (!result.ok) return typeof result.reason === 'string' && result.input === undefined && result.stage === undefined;
+    return result.reason === undefined && result.input !== undefined && result.stage !== undefined;
 }
 
 type ResultValidator<K extends BackendCommand> = (value: unknown) => value is BackendResult<K>;
 
 const RESULT_VALIDATORS: { [K in BackendCommand]: ResultValidator<K> } = {
     analyze: isAnalysisResult,
-    range: isRangeResult,
-    'track-detail': isTrackDetailResult,
     'release-track-detail': isReleaseTrackDetailResult,
-    'spectrum-slice': isSpectrumSliceResult,
-    'pair-spectrum': isPairSpectrumResult,
+    'cursor-answers': (value: unknown): value is CursorAnswersResult => schemaViolation('CursorAnswersResult', value) === null,
+    'pair-answers': (value: unknown): value is PairAnswersResult => schemaViolation('PairAnswersResult', value) === null,
+    'track-answers': (value: unknown): value is TrackAnswersResult => schemaViolation('TrackAnswersResult', value) === null,
+    'region-peak': (value: unknown): value is RegionPeakResult => schemaViolation('RegionPeakResult', value) === null,
     'export-wav-loop': isExportWavLoopResult,
     'build-recipe': isBuildRecipeResult,
     scan: isScanResult,
-    'scan-spec': isScanSpecResult,
-    'stage-combine': isStageCombineResult,
+    'figure-draw': (value: unknown): value is FigureDrawResult => schemaViolation('FigureDrawResult', value) === null,
+    'figure-read': (value: unknown): value is FigureReadResult => schemaViolation('FigureReadResult', value) === null,
+    'figure-export': (value: unknown): value is FigureExportResult => schemaViolation('FigureExportResult', value) === null,
+    'figure-release': (value: unknown): value is FigureReleaseResult => schemaViolation('FigureReleaseResult', value) === null,
+    'figure-count': (value: unknown): value is FigureCountResult => schemaViolation('FigureCountResult', value) === null,
 };
 
 export function parseBackendResult<K extends BackendCommand>(command: K, value: unknown): BackendResult<K> {

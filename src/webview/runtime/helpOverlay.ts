@@ -6,7 +6,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { eventTarget } from './domAdapter';
 import { setHint } from './hintFooter';
-import { isTextEntryTarget, keyRouterFor } from './keyRouter';
+import { isTextEntryTarget, keyRouterFor } from '../shell/keyRouter';
 import { HELP_SECTIONS, type HelpView, type KeyRow } from './shortcuts';
 
 export interface Help {

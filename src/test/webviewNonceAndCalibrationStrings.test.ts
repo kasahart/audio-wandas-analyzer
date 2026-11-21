@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { JSDOM } from 'jsdom';
 import { createNonce } from '../webview/panels/nonce';
 import { renderComparisonDocument } from '../webview/panels/comparisonDocument';
 import type { ComparisonState } from '../webview/runtime/types';
 import { DEFAULT_SPECTROGRAM_SETTINGS } from '../shared/analysis/analysisTypes';
-import { applyOverlayCompatibility, calibrationButtonHtml } from '../webview/runtime/calibrationDecorations';
+import { calibrationButtonHtml } from '../webview/runtime/calibrationDecorations';
 import { getStrings } from '../shared/i18n/strings';
 
 test('webview CSP nonces are 128-bit random base64 values', () => {
@@ -17,7 +16,7 @@ test('webview CSP nonces are 128-bit random base64 values', () => {
 });
 
 test('comparison document issues a fresh random nonce per render', () => {
-    const assets = { waveformScriptUri: 'w.js', runtimeScriptUri: 'r.js', cspSource: "'self'", language: 'en', appVersion: '0.0.0' };
+    const assets = { runtimeScriptUri: 'r.js', cspSource: "'self'", language: 'en', appVersion: '0.0.0' };
     const nonceOf = (html: string) => {
         const match = /script-src 'nonce-([^']+)'/.exec(html);
         assert.ok(match);
@@ -31,7 +30,7 @@ test('comparison document issues a fresh random nonce per render', () => {
 });
 
 test('comparison document turns the runtime test hooks on only when asked', () => {
-    const assets = { waveformScriptUri: 'w.js', runtimeScriptUri: 'r.js', cspSource: "'self'", language: 'en', appVersion: '0.0.0' };
+    const assets = { runtimeScriptUri: 'r.js', cspSource: "'self'", language: 'en', appVersion: '0.0.0' };
     const state: ComparisonState = { mode: 'results', results: [], spectrogramSettings: DEFAULT_SPECTROGRAM_SETTINGS };
     assert.doesNotMatch(renderComparisonDocument(state, assets), /__AWA_TEST_HOOKS__/);
     assert.match(renderComparisonDocument(state, { ...assets, testHooks: true }), /window\.__AWA_TEST_HOOKS__ = true;/);
@@ -44,15 +43,4 @@ test('calibration button uses localized label, title and aria-label', () => {
     assert.ok(html.includes('aria-label="' + ja.calibrationButtonAria + '"'));
     assert.ok(html.endsWith('>' + ja.calibrationButtonLabel + '</button>'));
     assert.ok(calibrationButtonHtml('track-1', getStrings('en')).endsWith('>Cal</button>'));
-});
-
-test('overlay incompatibility warning shows the localized message and clears when compatible', () => {
-    const dom = new JSDOM('<div id="spectrum-overlay-wrap"><canvas id="spectrum-overlay-canvas"></canvas></div>');
-    const document = dom.window.document;
-    const ja = getStrings('ja');
-    applyOverlayCompatibility(document, true, ja.calibrationOverlayIncompatible);
-    assert.equal(document.querySelector('.calibration-overlay-warning')?.textContent, ja.calibrationOverlayIncompatible);
-    assert.equal(document.getElementById('spectrum-overlay-canvas')?.getAttribute('data-calibration-hidden'), 'true');
-    applyOverlayCompatibility(document, false, ja.calibrationOverlayIncompatible);
-    assert.equal(document.querySelector('.calibration-overlay-warning'), null);
 });

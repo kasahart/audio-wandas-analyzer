@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "numpy>=2.0.2",
     "scipy>=1.13",
-    "wandas[psychoacoustic,effects]>=0.13.0,<0.14.0",
+    "wandas[psychoacoustic,effects]>=0.13.2,<0.14.0",
     "soundfile>=0.12",
 ]
 
@@ -52,8 +52,9 @@ markers = [
 ]
 
 [tool.pyright]
-# The backend modules import each other as top-level scripts, as backend_server.py and Pyodide load them.
-include = ["python-backend", "scripts/check_decimation_flow.py", "scripts/check_test_proofs.py"]
+# The backend's folders (frames, services, figures, transport) are imported from python-backend/, where its two
+# entries (backend_server.py, browser_service.py) are started.
+include = ["python-backend", "scripts/check_test_proofs.py", "scripts/check_figure_imports.py"]
 exclude = ["python-backend/test_*.py", "python-backend/conftest.py", "**/__pycache__"]
 extraPaths = ["python-backend"]
 pythonVersion = "3.11"

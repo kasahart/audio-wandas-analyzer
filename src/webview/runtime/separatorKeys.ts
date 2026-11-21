@@ -2,7 +2,7 @@
  * The resize edges (role="separator") from the keyboard: arrows move a focused edge by a step (Shift: ten),
  * Home / End to its least / most, and its aria-valuenow / -min / -max follow its value.
  */
-import { keyRouterFor } from './keyRouter';
+import { keyRouterFor } from '../shell/keyRouter';
 
 export interface SeparatorRange {
     now: number;

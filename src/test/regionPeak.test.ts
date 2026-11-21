@@ -1,99 +1,82 @@
 /**
- * The peak a new trigger's level starts from (display rules R1): read from every sample of the compared channels
- * through their full data, never taken from the envelope a lane draws. See src/webview/runtime/regionPeak.ts.
+ * The peak a new trigger's level starts from (display rules R1): one answer of the backend's, of every sample of the
+ * compared channels (AnalysisService.region_peak; python-backend/test_full_read.py holds it to every sample). The
+ * webview only asks for it and keeps it: see src/webview/runtime/regionPeak.ts (`peak`).
  */
-import { testLine } from './helpers/whole';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { FAILED_RETRY_MS } from '../webview/runtime/answerStore';
-import { fetchedSource, fullSource, NO_FULL_DATA } from '../webview/runtime/fullRead';
-import { regionPeak } from '../webview/runtime/regionPeak';
+import { createRegionPeaks, type PeakOf, type PeakTrack } from '../webview/runtime/regionPeak';
 
-/** One second at 1 kHz: a quiet tone (±0.1) with one sample of 0.9 at 0.5005 s and one of −0.6 at 0.2 s. */
-const RATE = 1000;
-const TIMES = Array.from({ length: RATE }, (_, n) => n / RATE);
-const SAMPLES = TIMES.map((_, n) => (n === 500 ? 0.9 : n === 200 ? -0.6 : 0.1 * Math.sin(n * 0.37)));
+type Asked = { type: string; requestId: string; sources?: Array<{ filePath: string; channels: number[]; startNorm: number; endNorm: number; sourceVersion?: string }> };
 
-/** The largest |sample| of SAMPLES from time `from` to `to`, both in: the answer, worked out here from every sample. */
-function truePeak(from: number, to: number): number {
-    return Math.max(...SAMPLES.filter((_, n) => TIMES[n] >= from && TIMES[n] <= to).map(Math.abs));
-}
+const track = (filePath: string, sourceVersion = 'v1'): PeakTrack => ({ filePath, sourceVersion, calibrationSignature: 'c' });
+const of = (filePath: string, channels: number[] = [0], stretch: [number, number] = [0.25, 0.375]): PeakOf => ({ filePath, track: track(filePath), channels, startNorm: stretch[0], endNorm: stretch[1] });
 
-/**
- * What the envelope a lane draws would give: SAMPLES thinned to `buckets` min/max pairs, each extreme kept with its
- * time, and the largest |extreme| whose time is inside the region. This is the old calculation (envelopePeak.ts,
- * deleted); it is here only to prove the test's region is one where it is wrong.
- */
-function thinnedPeak(buckets: number, from: number, to: number): number {
-    const size = SAMPLES.length / buckets;
-    let peak = 0;
-    for (let bucket = 0; bucket < buckets; bucket++) {
-        const first = bucket * size, block = SAMPLES.slice(first, first + size);
-        for (const extreme of [Math.min(...block), Math.max(...block)]) {
-            const at = TIMES[first + block.indexOf(extreme)];
-            if (at >= from && at <= to) peak = Math.max(peak, Math.abs(extreme));
-        }
-    }
-    return peak;
-}
-
-test('a region\'s peak is read from every sample: a region that cuts a drawn bucket reads its own largest sample, which the thinned envelope does not hold (R1)', () => {
-    const full = testLine(TIMES, SAMPLES);
-    // 0.452–0.458 s: seven samples inside the drawn bucket 0.4–0.499 s (of 10 buckets). The envelope keeps only that
-    // bucket's two extremes, which are elsewhere in it: the region's own largest sample lies between the thinned points.
-    const [from, to] = [0.452, 0.458];
-    const peak = regionPeak([{ filePath: '/a.wav', full, x0: from, x1: to }], () => undefined, 30);
-    assert.deepEqual(peak, { state: 'ready', value: truePeak(from, to) }, 'regionPeak must give the largest sample inside the region (FullSource.level → peak)');
-    assert.notEqual(thinnedPeak(10, from, to), truePeak(from, to), 'this region is one the thinned envelope gets wrong; if this fails the fixture no longer proves anything: pick another region');
-    // The spike just outside is not counted; a region holding it reads it.
-    assert.ok(peak?.state === 'ready' && peak.value < 0.2);
-    assert.deepEqual(regionPeak([{ filePath: '/a.wav', full, x0: 0.45, x1: 0.5005 }], () => undefined, 30), { state: 'ready', value: 0.9 });
-    // A negative sample counts by its size, and of several channels the largest is taken.
-    assert.deepEqual(regionPeak([{ filePath: '/a.wav', full, x0: 0.15, x1: 0.25 }], () => undefined, 30), { state: 'ready', value: 0.6 });
-    assert.deepEqual(regionPeak([{ filePath: '/a.wav', full, x0: 0.15, x1: 0.25 }, { filePath: '/a.wav', full, x0: 0.45, x1: 0.55 }], () => undefined, 30), { state: 'ready', value: 0.9 });
+test('a region\'s peak is one answer of the backend\'s: asked once with every compared recording\'s channels and stretch, its number kept as sent, nothing computed of it here (R1)', () => {
+    const posted: Asked[] = [];
+    const reads = createRegionPeaks(message => { posted.push(message); });
+    const compared = [of('/base.wav', [0]), of('/compare.wav', [0, 1])];
+    assert.deepEqual(reads.peak(compared, 30), { state: 'pending' }, 'asked for, not yet answered');
+    assert.equal(posted.length, 1, 'one request for all the recordings: the largest of them is the backend\'s to find');
+    assert.equal(posted[0].type, 'request-region-peak');
+    assert.deepEqual(posted[0].sources, [
+        { filePath: '/base.wav', sourceVersion: 'v1', channels: [0], startNorm: 0.25, endNorm: 0.375 },
+        { filePath: '/compare.wav', sourceVersion: 'v1', channels: [0, 1], startNorm: 0.25, endNorm: 0.375 },
+    ]);
+    // Still on its way: read again, it is not asked again.
+    assert.deepEqual(reads.peak(compared, 30), { state: 'pending' });
+    assert.equal(posted.length, 1);
+    // The backend's number is the peak, as sent.
+    assert.equal(reads.handle({ type: 'region-peak-result', requestId: posted[0].requestId, peak: 0.32 } as { type: string; requestId: string }), true);
+    assert.deepEqual(reads.peak(compared, 30), { state: 'ready', value: 0.32 });
+    assert.equal(posted.length, 1, 'an answer in hand is kept, not asked for again');
+    // Another region, other channels or another version of a file is another answer.
+    assert.deepEqual(reads.peak([of('/base.wav', [0], [0, 1]), of('/compare.wav', [0, 1], [0, 1])], 30), { state: 'pending' });
+    assert.deepEqual(reads.peak([of('/base.wav', [0]), of('/compare.wav', [0])], 30), { state: 'pending' });
+    assert.deepEqual(reads.peak([{ ...of('/base.wav', [0]), track: track('/base.wav', 'v2') }, of('/compare.wav', [0, 1])], 30), { state: 'pending' });
+    assert.equal(posted.length, 4);
     // Nothing compared: no peak at all (the entry table).
-    assert.equal(regionPeak([], () => undefined, 30), undefined);
+    assert.equal(reads.peak([], 30), undefined);
 });
 
-test('while a channel\'s peak is being read it is pending, and a failed read is failed until the answer store\'s pause is over: neither carries a number (R1)', async () => {
-    let clock = 1_000_000, failing = true, asked = 0;
-    // A channel the backend holds: its level read answers with the peak of the window (full_read.read_level).
-    const full = fetchedSource((read, done) => {
-        asked++;
-        const answer = failing ? null : { xs: [], start: null, end: null, complete: false, level: { power: 0.01, count: 100, peak: truePeak(read.x[0], read.x[1]) } };
-        setTimeout(() => { done(answer); }, 0);
-    }, {}, () => clock);
-    let woken = 0;
-    const read = () => regionPeak([{ filePath: '/a.wav', full, x0: 0.45, x1: 0.5005 }], () => { woken++; }, 30);
-    assert.deepEqual(read(), { state: 'pending' }, 'asked for, not yet answered');
-    await new Promise(resolve => setTimeout(resolve, 5));
-    assert.equal(woken, 1, 'the caller is told when the answer is in, to read again');
+test('while a region\'s peak is being read it is pending, and a failed read is failed until the answer store\'s pause is over: neither carries a number (R1)', () => {
+    let clock = 1_000_000;
+    const posted: Asked[] = [];
+    const reads = createRegionPeaks(message => { posted.push(message); }, () => clock);
+    const compared = [of('/base.wav')];
+    assert.deepEqual(reads.peak(compared, 30), { state: 'pending' });
     // The read failed: no number, and within the pause it is not asked again.
-    assert.deepEqual(read(), { state: 'failed' });
-    assert.equal(asked, 1, 'a failed read is not asked again before the answer store\'s pause is over (FAILED_RETRY_MS)');
+    reads.handle({ type: 'region-peak-error', requestId: posted[0].requestId });
+    assert.deepEqual(reads.peak(compared, 30), { state: 'failed' });
+    assert.equal(posted.length, 1, 'a failed read is not asked again before the answer store\'s pause is over (FAILED_RETRY_MS)');
     // Past the pause the same read is asked again, by the store's rule: pending, then the value.
-    failing = false;
     clock += FAILED_RETRY_MS + 1;
-    assert.deepEqual(read(), { state: 'pending' });
-    await new Promise(resolve => setTimeout(resolve, 5));
-    assert.equal(asked, 2);
-    assert.deepEqual(read(), { state: 'ready', value: 0.9 });
-    assert.equal(asked, 2, 'an answer in hand is kept, not asked for again');
-    // A channel with no full data to read, and an answer that names no peak, are failures too: never a peak of 0.
-    assert.deepEqual(regionPeak([{ filePath: '/a.wav', full: fullSource('fetched', { level: () => null }), x0: 0, x1: 1 }], () => undefined, 30), { state: 'failed' });
-    assert.deepEqual(regionPeak([{ filePath: '/a.wav', full: NO_FULL_DATA, x0: 0, x1: 1 }], () => undefined, 30), { state: 'failed' });
+    assert.deepEqual(reads.peak(compared, 30), { state: 'pending' });
+    assert.equal(posted.length, 2);
+    reads.handle({ type: 'region-peak-result', requestId: posted[1].requestId, peak: 0.9 } as { type: string; requestId: string });
+    assert.deepEqual(reads.peak(compared, 30), { state: 'ready', value: 0.9 });
+    // An answer that names no number is a failure too: never a peak of 0.
+    const other = [of('/other.wav')];
+    reads.peak(other, 30);
+    reads.handle({ type: 'region-peak-result', requestId: posted[2].requestId });
+    assert.deepEqual(reads.peak(other, 30), { state: 'failed' });
+    // A recording with no data to read (its file changed since it was analysed) leaves the peak unknown, and nothing is asked.
+    const asked = posted.length;
+    assert.deepEqual(reads.peak([of('/base.wav'), { ...of('/changed.wav'), track: null }], 30), { state: 'failed' });
+    assert.equal(posted.length, asked);
 });
 
 test('the peak of more recordings than the limit is not read at all: 31 recordings start no read and say so, 30 are read; channels of one recording count once (R1)', () => {
-    let asked = 0;
-    const channel = (filePath: string) => ({ filePath, x0: 0, x1: 1, full: fullSource('fetched', { level: () => { asked++; return undefined; } }) });
-    const recordings = (count: number) => Array.from({ length: count }, (_, index) => channel(`/${index}.wav`));
-    assert.deepEqual(regionPeak(recordings(31), () => undefined, 30), { state: 'tooMany', limit: 30 });
-    assert.equal(asked, 0, 'over the limit no read may be started (regionPeak must return before asking any source)');
-    assert.deepEqual(regionPeak(recordings(30), () => undefined, 30), { state: 'pending' });
-    assert.equal(asked, 30, 'at the limit every recording is read');
-    // Two channels each of 16 recordings are 32 reads of 16 recordings: under the limit.
-    asked = 0;
-    assert.deepEqual(regionPeak([...recordings(16), ...recordings(16)], () => undefined, 30), { state: 'pending' });
-    assert.equal(asked, 32);
+    const posted: Asked[] = [];
+    const reads = createRegionPeaks(message => { posted.push(message); });
+    const recordings = (count: number, channels: number[] = [0]): PeakOf[] => Array.from({ length: count }, (_, index) => of(`/${index}.wav`, channels));
+    assert.deepEqual(reads.peak(recordings(31), 30), { state: 'tooMany', limit: 30 });
+    assert.equal(posted.length, 0, 'over the limit no read may be started (peak must return before asking)');
+    assert.deepEqual(reads.peak(recordings(30), 30), { state: 'pending' });
+    assert.equal(posted.length, 1, 'at the limit the recordings are read, in one request');
+    assert.equal(posted[0].sources?.length, 30);
+    // Two channels each of 16 recordings are 16 recordings: under the limit.
+    assert.deepEqual(reads.peak(recordings(16, [0, 1]), 30), { state: 'pending' });
+    assert.equal(posted.length, 2);
 });

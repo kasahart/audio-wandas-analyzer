@@ -32,13 +32,10 @@ function connection(selected: WorkerSource[] = []) {
     const events: string[] = [];
     const sources = new Map(selected.map(source => [source.path, source]));
     const sourceGeneration = new SessionRequests();
-    let queue: Promise<unknown> = Promise.resolve();
     const audio = createWorkerConnection({
         Worker: FakeWorker as unknown as typeof Worker,
-        setTimeout,
         sources: { get size() { return sources.size; }, values: () => sources.values(), owns: (path, source) => sources.get(path) === source },
         sourceGeneration,
-        exclusive: task => { const run = queue.then(task); queue = run.catch(() => undefined); return run; },
         showState: (state, quiet) => { states.push([state, quiet]); },
         reportLacks: lacks => { events.push(`lacks:${lacks.join(',')}`); },
         cancelReanalysis: () => { events.push('cancel-reanalysis'); },
@@ -153,49 +150,3 @@ test('a crashed Worker is reset, its requests reject and the host is told; an ol
     FakeWorker.answer = defaultAnswer;
 });
 
-test('a spare Worker boots and loads the tracks behind the current one, then takes over once nothing waits', async () => {
-    FakeWorker.answer = defaultAnswer;
-    const { audio, states } = connection([source('a.wav')]);
-    audio.start();
-    const first = FakeWorker.all[0];
-    audio.replaceBehind();
-    audio.replaceBehind();
-    assert.equal(FakeWorker.all.length, 2, 'one spare at a time');
-    const spare = FakeWorker.all[1];
-    for (let i = 0; i < 5; i++) await flush();
-    assert.deepEqual(spare.commands.map(command => command.cmd), ['limits', 'load']);
-    assert.equal(first.terminated, true);
-    assert.deepEqual(states.map(([state]) => state), ['starting'], 'the swap shows no boot');
-    assert.deepEqual(await audio.request({ cmd: 'unload', filePath: '/sources/a.wav' }), {});
-    assert.equal(spare.commands.at(-1)?.cmd, 'unload');
-});
-
-test('a spare whose boot fails, or whose tracks were released meanwhile, is dropped and the current Worker stays', async () => {
-    FakeWorker.answer = (command, worker) => (worker === FakeWorker.all[1] && command.cmd === 'limits' ? undefined : defaultAnswer(command, worker));
-    const failing = connection([source('a.wav')]);
-    failing.audio.start();
-    failing.audio.replaceBehind();
-    FakeWorker.all[1].send({ ready: false });
-    await flush();
-    assert.equal(FakeWorker.all[1].terminated, true);
-    assert.equal(FakeWorker.all[0].terminated, false);
-
-    // The spare's load is answered only after the track is released.
-    let answerLoad = (): void => undefined;
-    FakeWorker.answer = (command, worker) => {
-        if (worker !== FakeWorker.all[1] || command.cmd !== 'load') return defaultAnswer(command, worker);
-        answerLoad = () => worker.send({ requestId: command.requestId, result: { filePath: '/sources/a.wav' } });
-        return undefined;
-    };
-    const released = connection([source('a.wav')]);
-    released.audio.start();
-    released.audio.replaceBehind();
-    for (let i = 0; i < 5; i++) await flush();
-    assert.equal(FakeWorker.all[1].commands.at(-1)?.cmd, 'load');
-    released.sources.clear();
-    answerLoad();
-    for (let i = 0; i < 5; i++) await flush();
-    assert.equal(FakeWorker.all[1].terminated, true);
-    assert.equal(FakeWorker.all[0].terminated, false);
-    FakeWorker.answer = defaultAnswer;
-});

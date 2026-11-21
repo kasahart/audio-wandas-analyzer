@@ -1,0 +1,3120 @@
+{
+ "about": "The entry screen's distribution as the old path answers it. Recorded from the code before the figure service, which is gone: the file cannot be made again, and stays as the record of what that code answered.",
+ "boundary_note": "A value exactly on a bin edge is counted in the higher bin (binCounts: floor((value − low) / width); where the edge in floating point is just above the value, as 62.5 here, in the lower), and a click off any point at that value picks the higher bin; the pointer exactly between two bar tops reads the lower bar (nearestPoint keeps the first on a tie); a picked bin is closed at both ends, so a value on its high edge is in the range and kept by the table, yet counted in the next bin.",
+ "scenes": {
+  "plain": {
+   "rows": [
+    {
+     "path": "/d/a00.wav",
+     "group": "A",
+     "value": "4"
+    },
+    {
+     "path": "/d/a01.wav",
+     "group": "A",
+     "value": "10"
+    },
+    {
+     "path": "/d/a02.wav",
+     "group": "A",
+     "value": "12.5"
+    },
+    {
+     "path": "/d/a03.wav",
+     "group": "A",
+     "value": "25"
+    },
+    {
+     "path": "/d/a04.wav",
+     "group": "A",
+     "value": "25"
+    },
+    {
+     "path": "/d/a05.wav",
+     "group": "A",
+     "value": "27"
+    },
+    {
+     "path": "/d/a06.wav",
+     "group": "A",
+     "value": "37.5"
+    },
+    {
+     "path": "/d/a07.wav",
+     "group": "A",
+     "value": "50"
+    },
+    {
+     "path": "/d/a08.wav",
+     "group": "A",
+     "value": "50"
+    },
+    {
+     "path": "/d/a09.wav",
+     "group": "A",
+     "value": "51"
+    },
+    {
+     "path": "/d/a10.wav",
+     "group": "A",
+     "value": "60"
+    },
+    {
+     "path": "/d/a11.wav",
+     "group": "A",
+     "value": "62.5"
+    },
+    {
+     "path": "/d/a12.wav",
+     "group": "A",
+     "value": "75"
+    },
+    {
+     "path": "/d/a13.wav",
+     "group": "A",
+     "value": "80"
+    },
+    {
+     "path": "/d/a14.wav",
+     "group": "A",
+     "value": "92"
+    },
+    {
+     "path": "/d/b0.wav",
+     "group": "B",
+     "value": "20"
+    },
+    {
+     "path": "/d/b1.wav",
+     "group": "B",
+     "value": "20"
+    },
+    {
+     "path": "/d/b2.wav",
+     "group": "B",
+     "value": "20.5"
+    },
+    {
+     "path": "/d/b3.wav",
+     "group": "B",
+     "value": "40"
+    },
+    {
+     "path": "/d/b4.wav",
+     "group": "B",
+     "value": "70"
+    },
+    {
+     "path": "/d/c0.wav",
+     "group": "C",
+     "value": "50"
+    },
+    {
+     "path": "/d/blank.wav",
+     "group": "A",
+     "value": ""
+    }
+   ],
+   "range": null,
+   "slots": [
+    null,
+    "/d/b3.wav",
+    "/d/a05.wav",
+    null
+   ],
+   "base": {
+    "group": "A",
+    "value": 50
+   },
+   "width": 480
+  },
+  "picked": {
+   "rows": [
+    {
+     "path": "/d/a00.wav",
+     "group": "A",
+     "value": "4"
+    },
+    {
+     "path": "/d/a01.wav",
+     "group": "A",
+     "value": "10"
+    },
+    {
+     "path": "/d/a02.wav",
+     "group": "A",
+     "value": "12.5"
+    },
+    {
+     "path": "/d/a03.wav",
+     "group": "A",
+     "value": "25"
+    },
+    {
+     "path": "/d/a04.wav",
+     "group": "A",
+     "value": "25"
+    },
+    {
+     "path": "/d/a05.wav",
+     "group": "A",
+     "value": "27"
+    },
+    {
+     "path": "/d/a06.wav",
+     "group": "A",
+     "value": "37.5"
+    },
+    {
+     "path": "/d/a07.wav",
+     "group": "A",
+     "value": "50"
+    },
+    {
+     "path": "/d/a08.wav",
+     "group": "A",
+     "value": "50"
+    },
+    {
+     "path": "/d/a09.wav",
+     "group": "A",
+     "value": "51"
+    },
+    {
+     "path": "/d/a10.wav",
+     "group": "A",
+     "value": "60"
+    },
+    {
+     "path": "/d/a11.wav",
+     "group": "A",
+     "value": "62.5"
+    },
+    {
+     "path": "/d/a12.wav",
+     "group": "A",
+     "value": "75"
+    },
+    {
+     "path": "/d/a13.wav",
+     "group": "A",
+     "value": "80"
+    },
+    {
+     "path": "/d/a14.wav",
+     "group": "A",
+     "value": "92"
+    },
+    {
+     "path": "/d/b0.wav",
+     "group": "B",
+     "value": "20"
+    },
+    {
+     "path": "/d/b1.wav",
+     "group": "B",
+     "value": "20"
+    },
+    {
+     "path": "/d/b2.wav",
+     "group": "B",
+     "value": "20.5"
+    },
+    {
+     "path": "/d/b3.wav",
+     "group": "B",
+     "value": "40"
+    },
+    {
+     "path": "/d/b4.wav",
+     "group": "B",
+     "value": "70"
+    },
+    {
+     "path": "/d/c0.wav",
+     "group": "C",
+     "value": "50"
+    },
+    {
+     "path": "/d/blank.wav",
+     "group": "A",
+     "value": ""
+    }
+   ],
+   "range": {
+    "low": 22.916666666666668,
+    "high": 25
+   },
+   "slots": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "base": null,
+   "width": 480
+  },
+  "slot0": {
+   "rows": [
+    {
+     "path": "/d/a00.wav",
+     "group": "A",
+     "value": "4"
+    },
+    {
+     "path": "/d/a01.wav",
+     "group": "A",
+     "value": "10"
+    },
+    {
+     "path": "/d/a02.wav",
+     "group": "A",
+     "value": "12.5"
+    },
+    {
+     "path": "/d/a03.wav",
+     "group": "A",
+     "value": "25"
+    },
+    {
+     "path": "/d/a04.wav",
+     "group": "A",
+     "value": "25"
+    },
+    {
+     "path": "/d/a05.wav",
+     "group": "A",
+     "value": "27"
+    },
+    {
+     "path": "/d/a06.wav",
+     "group": "A",
+     "value": "37.5"
+    },
+    {
+     "path": "/d/a07.wav",
+     "group": "A",
+     "value": "50"
+    },
+    {
+     "path": "/d/a08.wav",
+     "group": "A",
+     "value": "50"
+    },
+    {
+     "path": "/d/a09.wav",
+     "group": "A",
+     "value": "51"
+    },
+    {
+     "path": "/d/a10.wav",
+     "group": "A",
+     "value": "60"
+    },
+    {
+     "path": "/d/a11.wav",
+     "group": "A",
+     "value": "62.5"
+    },
+    {
+     "path": "/d/a12.wav",
+     "group": "A",
+     "value": "75"
+    },
+    {
+     "path": "/d/a13.wav",
+     "group": "A",
+     "value": "80"
+    },
+    {
+     "path": "/d/a14.wav",
+     "group": "A",
+     "value": "92"
+    },
+    {
+     "path": "/d/b0.wav",
+     "group": "B",
+     "value": "20"
+    },
+    {
+     "path": "/d/b1.wav",
+     "group": "B",
+     "value": "20"
+    },
+    {
+     "path": "/d/b2.wav",
+     "group": "B",
+     "value": "20.5"
+    },
+    {
+     "path": "/d/b3.wav",
+     "group": "B",
+     "value": "40"
+    },
+    {
+     "path": "/d/b4.wav",
+     "group": "B",
+     "value": "70"
+    },
+    {
+     "path": "/d/c0.wav",
+     "group": "C",
+     "value": "50"
+    },
+    {
+     "path": "/d/blank.wav",
+     "group": "A",
+     "value": ""
+    }
+   ],
+   "range": null,
+   "slots": [
+    "/d/a07.wav",
+    null,
+    null,
+    null
+   ],
+   "base": null,
+   "width": 480
+  }
+ },
+ "layout": [
+  {
+   "id": "layout_plain",
+   "description": "What is laid out of scene plain: No range picked; slot 1 is a recording of B, slot 2 one of A; the base is the median of A (given as 50).",
+   "input": {
+    "scene": "plain"
+   },
+   "expected": {
+    "low": 0,
+    "high": 100,
+    "unit": "recording",
+    "missing": 0,
+    "apart": 0,
+    "groups": [
+     {
+      "name": "A",
+      "members": [
+       {
+        "key": "/d/a00.wav",
+        "value": 4,
+        "inRange": true
+       },
+       {
+        "key": "/d/a01.wav",
+        "value": 10,
+        "inRange": true
+       },
+       {
+        "key": "/d/a02.wav",
+        "value": 12.5,
+        "inRange": true
+       },
+       {
+        "key": "/d/a03.wav",
+        "value": 25,
+        "inRange": true
+       },
+       {
+        "key": "/d/a04.wav",
+        "value": 25,
+        "inRange": true
+       },
+       {
+        "key": "/d/a05.wav",
+        "value": 27,
+        "inRange": true
+       },
+       {
+        "key": "/d/a06.wav",
+        "value": 37.5,
+        "inRange": true
+       },
+       {
+        "key": "/d/a07.wav",
+        "value": 50,
+        "inRange": true
+       },
+       {
+        "key": "/d/a08.wav",
+        "value": 50,
+        "inRange": true
+       },
+       {
+        "key": "/d/a09.wav",
+        "value": 51,
+        "inRange": true
+       },
+       {
+        "key": "/d/a10.wav",
+        "value": 60,
+        "inRange": true
+       },
+       {
+        "key": "/d/a11.wav",
+        "value": 62.5,
+        "inRange": true
+       },
+       {
+        "key": "/d/a12.wav",
+        "value": 75,
+        "inRange": true
+       },
+       {
+        "key": "/d/a13.wav",
+        "value": 80,
+        "inRange": true
+       },
+       {
+        "key": "/d/a14.wav",
+        "value": 92,
+        "inRange": true
+       }
+      ]
+     },
+     {
+      "name": "B",
+      "members": [
+       {
+        "key": "/d/b0.wav",
+        "value": 20,
+        "inRange": true
+       },
+       {
+        "key": "/d/b1.wav",
+        "value": 20,
+        "inRange": true
+       },
+       {
+        "key": "/d/b2.wav",
+        "value": 20.5,
+        "inRange": true
+       },
+       {
+        "key": "/d/b3.wav",
+        "value": 40,
+        "inRange": true
+       },
+       {
+        "key": "/d/b4.wav",
+        "value": 70,
+        "inRange": true
+       }
+      ]
+     },
+     {
+      "name": "C",
+      "members": [
+       {
+        "key": "/d/c0.wav",
+        "value": 50,
+        "inRange": true
+       }
+      ]
+     }
+    ],
+    "rows": [
+     {
+      "group": "A",
+      "count": "15 recordings",
+      "max": "max 3",
+      "countRange": [
+       0,
+       3.24
+      ],
+      "slots": [
+       2
+      ],
+      "base": true,
+      "dots": [],
+      "layers": [
+       {
+        "kind": "bar",
+        "marks": null,
+        "dash": null,
+        "label": "A",
+        "xs": [
+         1.0416666666666667,
+         3.125,
+         5.208333333333334,
+         7.291666666666667,
+         9.375,
+         11.458333333333334,
+         13.541666666666668,
+         15.625000000000002,
+         17.708333333333336,
+         19.791666666666668,
+         21.875,
+         23.958333333333336,
+         26.041666666666668,
+         28.125000000000004,
+         30.208333333333336,
+         32.29166666666667,
+         34.375,
+         36.458333333333336,
+         38.54166666666667,
+         40.625,
+         42.708333333333336,
+         44.79166666666667,
+         46.875,
+         48.958333333333336,
+         51.04166666666667,
+         53.12500000000001,
+         55.208333333333336,
+         57.29166666666667,
+         59.37500000000001,
+         61.458333333333336,
+         63.54166666666667,
+         65.625,
+         67.70833333333334,
+         69.79166666666667,
+         71.875,
+         73.95833333333334,
+         76.04166666666667,
+         78.125,
+         80.20833333333334,
+         82.29166666666667,
+         84.375,
+         86.45833333333334,
+         88.54166666666667,
+         90.625,
+         92.70833333333334,
+         94.79166666666667,
+         96.875,
+         98.95833333333334
+        ],
+        "values": [
+         null,
+         1,
+         null,
+         null,
+         1,
+         null,
+         1,
+         null,
+         null,
+         null,
+         null,
+         null,
+         3,
+         null,
+         null,
+         null,
+         null,
+         null,
+         1,
+         null,
+         null,
+         null,
+         null,
+         null,
+         3,
+         null,
+         null,
+         null,
+         1,
+         1,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         1,
+         null,
+         1,
+         null,
+         null,
+         null,
+         null,
+         null,
+         1,
+         null,
+         null,
+         null
+        ],
+        "share": null,
+        "colours": "bar",
+        "readout": [
+         [
+          "0–2.0833333333333335",
+          "0 recordings"
+         ],
+         [
+          "2.0833333333333335–4.166666666666667",
+          "1 recordings"
+         ],
+         [
+          "4.166666666666667–6.25",
+          "0 recordings"
+         ],
+         [
+          "6.25–8.333333333333334",
+          "0 recordings"
+         ],
+         [
+          "8.333333333333334–10.416666666666668",
+          "1 recordings"
+         ],
+         [
+          "10.416666666666668–12.5",
+          "0 recordings"
+         ],
+         [
+          "12.5–14.583333333333334",
+          "1 recordings"
+         ],
+         [
+          "14.583333333333334–16.666666666666668",
+          "0 recordings"
+         ],
+         [
+          "16.666666666666668–18.75",
+          "0 recordings"
+         ],
+         [
+          "18.75–20.833333333333336",
+          "0 recordings"
+         ],
+         [
+          "20.833333333333336–22.916666666666668",
+          "0 recordings"
+         ],
+         [
+          "22.916666666666668–25",
+          "0 recordings"
+         ],
+         [
+          "25–27.083333333333336",
+          "3 recordings"
+         ],
+         [
+          "27.083333333333336–29.166666666666668",
+          "0 recordings"
+         ],
+         [
+          "29.166666666666668–31.250000000000004",
+          "0 recordings"
+         ],
+         [
+          "31.250000000000004–33.333333333333336",
+          "0 recordings"
+         ],
+         [
+          "33.333333333333336–35.41666666666667",
+          "0 recordings"
+         ],
+         [
+          "35.41666666666667–37.5",
+          "0 recordings"
+         ],
+         [
+          "37.5–39.583333333333336",
+          "1 recordings"
+         ],
+         [
+          "39.583333333333336–41.66666666666667",
+          "0 recordings"
+         ],
+         [
+          "41.66666666666667–43.75",
+          "0 recordings"
+         ],
+         [
+          "43.75–45.833333333333336",
+          "0 recordings"
+         ],
+         [
+          "45.833333333333336–47.91666666666667",
+          "0 recordings"
+         ],
+         [
+          "47.91666666666667–50",
+          "0 recordings"
+         ],
+         [
+          "50–52.083333333333336",
+          "3 recordings"
+         ],
+         [
+          "52.083333333333336–54.16666666666667",
+          "0 recordings"
+         ],
+         [
+          "54.16666666666667–56.25000000000001",
+          "0 recordings"
+         ],
+         [
+          "56.25000000000001–58.333333333333336",
+          "0 recordings"
+         ],
+         [
+          "58.333333333333336–60.41666666666667",
+          "1 recordings"
+         ],
+         [
+          "60.41666666666667–62.50000000000001",
+          "1 recordings"
+         ],
+         [
+          "62.50000000000001–64.58333333333334",
+          "0 recordings"
+         ],
+         [
+          "64.58333333333334–66.66666666666667",
+          "0 recordings"
+         ],
+         [
+          "66.66666666666667–68.75",
+          "0 recordings"
+         ],
+         [
+          "68.75–70.83333333333334",
+          "0 recordings"
+         ],
+         [
+          "70.83333333333334–72.91666666666667",
+          "0 recordings"
+         ],
+         [
+          "72.91666666666667–75",
+          "0 recordings"
+         ],
+         [
+          "75–77.08333333333334",
+          "1 recordings"
+         ],
+         [
+          "77.08333333333334–79.16666666666667",
+          "0 recordings"
+         ],
+         [
+          "79.16666666666667–81.25",
+          "1 recordings"
+         ],
+         [
+          "81.25–83.33333333333334",
+          "0 recordings"
+         ],
+         [
+          "83.33333333333334–85.41666666666667",
+          "0 recordings"
+         ],
+         [
+          "85.41666666666667–87.5",
+          "0 recordings"
+         ],
+         [
+          "87.5–89.58333333333334",
+          "0 recordings"
+         ],
+         [
+          "89.58333333333334–91.66666666666667",
+          "0 recordings"
+         ],
+         [
+          "91.66666666666667–93.75",
+          "1 recordings"
+         ],
+         [
+          "93.75–95.83333333333334",
+          "0 recordings"
+         ],
+         [
+          "95.83333333333334–97.91666666666667",
+          "0 recordings"
+         ],
+         [
+          "97.91666666666667–100",
+          "0 recordings"
+         ]
+        ],
+        "identity": null
+       },
+       {
+        "kind": "line",
+        "marks": "rug",
+        "dash": null,
+        "label": "A",
+        "xs": [
+         4,
+         10,
+         12.5,
+         25,
+         25,
+         27,
+         37.5,
+         50,
+         50,
+         51,
+         60,
+         62.5,
+         75,
+         80,
+         92
+        ],
+        "values": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "share": null,
+        "colours": "barIn",
+        "readout": [
+         [
+          "/d/a00.wav",
+          "4"
+         ],
+         [
+          "/d/a01.wav",
+          "10"
+         ],
+         [
+          "/d/a02.wav",
+          "12.5"
+         ],
+         [
+          "/d/a03.wav",
+          "25"
+         ],
+         [
+          "/d/a04.wav",
+          "25"
+         ],
+         [
+          "/d/a05.wav",
+          "27"
+         ],
+         [
+          "/d/a06.wav",
+          "37.5"
+         ],
+         [
+          "/d/a07.wav",
+          "50"
+         ],
+         [
+          "/d/a08.wav",
+          "50"
+         ],
+         [
+          "/d/a09.wav",
+          "51"
+         ],
+         [
+          "/d/a10.wav",
+          "60"
+         ],
+         [
+          "/d/a11.wav",
+          "62.5"
+         ],
+         [
+          "/d/a12.wav",
+          "75"
+         ],
+         [
+          "/d/a13.wav",
+          "80"
+         ],
+         [
+          "/d/a14.wav",
+          "92"
+         ]
+        ],
+        "identity": [
+         "/d/a00.wav",
+         "/d/a01.wav",
+         "/d/a02.wav",
+         "/d/a03.wav",
+         "/d/a04.wav",
+         "/d/a05.wav",
+         "/d/a06.wav",
+         "/d/a07.wav",
+         "/d/a08.wav",
+         "/d/a09.wav",
+         "/d/a10.wav",
+         "/d/a11.wav",
+         "/d/a12.wav",
+         "/d/a13.wav",
+         "/d/a14.wav"
+        ]
+       },
+       {
+        "kind": "line",
+        "marks": null,
+        "dash": null,
+        "label": "/d/a05.wav",
+        "xs": [
+         27,
+         27
+        ],
+        "values": [
+         0,
+         3.24
+        ],
+        "share": null,
+        "colours": "slot2",
+        "readout": [
+         [
+          "27"
+         ],
+         [
+          "27"
+         ]
+        ],
+        "identity": null
+       },
+       {
+        "kind": "line",
+        "marks": null,
+        "dash": [
+         3,
+         2
+        ],
+        "label": "Base (median of A)",
+        "xs": [
+         50,
+         50
+        ],
+        "values": [
+         0,
+         3.24
+        ],
+        "share": null,
+        "colours": "slot0",
+        "readout": [
+         [
+          "50"
+         ],
+         [
+          "50"
+         ]
+        ],
+        "identity": null
+       }
+      ]
+     },
+     {
+      "group": "B",
+      "count": "5 recordings",
+      "max": "",
+      "countRange": [
+       0,
+       3
+      ],
+      "slots": [
+       1
+      ],
+      "base": false,
+      "dots": [
+       {
+        "key": "/d/b0.wav",
+        "value": 20,
+        "level": 0
+       },
+       {
+        "key": "/d/b1.wav",
+        "value": 20,
+        "level": 1
+       },
+       {
+        "key": "/d/b2.wav",
+        "value": 20.5,
+        "level": 2
+       },
+       {
+        "key": "/d/b3.wav",
+        "value": 40,
+        "level": 0
+       },
+       {
+        "key": "/d/b4.wav",
+        "value": 70,
+        "level": 0
+       }
+      ],
+      "layers": [
+       {
+        "kind": "line",
+        "marks": "dots",
+        "dash": null,
+        "label": "B",
+        "xs": [
+         20,
+         20,
+         20.5,
+         40,
+         70
+        ],
+        "values": [
+         0.5,
+         1.5,
+         2.5,
+         0.5,
+         0.5
+        ],
+        "share": null,
+        "colours": "bar",
+        "readout": [
+         [
+          "/d/b0.wav",
+          "20"
+         ],
+         [
+          "/d/b1.wav",
+          "20"
+         ],
+         [
+          "/d/b2.wav",
+          "20.5"
+         ],
+         [
+          "/d/b3.wav",
+          "40"
+         ],
+         [
+          "/d/b4.wav",
+          "70"
+         ]
+        ],
+        "identity": [
+         "/d/b0.wav",
+         "/d/b1.wav",
+         "/d/b2.wav",
+         "/d/b3.wav",
+         "/d/b4.wav"
+        ]
+       },
+       {
+        "kind": "line",
+        "marks": null,
+        "dash": null,
+        "label": "/d/b3.wav",
+        "xs": [
+         40,
+         40
+        ],
+        "values": [
+         0,
+         3
+        ],
+        "share": null,
+        "colours": "slot1",
+        "readout": [
+         [
+          "40"
+         ],
+         [
+          "40"
+         ]
+        ],
+        "identity": null
+       }
+      ]
+     },
+     {
+      "group": "C",
+      "count": "1 recordings",
+      "max": "",
+      "countRange": [
+       0,
+       3
+      ],
+      "slots": [],
+      "base": false,
+      "dots": [
+       {
+        "key": "/d/c0.wav",
+        "value": 50,
+        "level": 0
+       }
+      ],
+      "layers": [
+       {
+        "kind": "line",
+        "marks": "dots",
+        "dash": null,
+        "label": "C",
+        "xs": [
+         50
+        ],
+        "values": [
+         0.5
+        ],
+        "share": null,
+        "colours": "bar",
+        "readout": [
+         [
+          "/d/c0.wav",
+          "50"
+         ]
+        ],
+        "identity": [
+         "/d/c0.wav"
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "source": "old path: distribution.ts distribution / binCounts; entryDistribution.ts distributionRows"
+  },
+  {
+   "id": "layout_picked",
+   "description": "What is laid out of scene picked: The range picked is bin 11 of the axis (11 × 100/48 … 25), as a click on that bar picks it: closed at both ends, so the two recordings at exactly 25 are in it.",
+   "input": {
+    "scene": "picked"
+   },
+   "expected": {
+    "low": 0,
+    "high": 100,
+    "unit": "recording",
+    "missing": 0,
+    "apart": 0,
+    "groups": [
+     {
+      "name": "A",
+      "members": [
+       {
+        "key": "/d/a00.wav",
+        "value": 4,
+        "inRange": false
+       },
+       {
+        "key": "/d/a01.wav",
+        "value": 10,
+        "inRange": false
+       },
+       {
+        "key": "/d/a02.wav",
+        "value": 12.5,
+        "inRange": false
+       },
+       {
+        "key": "/d/a03.wav",
+        "value": 25,
+        "inRange": true
+       },
+       {
+        "key": "/d/a04.wav",
+        "value": 25,
+        "inRange": true
+       },
+       {
+        "key": "/d/a05.wav",
+        "value": 27,
+        "inRange": false
+       },
+       {
+        "key": "/d/a06.wav",
+        "value": 37.5,
+        "inRange": false
+       },
+       {
+        "key": "/d/a07.wav",
+        "value": 50,
+        "inRange": false
+       },
+       {
+        "key": "/d/a08.wav",
+        "value": 50,
+        "inRange": false
+       },
+       {
+        "key": "/d/a09.wav",
+        "value": 51,
+        "inRange": false
+       },
+       {
+        "key": "/d/a10.wav",
+        "value": 60,
+        "inRange": false
+       },
+       {
+        "key": "/d/a11.wav",
+        "value": 62.5,
+        "inRange": false
+       },
+       {
+        "key": "/d/a12.wav",
+        "value": 75,
+        "inRange": false
+       },
+       {
+        "key": "/d/a13.wav",
+        "value": 80,
+        "inRange": false
+       },
+       {
+        "key": "/d/a14.wav",
+        "value": 92,
+        "inRange": false
+       }
+      ]
+     },
+     {
+      "name": "B",
+      "members": [
+       {
+        "key": "/d/b0.wav",
+        "value": 20,
+        "inRange": false
+       },
+       {
+        "key": "/d/b1.wav",
+        "value": 20,
+        "inRange": false
+       },
+       {
+        "key": "/d/b2.wav",
+        "value": 20.5,
+        "inRange": false
+       },
+       {
+        "key": "/d/b3.wav",
+        "value": 40,
+        "inRange": false
+       },
+       {
+        "key": "/d/b4.wav",
+        "value": 70,
+        "inRange": false
+       }
+      ]
+     },
+     {
+      "name": "C",
+      "members": [
+       {
+        "key": "/d/c0.wav",
+        "value": 50,
+        "inRange": false
+       }
+      ]
+     }
+    ],
+    "rows": [
+     {
+      "group": "A",
+      "count": "15 recordings",
+      "max": "max 3",
+      "countRange": [
+       0,
+       3.24
+      ],
+      "slots": [],
+      "base": false,
+      "dots": [],
+      "layers": [
+       {
+        "kind": "bar",
+        "marks": null,
+        "dash": null,
+        "label": "A",
+        "xs": [
+         1.0416666666666667,
+         3.125,
+         5.208333333333334,
+         7.291666666666667,
+         9.375,
+         11.458333333333334,
+         13.541666666666668,
+         15.625000000000002,
+         17.708333333333336,
+         19.791666666666668,
+         21.875,
+         23.958333333333336,
+         26.041666666666668,
+         28.125000000000004,
+         30.208333333333336,
+         32.29166666666667,
+         34.375,
+         36.458333333333336,
+         38.54166666666667,
+         40.625,
+         42.708333333333336,
+         44.79166666666667,
+         46.875,
+         48.958333333333336,
+         51.04166666666667,
+         53.12500000000001,
+         55.208333333333336,
+         57.29166666666667,
+         59.37500000000001,
+         61.458333333333336,
+         63.54166666666667,
+         65.625,
+         67.70833333333334,
+         69.79166666666667,
+         71.875,
+         73.95833333333334,
+         76.04166666666667,
+         78.125,
+         80.20833333333334,
+         82.29166666666667,
+         84.375,
+         86.45833333333334,
+         88.54166666666667,
+         90.625,
+         92.70833333333334,
+         94.79166666666667,
+         96.875,
+         98.95833333333334
+        ],
+        "values": [
+         null,
+         1,
+         null,
+         null,
+         1,
+         null,
+         1,
+         null,
+         null,
+         null,
+         null,
+         null,
+         3,
+         null,
+         null,
+         null,
+         null,
+         null,
+         1,
+         null,
+         null,
+         null,
+         null,
+         null,
+         3,
+         null,
+         null,
+         null,
+         1,
+         1,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         1,
+         null,
+         1,
+         null,
+         null,
+         null,
+         null,
+         null,
+         1,
+         null,
+         null,
+         null
+        ],
+        "share": [
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         2,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null
+        ],
+        "colours": "bar",
+        "readout": [
+         [
+          "0–2.0833333333333335",
+          "0 / 0 recordings"
+         ],
+         [
+          "2.0833333333333335–4.166666666666667",
+          "0 / 1 recordings"
+         ],
+         [
+          "4.166666666666667–6.25",
+          "0 / 0 recordings"
+         ],
+         [
+          "6.25–8.333333333333334",
+          "0 / 0 recordings"
+         ],
+         [
+          "8.333333333333334–10.416666666666668",
+          "0 / 1 recordings"
+         ],
+         [
+          "10.416666666666668–12.5",
+          "0 / 0 recordings"
+         ],
+         [
+          "12.5–14.583333333333334",
+          "0 / 1 recordings"
+         ],
+         [
+          "14.583333333333334–16.666666666666668",
+          "0 / 0 recordings"
+         ],
+         [
+          "16.666666666666668–18.75",
+          "0 / 0 recordings"
+         ],
+         [
+          "18.75–20.833333333333336",
+          "0 / 0 recordings"
+         ],
+         [
+          "20.833333333333336–22.916666666666668",
+          "0 / 0 recordings"
+         ],
+         [
+          "22.916666666666668–25",
+          "0 / 0 recordings"
+         ],
+         [
+          "25–27.083333333333336",
+          "2 / 3 recordings"
+         ],
+         [
+          "27.083333333333336–29.166666666666668",
+          "0 / 0 recordings"
+         ],
+         [
+          "29.166666666666668–31.250000000000004",
+          "0 / 0 recordings"
+         ],
+         [
+          "31.250000000000004–33.333333333333336",
+          "0 / 0 recordings"
+         ],
+         [
+          "33.333333333333336–35.41666666666667",
+          "0 / 0 recordings"
+         ],
+         [
+          "35.41666666666667–37.5",
+          "0 / 0 recordings"
+         ],
+         [
+          "37.5–39.583333333333336",
+          "0 / 1 recordings"
+         ],
+         [
+          "39.583333333333336–41.66666666666667",
+          "0 / 0 recordings"
+         ],
+         [
+          "41.66666666666667–43.75",
+          "0 / 0 recordings"
+         ],
+         [
+          "43.75–45.833333333333336",
+          "0 / 0 recordings"
+         ],
+         [
+          "45.833333333333336–47.91666666666667",
+          "0 / 0 recordings"
+         ],
+         [
+          "47.91666666666667–50",
+          "0 / 0 recordings"
+         ],
+         [
+          "50–52.083333333333336",
+          "0 / 3 recordings"
+         ],
+         [
+          "52.083333333333336–54.16666666666667",
+          "0 / 0 recordings"
+         ],
+         [
+          "54.16666666666667–56.25000000000001",
+          "0 / 0 recordings"
+         ],
+         [
+          "56.25000000000001–58.333333333333336",
+          "0 / 0 recordings"
+         ],
+         [
+          "58.333333333333336–60.41666666666667",
+          "0 / 1 recordings"
+         ],
+         [
+          "60.41666666666667–62.50000000000001",
+          "0 / 1 recordings"
+         ],
+         [
+          "62.50000000000001–64.58333333333334",
+          "0 / 0 recordings"
+         ],
+         [
+          "64.58333333333334–66.66666666666667",
+          "0 / 0 recordings"
+         ],
+         [
+          "66.66666666666667–68.75",
+          "0 / 0 recordings"
+         ],
+         [
+          "68.75–70.83333333333334",
+          "0 / 0 recordings"
+         ],
+         [
+          "70.83333333333334–72.91666666666667",
+          "0 / 0 recordings"
+         ],
+         [
+          "72.91666666666667–75",
+          "0 / 0 recordings"
+         ],
+         [
+          "75–77.08333333333334",
+          "0 / 1 recordings"
+         ],
+         [
+          "77.08333333333334–79.16666666666667",
+          "0 / 0 recordings"
+         ],
+         [
+          "79.16666666666667–81.25",
+          "0 / 1 recordings"
+         ],
+         [
+          "81.25–83.33333333333334",
+          "0 / 0 recordings"
+         ],
+         [
+          "83.33333333333334–85.41666666666667",
+          "0 / 0 recordings"
+         ],
+         [
+          "85.41666666666667–87.5",
+          "0 / 0 recordings"
+         ],
+         [
+          "87.5–89.58333333333334",
+          "0 / 0 recordings"
+         ],
+         [
+          "89.58333333333334–91.66666666666667",
+          "0 / 0 recordings"
+         ],
+         [
+          "91.66666666666667–93.75",
+          "0 / 1 recordings"
+         ],
+         [
+          "93.75–95.83333333333334",
+          "0 / 0 recordings"
+         ],
+         [
+          "95.83333333333334–97.91666666666667",
+          "0 / 0 recordings"
+         ],
+         [
+          "97.91666666666667–100",
+          "0 / 0 recordings"
+         ]
+        ],
+        "identity": null
+       },
+       {
+        "kind": "line",
+        "marks": "rug",
+        "dash": null,
+        "label": "A",
+        "xs": [
+         4,
+         10,
+         12.5,
+         25,
+         25,
+         27,
+         37.5,
+         50,
+         50,
+         51,
+         60,
+         62.5,
+         75,
+         80,
+         92
+        ],
+        "values": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "share": null,
+        "colours": "barIn",
+        "readout": [
+         [
+          "/d/a00.wav",
+          "4"
+         ],
+         [
+          "/d/a01.wav",
+          "10"
+         ],
+         [
+          "/d/a02.wav",
+          "12.5"
+         ],
+         [
+          "/d/a03.wav",
+          "25"
+         ],
+         [
+          "/d/a04.wav",
+          "25"
+         ],
+         [
+          "/d/a05.wav",
+          "27"
+         ],
+         [
+          "/d/a06.wav",
+          "37.5"
+         ],
+         [
+          "/d/a07.wav",
+          "50"
+         ],
+         [
+          "/d/a08.wav",
+          "50"
+         ],
+         [
+          "/d/a09.wav",
+          "51"
+         ],
+         [
+          "/d/a10.wav",
+          "60"
+         ],
+         [
+          "/d/a11.wav",
+          "62.5"
+         ],
+         [
+          "/d/a12.wav",
+          "75"
+         ],
+         [
+          "/d/a13.wav",
+          "80"
+         ],
+         [
+          "/d/a14.wav",
+          "92"
+         ]
+        ],
+        "identity": [
+         "/d/a00.wav",
+         "/d/a01.wav",
+         "/d/a02.wav",
+         "/d/a03.wav",
+         "/d/a04.wav",
+         "/d/a05.wav",
+         "/d/a06.wav",
+         "/d/a07.wav",
+         "/d/a08.wav",
+         "/d/a09.wav",
+         "/d/a10.wav",
+         "/d/a11.wav",
+         "/d/a12.wav",
+         "/d/a13.wav",
+         "/d/a14.wav"
+        ]
+       }
+      ]
+     },
+     {
+      "group": "B",
+      "count": "5 recordings",
+      "max": "",
+      "countRange": [
+       0,
+       3
+      ],
+      "slots": [],
+      "base": false,
+      "dots": [
+       {
+        "key": "/d/b0.wav",
+        "value": 20,
+        "level": 0
+       },
+       {
+        "key": "/d/b1.wav",
+        "value": 20,
+        "level": 1
+       },
+       {
+        "key": "/d/b2.wav",
+        "value": 20.5,
+        "level": 2
+       },
+       {
+        "key": "/d/b3.wav",
+        "value": 40,
+        "level": 0
+       },
+       {
+        "key": "/d/b4.wav",
+        "value": 70,
+        "level": 0
+       }
+      ],
+      "layers": [
+       {
+        "kind": "line",
+        "marks": "dots",
+        "dash": null,
+        "label": "B",
+        "xs": [
+         20,
+         20,
+         20.5,
+         40,
+         70
+        ],
+        "values": [
+         0.5,
+         1.5,
+         2.5,
+         0.5,
+         0.5
+        ],
+        "share": null,
+        "colours": [
+         "bar",
+         "bar",
+         "bar",
+         "bar",
+         "bar"
+        ],
+        "readout": [
+         [
+          "/d/b0.wav",
+          "20"
+         ],
+         [
+          "/d/b1.wav",
+          "20"
+         ],
+         [
+          "/d/b2.wav",
+          "20.5"
+         ],
+         [
+          "/d/b3.wav",
+          "40"
+         ],
+         [
+          "/d/b4.wav",
+          "70"
+         ]
+        ],
+        "identity": [
+         "/d/b0.wav",
+         "/d/b1.wav",
+         "/d/b2.wav",
+         "/d/b3.wav",
+         "/d/b4.wav"
+        ]
+       }
+      ]
+     },
+     {
+      "group": "C",
+      "count": "1 recordings",
+      "max": "",
+      "countRange": [
+       0,
+       3
+      ],
+      "slots": [],
+      "base": false,
+      "dots": [
+       {
+        "key": "/d/c0.wav",
+        "value": 50,
+        "level": 0
+       }
+      ],
+      "layers": [
+       {
+        "kind": "line",
+        "marks": "dots",
+        "dash": null,
+        "label": "C",
+        "xs": [
+         50
+        ],
+        "values": [
+         0.5
+        ],
+        "share": null,
+        "colours": [
+         "bar"
+        ],
+        "readout": [
+         [
+          "/d/c0.wav",
+          "50"
+         ]
+        ],
+        "identity": [
+         "/d/c0.wav"
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "source": "old path: distribution.ts distribution / binCounts; entryDistribution.ts distributionRows"
+  },
+  {
+   "id": "layout_slot0",
+   "description": "What is laid out of scene slot0: Slot 0 holds a recording (the base is a file, no median line).",
+   "input": {
+    "scene": "slot0"
+   },
+   "expected": {
+    "low": 0,
+    "high": 100,
+    "unit": "recording",
+    "missing": 0,
+    "apart": 0,
+    "groups": [
+     {
+      "name": "A",
+      "members": [
+       {
+        "key": "/d/a00.wav",
+        "value": 4,
+        "inRange": true
+       },
+       {
+        "key": "/d/a01.wav",
+        "value": 10,
+        "inRange": true
+       },
+       {
+        "key": "/d/a02.wav",
+        "value": 12.5,
+        "inRange": true
+       },
+       {
+        "key": "/d/a03.wav",
+        "value": 25,
+        "inRange": true
+       },
+       {
+        "key": "/d/a04.wav",
+        "value": 25,
+        "inRange": true
+       },
+       {
+        "key": "/d/a05.wav",
+        "value": 27,
+        "inRange": true
+       },
+       {
+        "key": "/d/a06.wav",
+        "value": 37.5,
+        "inRange": true
+       },
+       {
+        "key": "/d/a07.wav",
+        "value": 50,
+        "inRange": true
+       },
+       {
+        "key": "/d/a08.wav",
+        "value": 50,
+        "inRange": true
+       },
+       {
+        "key": "/d/a09.wav",
+        "value": 51,
+        "inRange": true
+       },
+       {
+        "key": "/d/a10.wav",
+        "value": 60,
+        "inRange": true
+       },
+       {
+        "key": "/d/a11.wav",
+        "value": 62.5,
+        "inRange": true
+       },
+       {
+        "key": "/d/a12.wav",
+        "value": 75,
+        "inRange": true
+       },
+       {
+        "key": "/d/a13.wav",
+        "value": 80,
+        "inRange": true
+       },
+       {
+        "key": "/d/a14.wav",
+        "value": 92,
+        "inRange": true
+       }
+      ]
+     },
+     {
+      "name": "B",
+      "members": [
+       {
+        "key": "/d/b0.wav",
+        "value": 20,
+        "inRange": true
+       },
+       {
+        "key": "/d/b1.wav",
+        "value": 20,
+        "inRange": true
+       },
+       {
+        "key": "/d/b2.wav",
+        "value": 20.5,
+        "inRange": true
+       },
+       {
+        "key": "/d/b3.wav",
+        "value": 40,
+        "inRange": true
+       },
+       {
+        "key": "/d/b4.wav",
+        "value": 70,
+        "inRange": true
+       }
+      ]
+     },
+     {
+      "name": "C",
+      "members": [
+       {
+        "key": "/d/c0.wav",
+        "value": 50,
+        "inRange": true
+       }
+      ]
+     }
+    ],
+    "rows": [
+     {
+      "group": "A",
+      "count": "15 recordings",
+      "max": "max 3",
+      "countRange": [
+       0,
+       3.24
+      ],
+      "slots": [
+       0
+      ],
+      "base": false,
+      "dots": [],
+      "layers": [
+       {
+        "kind": "bar",
+        "marks": null,
+        "dash": null,
+        "label": "A",
+        "xs": [
+         1.0416666666666667,
+         3.125,
+         5.208333333333334,
+         7.291666666666667,
+         9.375,
+         11.458333333333334,
+         13.541666666666668,
+         15.625000000000002,
+         17.708333333333336,
+         19.791666666666668,
+         21.875,
+         23.958333333333336,
+         26.041666666666668,
+         28.125000000000004,
+         30.208333333333336,
+         32.29166666666667,
+         34.375,
+         36.458333333333336,
+         38.54166666666667,
+         40.625,
+         42.708333333333336,
+         44.79166666666667,
+         46.875,
+         48.958333333333336,
+         51.04166666666667,
+         53.12500000000001,
+         55.208333333333336,
+         57.29166666666667,
+         59.37500000000001,
+         61.458333333333336,
+         63.54166666666667,
+         65.625,
+         67.70833333333334,
+         69.79166666666667,
+         71.875,
+         73.95833333333334,
+         76.04166666666667,
+         78.125,
+         80.20833333333334,
+         82.29166666666667,
+         84.375,
+         86.45833333333334,
+         88.54166666666667,
+         90.625,
+         92.70833333333334,
+         94.79166666666667,
+         96.875,
+         98.95833333333334
+        ],
+        "values": [
+         null,
+         1,
+         null,
+         null,
+         1,
+         null,
+         1,
+         null,
+         null,
+         null,
+         null,
+         null,
+         3,
+         null,
+         null,
+         null,
+         null,
+         null,
+         1,
+         null,
+         null,
+         null,
+         null,
+         null,
+         3,
+         null,
+         null,
+         null,
+         1,
+         1,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         1,
+         null,
+         1,
+         null,
+         null,
+         null,
+         null,
+         null,
+         1,
+         null,
+         null,
+         null
+        ],
+        "share": null,
+        "colours": "bar",
+        "readout": [
+         [
+          "0–2.0833333333333335",
+          "0 recordings"
+         ],
+         [
+          "2.0833333333333335–4.166666666666667",
+          "1 recordings"
+         ],
+         [
+          "4.166666666666667–6.25",
+          "0 recordings"
+         ],
+         [
+          "6.25–8.333333333333334",
+          "0 recordings"
+         ],
+         [
+          "8.333333333333334–10.416666666666668",
+          "1 recordings"
+         ],
+         [
+          "10.416666666666668–12.5",
+          "0 recordings"
+         ],
+         [
+          "12.5–14.583333333333334",
+          "1 recordings"
+         ],
+         [
+          "14.583333333333334–16.666666666666668",
+          "0 recordings"
+         ],
+         [
+          "16.666666666666668–18.75",
+          "0 recordings"
+         ],
+         [
+          "18.75–20.833333333333336",
+          "0 recordings"
+         ],
+         [
+          "20.833333333333336–22.916666666666668",
+          "0 recordings"
+         ],
+         [
+          "22.916666666666668–25",
+          "0 recordings"
+         ],
+         [
+          "25–27.083333333333336",
+          "3 recordings"
+         ],
+         [
+          "27.083333333333336–29.166666666666668",
+          "0 recordings"
+         ],
+         [
+          "29.166666666666668–31.250000000000004",
+          "0 recordings"
+         ],
+         [
+          "31.250000000000004–33.333333333333336",
+          "0 recordings"
+         ],
+         [
+          "33.333333333333336–35.41666666666667",
+          "0 recordings"
+         ],
+         [
+          "35.41666666666667–37.5",
+          "0 recordings"
+         ],
+         [
+          "37.5–39.583333333333336",
+          "1 recordings"
+         ],
+         [
+          "39.583333333333336–41.66666666666667",
+          "0 recordings"
+         ],
+         [
+          "41.66666666666667–43.75",
+          "0 recordings"
+         ],
+         [
+          "43.75–45.833333333333336",
+          "0 recordings"
+         ],
+         [
+          "45.833333333333336–47.91666666666667",
+          "0 recordings"
+         ],
+         [
+          "47.91666666666667–50",
+          "0 recordings"
+         ],
+         [
+          "50–52.083333333333336",
+          "3 recordings"
+         ],
+         [
+          "52.083333333333336–54.16666666666667",
+          "0 recordings"
+         ],
+         [
+          "54.16666666666667–56.25000000000001",
+          "0 recordings"
+         ],
+         [
+          "56.25000000000001–58.333333333333336",
+          "0 recordings"
+         ],
+         [
+          "58.333333333333336–60.41666666666667",
+          "1 recordings"
+         ],
+         [
+          "60.41666666666667–62.50000000000001",
+          "1 recordings"
+         ],
+         [
+          "62.50000000000001–64.58333333333334",
+          "0 recordings"
+         ],
+         [
+          "64.58333333333334–66.66666666666667",
+          "0 recordings"
+         ],
+         [
+          "66.66666666666667–68.75",
+          "0 recordings"
+         ],
+         [
+          "68.75–70.83333333333334",
+          "0 recordings"
+         ],
+         [
+          "70.83333333333334–72.91666666666667",
+          "0 recordings"
+         ],
+         [
+          "72.91666666666667–75",
+          "0 recordings"
+         ],
+         [
+          "75–77.08333333333334",
+          "1 recordings"
+         ],
+         [
+          "77.08333333333334–79.16666666666667",
+          "0 recordings"
+         ],
+         [
+          "79.16666666666667–81.25",
+          "1 recordings"
+         ],
+         [
+          "81.25–83.33333333333334",
+          "0 recordings"
+         ],
+         [
+          "83.33333333333334–85.41666666666667",
+          "0 recordings"
+         ],
+         [
+          "85.41666666666667–87.5",
+          "0 recordings"
+         ],
+         [
+          "87.5–89.58333333333334",
+          "0 recordings"
+         ],
+         [
+          "89.58333333333334–91.66666666666667",
+          "0 recordings"
+         ],
+         [
+          "91.66666666666667–93.75",
+          "1 recordings"
+         ],
+         [
+          "93.75–95.83333333333334",
+          "0 recordings"
+         ],
+         [
+          "95.83333333333334–97.91666666666667",
+          "0 recordings"
+         ],
+         [
+          "97.91666666666667–100",
+          "0 recordings"
+         ]
+        ],
+        "identity": null
+       },
+       {
+        "kind": "line",
+        "marks": "rug",
+        "dash": null,
+        "label": "A",
+        "xs": [
+         4,
+         10,
+         12.5,
+         25,
+         25,
+         27,
+         37.5,
+         50,
+         50,
+         51,
+         60,
+         62.5,
+         75,
+         80,
+         92
+        ],
+        "values": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "share": null,
+        "colours": "barIn",
+        "readout": [
+         [
+          "/d/a00.wav",
+          "4"
+         ],
+         [
+          "/d/a01.wav",
+          "10"
+         ],
+         [
+          "/d/a02.wav",
+          "12.5"
+         ],
+         [
+          "/d/a03.wav",
+          "25"
+         ],
+         [
+          "/d/a04.wav",
+          "25"
+         ],
+         [
+          "/d/a05.wav",
+          "27"
+         ],
+         [
+          "/d/a06.wav",
+          "37.5"
+         ],
+         [
+          "/d/a07.wav",
+          "50"
+         ],
+         [
+          "/d/a08.wav",
+          "50"
+         ],
+         [
+          "/d/a09.wav",
+          "51"
+         ],
+         [
+          "/d/a10.wav",
+          "60"
+         ],
+         [
+          "/d/a11.wav",
+          "62.5"
+         ],
+         [
+          "/d/a12.wav",
+          "75"
+         ],
+         [
+          "/d/a13.wav",
+          "80"
+         ],
+         [
+          "/d/a14.wav",
+          "92"
+         ]
+        ],
+        "identity": [
+         "/d/a00.wav",
+         "/d/a01.wav",
+         "/d/a02.wav",
+         "/d/a03.wav",
+         "/d/a04.wav",
+         "/d/a05.wav",
+         "/d/a06.wav",
+         "/d/a07.wav",
+         "/d/a08.wav",
+         "/d/a09.wav",
+         "/d/a10.wav",
+         "/d/a11.wav",
+         "/d/a12.wav",
+         "/d/a13.wav",
+         "/d/a14.wav"
+        ]
+       },
+       {
+        "kind": "line",
+        "marks": null,
+        "dash": null,
+        "label": "/d/a07.wav",
+        "xs": [
+         50,
+         50
+        ],
+        "values": [
+         0,
+         3.24
+        ],
+        "share": null,
+        "colours": "slot0",
+        "readout": [
+         [
+          "50"
+         ],
+         [
+          "50"
+         ]
+        ],
+        "identity": null
+       }
+      ]
+     },
+     {
+      "group": "B",
+      "count": "5 recordings",
+      "max": "",
+      "countRange": [
+       0,
+       3
+      ],
+      "slots": [],
+      "base": false,
+      "dots": [
+       {
+        "key": "/d/b0.wav",
+        "value": 20,
+        "level": 0
+       },
+       {
+        "key": "/d/b1.wav",
+        "value": 20,
+        "level": 1
+       },
+       {
+        "key": "/d/b2.wav",
+        "value": 20.5,
+        "level": 2
+       },
+       {
+        "key": "/d/b3.wav",
+        "value": 40,
+        "level": 0
+       },
+       {
+        "key": "/d/b4.wav",
+        "value": 70,
+        "level": 0
+       }
+      ],
+      "layers": [
+       {
+        "kind": "line",
+        "marks": "dots",
+        "dash": null,
+        "label": "B",
+        "xs": [
+         20,
+         20,
+         20.5,
+         40,
+         70
+        ],
+        "values": [
+         0.5,
+         1.5,
+         2.5,
+         0.5,
+         0.5
+        ],
+        "share": null,
+        "colours": "bar",
+        "readout": [
+         [
+          "/d/b0.wav",
+          "20"
+         ],
+         [
+          "/d/b1.wav",
+          "20"
+         ],
+         [
+          "/d/b2.wav",
+          "20.5"
+         ],
+         [
+          "/d/b3.wav",
+          "40"
+         ],
+         [
+          "/d/b4.wav",
+          "70"
+         ]
+        ],
+        "identity": [
+         "/d/b0.wav",
+         "/d/b1.wav",
+         "/d/b2.wav",
+         "/d/b3.wav",
+         "/d/b4.wav"
+        ]
+       }
+      ]
+     },
+     {
+      "group": "C",
+      "count": "1 recordings",
+      "max": "",
+      "countRange": [
+       0,
+       3
+      ],
+      "slots": [],
+      "base": false,
+      "dots": [
+       {
+        "key": "/d/c0.wav",
+        "value": 50,
+        "level": 0
+       }
+      ],
+      "layers": [
+       {
+        "kind": "line",
+        "marks": "dots",
+        "dash": null,
+        "label": "C",
+        "xs": [
+         50
+        ],
+        "values": [
+         0.5
+        ],
+        "share": null,
+        "colours": "bar",
+        "readout": [
+         [
+          "/d/c0.wav",
+          "50"
+         ]
+        ],
+        "identity": [
+         "/d/c0.wav"
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "source": "old path: distribution.ts distribution / binCounts; entryDistribution.ts distributionRows"
+  }
+ ],
+ "read": [
+  {
+   "id": "bar_top",
+   "description": "On the top of A's bar of bin 12 (its centre, count 3): that bar is read, both ends of its bin and its count; a click picks its bin.",
+   "input": {
+    "scene": "plain",
+    "group": "A",
+    "value": 26.041666666666668,
+    "count": 3,
+    "click": true
+   },
+   "expected": {
+    "scale": [
+     4.8,
+     30.864197530864196
+    ],
+    "readout": "A / 25–27.083333333333336 / 3 recordings",
+    "click": [
+     {
+      "pick": {
+       "low": 25,
+       "high": 27.083333333333336
+      }
+     }
+    ]
+   },
+   "source": "old path: entryDistributionPane.ts (plotHoverLayer, stagePanes.stageHover / fullLineNear, plotHover.nearestPoint, clickOnRead, entryDistribution.distributionClick)"
+  },
+  {
+   "id": "bar_edge_empty_neighbour",
+   "description": "Exactly on the edge between bins 11 and 12 (value 25), at bin 12's height: bin 11 is empty (no bar), so bin 12's bar is read.",
+   "input": {
+    "scene": "plain",
+    "group": "A",
+    "value": 25,
+    "count": 3,
+    "click": true
+   },
+   "expected": {
+    "scale": [
+     4.8,
+     30.864197530864196
+    ],
+    "readout": "A / 25–27.083333333333336 / 3 recordings",
+    "click": [
+     {
+      "pick": {
+       "low": 25,
+       "high": 27.083333333333336
+      }
+     }
+    ]
+   },
+   "source": "old path: entryDistributionPane.ts (plotHoverLayer, stagePanes.stageHover / fullLineNear, plotHover.nearestPoint, clickOnRead, entryDistribution.distributionClick)"
+  },
+  {
+   "id": "bar_edge_tie",
+   "description": "Exactly on the edge between bins 28 (60: count 1) and 29 (62.5: count 1; 30 × 100/48 is 62.50000000000001 in floating point, so 62.5 is counted under that edge, in bin 29), at their height: as near to each bar top, the lower bar (28) is read, the first in the data's order.",
+   "input": {
+    "scene": "plain",
+    "group": "A",
+    "value": 60.41666666666667,
+    "count": 1,
+    "click": true
+   },
+   "expected": {
+    "scale": [
+     4.8,
+     30.864197530864196
+    ],
+    "readout": "A / 58.333333333333336–60.41666666666667 / 1 recordings",
+    "click": [
+     {
+      "pick": {
+       "low": 58.333333333333336,
+       "high": 60.41666666666667
+      }
+     }
+    ]
+   },
+   "source": "old path: entryDistributionPane.ts (plotHoverLayer, stagePanes.stageHover / fullLineNear, plotHover.nearestPoint, clickOnRead, entryDistribution.distributionClick)"
+  },
+  {
+   "id": "above_bar",
+   "description": "Above A's bar of bin 12 at value 25 exactly, out of the pick radius of every bar top and rug tick: the bar under the pointer across is read (the point under the pointer, R7), bin 12; a click picks its bin.",
+   "input": {
+    "scene": "plain",
+    "group": "A",
+    "value": 25,
+    "count": 1.9,
+    "click": true
+   },
+   "expected": {
+    "scale": [
+     4.8,
+     30.864197530864196
+    ],
+    "readout": "A / 25–27.083333333333336 / 3 recordings",
+    "click": [
+     {
+      "pick": {
+       "low": 25,
+       "high": 27.083333333333336
+      }
+     }
+    ]
+   },
+   "source": "old path: entryDistributionPane.ts (plotHoverLayer, stagePanes.stageHover / fullLineNear, plotHover.nearestPoint, clickOnRead, entryDistribution.distributionClick)"
+  },
+  {
+   "id": "empty_bin",
+   "description": "Over A's empty bin 20 (no bar, no rug tick near) out of the pick radius of everything: an empty bin has no bar to read, so the nearest bar across (bin 18, of 37.5) is read, and a click picks that bar's bin, not the bin under the pointer.",
+   "input": {
+    "scene": "plain",
+    "group": "A",
+    "value": 42.708333333333336,
+    "count": 2,
+    "click": true
+   },
+   "expected": {
+    "scale": [
+     4.8,
+     30.864197530864196
+    ],
+    "readout": "A / 37.5–39.583333333333336 / 1 recordings",
+    "click": [
+     {
+      "pick": {
+       "low": 37.5,
+       "high": 39.583333333333336
+      }
+     }
+    ]
+   },
+   "source": "old path: entryDistributionPane.ts (plotHoverLayer, stagePanes.stageHover / fullLineNear, plotHover.nearestPoint, clickOnRead, entryDistribution.distributionClick)"
+  },
+  {
+   "id": "off_points_click_bin_on_edge",
+   "description": "On C's row (one dot at 50) at value 25 exactly, far from the dot: the readout says where on the value axis the pointer is; a click picks the bin of that value by floor: bin 12 (25 … 27.08), the higher side.",
+   "input": {
+    "scene": "plain",
+    "group": "C",
+    "value": 25,
+    "count": 2.5,
+    "click": true
+   },
+   "expected": {
+    "scale": [
+     4.8,
+     33.333333333333336
+    ],
+    "readout": "value / 25",
+    "click": [
+     {
+      "pick": {
+       "low": 25,
+       "high": 27.083333333333336
+      }
+     }
+    ]
+   },
+   "source": "old path: entryDistributionPane.ts (plotHoverLayer, stagePanes.stageHover / fullLineNear, plotHover.nearestPoint, clickOnRead, entryDistribution.distributionClick)"
+  },
+  {
+   "id": "rug_tick",
+   "description": "At the foot of the row at value 92 (count 0): the rug tick of that recording is read; a click goes to its row.",
+   "input": {
+    "scene": "plain",
+    "group": "A",
+    "value": 92,
+    "count": 0,
+    "click": true
+   },
+   "expected": {
+    "scale": [
+     4.8,
+     30.864197530864196
+    ],
+    "readout": "A / /d/a14.wav / 92",
+    "click": [
+     {
+      "row": "/d/a14.wav"
+     }
+    ]
+   },
+   "source": "old path: entryDistributionPane.ts (plotHoverLayer, stagePanes.stageHover / fullLineNear, plotHover.nearestPoint, clickOnRead, entryDistribution.distributionClick)"
+  },
+  {
+   "id": "dot",
+   "description": "On B's dot at 40 (level 0, drawn at count 0.5): that recording is read; a click goes to its row.",
+   "input": {
+    "scene": "plain",
+    "group": "B",
+    "value": 40,
+    "count": 0.5,
+    "click": true
+   },
+   "expected": {
+    "scale": [
+     4.8,
+     33.333333333333336
+    ],
+    "readout": "B / /d/b3.wav / 40",
+    "click": [
+     {
+      "row": "/d/b3.wav"
+     }
+    ]
+   },
+   "source": "old path: entryDistributionPane.ts (plotHoverLayer, stagePanes.stageHover / fullLineNear, plotHover.nearestPoint, clickOnRead, entryDistribution.distributionClick)"
+  },
+  {
+   "id": "dot_stacked",
+   "description": "On the second of B's stacked dots at 20 (level 1, drawn at 1.5): the second recording of that value.",
+   "input": {
+    "scene": "plain",
+    "group": "B",
+    "value": 20,
+    "count": 1.5,
+    "click": true
+   },
+   "expected": {
+    "scale": [
+     4.8,
+     33.333333333333336
+    ],
+    "readout": "B / /d/b1.wav / 20",
+    "click": [
+     {
+      "row": "/d/b1.wav"
+     }
+    ]
+   },
+   "source": "old path: entryDistributionPane.ts (plotHoverLayer, stagePanes.stageHover / fullLineNear, plotHover.nearestPoint, clickOnRead, entryDistribution.distributionClick)"
+  },
+  {
+   "id": "slot_tick",
+   "description": "On slot 2's tick on A (value 27) above the bars: the tick reads its row; a click goes there.",
+   "input": {
+    "scene": "plain",
+    "group": "A",
+    "value": 27,
+    "count": 3.2,
+    "click": true
+   },
+   "expected": {
+    "scale": [
+     4.8,
+     30.864197530864196
+    ],
+    "readout": "/d/a05.wav / 27",
+    "click": [
+     {
+      "row": "/d/a05.wav"
+     }
+    ]
+   },
+   "source": "old path: entryDistributionPane.ts (plotHoverLayer, stagePanes.stageHover / fullLineNear, plotHover.nearestPoint, clickOnRead, entryDistribution.distributionClick)"
+  },
+  {
+   "id": "base_line",
+   "description": "On the base's dashed line on A (value 50, as given) above the bars: it is read; a click on it does nothing.",
+   "input": {
+    "scene": "plain",
+    "group": "A",
+    "value": 50,
+    "count": 3.2,
+    "click": true
+   },
+   "expected": {
+    "scale": [
+     4.8,
+     30.864197530864196
+    ],
+    "readout": "Base (median of A) / 50",
+    "click": []
+   },
+   "source": "old path: entryDistributionPane.ts (plotHoverLayer, stagePanes.stageHover / fullLineNear, plotHover.nearestPoint, clickOnRead, entryDistribution.distributionClick)"
+  },
+  {
+   "id": "picked_bar",
+   "description": "With bin 11 picked (… 25, closed): bin 12's bar reads both counts, those in the range of all in the bin: the two at exactly 25 are in the range but counted in bin 12.",
+   "input": {
+    "scene": "picked",
+    "group": "A",
+    "value": 26.041666666666668,
+    "count": 3
+   },
+   "expected": {
+    "scale": [
+     4.8,
+     30.864197530864196
+    ],
+    "readout": "A / 25–27.083333333333336 / 2 / 3 recordings"
+   },
+   "source": "old path: entryDistributionPane.ts (plotHoverLayer, stagePanes.stageHover / fullLineNear, plotHover.nearestPoint, clickOnRead, entryDistribution.distributionClick)"
+  },
+  {
+   "id": "off_everything",
+   "description": "On C's row far from its one dot: where on the value axis the pointer is; a click picks the bin of that value.",
+   "input": {
+    "scene": "plain",
+    "group": "C",
+    "value": 90,
+    "count": 2.5,
+    "click": true
+   },
+   "expected": {
+    "scale": [
+     4.8,
+     33.333333333333336
+    ],
+    "readout": "value / 90",
+    "click": [
+     {
+      "pick": {
+       "low": 89.58333333333334,
+       "high": 91.66666666666667
+      }
+     }
+    ]
+   },
+   "source": "old path: entryDistributionPane.ts (plotHoverLayer, stagePanes.stageHover / fullLineNear, plotHover.nearestPoint, clickOnRead, entryDistribution.distributionClick)"
+  }
+ ],
+ "drag": [
+  {
+   "id": "press_on_edge",
+   "description": "A press that stays put at exactly 25 (an edge): the bin picked is by floor, bin 12 (the higher side), closed at both ends; the table keeps the recordings from 25 to 27.08…",
+   "input": {
+    "scene": "plain",
+    "from": 25,
+    "to": 25,
+    "moved": false
+   },
+   "expected": {
+    "range": {
+     "low": 25,
+     "high": 27.083333333333336
+    },
+    "kept": [
+     "/d/a03.wav",
+     "/d/a04.wav",
+     "/d/a05.wav"
+    ]
+   },
+   "source": "old path: entryDistribution.ts pickedRange / binRange; datasetTable.ts passes"
+  },
+  {
+   "id": "press_inside",
+   "description": "A press that stays put at 24 picks bin 11 (22.9… to 25, closed): the table keeps the two recordings at exactly 25, which the bars count in bin 12.",
+   "input": {
+    "scene": "plain",
+    "from": 24,
+    "to": 24,
+    "moved": false
+   },
+   "expected": {
+    "range": {
+     "low": 22.916666666666668,
+     "high": 25
+    },
+    "kept": [
+     "/d/a03.wav",
+     "/d/a04.wav"
+    ]
+   },
+   "source": "old path: entryDistribution.ts pickedRange / binRange; datasetTable.ts passes"
+  },
+  {
+   "id": "drag",
+   "description": "A drag from 60 back to 20 picks 20 … 60, closed at both ends: the recordings at exactly 20 and 60 are kept.",
+   "input": {
+    "scene": "plain",
+    "from": 60,
+    "to": 20,
+    "moved": true
+   },
+   "expected": {
+    "range": {
+     "low": 20,
+     "high": 60
+    },
+    "kept": [
+     "/d/a03.wav",
+     "/d/a04.wav",
+     "/d/a05.wav",
+     "/d/a06.wav",
+     "/d/a07.wav",
+     "/d/a08.wav",
+     "/d/a09.wav",
+     "/d/a10.wav",
+     "/d/b0.wav",
+     "/d/b1.wav",
+     "/d/b2.wav",
+     "/d/b3.wav",
+     "/d/c0.wav"
+    ]
+   },
+   "source": "old path: entryDistribution.ts pickedRange / binRange; datasetTable.ts passes"
+  },
+  {
+   "id": "drag_past_axis",
+   "description": "A drag past the axis's end is clipped to it.",
+   "input": {
+    "scene": "plain",
+    "from": 80,
+    "to": 140,
+    "moved": true
+   },
+   "expected": {
+    "range": {
+     "low": 80,
+     "high": 100
+    },
+    "kept": [
+     "/d/a13.wav",
+     "/d/a14.wav"
+    ]
+   },
+   "source": "old path: entryDistribution.ts pickedRange / binRange; datasetTable.ts passes"
+  },
+  {
+   "id": "drag_outside",
+   "description": "A drag wholly outside the axis picks nothing.",
+   "input": {
+    "scene": "plain",
+    "from": 120,
+    "to": 140,
+    "moved": true
+   },
+   "expected": {
+    "range": null,
+    "kept": null
+   },
+   "source": "old path: entryDistribution.ts pickedRange / binRange; datasetTable.ts passes"
+  }
+ ]
+}

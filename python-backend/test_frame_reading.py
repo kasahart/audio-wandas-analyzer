@@ -11,15 +11,45 @@ been taken in float32. A new array field of flags (not numbers) goes into ``stag
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import fields, replace
 
 import numpy as np
 import pytest
 import wandas as wd
 
-import stage_view as sv
-from stage_combine import read_points, stage_data
-from test_drawn_x_is_source_x import _KINDS, _recording
+from frames import stage_view as sv
+from services.stage_combine import stage_data
+
+RATE = 16000
+
+
+def _recording(seconds: float, seed: int = 3) -> wd.ChannelFrame:
+    """Two channels of a 1 kHz tone in bursts with a little noise, the second channel noisier: enough for every kind."""
+    rng = np.random.default_rng(seed)
+    t = np.arange(int(RATE * seconds)) / RATE
+    gate = (((t - 0.02) % 0.15) < 0.05).astype(float)
+    tone = 0.5 * np.sin(2 * np.pi * 1000 * t) * gate + 0.01 * rng.standard_normal(t.size)
+    return wd.from_numpy(np.stack([tone, tone + 0.02 * rng.standard_normal(t.size)]), sampling_rate=RATE)
+
+
+#: Every Frame kind the comparison draws, by a name for the test's id, made from a recording.
+_KINDS: dict[str, Callable[[wd.ChannelFrame], object]] = {
+    "signal": lambda s: s,
+    "metric series": lambda s: s.rms_trend(frame_length=64, hop_length=16),
+    "level series": lambda s: s.rms_trend(frame_length=64, hop_length=16, dB=True),
+    "spectrum": lambda s: s.fft(),
+    "bands": lambda s: s.noct_spectrum(fmin=50, fmax=5000, n=3),
+    "spectrogram": lambda s: s.stft(n_fft=256, hop_length=64),
+    "cepstrum": lambda s: s.cepstrum(),
+    "cepstrogram": lambda s: s.stft(n_fft=256, hop_length=64).cepstrum(),
+    "coherence": lambda s: s.coherence(n_fft=4096),
+    "cross spectrum": lambda s: s.csd(n_fft=4096),
+    "transfer function": lambda s: s.transfer_function(n_fft=4096),
+    "cross-correlation": lambda s: s.cross_correlation(),
+    "roughness": lambda s: s.roughness_dw_spec(),
+    "trigger events": lambda s: s.trigger(threshold=0.3, duration=0.04, pre=0.005),
+}
 
 
 def _float32(recording: wd.ChannelFrame) -> wd.ChannelFrame:
@@ -74,10 +104,7 @@ def test_a_float32_trigger_events_channel_mean_is_taken_in_float64() -> None:
     reading = sv.read_frame(events)
     assert reading is not None and reading.rows is not None
     assert float(reading.rows[0].max()) == mean and float(reading.values.max()) == mean
-    # What the picture draws and what the pointer reads are that mean too.
-    view = sv.stage_view(events)
-    assert max(view["events"][0]["values"]) == mean
-    data = stage_data(events, view)
-    assert data is not None
-    read = read_points([data], None, {"x": [0.0, 0.02], "event": int(events.event_ids[0])})
-    assert read is not None and max(read["values"]) == mean
+    # What is kept for the figure service is that mean too.
+    data = stage_data(events, sv.stage_view(events))
+    assert data is not None and data.rows is not None
+    assert float(data.rows[0].max()) == mean

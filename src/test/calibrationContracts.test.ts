@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { isConfigureCalibrationMessage } from '../shared/utils/audioTarget';
-import { calibrationBadgeHtml, calibrationRequest, calibrationSummary, channelMetricSummaryHtml, hasIncompatibleLevelReferences, isClipped, peakText } from '../webview/runtime/calibrationDecorations';
+import { calibrationBadgeHtml, calibrationRequest, calibrationSummary, channelMetricSummaryHtml, isClipped, peakText } from '../webview/runtime/calibrationDecorations';
 import type { ComparisonTrackState } from '../webview/runtime/types';
 import { BackendRequestError } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
@@ -83,7 +83,7 @@ test('calibration badges summarize the channel calibration and raw clipping', ()
         calibrationStatus: 'calibrated' as const, calibrationSource: 'manual' as const, factor: 2, linearUnit,
         referenceValue: 2e-5, referenceUnit: 'Pa', levelUnit: 'dB SPL', levelReferenceLabel: 'dB SPL re 20 µPa',
     });
-    const channel = (extra: object) => ({ label: 'ch', peakAbsolute: 0.5, fullScale: true, sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS', waveform: { min: [], max: [], samples: [], absolutePeak: 0 }, spectrogram: null, ...extra });
+    const channel = (extra: object) => ({ label: 'ch', peakAbsolute: 0.5, fullScale: true, sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS', ...extra });
     assert.deepEqual(calibrationSummary([channel({})], STR), { text: 'FS', title: 'Uncalibrated full scale (dBFS)' });
     assert.deepEqual(calibrationSummary([channel({ fullScale: false })], STR), { text: 'RAW', title: 'Uncalibrated raw input units (dB re 1 input unit)' }, 'a CSV source has no full scale');
     assert.deepEqual(calibrationSummary([channel({ fullScale: false })], getStrings('ja')), { text: 'RAW', title: '未校正の生の入力単位 (dB re 1 input unit)' });
@@ -197,7 +197,7 @@ test('the calibration picker takes the source\'s unit and level label from the d
         workspaceState: { get: <T>(key: string, fallback: T): T => (stored[key] as T | undefined) ?? fallback, update: async () => {} },
     } as unknown as import('vscode').ExtensionContext);
     const waveform = { min: [], max: [], samples: [], absolutePeak: 0 };
-    const csvChannel = { peakAbsolute: 1, fullScale: false, sourceUnit: '', sourceLevelReferenceLabel: 'dB re 1 input unit', waveform, spectrogram: null };
+    const csvChannel = { peakAbsolute: 1, fullScale: false, sourceUnit: '', sourceLevelReferenceLabel: 'dB re 1 input unit', waveform };
     const csv = {
         filePath, fileName: 'picker-wording.csv', sampleRateHz: 100, durationSeconds: 1, channelCount: 2, sampleCount: 100,
         channels: [
@@ -219,7 +219,7 @@ test('the calibration picker takes the source\'s unit and level label from the d
     ]);
     picks.length = 0;
     language = 'ja';
-    const audioChannel = { peakAbsolute: 1, fullScale: true, sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS', waveform, spectrogram: null };
+    const audioChannel = { peakAbsolute: 1, fullScale: true, sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS', waveform };
     await store.configureTrack({ ...csv, filePath: path.resolve('/tmp/picker-wording.wav'), fileName: 'picker-wording.wav', channelCount: 1, channels: [{ ...audioChannel, label: 'L' }] });
     assert.deepEqual(picks.map(items => items.map(item => item.description ?? item.label)), [
         ['このファイルの保存済み校正プロファイルを削除します', '未校正のフルスケール (FS / dBFS)'],
@@ -229,12 +229,12 @@ test('the calibration picker takes the source\'s unit and level label from the d
     assert.equal(picks[1][1].label, '未校正のフルスケール');
 });
 
-test('calibration row helpers draw badges, peak text, requests and the overlay guard', () => {
+test('calibration row helpers draw badges, peak text and requests', () => {
     const measurement = (linearUnit: string, levelReferenceLabel: string) => ({
         calibrationStatus: 'calibrated' as const, calibrationSource: 'manual' as const, factor: 2, linearUnit,
         referenceValue: 2e-5, referenceUnit: linearUnit, levelUnit: 'dB SPL', levelReferenceLabel,
     });
-    const channel = (extra: object) => ({ label: 'L', peakAbsolute: 5, fullScale: true, sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS', peakLevelDb: 80, waveform: { min: [], max: [], samples: [], absolutePeak: 0 }, spectrogram: null, ...extra });
+    const channel = (extra: object) => ({ label: 'L', peakAbsolute: 5, fullScale: true, sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS', peakLevelDb: 80, ...extra });
     const track = (channels: object[]) => ({ filePath: '/a.wav', fileName: 'a.wav', channels }) as unknown as ComparisonTrackState;
     const pa = measurement('Pa', 'dB SPL re 20 µPa');
 
@@ -250,12 +250,6 @@ test('calibration row helpers draw badges, peak text, requests and the overlay g
         type: 'configure-calibration', trackIndex: 3, filePath: '/a.wav',
         channels: [{ channelIndex: 0, label: 'L' }, { channelIndex: 1, label: 'Channel 2' }],
     });
-    assert.equal(hasIncompatibleLevelReferences([track([channel({ measurement: pa })]), track([channel({ measurement: pa }), channel({})])]), false);
-    assert.equal(hasIncompatibleLevelReferences([track([channel({ measurement: pa })]), track([channel({ measurement: measurement('m/s^2', 'dB re 1 m/s^2') })])]), true);
-    // The overlay's second level axis takes a second reference; a third still has no axis.
-    const accel = measurement('m/s^2', 'dB re 1 m/s^2');
-    assert.equal(hasIncompatibleLevelReferences([track([channel({ measurement: pa })]), track([channel({ measurement: accel })])], 2), false);
-    assert.equal(hasIncompatibleLevelReferences([track([channel({ measurement: pa })]), track([channel({ measurement: accel })]), track([channel({ measurement: measurement('V', 'dB re 1 V') })])], 2), true);
 });
 
 test('calibration uses composition rather than global prototype or panel-method patches', () => {

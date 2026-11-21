@@ -1,5 +1,7 @@
 import { expect, test, type Page } from './canvasAudit';
 import { buildUiSmokeHtml, buildUiSmokeSelectionHtml } from './buildHtml';
+import { drawnFigure, drawnRow } from './tracksFigures';
+
 
 async function loadUi(page: Page) {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
@@ -115,25 +117,33 @@ test('the cursor spectrum supports keyboard readout without hover, and track row
     await loadUi(page);
 
     await expect(page.locator('.track-spectrum-canvas, .track-spectrum-wrap')).toHaveCount(0);
-    const overlay = page.locator('#spectrum-overlay-canvas');
+    const overlay = page.locator('#spectrum-overlay-plot canvas');
     await expect(overlay).toHaveAttribute('tabindex', '0');
 
+    // Focused from the keyboard, with no pointer on it: the first → reads a point, the next steps from it (R7).
+    await drawnFigure(page);
     await overlay.focus();
     await page.keyboard.press('ArrowRight');
-    await expect(page.locator('#spectrum-freq-readout')).toContainText(/\.wav.*Hz.*dB/);
+    const readout = page.locator('#spectrum-freq-readout');
+    await expect(readout).toContainText(/\.wav.*Hz.*dB/);
+    const first = await readout.innerText();
+    await page.keyboard.press('ArrowRight');
+    await expect(readout).not.toHaveText(first);
 });
 
-test('track canvas width follows layout changes without a window resize event', async ({ page }) => {
+test('a row\'s Figure follows layout changes without a window resize event', async ({ page }) => {
     await loadUi(page);
-
-    await expect.poll(async () => page.evaluate(() => {
-        const wrap = document.getElementById('track-canvas-wrap-0');
-        const canvas = document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
-        const axis = document.getElementById('track-axis-canvas-0') as HTMLCanvasElement | null;
-        if (!wrap || !canvas || !axis) { return false; }
-        const expected = Math.max(1, Math.round(wrap.clientWidth - axis.width));
-        return Math.abs(canvas.width - expected) <= 1;
-    })).toBe(true);
+    await drawnRow(page);
+    // The canvas's bitmap is its box's size (in device px), and its box fills the row's.
+    const fits = (): Promise<boolean> => page.evaluate(() => {
+        const host = document.getElementById('track-row-figure-0');
+        const canvas = host?.querySelector<HTMLCanvasElement>('canvas[data-figure]');
+        if (!host || !canvas) { return false; }
+        const shown = canvas.getBoundingClientRect().width;
+        return Math.abs(shown - host.clientWidth) <= 1 && Math.abs(canvas.width - Math.round(shown * window.devicePixelRatio)) <= 1;
+    });
+    await expect.poll(fits).toBe(true);
+    const before = await page.locator('#track-row-figure-0').evaluate(el => el.clientWidth);
 
     await page.evaluate(() => {
         document.querySelectorAll<HTMLElement>('.track-canvas-stack').forEach((el) => {
@@ -141,15 +151,10 @@ test('track canvas width follows layout changes without a window resize event', 
         });
     });
 
-    await expect.poll(async () => page.evaluate(() => {
-        const wrap = document.getElementById('track-canvas-wrap-0');
-        const canvas = document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
-        const axis = document.getElementById('track-axis-canvas-0') as HTMLCanvasElement | null;
-        if (!wrap || !canvas || !axis) { return false; }
-        const expected = Math.max(1, Math.round(wrap.clientWidth - axis.width));
-        const renderedWidth = Math.round(canvas.getBoundingClientRect().width);
-        return Math.abs(canvas.width - expected) <= 1 && Math.abs(renderedWidth - expected) <= 1;
-    })).toBe(true);
+    await expect.poll(() => page.locator('#track-row-figure-0').evaluate(el => el.clientWidth)).toBeLessThan(before - 300);
+    await expect.poll(fits).toBe(true);
+    // The plot inside it is narrower too, once the picture for the new width is drawn.
+    await expect.poll(async () => { const lane = (await drawnRow(page)).lanes[0].frame; return lane.left + lane.width; }).toBeLessThanOrEqual(before - 300);
 });
 
 test('directory selection results pane flexes with viewport width', async ({ page }) => {

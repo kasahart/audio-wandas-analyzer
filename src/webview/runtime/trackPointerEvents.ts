@@ -1,5 +1,6 @@
-import { isTextEntryTarget, type KeyRouter } from './keyRouter';
+import { isTextEntryTarget, type KeyRouter } from '../shell/keyRouter';
 import { zoomKeyAction } from './shortcuts';
+import { SWIPE_PAUSE_MS } from '../figure/zoomSteps';
 
 export interface TrackPointerHandlers {
     resetZoom(): void;
@@ -77,7 +78,6 @@ export function plotUnderPointer(doc: object): Element | null {
 }
 
 /** Wheel events further apart than this start a new swipe. */
-const SWIPE_PAUSE_MS = 150;
 
 const TRACK_SELECTORS: PlotSelectors = { plot: '.track-canvas', axis: '.track-axis-canvas', focusKeepsArrows: true };
 

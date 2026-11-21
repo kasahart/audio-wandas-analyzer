@@ -73,16 +73,20 @@ export class PythonBackendServer extends AnalysisClient {
     /** How long each command may run, from Python's `started` notification, before the backend is presumed stuck and restarted; 0 leaves it to the caller. */
     protected requestTimeoutsMs: Record<BackendCommand, number> = {
         analyze: 600_000,
-        range: 60_000,
-        'track-detail': 300_000,
         'release-track-detail': 60_000,
-        'spectrum-slice': 60_000,
-        'pair-spectrum': 300_000,
+        'cursor-answers': 60_000,
+        'track-answers': 300_000,
+        'pair-answers': 300_000,
+        'region-peak': 300_000,
         'export-wav-loop': 300_000,
         'build-recipe': 120_000,
         scan: 300_000,
-        'scan-spec': 60_000,
-        'stage-combine': 120_000,
+        // The figure service: a draw and an export make medians and differences of every value.
+        'figure-draw': 120_000,
+        'figure-read': 60_000,
+        'figure-export': 120_000,
+        'figure-release': 60_000,
+        'figure-count': 60_000,
     };
 
     constructor(
@@ -144,6 +148,10 @@ export class PythonBackendServer extends AnalysisClient {
         cancelled.reject(reason);
         this.rejectAll(new BackendRestartReplayError('Python backend restarting after an interrupted request'));
         child?.kill();
+    }
+
+    protected override abandonRequest(requestId: string): void {
+        this.abandon(requestId, new BackendRequestCancelledError('figure'));
     }
 
     /** Gives up on a request without a restart: Python drops it if queued and sends no reply if running. */

@@ -15,7 +15,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { addableOperations, CROSS_CHANNEL, PAIRED_ON_ADD, SLOT_REFERABLE, SELECT_PAIR, movedStep, recipeNodes, recipeSteps, withStep, withoutSteps, withBypass, withSlotReference, TIME_SLICE, TRIGGER, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
 import { catalogOperation, INPUT_FRAME } from '../../shared/recipe/recipeCatalog';
-import { keyRouterFor } from './keyRouter';
+import { keyRouterFor } from '../shell/keyRouter';
 import { frameAfter, INPUT_STAGE, orderedSteps, removable, startValues, stepFlow, stepLimits, type RegionRange, type StepBarState } from './stepBarModel';
 import { stepLabel } from './stepLabels';
 import { createStepHistory } from './stepHistory';
