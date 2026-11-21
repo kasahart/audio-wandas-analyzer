@@ -128,6 +128,35 @@ function busyPage() {
 }
 const DRAW = { generation: 1, spec: SPEC, view: null, width: 600, height: 200 };
 
+test('the line read is drawn wider than the others of its lane; a lane\'s one line is drawn the same read or not', () => {
+    const widths = (figure: ReturnType<typeof shown>['figure']): Record<string, number> => Object.fromEntries(figure.inspect().lanes[0].lines.map(line => [line.id, line.width]));
+    // Two signals on the lane: the one read is told from the other.
+    const page = figurePage();
+    const { figure } = shown(page);
+    const before = widths(figure);
+    page.mouse(figure.canvas, 'mousemove', xPx(1), yPx(0.7), { buttons: 0 });
+    const [read] = page.reads();
+    read.answer(sample(read.message.payload as FigureReadPayload, 8001, 1.000125, 0.7234567));
+    assert.ok(widths(figure).cmp > before.cmp, 'the line read is wider');
+    assert.equal(widths(figure).base, before.base);
+    // One signal alone (a Tracks row): wider, its short peaks would look taller under the pointer than beside it.
+    const alone = figurePage();
+    const one = alone.figure(undefined, SIZE);
+    one.canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: SIZE.size.width, height: SIZE.size.height, right: SIZE.size.width, bottom: SIZE.size.height, x: 0, y: 0, toJSON: () => ({}) });
+    one.show(SPEC, null);
+    const [draw] = alone.draws();
+    const reply = picture(draw.message.payload as FigureDrawPayload, 'p1');
+    const lane = (reply.lanes ?? [])[0];
+    lane.lines = lane.lines.filter(line => line.id === 'cmp');
+    draw.answer(reply);
+    const unread = widths(one);
+    alone.mouse(one.canvas, 'mousemove', xPx(1), yPx(0.7), { buttons: 0 });
+    const [second] = alone.reads();
+    second.answer(sample(second.message.payload as FigureReadPayload, 8001, 1.000125, 0.7234567));
+    assert.equal(one.inspect().mark?.index, 8001, 'the sample is read');
+    assert.deepEqual(widths(one), unread);
+});
+
 test('a draw answered "busy" is asked once more a little later; busy again, the Figure is told', () => {
     const { answers, posted, waits, answer } = busyPage();
     const replies: Array<FigureDrawResult | null> = [];

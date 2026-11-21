@@ -80,7 +80,8 @@ export interface TrackRowFigureScreen {
     inspect(): FigureInspection | null;
 }
 
-const LINE_WIDTH = 1;
+/** As the rows' waveform has always been drawn: a thinner line leaves a short peak (a click, a burst) fainter than the signal around it. */
+const LINE_WIDTH = 1.5;
 /** A row's picture is drawn this much of the time shown past each end: scrolled across, that part is on screen at once. */
 const ROW_AHEAD = 1;
 /** How often one kept answer is told as let go (screens/tracksFigure.ts says why). */

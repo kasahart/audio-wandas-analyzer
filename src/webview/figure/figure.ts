@@ -782,6 +782,8 @@ export function createFigure(options: FigureOptions): Figure {
     const styleOf = (line: DrawnLine, read: boolean): { colour: string; width: number } => {
         const own = options.lineStyle?.({ id: line.id, ...(line.role !== undefined ? { role: line.role } : {}), ...(line.key !== undefined ? { key: line.key } : {}) });
         const style = own ?? { colour: ROLE_COLOURS[line.role ?? ''] ?? OTHER_COLOUR, width: 1.25 };
+        // The line read is drawn wider, to tell it from the others of its lane. (A lane's one line is not: there is none
+        // to tell it from, and a time signal drawn wider looks like another signal, its short peaks taller.)
         return read ? { ...style, width: Math.max(2, style.width + 0.6) } : style;
     };
     /** A role line's colour on a bins lane: its role's, as the screen's legend shows it. */
@@ -906,7 +908,7 @@ export function createFigure(options: FigureOptions): Figure {
                     guides: lane.lane.guides.map(guide => ({ ...guide, px: guide.axis === 'x' ? xPx(lane, guide.at) : lane.y.yOf(guide.at) })),
                     ...(lane.lane.spans ? { spans: lane.lane.spans.map(span => ({ ...span, left: Math.max(lane.frame.left, Math.min(lane.frame.left + lane.frame.width, xPx(lane, span.start))), right: Math.max(lane.frame.left, Math.min(lane.frame.left + lane.frame.width, xPx(lane, span.end))) })) } : {}),
                     ...(lane.lane.events ? { events: lane.lane.events } : {}),
-                    lines: order.map(line => ({ id: line.id, ...styleOf(line, mark?.lane === lane.id && mark.line === line.id), points: line.xs.map((x, at) => { const value = line.values[at]; return value === null || value === undefined ? null : [xPx(lane, x), lane.y.yOf(value)] as [number, number]; }),
+                    lines: order.map(line => ({ id: line.id, ...styleOf(line, order.length > 1 && mark?.lane === lane.id && mark.line === line.id), points: line.xs.map((x, at) => { const value = line.values[at]; return value === null || value === undefined ? null : [xPx(lane, x), lane.y.yOf(value)] as [number, number]; }),
                         ...(line.edges ? { bars: barsOf(lane, line.edges, line.values) } : {}) })),
                 };
             }),
