@@ -19,7 +19,8 @@ export function domSnapshotBase(document: Document) {
         trackRowCount: document.querySelectorAll('.track-row').length,
         audioElementCount: document.querySelectorAll('#audio-host audio').length,
         hasRulerCanvas: !!document.getElementById('ruler-canvas'),
-        spectrumOverlayPresent: !!document.getElementById('spectrum-overlay-canvas'),
+        // The cursor spectrum's Figure draws on a canvas inside its plot.
+        spectrumOverlayPresent: !!document.querySelector('#spectrum-overlay-plot canvas'),
         // The locale the page's Intl falls back to and its navigator.language: the E2E checks both are pinned (en-US).
         intlLocale: runtimeIntlLocale(),
         navigatorLanguage: document.defaultView?.navigator.language ?? null,
@@ -35,13 +36,10 @@ function verticalExtent(doc: Document, id: string): { top: number; bottom: numbe
     return { top: rect.top, bottom: rect.bottom };
 }
 
-function fieldValue(doc: Document, id: string): string | null {
-    const el = doc.getElementById(id) as HTMLInputElement | null;
-    return el ? el.value : null;
-}
-
 export function shellSnapshot(doc: Document, audioContextState: string | null) {
-    const popover = doc.getElementById('waveform-range-popover');
+    // Every Figure has its own range popover (and the time axis one): the one open now is read, else the first.
+    const popovers = Array.from(doc.querySelectorAll<HTMLElement>('[id$="-range-popover"]'));
+    const popover = popovers.find(item => item.style.display === 'block') ?? popovers[0];
     return {
         hintFooterText: doc.getElementById('hint-footer')?.textContent ?? null,
         layout: {
@@ -52,8 +50,8 @@ export function shellSnapshot(doc: Document, audioContextState: string | null) {
         },
         waveformRangePopover: popover ? {
             open: popover.style.display === 'block',
-            min: fieldValue(doc, 'wave-range-min'),
-            max: fieldValue(doc, 'wave-range-max'),
+            min: popover.querySelector<HTMLInputElement>('input[id$="-range-min"]')?.value ?? null,
+            max: popover.querySelector<HTMLInputElement>('input[id$="-range-max"]')?.value ?? null,
         } : null,
         audioContextState,
         audio: Array.from(doc.querySelectorAll<HTMLAudioElement>('#audio-host audio')).map(function (audio) {

@@ -14,7 +14,7 @@ import { testPython } from './helpers/python';
 const repoRoot = path.resolve(__dirname, '..', '..');
 const gate = path.join(repoRoot, 'scripts', 'test-skips.mjs');
 /** The allowlist's entries; lower it when an entry goes, never raise it. */
-const SKIP_ALLOWLIST_CEILING = 3;
+const SKIP_ALLOWLIST_CEILING = 0;
 
 /** What the gate module exports, evaluated in an ES module (this file is compiled to CommonJS). */
 function fromGate(expression: string): unknown {

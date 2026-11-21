@@ -29,7 +29,7 @@ from figures.pick import CellPointerAsk, pick_cell
 from figures.ranges import Ends, image_axes, image_colour, image_extent, nice_range
 from figures.service import FigureService
 from figures.thinning import _farthest, _highest, cell_edges, drawn_image
-from test_figure_bench_cases import _data
+from test_figure_bench_cases import RECORDED_REL, _data
 from transport.figure_answers import CombineOps, image_answer_of
 from transport.protocol_schema import result_violation
 
@@ -83,9 +83,9 @@ def test_the_extent_a_colour_range_is_decided_from_is_the_recorded_one(case: dic
         positive=answer.y_positive,
     )
     assert extent is not None
-    assert (extent.low, extent.high) == pytest.approx((expected["min"], expected["max"]), rel=1e-12, abs=1e-15)
+    assert (extent.low, extent.high) == pytest.approx((expected["min"], expected["max"]), rel=RECORDED_REL, abs=1e-15)
     if "robust" in expected:
-        assert extent.robust == pytest.approx(expected["robust"], rel=1e-12)
+        assert extent.robust == pytest.approx(expected["robust"], rel=RECORDED_REL)
     else:
         assert extent.robust is None
 
@@ -109,7 +109,7 @@ def test_the_cell_under_the_pointer_is_the_recorded_answer_cell(case: dict[str, 
     # The old read sent the cells around the pointer (two each way); the new one answers the one cell in the middle.
     middle = len(expected["xs"]) // 2
     assert (got.cell.x, got.cell.y) == pytest.approx((expected["xs"][middle], expected["ys"][middle]), rel=1e-12)
-    assert got.cell.value == pytest.approx(expected["matrix"][middle][middle], rel=1e-12)
+    assert got.cell.value == pytest.approx(expected["matrix"][middle][middle], rel=RECORDED_REL)
 
 
 # --- The rules -------------------------------------------------------------------------------------------------------

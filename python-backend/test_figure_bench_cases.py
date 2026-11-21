@@ -23,6 +23,12 @@ import wandas as wd
 from frames import stage_view as sv
 from services.stage_combine import StageData, stage_data
 
+#: How far a value may be from the one recorded, as a part of itself. The cases were recorded on one machine; the
+#: FFT and the logarithm of another operating system differ in the last bits, and a cepstrum (the transform of a
+#: logarithm of a transform) carries that to about the ninth digit. Places along an axis (times, frequencies) are
+#: not computed this way and are held to 1e-12.
+RECORDED_REL = 1e-6
+
 FIXTURE = Path(__file__).parent / "tests" / "fixtures" / "figure_bench_cases.json"
 SECTIONS = ("view", "combine", "read")
 #: The steps recorded, by the name a case gives: the wandas chain the comparison's step bar would run.

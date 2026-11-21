@@ -21,10 +21,17 @@ export interface TrackSnapshotSource {
     /** Whether the cursor spectrum's picture has a line of this track now: read from what is drawn, asking nothing. */
     spectrumLine(track: SnapshotTrack): boolean;
     waveformAxisLabels(track: SnapshotTrack): string[];
+    /** Where the track's first row has its waveform drawn now, in the canvas's pixels (the ends of its points and its frame); null with nothing drawn. */
+    waveformDrawn(track: SnapshotTrack): { minX: number; maxX: number; left: number; width: number } | null;
+    /** The waveform lane of the track's first row: its frame in the row's canvas and the amplitude range it shows; null with no picture. */
+    waveformLane(track: SnapshotTrack): { frame: { left: number; top: number; width: number; height: number }; range: [number, number] } | null;
     /** The axis names the cursor spectrum's Figure drew, and the texts a track's row drew on its spectrogram lane: never made again here. */
     spectrumTexts(): string[];
     spectrogramTexts(track: SnapshotTrack): string[];
 }
+
+/** How near a side of the frame the outermost point drawn has to be for the waveform to cover that side. */
+const EDGE_PX = 2;
 
 /** What the smoke tests read of the tracks: built from the runtime's state, without changing it or asking the host for anything. */
 export function buildTrackSnapshot(source: TrackSnapshotSource) {
@@ -41,6 +48,8 @@ export function buildTrackSnapshot(source: TrackSnapshotSource) {
         }
         waveformPerTrack.push(source.waveformAxisLabels(track));
         spectrogramPerTrack.push(source.spectrogramTexts(track));
+        const drawn = source.waveformDrawn(track);
+        const waveLane = source.waveformLane(track);
         return {
             trackId: track.trackId,
             trackIndex: track.trackIndex,
@@ -49,6 +58,14 @@ export function buildTrackSnapshot(source: TrackSnapshotSource) {
             visibleFileStartNorm: visibleFile.startNorm,
             visibleFileEndNorm: visibleFile.endNorm,
             waveformFullyVisible: visibleFile.startNorm <= 0 && visibleFile.endNorm >= 1,
+            // The points drawn reach each side of the frame (to within the pixel a point is placed in).
+            waveformCoversViewportLeft: drawn !== null && drawn.minX <= drawn.left + EDGE_PX,
+            waveformCoversViewportRight: drawn !== null && drawn.maxX >= drawn.left + drawn.width - EDGE_PX,
+            waveformMinDrawX: drawn?.minX ?? null,
+            waveformMaxDrawX: drawn?.maxX ?? null,
+            waveformCanvasWidth: drawn?.width ?? null,
+            waveformFrame: waveLane?.frame ?? null,
+            waveformRange: waveLane?.range ?? null,
             resultError: result.error || null,
             spectrumSlicePresent: slice,
         };

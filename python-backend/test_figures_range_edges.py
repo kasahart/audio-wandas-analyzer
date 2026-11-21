@@ -17,7 +17,9 @@ import pytest
 from figures.pick import PickLine, PointerAsk, pick
 from figures.thinning import drawn_line
 
-FIXTURE = json.loads((Path(__file__).parent / "tests" / "fixtures" / "figure_overlay_cases.json").read_text())
+FIXTURE = json.loads(
+    (Path(__file__).parent / "tests" / "fixtures" / "figure_overlay_cases.json").read_text(encoding="utf-8")
+)
 SCENE = FIXTURE["scenes"]["spectrum"]
 CASES = FIXTURE["range_edges"]
 NON_FINITE = {"nan": math.nan, "inf": math.inf, "-inf": -math.inf}

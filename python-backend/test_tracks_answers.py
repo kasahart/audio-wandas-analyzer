@@ -32,7 +32,10 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = Path(__file__).parent / "tests" / "fixtures" / "tracks_answers_cases.json"
 SOUNDS = ROOT / "src" / "test" / "fixtures"
 #: How far a value may be from the recorded one (dB, degrees, coherence): FFT libraries differ in the last bits.
+#: The values are float32, so the last bits of a large one (a gain of -300 dB where both recordings are silent) are
+#: more than the absolute part: a value may also be off by that part of itself.
 TOLERANCE = 1e-6
+RELATIVE = 1e-6
 
 #: The recordings the cases are of. ``changing`` and ``short`` are the committed fixtures (8 kHz, two channels);
 #: the others are written by ``sounds`` from sines alone (16-bit: the same samples on every machine).
@@ -95,7 +98,7 @@ def _values(recorded: list[float | None]) -> np.ndarray:
 def _same(found: np.ndarray, recorded: np.ndarray, what: str) -> None:
     assert found.shape == recorded.shape, what
     assert np.array_equal(np.isnan(found), np.isnan(recorded)), f"{what}: the bins with no value differ"
-    assert np.allclose(found, recorded, rtol=0.0, atol=TOLERANCE, equal_nan=True), what
+    assert np.allclose(found, recorded, rtol=RELATIVE, atol=TOLERANCE, equal_nan=True), what
 
 
 def _line(key: str) -> LineData:

@@ -1523,7 +1523,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const lane = rowsScreen.inspect(track.trackId, 0)?.lanes.find(found => found.id === TRACK_WAVE_LANE);
                 return lane ? [...lane.yTicks.map(tick => tick.text), lane.axisNames.y] : [];
             },
-            spectrumTexts: () => (cursorFigure?.screen.inspect()?.lanes ?? []).flatMap(lane => [lane.axisNames.x, lane.axisNames.y]),
+            waveformLane: track => {
+                const lane = rowsScreen.inspect(track.trackId, 0)?.lanes.find(found => found.id === TRACK_WAVE_LANE);
+                return lane?.range ? { frame: lane.frame, range: [lane.range.y[0], lane.range.y[1]] } : null;
+            },
+            waveformDrawn: track => {
+                const lane = rowsScreen.inspect(track.trackId, 0)?.lanes.find(found => found.id === TRACK_WAVE_LANE);
+                const xs = (lane?.lines ?? []).flatMap(line => line.points.flatMap(point => (point ? [point[0]] : [])));
+                return lane && xs.length ? { minX: Math.min(...xs), maxX: Math.max(...xs), left: lane.frame.left, width: lane.frame.width } : null;
+            },
+            spectrumTexts: () => (cursorFigure?.screen.inspect()?.lanes ?? []).flatMap(lane => [...lane.xTicks.map(tick => tick.text), lane.axisNames.x, ...lane.yTicks.map(tick => tick.text), lane.axisNames.y]),
             spectrogramTexts: track => {
                 const lane = rowsScreen.inspect(track.trackId, 0)?.lanes.find(found => found.image);
                 return lane?.image ? [...lane.yTicks.map(tick => tick.text), lane.axisNames.y, ...lane.image.colourTicks.map(tick => tick.text), lane.image.colourName] : [];

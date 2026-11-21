@@ -36,6 +36,9 @@ function source(tracks: SnapshotTrack[], peeked: number[]): TrackSnapshotSource 
         spectrogramDisplay: { dbMin: null, dbMax: null, maxFrequencyHz: null },
         spectrumLine(item) { peeked.push(item.trackIndex); return item.trackIndex === 0; },
         waveformAxisLabels: item => ['wave ' + item.trackIndex],
+        // Track 0 is drawn past both sides of its frame, track 1 stops short of the right side, the others have nothing drawn.
+        waveformLane: item => (item.trackIndex === 0 ? { frame: { left: 60, top: 4, width: 600, height: 80 }, range: [-0.5, 0.5] } : null),
+        waveformDrawn: item => (item.trackIndex === 0 ? { minX: -40, maxX: 700, left: 60, width: 600 } : item.trackIndex === 1 ? { minX: 61, maxX: 500, left: 60, width: 600 } : null),
         spectrumTexts: () => ['−20', 'drawn'],
         spectrogramTexts: item => ['lane ' + item.trackIndex],
     };
@@ -62,4 +65,14 @@ test('each track says which part of its file the zoom shows', () => {
     assert.equal(snapshot.tracks[1].filePath, '/late.wav');
     assert.equal(snapshot.tracks[1].offsetSeconds, 1);
     assert.equal(snapshot.tracks[0].resultError, null);
+});
+
+test('a track says whether the waveform drawn reaches each side of its frame; with nothing drawn it reaches neither', () => {
+    const snapshot = buildTrackSnapshot(source([track(0), track(1), track(2)], []));
+    assert.deepEqual(snapshot.tracks.map(item => [item.waveformFrame, item.waveformRange]), [[{ left: 60, top: 4, width: 600, height: 80 }, [-0.5, 0.5]], [null, null], [null, null]]);
+    assert.deepEqual(snapshot.tracks.map(item => [item.waveformCoversViewportLeft, item.waveformCoversViewportRight, item.waveformMinDrawX, item.waveformMaxDrawX, item.waveformCanvasWidth]), [
+        [true, true, -40, 700, 600],
+        [true, false, 61, 500, 600],
+        [false, false, null, null, null],
+    ]);
 });

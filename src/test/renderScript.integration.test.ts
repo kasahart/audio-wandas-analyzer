@@ -1203,10 +1203,11 @@ test('the cursor spectrum is one Figure of the tracks\' kept answers: a line a c
     const spec = drawnSpecs(env).at(-1)!;
     assert.deepEqual(spec.lanes.map(lane => [lane.id, lane.lines.map(line => line.of)]), [['spectrum', [{ key: cursorKey(asked[0], 0) }, { key: cursorKey(asked[1], 0) }]]]);
     assert.deepEqual(spec.keys.map(key => [key.key, key.state, key.level]), asked.map(request => [cursorKey(request, 0), 'usable', { unit: 'FS', ref: 1, label: 'dBFS' }]));
-    // The page's snapshot reads what the Figure drew: both tracks have a line, and the axes are named.
+    // The page's snapshot reads what the Figure drew: both tracks have a line, and the axes are named, with their ticks.
     const snap = lastSnapshot(env);
     assert.equal(snap.renderedUi.visibleSpectrumTrackCount, 2);
-    assert.equal(snap.renderedUi.axisLabels.spectrumOverlay.length, 2, JSON.stringify(snap.renderedUi.axisLabels.spectrumOverlay));
+    assert.deepEqual(Array.from(snap.renderedUi.axisLabels.spectrumOverlay as string[]).filter((text: string) => /\[/.test(text)), ['Frequency [Hz]', 'Level, uncalibrated [dBFS]'], JSON.stringify(snap.renderedUi.axisLabels.spectrumOverlay));
+    assert.ok(snap.renderedUi.axisLabels.spectrumOverlay.length > 2, 'the ticks drawn are in the snapshot too');
     // The legend names each line by its track's colour.
     const swatches = [...env.dom.window.document.querySelectorAll<HTMLElement>('#spectrum-axis-legend .spectrum-axis-legend-swatch')];
     assert.equal(swatches.length, 2);

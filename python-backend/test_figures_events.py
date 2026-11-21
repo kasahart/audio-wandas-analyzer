@@ -17,7 +17,7 @@ import pytest
 
 from frames import stage_view as sv
 from services.stage_combine import STORE, StageData, stage_data
-from test_figure_bench_cases import FIXTURE, _data, scene_recording
+from test_figure_bench_cases import FIXTURE, RECORDED_REL, _data, scene_recording
 from transport.command_dispatch import dispatch, validate_request
 from transport.figure_answers import (
     EVENT_MARK,
@@ -56,7 +56,7 @@ def test_an_event_is_the_recorded_row_at_the_recorded_times_from_its_trigger() -
     for x, value in zip(case["expected"]["xs"], case["expected"]["values"], strict=True):
         index = round((x - answer.start) * answer.rate)
         assert answer.start + index / answer.rate == pytest.approx(x, abs=1e-12)
-        assert float(answer.values[index]) == value
+        assert float(answer.values[index]) == pytest.approx(value, rel=RECORDED_REL, abs=1e-12)
     # Every event of the step is on one axis: they are drawn over one another.
     others = [event_answer_of(event_key("step", event), data, event, "step") for event in data.event_ids]
     assert len(others) > 1 and {other.axis for other in others if other is not None} == {answer.axis}

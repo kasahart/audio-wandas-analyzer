@@ -25,7 +25,7 @@ import pytest
 
 from figures.ranges import nice_range
 from figures.service import FigureService
-from test_figure_bench_cases import FIXTURE, _data
+from test_figure_bench_cases import FIXTURE, RECORDED_REL, _data
 from test_figure_heatmap_cases import numbers
 from transport.figure_answers import CombineOps, answer_of
 
@@ -159,8 +159,14 @@ def test_the_delta_headline_and_range_are_the_old_ones(case: dict[str, Any]) -> 
         (headline,) = picture["headlines"]
         peak = diff["peak"]
         assert (headline["lane"], headline["line"]) == ("delta", "delta1")
-        assert headline["x"] == pytest.approx(peak["x"], abs=1e-12)
-        assert headline["value"] == pytest.approx(peak["value"], rel=1e-9, abs=1e-12)
+        assert headline["value"] == pytest.approx(peak["value"], rel=RECORDED_REL, abs=1e-12)
+        if headline["x"] != pytest.approx(peak["x"], abs=1e-12):
+            # Two points with the same largest |Δ| (a cepstrum mirrors about its middle): which of them is the larger
+            # by a last bit differs by machine. Elsewhere than the recorded place, the peak has to be such a twin.
+            (delta,) = lane["lines"]
+            twin = delta["values"][int(np.argmin(np.abs(np.asarray(delta["xs"]) - peak["x"])))]
+            near = pytest.approx(headline["value"], rel=RECORDED_REL, abs=1e-12)
+            assert twin == near, f"the peak is at {headline['x']}"
         assert headline["xStep"] == pytest.approx(peak["xStep"], rel=1e-6)
         if detail is None:
             found = diff["valueRange"]
@@ -208,7 +214,7 @@ def test_the_points_the_old_path_read_are_the_new_paths_answers(case: dict[str, 
             }
             stepped = service.read({**ask, "dataId": picture["dataId"], "generation": 1, "step": step})
             assert stepped["point"]["x"] == pytest.approx(onward, abs=1e-12)
-            assert stepped["point"]["value"] == pytest.approx(value, rel=1e-9, abs=1e-12)
+            assert stepped["point"]["value"] == pytest.approx(value, rel=RECORDED_REL, abs=1e-12)
             return
         assert old["xs"], "the recorded read has no point"
         for x, value in zip(old["xs"], old["values"], strict=True):
@@ -218,7 +224,7 @@ def test_the_points_the_old_path_read_are_the_new_paths_answers(case: dict[str, 
             if value is None or (isinstance(value, float) and not math.isfinite(value)):
                 assert got is None
             else:
-                assert got == pytest.approx(value, rel=1e-9, abs=1e-12), f"at {x}"
+                assert got == pytest.approx(value, rel=RECORDED_REL, abs=1e-12), f"at {x}"
     except AssertionError as error:
         raise AssertionError(f"{case['id']}: {case['description']} {error} {FIX}") from error
 

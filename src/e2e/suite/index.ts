@@ -92,6 +92,8 @@ interface TestSnapshot {
             waveformMinDrawX: number | null;
             waveformMaxDrawX: number | null;
             waveformCanvasWidth: number | null;
+            waveformFrame: { left: number; top: number; width: number; height: number } | null;
+            waveformRange: [number, number] | null;
             resultError: string | null;
             spectrumSlicePresent: boolean;
         }>;
@@ -779,29 +781,35 @@ export async function run(): Promise<void> {
         {
             name: 'double-clicking the waveform amplitude axis sets the vertical range',
             run: async () => {
-                await analyzeSingleTrackInWaveformMode();
+                const before = await analyzeSingleTrackInWaveformMode();
+                const row = (await waitForSnapshotWhere((snapshot) => !!snapshot.renderedUi?.tracks[0]?.waveformFrame && !!snapshot.renderedUi.tracks[0].waveformRange)).renderedUi?.tracks[0];
+                assert.ok(row?.waveformFrame && row.waveformRange, `the row should have its waveform drawn: ${JSON.stringify(before.renderedUi?.tracks[0])}`);
+                const whole = row.waveformRange;
+                // The amplitude axis is the strip left of the waveform lane, on the row's own canvas.
+                const onAxis = { selector: '.track-row-figure canvas[data-figure]', type: 'dblclick', x: row.waveformFrame.left / 2, y: row.waveformFrame.top + row.waveformFrame.height / 2 };
+                const open = '[id$="-range-popover"][style*="display: block"] ';
                 const opened = await postActionsAndWait(`wave-range-open-${Date.now()}`, [
-                    { action: 'mouse-event', payload: { selector: '.track-axis-canvas', type: 'dblclick' } },
+                    { action: 'mouse-event', payload: onAxis },
                 ], (snapshot) => snapshot.renderedUi?.waveformRangePopover?.open === true);
                 const peak = Number(opened.renderedUi?.waveformRangePopover?.max);
-                assert.ok(peak > 0, `popover should start at the painted peak: ${JSON.stringify(opened.renderedUi?.waveformRangePopover)}`);
+                assert.ok(peak > 0, `popover should start at the range shown: ${JSON.stringify(opened.renderedUi?.waveformRangePopover)}`);
+                const near = (value: number | undefined, wanted: number): boolean => value !== undefined && Math.abs(value - wanted) <= peak * 1e-3;
                 const applied = await postActionsAndWait(`wave-range-apply-${Date.now()}`, [
-                    { action: 'set-input-value', payload: { selector: '#wave-range-min', value: String(-peak / 2) } },
-                    { action: 'set-input-value', payload: { selector: '#wave-range-max', value: String(peak / 2) } },
-                    { action: 'mouse-event', payload: { selector: '#wave-range-apply', type: 'click' } },
-                ], (snapshot) => snapshot.renderedUi?.waveformRangePopover?.open === false);
-                const maxNorm = applied.renderedUi?.amplitudeZoomMaxNorm ?? NaN;
-                const minNorm = applied.renderedUi?.amplitudeZoomMinNorm ?? NaN;
-                assert.ok(maxNorm > 0 && maxNorm < 1 && Math.abs(maxNorm + minNorm) < 1e-9, `applied range should narrow symmetrically: ${minNorm}..${maxNorm}`);
+                    { action: 'set-input-value', payload: { selector: open + 'input[id$="-range-min"]', value: String(-peak / 2) } },
+                    { action: 'set-input-value', payload: { selector: open + 'input[id$="-range-max"]', value: String(peak / 2) } },
+                    { action: 'mouse-event', payload: { selector: open + 'button[id$="-range-apply"]', type: 'click' } },
+                ], (snapshot) => snapshot.renderedUi?.waveformRangePopover?.open === false && near(snapshot.renderedUi.tracks[0]?.waveformRange?.[1], peak / 2));
+                const shown = applied.renderedUi?.tracks[0]?.waveformRange;
+                assert.ok(near(shown?.[0], -peak / 2) && near(shown?.[1], peak / 2), `the row should show the range typed: ${JSON.stringify(shown)}`);
                 const reopened = await postActionsAndWait(`wave-range-reopen-${Date.now()}`, [
-                    { action: 'mouse-event', payload: { selector: '.track-axis-canvas', type: 'dblclick' } },
+                    { action: 'mouse-event', payload: onAxis },
                 ], (snapshot) => snapshot.renderedUi?.waveformRangePopover?.open === true);
                 const shownMax = Number(reopened.renderedUi?.waveformRangePopover?.max);
                 assert.ok(Math.abs(shownMax - peak / 2) <= peak * 1e-3, `reopened popover should show the applied max ${peak / 2}, got ${shownMax}`);
                 const restored = await postActionsAndWait(`wave-range-auto-${Date.now()}`, [
-                    { action: 'mouse-event', payload: { selector: '#wave-range-auto', type: 'click' } },
-                ], (snapshot) => snapshot.renderedUi?.amplitudeZoomMaxNorm === 1);
-                assert.equal(restored.renderedUi?.amplitudeZoomMinNorm, -1);
+                    { action: 'mouse-event', payload: { selector: open + 'button[id$="-range-auto"]', type: 'click' } },
+                ], (snapshot) => near(snapshot.renderedUi?.tracks[0]?.waveformRange?.[1], whole[1]));
+                assert.ok(near(restored.renderedUi?.tracks[0]?.waveformRange?.[0], whole[0]), `the whole range should be back: ${JSON.stringify(restored.renderedUi?.tracks[0]?.waveformRange)}`);
             },
         },
         {

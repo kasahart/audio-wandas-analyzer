@@ -39,6 +39,7 @@ from figures.service import FigureService
 from figures.thinning import BAND_BUCKETS_PER_PX, _bucket_edges, band_extremes, drawn_band
 from frames import stage_view as sv
 from services.stage_combine import STORE, StageData, stage_data
+from test_figure_bench_cases import RECORDED_REL
 from test_figure_signal_cases import scene_signal
 from transport.command_dispatch import dispatch, validate_request
 from transport.figure_answers import BUDGET, CombineOps, signal_answer_of
@@ -109,8 +110,8 @@ def test_the_band_is_the_recorded_one_each_extreme_at_its_own_samples_time(case_
     step = 1.0 / ANSWER.rate
     assert (ANSWER.start + (first + lowest[::every]) * step).tolist() == expected["minT"]
     assert (ANSWER.start + (first + highest[::every]) * step).tolist() == expected["maxT"]
-    assert part[lowest[::every]].tolist() == expected["min"]
-    assert part[highest[::every]].tolist() == expected["max"]
+    assert part[lowest[::every]].tolist() == pytest.approx(expected["min"], rel=RECORDED_REL, abs=1e-12)
+    assert part[highest[::every]].tolist() == pytest.approx(expected["max"], rel=RECORDED_REL, abs=1e-12)
     # What is drawn is those samples, in time order, with the sample past each end of the range (none past the whole).
     xs, values = _points(drawn_band(ANSWER.start, ANSWER.rate, ANSWER.values, x_range, width))
     assert xs == sorted(xs) and len(set(xs)) == len(xs)

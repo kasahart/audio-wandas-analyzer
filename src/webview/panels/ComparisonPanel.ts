@@ -96,6 +96,8 @@ interface ComparisonPanelRenderedUi {
         waveformMinDrawX: number | null;
         waveformMaxDrawX: number | null;
         waveformCanvasWidth: number | null;
+        waveformFrame: { left: number; top: number; width: number; height: number } | null;
+        waveformRange: [number, number] | null;
         resultError: string | null;
         spectrumSlicePresent: boolean;
     }>;
