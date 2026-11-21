@@ -101,15 +101,21 @@ def _same(found: np.ndarray, recorded: np.ndarray, what: str) -> None:
     assert np.allclose(found, recorded, rtol=RELATIVE, atol=TOLERANCE, equal_nan=True), what
 
 
-#: A gain under this is the rounding of an FFT where the measured channel has nothing (a ratio of 1e-10): which
-#: number it rounds to differs by machine by several dB, so there it is only held to stay under it.
+#: A gain under this is the rounding of an FFT where the measured channel has nothing (a ratio of 1e-10). Which
+#: number it rounds to differs by machine: the gain by several dB, and the phase and the coherence of such a bin are
+#: of rounding alone. There the gain is only held to stay under the floor, and the phase and coherence are not held.
 GAIN_FLOOR_DB = -200.0
+
+
+def _nothing(recorded_gain: np.ndarray) -> np.ndarray:
+    """The bins whose recorded gain is the rounding of nothing."""
+    return np.nan_to_num(recorded_gain, nan=0.0) < GAIN_FLOOR_DB
 
 
 def _same_gain(found: np.ndarray, recorded: np.ndarray, what: str) -> None:
     assert found.shape == recorded.shape, what
     assert np.array_equal(np.isnan(found), np.isnan(recorded)), f"{what}: the bins with no value differ"
-    nothing = np.nan_to_num(recorded, nan=0.0) < GAIN_FLOOR_DB
+    nothing = _nothing(recorded)
     assert np.all(found[nothing] < GAIN_FLOOR_DB), f"{what}: a bin with nothing in it is no longer under the floor"
     _same(found[~nothing], recorded[~nothing], what)
 
@@ -184,8 +190,10 @@ def test_a_kept_pair_s_lines_are_the_old_reply_s_with_the_phase_in_degrees(name:
     # A gain with no value (the reference channel silent in that bin) stays without one: it is not a level at
     # the floor.
     _same_gain(gain.values, _values(recorded["gainDb"]), f"{name} gain")
-    _same(phase.values, np.degrees(_values(recorded["phaseRad"])), f"{name} phase")
-    _same(coherence.values, _values(recorded["coherence"]), f"{name} coherence")
+    held = ~_nothing(_values(recorded["gainDb"]))
+    assert phase.values.shape == coherence.values.shape == held.shape
+    _same(phase.values[held], np.degrees(_values(recorded["phaseRad"]))[held], f"{name} phase")
+    _same(coherence.values[held], _values(recorded["coherence"])[held], f"{name} coherence")
     assert (gain.quantity, phase.quantity, phase.unit, coherence.quantity) == ("gain", "phase", "deg", "coherence")
     for line in (gain, phase, coherence):
         assert line.xs.size == recorded["nFft"] // 2 + 1
