@@ -48,6 +48,7 @@ export interface TrackRowFigureDeps {
     /** A click's time on the recording's own axis (s); the screen may return how to take it back. */
     placed?(seconds: number): (() => void) | void;
     /** Alt+drag: a stretch of time (s). */
+    /** `from`: where the drag began; `to`: where it was let go (before or after it). */
     ranged?(from: number, to: number): (() => void) | void;
     /** Shift+drag: how far (s) from the press; null when abandoned. */
     shifted?(by: number | null, done: boolean): void;
@@ -118,7 +119,7 @@ export function createTrackRowFigure(deps: TrackRowFigureDeps): TrackRowFigureSc
         made.on('reset', () => deps.reset?.());
         made.on('placed', lanes => deps.lanes?.(lanes));
         if (deps.placed) made.on('place', at => deps.placed?.(at.x));
-        if (deps.ranged) made.on('range', range => deps.ranged?.(range.x[0], range.x[1]));
+        if (deps.ranged) made.on('range', range => (range.from === range.x[1] ? deps.ranged?.(range.x[1], range.x[0]) : deps.ranged?.(range.x[0], range.x[1])));
         if (deps.shifted) made.on('shift', drag => deps.shifted?.(drag.by, drag.done));
         made.on('picture', members => {
             const gone = answersLetGo(members?.shown.excluded ?? [], spec?.keys ?? []);

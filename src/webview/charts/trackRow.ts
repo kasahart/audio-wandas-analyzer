@@ -24,6 +24,8 @@ export const TRACK_SPECTROGRAM_LINE = 'levels';
 export interface TrackRowAnswers {
     readonly signal?: string;
     readonly image?: string;
+    /** Whether the channel is calibrated: its axes say when it is not (R4). Not said where it is not known. */
+    readonly calibrated?: boolean;
 }
 
 /** The kept answers of the other rows a row's scales are linked with (Link scales): their keys, nothing of them. */
@@ -57,7 +59,8 @@ export const trackRow = (answers: TrackRowAnswers, shows: { waveform: boolean; s
     }
     if (!lanes.length) return null;
     // The row's own answers are stale with its file; the others' are named for their scale only.
-    const own = keys.map(key => ({ key, state: stale ? 'stale' as const : 'usable' as const, version: key }));
+    const calibrated = answers.calibrated === undefined ? {} : { calibrated: answers.calibrated };
+    const own = keys.map(key => ({ key, state: stale ? 'stale' as const : 'usable' as const, version: key, ...calibrated }));
     const named = [...new Set(others)].filter(key => !keys.includes(key)).map(key => ({ key, state: 'usable' as const, version: key }));
     return { lanes, keys: [...own, ...named] };
 };

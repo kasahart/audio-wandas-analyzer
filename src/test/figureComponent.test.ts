@@ -17,6 +17,7 @@ import { specifiedEnds, tickNameAt, type Figure, type FigurePick } from '../webv
 import { alongAxisTicks, valueAxisTicks } from '../webview/figure/ticks';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotWindow } from '../webview/runtime/plotInteraction';
 import { keyRouterFor } from '../webview/shell/keyRouter';
+import { pagePresses } from '../webview/figure/pressArbiter';
 import { figurePage, keysReply, pointReply, SCENE_SIZE, scenePicture, sceneSpec, type FigurePage } from './helpers/figureStandIn';
 import type { PendingInput, R13Input, R7Input, R9Input, Scene } from './helpers/figureOverlayRun';
 
@@ -690,6 +691,65 @@ test('Alt+drag tells the stretch across it covers (range), in the axis\'s values
     const whole = axisScale(20, 20000, true);
     assert.deepEqual(views[0].x, specifiedEnds(whole, { start: 120 / 600, end: 420 / 600 }), 'the box\'s ends across, at the range field\'s decimals');
     assert.deepEqual(views[0].lanes, [{ lane: 'overlay', y: specifiedEnds(axisScale(-60, -10, false), { start: 0.25, end: 0.75 }) }]);
+    figure.dispose();
+});
+
+test('an Alt+drag says which end it began at: a drag to the left begins at its high end', () => {
+    const page = figurePage();
+    const figure = drawn(page);
+    const ranges: Array<{ x: [number, number]; from?: number }> = [];
+    figure.on('range', range => { ranges.push(range); });
+    const left = client('overlay', { x: 120, y: 50 }), right = client('overlay', { x: 420, y: 150 });
+    for (const [from, to] of [[left, right], [right, left]]) {
+        page.mouse(figure.canvas, 'mousedown', from.x, from.y, { altKey: true });
+        page.mouse(page.document, 'mousemove', to.x, to.y, { buttons: 1, altKey: true });
+        page.mouse(page.document, 'mouseup', to.x, to.y, { altKey: true });
+    }
+    assert.deepEqual(ranges.map(range => range.from === range.x[0] ? 'low' : range.from === range.x[1] ? 'high' : 'neither'), ['low', 'high']);
+    figure.dispose();
+});
+
+for (const lost of ['blur', 'hidden', 'pointercancel'] as const) {
+    test(`a drag whose release is lost (${lost}) is let go: no box stays, nothing is zoomed, and the page's keys are free again (R7)`, () => {
+        const page = figurePage();
+        const figure = drawn(page);
+        const views: FigureView[] = [];
+        figure.on('view', view => { views.push(view); });
+        const from = client('overlay', { x: 120, y: 50 }), to = client('overlay', { x: 420, y: 150 });
+        page.mouse(figure.canvas, 'mousedown', from.x, from.y);
+        page.mouse(page.document, 'mousemove', to.x, to.y, { buttons: 1 });
+        assert.ok(figure.inspect().box, 'the box is drawn while dragging');
+        assert.equal(pagePresses(page.document).dragging, true);
+        const view = page.document.defaultView!;
+        if (lost === 'blur') view.dispatchEvent(new view.Event('blur'));
+        else if (lost === 'hidden') {
+            Object.defineProperty(page.document, 'hidden', { configurable: true, get: () => true });
+            page.document.dispatchEvent(new view.Event('visibilitychange'));
+        } else page.document.dispatchEvent(new view.Event('pointercancel'));
+        assert.equal(figure.inspect().box, null, 'figure.ts onLost: a press whose release will not come is abandoned');
+        assert.equal(pagePresses(page.document).dragging, false);
+        // The button let go elsewhere, the pointer comes back and is let go again: nothing is zoomed by the old press.
+        page.mouse(page.document, 'mouseup', to.x, to.y);
+        assert.equal(views.length, 0);
+        figure.dispose();
+    });
+}
+
+test('the keys are the plot\'s under the pointer: a Figure with only the keyboard\'s focus leaves them while the pointer is on another plot (R7)', () => {
+    const page = figurePage();
+    const figure = drawn(page);
+    const views: FigureView[] = [];
+    figure.on('view', view => { views.push(view); });
+    figure.canvas.focus();
+    // The pointer on another plot of the page: the keys are that plot's, not the focused one's.
+    const presses = pagePresses(page.document);
+    presses.over = {};
+    page.key('+');
+    assert.equal(views.length, 0, 'figure.ts keydown: focus is the fallback, the plot under the pointer comes first');
+    // The pointer on no plot: the focused Figure takes the key.
+    presses.over = null;
+    page.key('+');
+    assert.equal(views.length, 1);
     figure.dispose();
 });
 

@@ -35,6 +35,8 @@ export interface TrackRowsTrack {
     /** What the readout calls a channel, and its canvas's accessible name (the file, the channel, what the canvas shows). */
     name(channel: number): string;
     label(channel: number): string;
+    /** Whether a channel is calibrated (R4: its axes say when it is not); left out where the screen does not know. */
+    calibrated?(channel: number): boolean;
     /** The time on screen, in the recording's own seconds (before 0 and past its end where the row shows none of it). */
     window: readonly [number, number];
     durationSeconds: number;
@@ -299,7 +301,8 @@ export function createTrackRows(deps: TrackRowsDeps): TrackRows {
         const zoom = state.zoom?.channels.find(item => item.channelIndex === channel);
         const window = state.zoom && state.zoom.startNorm !== undefined && state.zoom.endNorm !== undefined ? { startNorm: state.zoom.startNorm, endNorm: state.zoom.endNorm } : null;
         const zoomed = zoom?.image !== undefined && window !== null && !deps.serves(track, state.whole, null, plotWidth(track)) && deps.serves(track, state.whole, window, plotWidth(track));
-        return { ...(whole.signal !== undefined ? { signal: whole.signal } : {}), ...(zoomed ? { image: zoom.image } : whole.image !== undefined ? { image: whole.image } : {}) };
+        const calibrated = track.calibrated?.(channel);
+        return { ...(whole.signal !== undefined ? { signal: whole.signal } : {}), ...(zoomed ? { image: zoom.image } : whole.image !== undefined ? { image: whole.image } : {}), ...(calibrated === undefined ? {} : { calibrated }) };
     };
     const viewOf = (track: TrackRowsTrack, channel: number, lanes: readonly string[]): FigureView => {
         const ranges = deps.ranges(track, channel);

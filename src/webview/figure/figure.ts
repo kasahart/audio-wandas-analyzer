@@ -114,6 +114,8 @@ export interface FigurePlacedLane {
 export interface FigureRange {
     lane: string;
     x: [number, number];
+    /** Where a drag began, of a range dragged out (one of `x`'s ends); not said of a bin clicked. */
+    from?: number;
     /** It reaches the top of the lane's whole axis across, and takes the values on it (a distribution's last bin holds the top). */
     closed?: boolean;
 }
@@ -1423,7 +1425,7 @@ export function createFigure(options: FigureOptions): Figure {
         if (disposed) return;
         lastClient = { clientX: event.clientX, clientY: event.clientY };
         if (press) {
-            if (event.buttons === 0) { abandon(event); return; }
+            if (event.buttons === 0) { abandon(); return; }
             const at = placeOf(event);
             if (!press.isDrag && exceedsDragThreshold(event.clientX - press.clientX, event.clientY - press.clientY)) { press.isDrag = true; presses.dragging = true; }
             // Shift+drag where the screen takes one: told how far, and no box is drawn (nothing is zoomed).
@@ -1444,6 +1446,7 @@ export function createFigure(options: FigureOptions): Figure {
         // A drag under way on another plot reads nothing (R7).
         if (presses.dragging) return;
         pointer = placeOf(event);
+        presses.over = token;
         hintAt(pointer);
         const under = laneOrAxisAt(pointer.x, pointer.y);
         // The pointer takes the readout back: the keys' read on its way and the keys pressed are of no use now.
@@ -1459,7 +1462,7 @@ export function createFigure(options: FigureOptions): Figure {
     const acrossOf = (mark: ReturnType<typeof markNow>): { x: number } | null => (mark ? { x: mark.point.x } : null);
     /** Off the plots, where the screen asks it (leaveForgets): the pointer's read is let go. */
     const forget = (): void => { if (options.leaveForgets && selected?.by === 'pointer') { selected = null; lastRead = null; paint(); } };
-    const onLeave = (): void => { pointer = null; hintAt(null); forget(); const mark = markNow(); tellRead(mark); tellAcross(acrossOf(mark)); };
+    const onLeave = (): void => { pointer = null; if (presses.over === token) presses.over = null; hintAt(null); forget(); const mark = markNow(); tellRead(mark); tellAcross(acrossOf(mark)); };
     /**
      * A scroll under a still pointer (R7): the plot now under it reads there as a pointer moved onto it would, and the
      * plot it left reads no more. No pointer event comes of a scroll, so each Figure looks where the pointer was last.
@@ -1488,7 +1491,7 @@ export function createFigure(options: FigureOptions): Figure {
         press = { ...at, clientX: event.clientX, clientY: event.clientY, lane, isDrag: false, to: at, alt: event.altKey, shift: event.shiftKey && listeners.shift.size > 0, read };
         event.preventDefault();
     };
-    const abandon = (_event: MouseEvent): void => {
+    const abandon = (): void => {
         const done = press;
         press = null;
         box = null;
@@ -1498,6 +1501,9 @@ export function createFigure(options: FigureOptions): Figure {
         if (done && !done.isDrag) tap(done.read, () => false);
         paint();
     };
+    /** The release will not come (the window lost focus or was hidden, the pointer was cancelled): the press is let go (R7). */
+    const onLost = (): void => { if (press) abandon(); };
+    const onHidden = (): void => { if (doc.hidden) onLost(); };
     const onUp = (event: MouseEvent): void => {
         const done = press;
         if (!done) return;
@@ -1520,7 +1526,7 @@ export function createFigure(options: FigureOptions): Figure {
         if (x1 - x0 <= 0.005) { paint(); return; }
         const across = [lane.x.at(x0), lane.x.at(x1)] as const;
         // Alt+drag picks a stretch across where the screen takes one (range); elsewhere it is a drag as any (a box zoom).
-        if (done.alt && listeners.range.size) { tellRange(rangeOf(lane.id, across[0], across[1])); paint(); return; }
+        if (done.alt && listeners.range.size) { tellRange({ ...rangeOf(lane.id, across[0], across[1]), from: across[fx(done.x) <= fx(to.x) ? 0 : 1] }); paint(); return; }
         const wx = wholeScale(lane, 'x'), wy = wholeScale(lane, 'y');
         const shownY = lane.up;
         const x = endsOf(wx, { start: Math.max(0, wx.fraction(across[0])), end: Math.min(1, wx.fraction(across[1])) });
@@ -1652,7 +1658,8 @@ export function createFigure(options: FigureOptions): Figure {
         layer: 'plot',
         keydown: event => {
             // The keys are the Figure's with the pointer on it, or with the keyboard's focus on its canvas (Tab: R7).
-            const focused = !pointer && doc.activeElement === canvas;
+            // Focus is the fallback: with the pointer on another plot, the keys are that plot's.
+            const focused = !pointer && doc.activeElement === canvas && (presses.over === null || presses.over === token);
             if ((!pointer && !focused) || disposed) return false;
             const zoom = zoomKeyAction(event.key);
             if (zoom) {
@@ -1695,6 +1702,9 @@ export function createFigure(options: FigureOptions): Figure {
     canvas.addEventListener('wheel', onWheel, { passive: false });
     doc.addEventListener('mousemove', onMove);
     doc.addEventListener('mouseup', onUp);
+    doc.addEventListener('pointercancel', onLost, true);
+    doc.addEventListener('visibilitychange', onHidden);
+    doc.defaultView?.addEventListener('blur', onLost);
     doc.addEventListener('mousedown', onSecondPress, true);
     doc.addEventListener('scroll', onScroll, { capture: true, passive: true });
     const stopHold = requests.onReadsHeld(nowHeld => {
@@ -1781,6 +1791,10 @@ export function createFigure(options: FigureOptions): Figure {
             canvas.removeEventListener('wheel', onWheel);
             doc.removeEventListener('mousemove', onMove);
             doc.removeEventListener('mouseup', onUp);
+            doc.removeEventListener('pointercancel', onLost, true);
+            doc.removeEventListener('visibilitychange', onHidden);
+            doc.defaultView?.removeEventListener('blur', onLost);
+            if (presses.over === token) presses.over = null;
             doc.removeEventListener('mousedown', onSecondPress, true);
             doc.removeEventListener('scroll', onScroll, true);
             popover.close();

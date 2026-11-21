@@ -46,6 +46,10 @@ test('a channel\'s spec is its waveform (a band lane) over its spectrogram (an i
     assert.deepEqual(trackRow({ signal: 'sig', image: 'img' }, { waveform: true, spectrogram: false })?.lanes.map(lane => lane.id), [TRACK_WAVE_LANE]);
     assert.deepEqual(trackRow({ signal: 'sig' }, BOTH)?.lanes.map(lane => lane.id), [TRACK_WAVE_LANE], 'the levels are not kept (yet): the waveform alone');
     assert.equal(trackRow({}, BOTH), null);
+    // R4: the row's own answers say whether the channel is calibrated, so its axes say when it is not.
+    assert.deepEqual(trackRow({ signal: 'sig', image: 'img', calibrated: false }, BOTH)?.keys.map(key => key.calibrated), [false, false]);
+    assert.deepEqual(trackRow({ signal: 'sig', image: 'img', calibrated: true }, BOTH)?.keys.map(key => key.calibrated), [true, true]);
+    assert.deepEqual(trackRow({ signal: 'sig' }, BOTH)?.keys.map(key => 'calibrated' in key), [false], 'not known: not said');
     assert.equal(trackRow({ signal: 'sig', image: 'img' }, { waveform: false, spectrogram: false }), null);
 });
 

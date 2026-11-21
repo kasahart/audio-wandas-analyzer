@@ -23,6 +23,8 @@ export type PressClick = () => (() => void) | void;
 export interface PagePresses {
     count: number;
     dragging: boolean;
+    /** The plot the pointer is on now (null: none). The keys are its before a plot that only has the keyboard's focus. */
+    over: object | null;
     endedBy: Event | null;
     /** The last click done on a plot, at which press, how to take it back and how to reset that plot's zoom. */
     click: { at: number; plot: object; takeBack: () => void; reset: () => void } | null;
@@ -33,7 +35,7 @@ const PLOT_PRESSES = Symbol.for('audio-wandas-analyzer.plotPresses');
 /** The page's one arbitration (made with the first plot's gestures). */
 export function pagePresses(doc: object): PagePresses {
     const holder = doc as { [PLOT_PRESSES]?: PagePresses };
-    return holder[PLOT_PRESSES] ??= { count: 0, dragging: false, endedBy: null, click: null };
+    return holder[PLOT_PRESSES] ??= { count: 0, dragging: false, over: null, endedBy: null, click: null };
 }
 
 /** A press began on a plot: it is counted, so a click before it no longer stands. */

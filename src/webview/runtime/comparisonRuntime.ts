@@ -68,7 +68,7 @@ import { ShownSpectrumCursor, SpectrumCommitHold } from './spectrumCommitHold';
 import { createFailureHold, createLatestAnswers, UNANSWERED_RETRY_MS } from './answerStore';
 import { type AnalysisWindowBand, CURSOR_LINE_STYLE, drawAnalysisWindowBand, drawDashedTimeLine, paintLoopRegion, paintOverPlots, waveformCursorLineStyle } from './canvasOverlays';
 import { calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles } from './calibrationDecorations';
-import { laneAmplitudeRange } from './figureModel';
+import { laneAmplitudeRange, levelKeyOf } from './figureModel';
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
 import { ComparisonTestBridge } from './testBridge';
 import { RuntimeEventFeed } from './runtimeEvents';
@@ -323,7 +323,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let scalesLinked = persistedWebviewState.linkScales === true;
     let linkedPeaksMemo: Map<string, number> | null = null;
     /** The unit of the row a colour range was typed on (null: none typed on a row; the display's range is every row's). */
-    let colourGivenUnit: string | null = null;
+    let colourGivenLevel: string | null = null;
+    /** What a channel's levels are of (unit, reference, the reference's name): channels of another are on another scale (R4). */
+    const levelOf = (ch: ChannelSummary | undefined): string => levelKeyOf(trackLevelInput([ch], undefined));
     const amplitudeUnitKey = (ch: ChannelSummary | undefined) => (ch && typeof ch.unit === 'string' ? ch.unit.trim() : '');
     /** The largest peak of each unit among the rows displayed, while linked; worked out once per render. */
     function linkedPeaks(): Map<string, number> | null {
@@ -433,6 +435,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 id: record.id, index: i, filePath: result.filePath, sourceVersion: result.sourceVersion, channels: channelsForResult(result).length,
                 // (One name: the readout's row cuts a long name and keeps the values after its first " / " whole.)
                 colour: trackColor(i), name: channel => spectrumSeriesLabel(result, channel).replace(/ \/ /gu, ' · '),
+                calibrated: channel => channelsForResult(result)[channel]?.measurement?.calibrationStatus === 'calibrated',
                 label: channel => STR.ariaRowCanvas.replace('{file}', result.fileName).replace('{channel}', channelLabel(result, channel)),
                 window: [view.fileAtZoomStart * seconds, view.fileAtZoomEnd * seconds], durationSeconds: seconds,
                 start: view.trackStart, length: view.trackDurRatio, changed: !!record.sourceChanged,
@@ -500,11 +503,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         frequency: () => spectrogramFrequencyView
             ? [spectrogramFrequencyView.lowHz, spectrogramFrequencyView.highHz]
             : [spectrogramSettings.display.minFrequencyHz ?? null, spectrogramSettings.display.maxFrequencyHz ?? null],
-        // A colour range typed on a row's bar is the rows' of that row's unit (a level of another unit or reference is
-        // another scale); one set in the settings is every row's.
+        // A colour range typed on a row's bar is the rows' of that row's unit and reference (a level of another unit or
+        // reference is another scale); one set in the settings is every row's.
         colour: (row, channel) => {
             const result = state.results[row.index];
-            if (colourGivenUnit !== null && result && amplitudeUnitKey(channelsForResult(result)[channel]) !== colourGivenUnit) return [null, null];
+            if (colourGivenLevel !== null && result && levelOf(channelsForResult(result)[channel]) !== colourGivenLevel) return [null, null];
             return [spectrogramSettings.display.dbMin ?? null, spectrogramSettings.display.dbMax ?? null];
         },
         // Linked, the rows of every recording displayed (in view or not) share their scales: the figure service decides them.
@@ -541,7 +544,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         },
         setColour: (row, channel, ends) => {
             const result = state.results[row.index];
-            colourGivenUnit = ends && result ? amplitudeUnitKey(channelsForResult(result)[channel]) : null;
+            colourGivenLevel = ends && result ? levelOf(channelsForResult(result)[channel]) : null;
             setSpectrogramDisplay({ ...spectrogramSettings.display, dbMin: ends ? ends[0] : null, dbMax: ends ? ends[1] : null });
         },
         resetZoom,
@@ -556,6 +559,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             setLoopRegion({ start, end });
             return () => setLoopRegion(before);
         },
+        loopNow: () => viewState.loop,
+        viewSpan: () => waveformView.span(),
         offset: row => trackRuntimeAt(row.index).offsetSeconds,
         setOffset: (row, seconds, done) => { disableFollowCursor(); setTrackOffset(row.index, seconds, done); },
         reads: norm => updateCursorDisplay(norm ?? viewState.cursor),

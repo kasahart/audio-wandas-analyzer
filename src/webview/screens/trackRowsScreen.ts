@@ -13,6 +13,7 @@
  *
  * It holds no answer, counts nothing of one and draws nothing.
  */
+import { loopAfterDrag } from './loopDrag';
 import type { FigureAnswers } from '../answers/figureRequests';
 import { TRACK_SPECTROGRAM_LANE, TRACK_WAVE_LANE } from '../charts/trackRow';
 import type { FigureInspection, FigurePlacedLane, FigureTypedAxis, FigureView, FigureWords } from '../figure/index';
@@ -68,6 +69,9 @@ export interface TrackRowsScreenDeps {
     /** The cursor put at a time, the loop set to a stretch: each returns how to take it back. */
     seek: (norm: number) => () => void;
     loop: (start: number, end: number) => () => void;
+    /** The loop there is now (null: none) and the part of the whole time on screen: a drag begun on an end of the loop moves that end. */
+    loopNow: () => { start: number; end: number } | null;
+    viewSpan: () => number;
     offset: (row: ScreenRow) => number;
     setOffset: (row: ScreenRow, seconds: number, done: boolean) => void;
     /** The time a row reads (null: none), for the screen's time display. */
@@ -180,8 +184,8 @@ export function createTrackRowsScreen(deps: TrackRowsScreenDeps): TrackRowsScree
         ranged: (track, from, to) => {
             const row = rowOf(track);
             if (!row) return undefined;
-            const start = Math.max(0, Math.min(1, normOf(row, Math.min(from, to)))), end = Math.max(0, Math.min(1, normOf(row, Math.max(from, to))));
-            return end > start ? deps.loop(start, end) : undefined;
+            const next = loopAfterDrag(deps.loopNow(), normOf(row, from), normOf(row, to), deps.viewSpan());
+            return next ? deps.loop(next.start, next.end) : undefined;
         },
         shifted: (track, by, done) => {
             const row = rowOf(track);
