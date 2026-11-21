@@ -43,9 +43,9 @@ import { axisScale, valueScale, windowedScale, type AxisPart, type AxisScale, ty
 import { inDb, levelAxisName, levelUnitOfName, lineAxisNames, type LineAxisWords, colourAxisName, rowsAxisName } from './axisNames';
 import { BINS_COLOURS, paintBins, placeBins, type PlacedBins } from './binsLane';
 import { fieldWindow } from './fieldWindow';
-import { colourBarBox, COLOUR_BAR, COLOUR_BAR_ROOM, paintColourBar, paintImage, upScale, type ImagePalette } from './imageLane';
+import { colourBarBox, COLOUR_BAR, COLOUR_BAR_ROOM, emptyColourOf, imagePixelsOf, paintColourBar, upScale, type ImagePalette } from './imageLane';
 import { waitingClick } from './pendingClick';
-import { pictureOf, type DrawnLine, type Picture, type PictureBins, type PictureLane } from './picturePoints';
+import { pictureOf, type DrawnImage, type DrawnLine, type Picture, type PictureBins, type PictureLane } from './picturePoints';
 import { clickReleased, exceedsDragThreshold, forgetClick, pagePresses, pressBegan, secondPress, type PressClick } from './pressArbiter';
 import { alongAxisTicks, valueAxisTicks } from './ticks';
 import { fitAxisTitle, fontPixels, scaledFont } from './axisTitle';
@@ -258,6 +258,13 @@ export interface FigureOptions {
     /** How a level image is coloured where not in grey (a Tracks row's spectrogram: viridis). Signed values keep their own. */
     imagePalette?: 'viridis';
     /**
+     * The answer (its key) whose image an image lane keeps drawn under the one it draws: the widest picture of that
+     * answer the lane has drawn stays, and fills the plot where the picture drawn now has no cell (a Tracks row
+     * scrolled past its picture, or drawing a zoom's finer levels that reach less far: the whole file's levels are
+     * there at once, coarser, until the picture of that place comes). Drawn and nothing else: it is never read.
+     */
+    imageUnder?: (lane: string) => string | undefined;
+    /**
      * A press on the plot gives its canvas the focus, and while it has the focus ← → are left to the screen (a Tracks
      * row: the screen's cursor keys, ← → and Space, are the focused row's; R7's one exception). Elsewhere a press
      * leaves the focus where it is: the keys are the plot's under the pointer.
@@ -315,6 +322,8 @@ export interface FigureInspection {
             line: string; key: string; rows: number; columns: number; colour: [number, number]; colourName: string;
             colourTicks: Array<{ value: number; text: string; px: number }>;
             edges: { left: number; right: number; top: number; bottom: number };
+            /** The image kept under it (FigureOptions.imageUnder): the px its outer column edges fall at; absent with none. */
+            under?: { left: number; right: number };
         };
         /** A bins lane's bars, dots, ticks and role lines as placed (binsLane.ts); absent on every other lane. */
         bins?: PlacedBins;
@@ -915,7 +924,9 @@ export function createFigure(options: FigureOptions): Figure {
         const image = lane.lane.image, colour = lane.lane.range?.colour;
         if (!image || !colour) return undefined;
         const bar = valueScale({ min: colour[0], max: colour[1] }, lane.frame);
+        const under = underOf(lane.id);
         return {
+            ...(under ? { under: { left: xPx(lane, under.columnEdges[0]), right: xPx(lane, under.columnEdges[under.columnEdges.length - 1]) } } : {}),
             line: image.line, key: image.key, rows: image.cells.length, columns: image.cells[0]?.length ?? 0, colour: [colour[0], colour[1]], colourName: levelName(lane.lane),
             colourTicks: valueAxisTicks({ min: colour[0], max: colour[1] }, lane.frame.height).map(tick => ({ value: tick.value, text: tick.text, px: bar.yOf(tick.value) })),
             edges: {
@@ -994,26 +1005,59 @@ export function createFigure(options: FigureOptions): Figure {
         try { return canvas.getContext('2d'); } catch { return null; }
     };
     /**
-     * An image lane's cells as painted last, kept as pixels: a read's mark moving over the image paints the figure
-     * again, and filling every cell each time took about 100 ms. The pixels are painted again when the
-     * picture's image, the frame, the axes or the colour range are another.
+     * An image lane's cells as pixels, kept: the pixels are of the image itself (imagePixelsOf), so a read's mark
+     * moving over it, and the image moved across while the time shown is scrolled, put the kept pixels again and
+     * make none. They are made again when the picture's image, the plot's size, the scale across or up, or the
+     * colour range are another.
      */
     const imagePixels = new Map<string, { image: unknown; key: string; canvas: HTMLCanvasElement }>();
-    const drawImageLane = (ctx: CanvasRenderingContext2D, id: string, image: Parameters<typeof paintImage>[1], frame: { left: number; top: number; width: number; height: number }, x: Parameters<typeof paintImage>[3], up: Parameters<typeof paintImage>[4], colour: readonly [number, number], ratio: number, palette: ImagePalette): void => {
-        const key = [frame.width, frame.height, ratio, x.fraction(image.columnEdges[0]), x.fraction(image.columnEdges.at(-1) ?? 0), up.fraction(image.rowEdges[0]), up.fraction(image.rowEdges.at(-1) ?? 0), colour[0], colour[1], palette].join(' ');
-        let kept = imagePixels.get(id);
+    const putImage = (ctx: CanvasRenderingContext2D, slot: string, image: DrawnImage, frame: { left: number; top: number; width: number; height: number }, x: AxisScale, up: AxisScale, colour: readonly [number, number], ratio: number, palette: ImagePalette): void => {
+        const pixels = imagePixelsOf(image, Math.max(1, Math.round(frame.width * ratio)), Math.max(1, Math.round(frame.height * ratio)), x, up, colour, palette);
+        // (Pixels made for the plot's part alone are of where the image is: its place is in their key.)
+        const key = [pixels.width, pixels.height, pixels.whole ? '' : x.fraction(image.columnEdges[0]), up.fraction(image.rowEdges[0]), up.fraction(image.rowEdges.at(-1) ?? 0), colour[0], colour[1], palette].join(' ');
+        let kept = imagePixels.get(slot);
         if (!kept || kept.image !== image || kept.key !== key) {
             const canvas = kept?.canvas ?? doc.createElement('canvas');
-            canvas.width = Math.max(1, Math.round(frame.width * ratio));
-            canvas.height = Math.max(1, Math.round(frame.height * ratio));
+            canvas.width = pixels.width;
+            canvas.height = pixels.height;
             const own = canvas.getContext('2d');
-            if (!own) { paintImage(ctx, image, frame, x, up, colour, palette); return; }
-            own.setTransform(ratio, 0, 0, ratio, 0, 0);
-            paintImage(own, image, { left: 0, top: 0, width: frame.width, height: frame.height }, x, up, colour, palette);
+            if (!own) return;
+            const made = own.createImageData(pixels.width, pixels.height);
+            made.data.set(pixels.data());
+            own.putImageData(made, 0, 0);
             kept = { image, key, canvas };
-            imagePixels.set(id, kept);
+            imagePixels.set(slot, kept);
         }
-        ctx.drawImage(kept.canvas, frame.left, frame.top, frame.width, frame.height);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(kept.canvas, frame.left + pixels.left / ratio, frame.top, pixels.width / ratio, pixels.height / ratio);
+    };
+    /** The images kept under the lanes' own (FigureOptions.imageUnder), by lane. */
+    const unders = new Map<string, DrawnImage>();
+    const imageAcross = (image: DrawnImage): number => Math.abs((image.columnEdges.at(-1) ?? 0) - image.columnEdges[0]);
+    /** A picture came: an image of the answer a lane keeps under is kept when it reaches at least as far across as the one kept. */
+    const keepUnder = (picture: Picture): void => {
+        if (!options.imageUnder) return;
+        for (const lane of picture.lanes) {
+            const image = lane.image;
+            if (!image || image.key !== options.imageUnder(lane.id)) continue;
+            const had = unders.get(lane.id);
+            if (!had || had.key !== image.key || imageAcross(image) >= imageAcross(had)) unders.set(lane.id, image);
+        }
+    };
+    /** The image kept under a lane's own now: of the answer the screen names now, or none. */
+    const underOf = (lane: string): DrawnImage | undefined => {
+        const had = unders.get(lane);
+        if (had && had.key !== options.imageUnder?.(lane)) { unders.delete(lane); imagePixels.delete(`${lane} under`); return undefined; }
+        return had;
+    };
+    const drawImageLane = (ctx: CanvasRenderingContext2D, id: string, image: DrawnImage, frame: { left: number; top: number; width: number; height: number }, x: AxisScale, up: AxisScale, colour: readonly [number, number], ratio: number, palette: ImagePalette): void => {
+        ctx.fillStyle = emptyColourOf(palette);
+        ctx.fillRect(frame.left, frame.top, frame.width, frame.height);
+        // The image kept under, where the lane's own does not reach both sides of the plot.
+        const under = underOf(id);
+        const from = x.fraction(image.columnEdges[0]), to = x.fraction(image.columnEdges.at(-1) ?? 0);
+        if (under && under !== image && (Math.min(from, to) > 0 || Math.max(from, to) < 1)) putImage(ctx, `${id} under`, under, frame, x, up, colour, ratio, palette);
+        putImage(ctx, id, image, frame, x, up, colour, ratio, palette);
     };
     /** Tells the screen the line read now, when it is another than the one told last (FigureSignals.read). */
     const tellRead = (mark: { lane: string; line: string } | null): void => {
@@ -1294,7 +1338,7 @@ export function createFigure(options: FigureOptions): Figure {
             // A picture of the same spec asked for a moment ago, while the range or the size went on changing: shown
             // on the newest view until the newest comes (never one older than the one shown, never read).
             const meanwhile = waiting && asked >= movedFrom && asked > shownFrom && reply?.status === 'picture' && reply.generation === asked ? pictureOf(reply) : null;
-            if (meanwhile) { last = meanwhile; shownFrom = asked; mapped = true; paint(); }
+            if (meanwhile) { last = meanwhile; keepUnder(meanwhile); shownFrom = asked; mapped = true; paint(); }
             return;
         }
         if (reply && reply.generation !== generation) return;
@@ -1302,6 +1346,7 @@ export function createFigure(options: FigureOptions): Figure {
         const picture = reply ? pictureOf(reply) : null;
         if (!picture) { failure = reply?.status === 'too-large' || reply?.status === 'busy' ? reply.status : 'failed'; waiting = false; mapped = false; last = null; paint(); tellPicture(); return; }
         last = picture;
+        keepUnder(picture);
         shownFrom = generation;
         drawnGeneration = generation;
         waiting = false;
@@ -1779,6 +1824,7 @@ export function createFigure(options: FigureOptions): Figure {
             disposed = true;
             press = null;
             imagePixels.clear();
+            unders.clear();
             selected = null;
             keyRead = null;
             forgetClick(presses, token);

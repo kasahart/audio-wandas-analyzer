@@ -53,39 +53,78 @@ function matchesType(expected: string, value: unknown): boolean {
     }
 }
 
-function firstViolation(schema: SchemaNode, value: unknown, path: string): string | null {
+/** What an array's items are when they are plain numbers (or null): the one check each needs, made in a loop of its own. */
+interface NumberItems { nullable: boolean; integer: boolean; minimum: number | undefined; maximum: number | undefined }
+
+/** `items` as numbers (or null) and nothing else, or null where an item is anything more (an object, an array, an enum). */
+function numberItems(items: SchemaNode): NumberItems | null {
+    let node = resolve(items), nullable = false;
+    if (node.anyOf && Object.keys(node).every(key => key === 'anyOf' || key.startsWith('x-'))) { nullable = true; node = resolve(node.anyOf[0]); }
+    const plain = (node.type === 'number' || node.type === 'integer')
+        && Object.keys(node).every(key => key === 'type' || key === 'minimum' || key === 'maximum' || key.startsWith('x-'));
+    return plain ? { nullable, integer: node.type === 'integer', minimum: node.minimum, maximum: node.maximum } : null;
+}
+
+/**
+ * Where under `value` the first break of `schema` is, written from the value itself (`''`: the value, `.key`, `[3]`,
+ * `.key[3].other`), or null. The path is written only on the way back from a break: a picture's reply has hundreds of
+ * thousands of numbers, and writing each one's path to check it took longer than drawing the picture.
+ */
+function violationUnder(schema: SchemaNode, value: unknown): string | null {
     const node = resolve(schema);
-    if (node.anyOf) return value === null ? null : firstViolation(node.anyOf[0], value, path);
-    if (node.type !== undefined && !matchesType(node.type, value)) return path;
-    if (node.const !== undefined && value !== node.const) return path;
-    if (node.enum !== undefined && !node.enum.some(item => item === value)) return path;
-    const numeric = typeof value === 'number';
-    if (numeric && node.minimum !== undefined && value < node.minimum) return path;
-    if (numeric && node.maximum !== undefined && value > node.maximum) return path;
-    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-        const record = value as Record<string, unknown>;
-        // An undefined property is absent, as JSON.stringify drops it; postMessage results can carry one.
-        if (node.additionalProperties === false) {
-            for (const [key, item] of Object.entries(record)) {
-                if (item !== undefined && !Object.hasOwn(node.properties ?? {}, key)) return path ? `${path}.${key}` : key;
+    if (node.anyOf) return value === null ? null : violationUnder(node.anyOf[0], value);
+    if (node.type !== undefined && !matchesType(node.type, value)) return '';
+    if (node.const !== undefined && value !== node.const) return '';
+    if (node.enum !== undefined && !node.enum.some(item => item === value)) return '';
+    if (typeof value === 'number') {
+        if (node.minimum !== undefined && value < node.minimum) return '';
+        if (node.maximum !== undefined && value > node.maximum) return '';
+        return null;
+    }
+    if (typeof value !== 'object' || value === null) return null;
+    if (Array.isArray(value)) {
+        if (!node.items) return null;
+        const items = resolve(node.items);
+        // An array of numbers (a line's points, a row of an image's cells): the same check as below, with no call an item.
+        const numbers = numberItems(node.items);
+        if (numbers) {
+            const { nullable, integer, minimum, maximum } = numbers;
+            for (let index = 0; index < value.length; index++) {
+                const item: unknown = value[index];
+                if (item === null && nullable) continue;
+                if (typeof item !== 'number' || !Number.isFinite(item) || (integer && !Number.isInteger(item))) return `[${index}]`;
+                if ((minimum !== undefined && item < minimum) || (maximum !== undefined && item > maximum)) return `[${index}]`;
             }
+            return null;
         }
-        for (const key of node.required ?? []) {
-            if (record[key] === undefined) return path ? `${path}.${key}` : key;
+        for (let index = 0; index < value.length; index++) {
+            const found = violationUnder(items, value[index]);
+            if (found !== null) return `[${index}]${found}`;
         }
-        for (const [key, child] of Object.entries(node.properties ?? {})) {
-            if (record[key] === undefined) continue;
-            const found = firstViolation(child, record[key], path ? `${path}.${key}` : key);
-            if (found !== null) return found;
+        return null;
+    }
+    const record = value as Record<string, unknown>;
+    // An undefined property is absent, as JSON.stringify drops it; postMessage results can carry one.
+    if (node.additionalProperties === false) {
+        for (const [key, item] of Object.entries(record)) {
+            if (item !== undefined && !Object.hasOwn(node.properties ?? {}, key)) return `.${key}`;
         }
     }
-    if (Array.isArray(value) && node.items) {
-        for (let index = 0; index < value.length; index++) {
-            const found = firstViolation(node.items, value[index], `${path}[${index}]`);
-            if (found !== null) return found;
-        }
+    for (const key of node.required ?? []) {
+        if (record[key] === undefined) return `.${key}`;
+    }
+    for (const [key, child] of Object.entries(node.properties ?? {})) {
+        if (record[key] === undefined) continue;
+        const found = violationUnder(child, record[key]);
+        if (found !== null) return `.${key}${found}`;
     }
     return null;
+}
+
+/** Dotted path of the first value that breaks `schema` (`''` for the root), or null. */
+function firstViolation(schema: SchemaNode, value: unknown): string | null {
+    const found = violationUnder(schema, value);
+    return found === null ? null : found.replace(/^\./, '');
 }
 
 const REQUEST_ENVELOPE_KEYS: ReadonlySet<string> = new Set(BACKEND_PROTOCOL_SCHEMA['x-requestEnvelopeKeys']);
@@ -110,10 +149,10 @@ export function withoutResponseEnvelope(message: unknown): unknown {
 
 /** Dotted path of the first value that breaks an inline `schema` (`$ref`s resolve to the protocol definitions), or null. */
 export function inlineSchemaViolation(schema: SchemaNode, value: unknown): string | null {
-    return firstViolation(schema, value, '');
+    return firstViolation(schema, value);
 }
 
 /** Dotted path of the first value that breaks the named definition (`''` for the root), or null. */
 export function schemaViolation(definition: DefinitionName, value: unknown): string | null {
-    return firstViolation({ $ref: `#/$defs/${definition}` }, value, '');
+    return firstViolation({ $ref: `#/$defs/${definition}` }, value);
 }

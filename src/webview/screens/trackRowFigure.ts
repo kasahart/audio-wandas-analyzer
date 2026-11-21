@@ -60,6 +60,8 @@ export interface TrackRowFigureDeps {
     lanes?(lanes: readonly FigurePlacedLane[]): void;
     /** A picture was drawn, or none could be. */
     drawn?(): void;
+    /** The whole file's levels (their key): kept drawn under a zoom's finer ones and past the picture's ends (Figure's `imageUnder`). */
+    under?(): string | undefined;
     /** A picture counted these kept answers (their keys) as let go by the backend: the owner asks them again. */
     letGo?(keys: readonly string[]): void;
 }
@@ -111,6 +113,7 @@ export function createTrackRowFigure(deps: TrackRowFigureDeps): TrackRowFigureSc
             laneGap: deps.laneGap, laneHeights: deps.laneHeights, keepWhileWaiting: true, ahead: ROW_AHEAD,
             ...(deps.readout ? { readout: deps.readout } : {}),
             ...(deps.hint ? { hint: deps.hint } : {}),
+            ...(deps.under ? { imageUnder: () => deps.under?.() } : {}),
             lineLabel: () => deps.name(),
             lineStyle: () => ({ colour: deps.colour(), width: LINE_WIDTH }),
         });

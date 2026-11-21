@@ -135,3 +135,16 @@ test('schema commands agree with ajv on the protocol fixtures', () => {
         assert.equal(referenceIsValid({ $ref: `#/$defs/${definition}` }, result), schemaViolation(definition, result) === null, command);
     }
 });
+
+test('an array of numbers is checked item by item, and the break is named by its place: a picture\'s cells too', () => {
+    const cells: SchemaNode = { type: 'object', properties: { cells: { type: 'array', items: { type: 'array', items: { anyOf: [{ type: 'number', 'x-drawn': true }, { type: 'null' }] } } } } };
+    assert.equal(inlineSchemaViolation(cells, { cells: [[1, null, -3.5], [0, 2, null]] }), null);
+    assert.equal(inlineSchemaViolation(cells, { cells: [[1, null, -3.5], [0, Number.NaN, null]] }), 'cells[1][1]');
+    assert.equal(inlineSchemaViolation(cells, { cells: [[1, 'x']] }), 'cells[0][1]');
+    const counts: SchemaNode = { type: 'array', items: { type: 'integer', minimum: 0, maximum: 9 } };
+    assert.equal(inlineSchemaViolation(counts, [0, 9, 4]), null);
+    assert.equal(inlineSchemaViolation(counts, [0, null]), '[1]', 'null only where the schema says so');
+    assert.equal(inlineSchemaViolation(counts, [0, 1.5]), '[1]');
+    assert.equal(inlineSchemaViolation(counts, [0, 10]), '[1]');
+    assert.equal(inlineSchemaViolation(counts, [-1]), '[0]');
+});

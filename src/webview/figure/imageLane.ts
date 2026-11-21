@@ -21,7 +21,7 @@ export function shadeOf(value: number, low: number, high: number): number {
     return Math.round(fraction * 255);
 }
 
-const grey = (shade: number): string => `rgb(${shade},${shade},${shade})`;
+type Rgb = readonly [number, number, number];
 
 /**
  * How an image's values are coloured: grey levels from the low end to the high end, signed about zero, or viridis
@@ -30,21 +30,27 @@ const grey = (shade: number): string => `rgb(${shade},${shade},${shade})`;
 export type ImagePalette = 'grey' | 'signed' | 'viridis';
 
 /** Viridis at five evenly spaced stops (matplotlib's), drawn in 256 steps between them. */
-const VIRIDIS_STOPS: ReadonlyArray<readonly [number, number, number]> = [[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]];
-const VIRIDIS: readonly string[] = Array.from({ length: 256 }, (_, shade) => {
+const VIRIDIS_STOPS: readonly Rgb[] = [[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]];
+const VIRIDIS: readonly Rgb[] = Array.from({ length: 256 }, (_, shade): Rgb => {
     const place = (shade / 255) * (VIRIDIS_STOPS.length - 1);
     const from = Math.min(VIRIDIS_STOPS.length - 2, Math.floor(place)), part = place - from;
-    const [r, g, b] = [0, 1, 2].map(at => Math.round(VIRIDIS_STOPS[from][at] + (VIRIDIS_STOPS[from + 1][at] - VIRIDIS_STOPS[from][at]) * part));
-    return `rgb(${r},${g},${b})`;
+    const mix = (at: 0 | 1 | 2): number => Math.round(VIRIDIS_STOPS[from][at] + (VIRIDIS_STOPS[from + 1][at] - VIRIDIS_STOPS[from][at]) * part);
+    return [mix(0), mix(1), mix(2)];
 });
 
-/** A value's colour on the colour axis `low` … `high`. Signed: by its share of the larger end's magnitude, blue below zero, red above. */
-export function colourOf(value: number, low: number, high: number, palette: ImagePalette): string {
-    if (palette === 'grey') return grey(shadeOf(value, low, high));
+/** A value's colour on the colour axis `low` … `high` as red, green, blue. Signed: by its share of the larger end's magnitude, blue below zero, red above. */
+function rgbOf(value: number, low: number, high: number, palette: ImagePalette): Rgb {
+    if (palette === 'grey') { const shade = shadeOf(value, low, high); return [shade, shade, shade]; }
     if (palette === 'viridis') return VIRIDIS[shadeOf(value, low, high)];
     const amount = Math.max(-1, Math.min(1, value / Math.max(Math.abs(low), Math.abs(high), 1e-9)));
     const fade = Math.round(255 * (1 - Math.abs(amount)));
-    return amount >= 0 ? `rgb(255,${fade},${fade})` : `rgb(${fade},${fade},255)`;
+    return amount >= 0 ? [255, fade, fade] : [fade, fade, 255];
+}
+
+/** A value's colour on the colour axis `low` … `high`, as a canvas writes it. */
+export function colourOf(value: number, low: number, high: number, palette: ImagePalette): string {
+    const [r, g, b] = rgbOf(value, low, high, palette);
+    return `rgb(${r},${g},${b})`;
 }
 
 /** The axis up a box as a ValueScale, from an AxisScale (logarithmic for a frequency axis). */
@@ -58,31 +64,67 @@ export function upScale(scale: AxisScale, box: { top: number; height: number }):
     };
 }
 
-/** Where each cell edge falls in the box (px, whole pixels so neighbouring cells meet without a seam). */
-const edgePixels = (edges: readonly number[], start: number, length: number, fraction: (value: number) => number, flip: boolean): number[] =>
-    edges.map(edge => { const at = fraction(edge); return Math.round(start + (flip ? 1 - at : at) * length); });
+/** Where no cell is: the low end's colour under levels (silence), the zero's white under signed values. */
+export const emptyColourOf = (palette: ImagePalette): string => (palette === 'signed' ? '#fff' : palette === 'viridis' ? colourOf(0, 0, 1, 'viridis') : '#000');
 
 /**
- * Paints `image`'s cells in `frame` on the axes `x` (across) and `y` (up), coloured on `colour` (low, high). The
- * caller clips to the frame: a cell reaching past the confirmed range is cut at the frame's side.
+ * An image's cells as pixels: where they are when the plot is `plotWidth` × `height` pixels on the axes `x` and `y`.
+ * The pixels are measured from the image's own first edge, not from the plot's side: an image moved across (a pan)
+ * has the same pixels and is only put somewhere else, so it is not made again for every move. `left` says where its
+ * first pixel is from the plot's left side. An image far wider than the plot (looked at closely) is made for the
+ * plot's part alone: then its pixels are of this place and are made again when it moves (`whole` false).
  */
-export function paintImage(ctx: CanvasRenderingContext2D, image: DrawnImage, frame: Box, x: AxisScale, y: AxisScale, colour: readonly [number, number], palette: ImagePalette = 'grey'): void {
-    const across = edgePixels(image.columnEdges, frame.left, frame.width, x.fraction, false);
-    const up = edgePixels(image.rowEdges, frame.top, frame.height, y.fraction, true);
-    // Where no cell is: the low end's colour under levels (silence), the zero's white under signed values.
-    ctx.fillStyle = palette === 'signed' ? '#fff' : palette === 'viridis' ? VIRIDIS[0] : '#000';
-    ctx.fillRect(frame.left, frame.top, frame.width, frame.height);
-    image.cells.forEach((row, r) => {
-        const top = Math.min(up[r], up[r + 1]), height = Math.abs(up[r] - up[r + 1]);
-        if (!(height > 0)) return;
-        row.forEach((cell, c) => {
-            if (cell === null) return;
-            const width = across[c + 1] - across[c];
-            if (!(width > 0)) return;
-            ctx.fillStyle = colourOf(cell, colour[0], colour[1], palette);
-            ctx.fillRect(across[c], top, width, height);
-        });
-    });
+export interface ImagePixels {
+    readonly left: number;
+    readonly width: number;
+    readonly height: number;
+    /** True when the pixels are the whole image's: another place across needs no other pixels. */
+    readonly whole: boolean;
+    /** Red, green, blue, alpha a pixel, rows from the top; a pixel no cell covers is clear (alpha 0). */
+    readonly data: () => Uint8ClampedArray;
+}
+
+/** As many pixels across as an image is kept whole for; a wider one is made for the plot's part alone. */
+export const WHOLE_IMAGE_PIXELS = 8192;
+
+export function imagePixelsOf(image: DrawnImage, plotWidth: number, height: number, x: AxisScale, y: AxisScale, colour: readonly [number, number], palette: ImagePalette = 'grey'): ImagePixels {
+    const first = x.fraction(image.columnEdges[0]);
+    // Whole pixels from the image's first edge, so neighbouring cells meet without a seam wherever the image is put.
+    const across = image.columnEdges.map(edge => Math.round((x.fraction(edge) - first) * plotWidth));
+    const up = image.rowEdges.map(edge => Math.round((1 - y.fraction(edge)) * height));
+    const start = Math.round(first * plotWidth);
+    const span = across.reduce((most, edge) => Math.max(most, edge), 1);
+    const whole = span <= WHOLE_IMAGE_PIXELS;
+    const left = whole ? start : 0, width = whole ? span : Math.max(1, plotWidth);
+    const shift = whole ? 0 : start;
+    const data = (): Uint8ClampedArray => {
+        const out = new Uint8ClampedArray(width * height * 4);
+        // Which column a pixel across is of, and which row a pixel down is of (-1: no cell).
+        const columnAt = new Int32Array(width).fill(-1), rowAt = new Int32Array(height).fill(-1);
+        for (let c = 0; c + 1 < across.length; c += 1) {
+            const from = Math.max(0, across[c] + shift), to = Math.min(width, across[c + 1] + shift);
+            for (let px = from; px < to; px += 1) columnAt[px] = c;
+        }
+        for (let r = 0; r + 1 < up.length; r += 1) {
+            const from = Math.max(0, Math.min(up[r], up[r + 1])), to = Math.min(height, Math.max(up[r], up[r + 1]));
+            for (let py = from; py < to; py += 1) rowAt[py] = r;
+        }
+        // A level's colour is one of 256 (its shade); a signed value's is worked out for the value itself.
+        const shades: readonly Rgb[] | null = palette === 'signed' ? null : Array.from({ length: 256 }, (_, shade): Rgb => (palette === 'viridis' ? VIRIDIS[shade] : [shade, shade, shade]));
+        for (let py = 0; py < height; py += 1) {
+            if (rowAt[py] < 0) continue;
+            const row = image.cells[rowAt[py]];
+            let at = py * width * 4;
+            for (let px = 0; px < width; px += 1, at += 4) {
+                const cell = columnAt[px] < 0 ? null : row[columnAt[px]];
+                if (cell === null || cell === undefined) continue;
+                const rgb = shades ? shades[shadeOf(cell, colour[0], colour[1])] : rgbOf(cell, colour[0], colour[1], palette);
+                out[at] = rgb[0]; out[at + 1] = rgb[1]; out[at + 2] = rgb[2]; out[at + 3] = 255;
+            }
+        }
+        return out;
+    };
+    return { left, width, height, whole, data };
 }
 
 /** The colour bar's box right of `frame`. */

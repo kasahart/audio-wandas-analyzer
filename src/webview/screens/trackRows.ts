@@ -14,7 +14,8 @@
  * settings, the file's version, whether the rows show a spectrogram). With the automatic STFT settings a zoomed row
  * asks for the window on screen as well (R3: the window's own STFT, finer than the whole file's frames), and shows
  * it once it is in and while it still serves the view (`serves`); until then, and after a pan past it, the whole
- * file's levels stay drawn. A failed asking is asked again after a pause, and at once when what it is of changes.
+ * file's levels stay drawn. The widest picture of the whole file's levels a row has drawn stays under whatever it
+ * draws (the Figure's `imageUnder`), so a row scrolled past its picture shows those, coarser, and never an empty plot. A failed asking is asked again after a pause, and at once when what it is of changes.
  */
 import type { FigureAnswers } from '../answers/figureRequests';
 import { trackRow, TRACK_SPECTROGRAM_LANE, TRACK_WAVE_LANE, type TrackRowAnswers, type TrackRowLinked } from '../charts/trackRow';
@@ -338,6 +339,7 @@ export function createTrackRows(deps: TrackRowsDeps): TrackRows {
             reset: () => deps.reset(),
             lanes: lanes => deps.lanes(now(), channel, lanes),
             drawn: () => deps.drawn(),
+            under: () => held.get(now().id)?.whole?.channels.find(item => item.channelIndex === channel)?.image,
             // The answer asked again has the same key: forgetting the reply asks it on the next showing, and the rows
             // are shown again for that once the Figure is done with this picture (nothing else would: the page may
             // be at rest, and the lane would stay empty until the next gesture).
