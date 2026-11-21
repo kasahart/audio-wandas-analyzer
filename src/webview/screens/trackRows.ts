@@ -15,7 +15,10 @@
  * asks for the window on screen as well (R3: the window's own STFT, finer than the whole file's frames), and shows
  * it once it is in and while it still serves the view (`serves`); until then, and after a pan past it, the whole
  * file's levels stay drawn. The widest picture of the whole file's levels a row has drawn stays under whatever it
- * draws (the Figure's `imageUnder`), so a row scrolled past its picture shows those, coarser, and never an empty plot. A failed asking is asked again after a pause, and at once when what it is of changes.
+ * draws (the Figure's `imageUnder`), so a row scrolled past its picture shows those, coarser, and never an empty plot.
+ * A window is asked only once the time on screen stands still (`still`): while it moves, every window asked would be
+ * of a place already left, its STFT would hold up the pictures of the place the rows are at now, and its reply would
+ * change what the rows draw from under them (a row scrolled on and on then never got a picture). A failed asking is asked again after a pause, and at once when what it is of changes.
  */
 import type { FigureAnswers } from '../answers/figureRequests';
 import { trackRow, TRACK_SPECTROGRAM_LANE, TRACK_WAVE_LANE, type TrackRowAnswers, type TrackRowLinked } from '../charts/trackRow';
@@ -228,6 +231,13 @@ export function createTrackRows(deps: TrackRowsDeps): TrackRows {
     const rowKey = (track: string, channel: number): string => `${track}\u0000${channel}`;
     const scales = new Map<string, Scale>();
     let shown: readonly TrackRowsTrack[] = [];
+    /** The time each recording's rows were last shown at: a showing at another is the time on screen moving. */
+    const shownAt = new Map<string, string>();
+    /** Whether a recording's time on screen stands still: shown where it was shown last, or its pictures of this place are all in. */
+    const still = (track: TrackRowsTrack, drawn: boolean): boolean => {
+        if (drawn) return ![...figures.values()].some(entry => entry.track.id === track.id && entry.screen.inspect()?.waiting === true);
+        return shownAt.get(track.id) === `${track.window[0]} ${track.window[1]}`;
+    };
 
     const scaleOfNow = (track: TrackRowsLinkedTrack): string => JSON.stringify([deps.analysisId(), deps.settingsSignature(), track.filePath, track.sourceVersion ?? null]);
     const scaleFor = (track: TrackRowsLinkedTrack): Scale => {
@@ -272,7 +282,7 @@ export function createTrackRows(deps: TrackRowsDeps): TrackRows {
         state.asking.push({ requestId: send(track, deps.heights().spec > 0, window), of: state.of, window });
     };
     /** What a recording's rows need that is neither kept nor on its way: asked. */
-    const need = (track: TrackRowsTrack): Held => {
+    const need = (track: TrackRowsTrack, drawn = false): Held => {
         const of = ofNow(track);
         let state = held.get(track.id);
         if (!state || state.of !== of) {
@@ -291,7 +301,7 @@ export function createTrackRows(deps: TrackRowsDeps): TrackRows {
             const onWay = state.asking.find(asking => asking.of === of && asking.window);
             const wanted = served ? null : deps.zoomWindow(track, state.whole, width);
             // One window on its way at a time: the view may have moved on when it lands, and is asked again then.
-            if (wanted && !onWay && !paused) ask(track, state, wanted);
+            if (wanted && !onWay && !paused && still(track, drawn)) ask(track, state, wanted);
         }
         return state;
     };
@@ -338,7 +348,8 @@ export function createTrackRows(deps: TrackRowsDeps): TrackRows {
             read: seconds => deps.read(now(), channel, seconds),
             reset: () => deps.reset(),
             lanes: lanes => deps.lanes(now(), channel, lanes),
-            drawn: () => deps.drawn(),
+            // A picture of the place the row is at came in: the time on screen stands still, and the window it lacks is asked.
+            drawn: () => { deps.drawn(); if (shown.some(item => item.id === now().id)) need(now(), true); },
             under: () => held.get(now().id)?.whole?.channels.find(item => item.channelIndex === channel)?.image,
             // The answer asked again has the same key: forgetting the reply asks it on the next showing, and the rows
             // are shown again for that once the Figure is done with this picture (nothing else would: the page may
@@ -434,6 +445,9 @@ export function createTrackRows(deps: TrackRowsDeps): TrackRows {
             }
         }
         for (const key of [...figures.keys()]) if (!live.has(key)) drop(key);
+        // (After every asking of this showing: a showing at the same time once more is the time standing still.)
+        for (const id of [...shownAt.keys()]) if (!tracks.some(track => track.id === id)) shownAt.delete(id);
+        for (const track of tracks) shownAt.set(track.id, `${track.window[0]} ${track.window[1]}`);
         // A recording no longer shown keeps its replies (it may scroll back); one no longer among the tracks is
         // forgotten when the screen hides the rows or its answers are asked under something else.
     };
@@ -489,6 +503,7 @@ export function createTrackRows(deps: TrackRowsDeps): TrackRows {
         hide() {
             for (const key of [...figures.keys()]) drop(key);
             held.clear();
+            shownAt.clear();
             scales.clear();
             deps.failures.clear();
             shown = [];

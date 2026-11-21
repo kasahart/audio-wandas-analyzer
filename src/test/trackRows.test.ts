@@ -99,23 +99,41 @@ test('rows showing no spectrogram ask for the samples alone, and asking under ot
     assert.equal(rows.held('t1')?.whole, null);
 });
 
-test('a zoomed row asks for the window on screen and shows its levels once they are in; until then the whole file\'s stay', () => {
-    const { rows, posted, world, drawn } = rowsOn();
+test('a zoomed row asks for the window on screen once the time stands still, and shows its levels once they are in; until then the whole file\'s stay', () => {
+    const { rows, posted, world, page } = rowsOn();
+    const answerDraws = (): void => { for (const draw of page.draws()) draw.answer(rowPicture(draw.message.payload as FigureDrawPayload)); };
     rows.show([TRACK]);
     rows.handle({ type: 'track-answers-result', requestId: posted[0].requestId, ...reply('img') });
-    drawn();
+    answerDraws();
     world.zoom = { startNorm: 0.4, endNorm: 0.5 };
     const zoomed = { ...TRACK, window: [4, 5] as const };
     rows.show([zoomed]);
+    assert.equal(posted.length, 1, 'the time on screen just moved: no window is asked yet');
+    // The pictures of this place are in: the time stands still, and the window it lacks is asked.
+    answerDraws();
     assert.deepEqual([posted[1].startNorm, posted[1].endNorm], [0.4, 0.5]);
     rows.show([zoomed]);
     assert.equal(posted.length, 2, 'one window on its way at a time');
     rows.handle({ type: 'track-answers-result', requestId: posted[1].requestId, ...reply('zoom', { windowed: true, hopSize: 8 }) });
     assert.deepEqual(rows.held('t1')?.zoom?.startNorm, 0.4);
-    // Panned on: that window no longer serves, so the whole file's levels are drawn and the new window asked.
-    world.zoom = { startNorm: 0.6, endNorm: 0.7 };
-    rows.show([{ ...TRACK, window: [6, 7] }]);
-    assert.deepEqual([posted[2].startNorm, posted[2].endNorm], [0.6, 0.7]);
+    answerDraws();
+    assert.equal(posted.length, 2, 'the window serves: nothing more is asked');
+});
+
+test('while the time on screen moves no window is asked: each would be of a place already left; shown at the same time once more, it is', () => {
+    const { rows, posted, world, page } = rowsOn();
+    rows.show([TRACK]);
+    rows.handle({ type: 'track-answers-result', requestId: posted[0].requestId, ...reply('img') });
+    for (const draw of page.draws()) draw.answer(rowPicture(draw.message.payload as FigureDrawPayload));
+    // Scrolled on and on: the window the view needs is another at every showing, and no picture has come yet.
+    for (const at of [4, 5, 6, 7]) {
+        world.zoom = { startNorm: at / 10, endNorm: (at + 1) / 10 };
+        rows.show([{ ...TRACK, window: [at, at + 1] }]);
+    }
+    assert.equal(posted.length, 1, 'nothing asked on the way');
+    // Shown again where it is (the page drew again for another reason): it stands still, and the window is asked.
+    rows.show([{ ...TRACK, window: [7, 8] }]);
+    assert.deepEqual([posted[1]?.startNorm, posted[1]?.endNorm], [0.7, 0.8]);
 });
 
 test('answers the backend\'s store let go are asked again without another gesture: the rows are shown again once the picture told of it', async () => {
