@@ -74,7 +74,7 @@
 - テスト: `src/test/uiSmoke/sourceAxis.spec.ts` › a long recording's spectrogram, thinned to columns, has a whole view from its first STFT frame to its last, not from its first to its last drawn column (R2)
 - テスト: `python-backend/test_figures_signal.py` › test_zoomed_to_fewer_samples_than_two_a_bucket_every_sample_is_drawn_as_itself
 - テスト: `python-backend/test_figures_heatmap.py` › test_a_blocks_level_is_the_loudest_of_its_cells_not_their_mean
-- テスト: `python-backend/test_figures_signal.py` › test_the_confirmed_range_is_the_signals_whole_length_and_the_largest_magnitude_on_screen
+- テスト: `python-backend/test_figures_signal.py` › test_the_confirmed_range_is_the_signals_whole_length_and_the_largest_magnitude_of_every_sample
 - スペクトルの間引きは 1 つの関数（`figures/thinning.py` の `drawn_line`）だけで行います。比較台の線も、カーソルスペクトルも、ペアの図もこれで描きます。webview は間引きません。
 - テスト: `python-backend/test_known_answers.py` › test_the_cursor_spectrum_reads_each_channels_tone_at_its_frequency_and_amplitude
 - テスト: `python-backend/test_known_answers.py` › test_band_levels_read_the_tones_rms_in_the_cursor_spectrum_and_in_compare
@@ -421,3 +421,15 @@ Webview は全データの集まり（線の全部の値、マスの全部の行
 - テスト: `src/test/trackStageModel.test.ts` › every scan's key holds its region exactly as it is sent: a region imported from a selection and one typed to 0.01 s never share a cache
 - テスト: `python-backend/test_scan_service.py` › test_scan_repeats_exactly_and_names_the_region_asked_for
 - テスト: `src/test/answerFreshness.test.ts` › a rescan that failed is not the version the pictures were taken of; one still running keeps it
+
+## R16 自動の縦の範囲は、時間のスクロールや拡大で動かない
+
+時間信号の段（トラックの波形、比較台の波形と Δ、トリガーのイベントの段）の自動の縦の範囲は、録音の全サンプルのうち一番大きい振幅から決めます（± その値に少し余白を足し、切りのよい端へ広げる。R9）。画面に見えている部分のサンプルからは決めません。横にスクロールしたり時間を拡大したりしても、縦の範囲は変わりません。変えるのは、縦の範囲を指定したとき（範囲の入力欄、縦も囲む箱の拡大）だけで、指定しなかった端は全体の値のままです。
+
+- 見えている部分から決めると、静かな所へスクロールしただけで縦が何十倍にも伸び、小さな音が大きく見えます。波形の大きさを見比べられなくなります。前の実装も、録音全体のピーク（`absolutePeak`）で決めていました（`waveformLayer.ts` の `waveformRange`、`figureModel.ts` の `laneAmplitudeRange`）。
+- 決めるのは図のサービスの 1 か所です（`python-backend/figures/ranges.py` の `whole_band`）。全体の範囲は答えごとに 1 回だけ作って覚え（`figures/service.py` の `_whole_bands`）、スクロールのたびには全サンプルを見直しません。`band_range` は、指定された端だけをそのまま使い、残りの端はこの全体の範囲から取ります。トリガーのレベルの線は全体の範囲に入ります。スケール連動のときは、連動するすべての録音の全サンプルで決めます（`shared_amplitude`）。
+- スペクトルなどの線の段の縦の範囲も、画面の横の範囲ではなく軸の全体の値で決めます（`ranges.py` の `confirmed_range`）。Tracks の行のスペクトログラムの色の範囲は、録音全体のレベルで決めます。
+- テスト: `python-backend/test_tracks_scroll_range.py` › test_scrolling_or_zooming_the_time_keeps_the_rows_range_up
+- テスト: `python-backend/test_tracks_scroll_range.py` › test_a_range_specified_up_is_still_the_requests_while_scrolled
+- テスト: `python-backend/test_figures_signal.py` › test_the_confirmed_range_is_the_signals_whole_length_and_the_largest_magnitude_of_every_sample
+- テスト: `src/test/uiSmoke/trackRowFigures.spec.ts` › a row zoomed or scrolled onto its quiet half keeps the waveform's range up: the whole recording's (R16)

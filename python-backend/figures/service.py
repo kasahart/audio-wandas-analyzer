@@ -97,6 +97,7 @@ from figures.ranges import (
     image_extent,
     shared_amplitude,
     value_axis,
+    whole_band,
 )
 from figures.spec import FigureSpec, LaneSpec, SpecError, canonical, parse_spec
 from figures.thinning import BAND_WORK_BYTES, DOTS_BELOW, bin_edges, bin_of, bin_width, stacked_levels
@@ -676,7 +677,7 @@ class FigureService:
         signals = [(line.answer.start, line.answer.rate, line.answer.values) for line in lines]
         nothing = Ends(None, None)
         # The whole range (every sample of every signal looked at) is remembered by the answers it is of: a zoom or a
-        # pan of a long recording looks at the part on screen only.
+        # pan of a long recording takes its range up from it, never from the part on screen (規則 R16).
         trigger = lane.trigger
         level = trigger.threshold if trigger is not None else None
         of = tuple((line.answer.key, line.answer.version) for line in lines)
@@ -706,12 +707,12 @@ class FigureService:
         with self._lock:
             whole = self._whole_bands.get(of)
         if whole is None:
-            whole = band_range(signals, nothing, nothing, level, shared)
+            whole = whole_band(signals, level, shared)
             with self._lock:
                 self._whole_bands[of] = whole
                 while len(self._whole_bands) > WHOLE_BANDS_MEMORY:
                     self._whole_bands.popitem(last=False)
-        confirmed = whole if (across, up) == (nothing, nothing) else band_range(signals, across, up, level, shared)
+        confirmed = whole if (across, up) == (nothing, nothing) else band_range(signals, across, up, whole=whole)
         deltas = {line.id for line in lane.lines if line.of == "delta"}
         plan = BandPlan(lane.id, tuple(lines), confirmed, whole, any(line.id in deltas for line in lines))
         if trigger is None:

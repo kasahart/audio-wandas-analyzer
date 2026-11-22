@@ -346,10 +346,41 @@ def sample_span(start: float, rate: float, count: int, x_range: tuple[float, flo
 
 
 def amplitude_range(peak: float) -> tuple[float, float]:
-    """A time signal's automatic value range from the largest magnitude on screen: ± it with a little room, widened
-    to round ends (±0.35, not ±0.34272); ±1 with no sample or silence (waveformLayer.ts waveformRange, moved here)."""
+    """A time signal's automatic value range from its largest magnitude (of every sample): ± it with a little room,
+    widened to round ends (±0.35, not ±0.34272); ±1 with no sample or silence (waveformLayer.ts waveformRange, moved
+    here)."""
     reach = peak * 1.05 if math.isfinite(peak) and peak > 0 else 1.0
     return nice_range(-reach, reach)
+
+
+def whole_band(
+    signals: Sequence[tuple[float, float, np.ndarray]],
+    level: float | None = None,
+    shared: tuple[float, float] | None = None,
+) -> ConfirmedRange:
+    """A band lane's automatic range (計算イ) from its signals (start, rate, every sample), with nothing specified:
+    across, from the first to the last sample of any of them; up, ± the largest magnitude of EVERY sample of them.
+
+    The range up is never of the part on screen (規則 R16: the automatic range up does not move as the time is
+    scrolled or zoomed; the old path's waveformRange and laneAmplitudeRange were of the whole recording's peak).
+    Each signal is looked at as it lies (no copy is made of it). ``level``: a guide line up the lane (a trigger's
+    level) stays in sight with a little room (5% of it), above or below every signal. ``shared``: the automatic
+    range up of the lanes its scale is shared with (``shared_amplitude``), in place of its own."""
+    spans = [(start, start + (len(values) - 1) * (1.0 / rate)) for start, rate, values in signals if len(values)]
+    whole = (min(low for low, _ in spans), max(high for _, high in spans)) if spans else (0.0, 1.0)
+    if not whole[1] > whole[0]:
+        whole = (whole[0], whole[0] + 1.0)
+    peak = 0.0
+    for _start, _rate, values in signals:
+        if len(values):
+            part = np.asarray(values)
+            low, high = float(np.fmin.reduce(part)), float(np.fmax.reduce(part))
+            for end in (low, high):
+                if math.isfinite(end):
+                    peak = max(peak, abs(end))
+    if level is not None and math.isfinite(level):
+        peak = max(peak, abs(level) * 1.05)
+    return ConfirmedRange(whole, shared if shared is not None else amplitude_range(peak))
 
 
 def band_range(
@@ -358,38 +389,20 @@ def band_range(
     specified_y: Ends,
     level: float | None = None,
     shared: tuple[float, float] | None = None,
+    whole: ConfirmedRange | None = None,
 ) -> ConfirmedRange:
-    """A band lane's confirmed range (計算イ) from its signals (start, rate, every sample) and the ends the request
-    specified: across, from the first to the last sample of any of them; up, ± the largest magnitude of the samples
-    inside the range across. Each signal's part is looked at as it lies (no copy is made of it). ``level``: a guide
-    line up the lane (a trigger's level) stays in sight with a little room (5% of it), above or below every signal.
-    ``shared``: the automatic range up of the lanes its scale is shared with (``shared_amplitude``), in place of its
-    own."""
-    spans = [(start, start + (len(values) - 1) * (1.0 / rate)) for start, rate, values in signals if len(values)]
-    whole = (min(low for low, _ in spans), max(high for _, high in spans)) if spans else (0.0, 1.0)
-    if not whole[1] > whole[0]:
-        whole = (whole[0], whole[0] + 1.0)
-    x = _ends(specified_x, whole)
-    peak = 0.0
-    for start, rate, values in signals:
-        first, after = sample_span(start, rate, len(values), x)
-        if after > first:
-            part = np.asarray(values)[first:after]
-            low, high = float(np.fmin.reduce(part)), float(np.fmax.reduce(part))
-            for end in (low, high):
-                if math.isfinite(end):
-                    peak = max(peak, abs(end))
-    if level is not None and math.isfinite(level):
-        peak = max(peak, abs(level) * 1.05)
-    return ConfirmedRange(x, _ends(specified_y, shared if shared is not None else amplitude_range(peak)))
+    """A band lane's confirmed range (計算イ): each end specified exactly, every other end the automatic one
+    (``whole_band``; ``whole``: that range already made, so a pan of a long recording does not look at every sample
+    again). A range specified across (a scroll, a zoom) never changes the range up (規則 R16)."""
+    auto = whole if whole is not None else whole_band(signals, level, shared)
+    return ConfirmedRange(_ends(specified_x, auto.x), _ends(specified_y, auto.y))
 
 
 def shared_amplitude(signals: Sequence[tuple[float, float, np.ndarray]]) -> tuple[float, float]:
     """The automatic range up that band lanes of several figures share (the Tracks rows' linked scales): ± the
-    largest magnitude of every sample of every one of them, whatever part of each is on screen (the rows lie at
-    different places of the screen's time, and one scale for all of them must not move as one of them is panned)."""
-    nothing = Ends(None, None)
-    return band_range(signals, nothing, nothing).y
+    largest magnitude of every sample of every one of them (the rows lie at different places of the screen's time,
+    and one scale for all of them must not move as one of them is panned)."""
+    return whole_band(signals).y
 
 
 # --- A bins lane (a distribution) ----------------------------------------------------------------------------------

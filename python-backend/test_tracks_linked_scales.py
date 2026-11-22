@@ -89,9 +89,9 @@ def test_linked_waveforms_share_the_range_up_of_the_largest_sample_of_them_all()
 
 def test_a_linked_waveform_keeps_the_shared_range_when_its_loud_part_is_off_screen() -> None:
     loud, quiet = _signal("linked-wave-pan-loud", 0.8), _signal("linked-wave-pan-quiet", 0.2)
-    # Zoomed to the first half second, where neither has its peak: alone the quiet row fits what is on screen.
+    # Zoomed to the first half second, where neither has its peak: the shared range stays (and alone, a row keeps its
+    # own whole range: R16, test_tracks_scroll_range.py).
     zoomed = {"x": [0.0, 0.5]}
-    assert _draw("band", quiet, [], zoomed)["range"]["y"][1] < 0.1
     assert _draw("band", quiet, [loud], zoomed)["range"]["y"] == _draw("band", loud, [])["range"]["y"]
 
 

@@ -164,18 +164,23 @@ def test_the_amplitude_axis_is_the_recorded_one(case: dict[str, Any]) -> None:
     assert (low, high) == (case["expected"]["min"], case["expected"]["max"])
 
 
-def test_the_confirmed_range_is_the_signals_whole_length_and_the_largest_magnitude_on_screen() -> None:
+def test_the_confirmed_range_is_the_signals_whole_length_and_the_largest_magnitude_of_every_sample() -> None:
     source = _case("view", "whole")["expected"]["xSource"]
     signals = [(ANSWER.start, ANSWER.rate, ANSWER.values)]
     nothing = Ends(None, None)
     whole = band_range(signals, nothing, nothing)
     assert whole.x == (source["first"], source["last"])
-    # The click's 0.72 is on screen: ± it with a little room, rounded outward (the recorded amplitude_0p72).
+    # The click's 0.72: ± it with a little room, rounded outward (the recorded amplitude_0p72).
     assert whole.y == (-0.8, 0.8)
-    # Without the click on screen the axis is of the samples there only (never of the drawn ones).
+    # Scrolled to where the click is not on screen, the axis up stays the whole signal's (the old path's recorded
+    # zoomed case keeps the whole valueRange too).
     quiet = band_range(signals, Ends(2.0, 3.0), nothing)
-    peak = float(np.abs(ANSWER.values[16000:24001]).max())
-    assert quiet.x == (2.0, 3.0) and quiet.y == amplitude_range(peak) and quiet.y[1] < 0.8
+    assert quiet.x == (2.0, 3.0)
+    assert quiet.y == whole.y, (
+        "R16: a waveform's automatic range up is of every sample of the recording, never of the part on screen, so "
+        f"scrolling or zooming the time does not move it (whole {whole.y}, scrolled to 2-3 s {quiet.y}). "
+        "Fix figures/ranges.py whole_band / band_range."
+    )
     # A specified end is used exactly; a second, quieter signal does not narrow the axis.
     both = band_range([*signals, (0.5, 4000.0, np.zeros(100))], Ends(None, 3.5), Ends(-0.5, None))
     assert both.x == (0.0, 3.5) and both.y == (-0.5, 0.8)
@@ -381,13 +386,13 @@ def test_a_band_lane_is_drawn_read_and_counted_through_the_protocol() -> None:
     stale = _read("sig-fig", picture, 3, dataId="another", generation=0, step={**step, "steps": 1})
     assert stale["status"] == "no-point"
 
-    # Zoomed: every sample there is drawn as itself; the value axis is of the samples on screen; the selected sample
+    # Zoomed: every sample there is drawn as itself; the value axis stays the whole signal's (R16); the selected sample
     # is named again after the redraw; the whole range is the picture's own.
     view = {"x": [2.0, 2.01], "lanes": [{"lane": "sound", "y": [None, None]}]}
     zoomed = _draw(spec, "sig-fig", view, generation=1)
     (lane,) = zoomed["lanes"]
     assert lane["range"]["x"] == [2.0, 2.01] and lane["whole"]["x"] == [0.0, 3.9998750000000003]
-    assert lane["range"]["y"][1] < 0.8 and lane["whole"]["y"] == [-0.8, 0.8]
+    assert lane["range"]["y"] == lane["whole"]["y"] == [-0.8, 0.8], "R16: zoomed, the range up is the whole signal's"
     assert len(lane["lines"][0]["xs"]) == 81 + 2
     assert _read("sig-fig", picture, 4, pointer={"lane": "sound", "x": 2.0, "y": 0, "scale": [1, 1]})["status"] == (
         "no-picture"

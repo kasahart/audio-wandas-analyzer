@@ -14,7 +14,8 @@ import { pointOnLane, seenFigure, type Seen } from './tracksFigures';
  * Checked: the row asks its answers once and draws both lanes beside the rows' axis column; a click puts the cursor
  * at the time of the sample read there; a box drawn on the waveform is the screen's time on screen (the ruler's too),
  * and the 0 key is the screen's reset; Shift+drag shifts the recording's place in time; a row zoomed past the
- * whole file's columns, or boxed to a narrow band, shows the frames and the bins that are there (R3).
+ * whole file's columns, or boxed to a narrow band, shows the frames and the bins that are there (R3); zoomed or
+ * scrolled, the waveform's range up stays the whole recording's (R16).
  */
 const RATE = 8000, SECONDS = 2, LONG_SECONDS = 120;
 const ROW = '#track-row-figure-0 canvas[data-figure]';
@@ -160,6 +161,32 @@ async function zoomedLong(page: Page, autoStft: boolean): Promise<{ stop: () => 
     }, { timeout: 30_000, message: 'R3: the zoomed spectrogram is drawn from the frames that are there, not from the whole file\'s columns stretched' }).toBeGreaterThan(perSecond * 2);
     return { stop, shown: (await seenFigure(page, ROW)).lanes[1].range!.x };
 }
+
+test('a row zoomed or scrolled onto its quiet half keeps the waveform\'s range up: the whole recording\'s (R16)', async ({ page }) => {
+    test.skip(!ready(), 'no Python backend here');
+    const stop = await openRows(page);
+    const whole = (await drawnRow(page)).lanes[0].range!.y;
+    // The tone is at half of full scale in the first second and at a quarter in the second: ± the half, with room.
+    expect(whole[1]).toBeGreaterThan(0.5);
+    // Ctrl+wheel zooms the time about the pointer at three quarters across (1.5 s) until only the quiet second is on
+    // screen: the louder half is off screen. (A box would set the range up too: that is a range the user gives.)
+    const quiet = await pointOnLane(page, ROW, 'wave', 0.75, 0.5);
+    await page.mouse.move(quiet.x, quiet.y);
+    await page.keyboard.down('Control');
+    for (let notch = 0; notch < 8; notch += 1) await page.mouse.wheel(0, -100);
+    await page.keyboard.up('Control');
+    await expect.poll(async () => (await seenFigure(page, ROW)).lanes[0].range?.x[0] ?? 0, { timeout: 15_000, message: 'the row shows only the quiet second' }).toBeGreaterThan(1.05);
+    const rule = 'R16: a waveform\'s automatic range up is of the whole recording, never of the part on screen (python-backend/figures/ranges.py whole_band)';
+    expect((await drawnRow(page)).lanes[0].range!.y, `${rule}: zoomed onto the quiet half`).toEqual(whole);
+    // Scrolled back by Shift+wheel: still the whole recording's.
+    const start = (await seenFigure(page, ROW)).lanes[0].range!.x[0];
+    await page.keyboard.down('Shift');
+    await page.mouse.wheel(0, -100);
+    await page.keyboard.up('Shift');
+    await expect.poll(async () => (await seenFigure(page, ROW)).lanes[0].range!.x[0], { timeout: 15_000, message: 'the wheel across moved the time on screen' }).not.toBe(start);
+    expect((await drawnRow(page)).lanes[0].range!.y, `${rule}: scrolled`).toEqual(whole);
+    expect(await stop()).toEqual([]);
+});
 
 test('with the automatic STFT, a row zoomed past the whole file\'s columns asks for the window on screen and draws that window\'s own frames (R3)', async ({ page }) => {
     test.skip(!ready(), 'no Python backend here');
