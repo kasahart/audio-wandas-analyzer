@@ -65,7 +65,8 @@ function uiSmokeFigureAnswers(message) {
 }
 function uiSmokeFigure(message) {
     if (!window.__uiSmokeFigure) return;
-    window.__uiSmokeFigure({ command: message.command, payload: message.payload, answers: uiSmokeFigureAnswers(message) }).then(function(reply) {
+    window.__uiSmokeFigure(JSON.stringify({ command: message.command, payload: message.payload, answers: uiSmokeFigureAnswers(message) })).then(function(line) {
+        const reply = JSON.parse(line);
         if (message.command !== 'figure-release') {
             window.postMessage(reply.error !== undefined
                 ? { type: 'figure-result', requestId: message.requestId, command: message.command, failed: reply.error }

@@ -15,7 +15,9 @@ const repoRoot = path.resolve(__dirname, '..', '..', '..');
 export async function installFigureStandIn(page: Page): Promise<() => void> {
     let child: ChildProcess | null = null;
     let count = 0, buffered = '', stopped = false;
-    const waiting = new Map<number, (reply: { result?: unknown; error?: string }) => void>();
+    // Each reply goes to the page as its line of JSON, parsed there: a picture of many long lines is megabytes, which
+    // the browser's own JSON.parse reads in milliseconds and Playwright's serializer of objects in seconds.
+    const waiting = new Map<number, (reply: string) => void>();
     const start = (): ChildProcess => {
         const python = backendPython();
         if (!python) throw new Error('no Python found for the figure service');
@@ -27,9 +29,10 @@ export async function installFigureStandIn(page: Page): Promise<() => void> {
             while ((newline = buffered.indexOf('\n')) >= 0) {
                 const line = buffered.slice(0, newline);
                 buffered = buffered.slice(newline + 1);
-                const reply = JSON.parse(line) as { id: number; result?: unknown; error?: string };
-                waiting.get(reply.id)?.(reply);
-                waiting.delete(reply.id);
+                // (figure_stand_in.py writes the id first; any other line is parsed for it.)
+                const id = Number(/^\{"id": (\d+),/.exec(line)?.[1] ?? (JSON.parse(line) as { id: number }).id);
+                waiting.get(id)?.(line);
+                waiting.delete(id);
             }
         });
         let stderr = '';
@@ -37,15 +40,16 @@ export async function installFigureStandIn(page: Page): Promise<() => void> {
         made.stderr.on('data', (chunk: string) => { stderr = (stderr + chunk).slice(-2000); });
         // A request written as the test ends (the page still asks while it closes) finds the process gone: not a failure of the test.
         made.stdin.on('error', () => undefined);
-        made.on('exit', code => { for (const answer of waiting.values()) answer({ error: `the figure stand-in exited (${code}): ${stderr}` }); waiting.clear(); });
+        made.on('exit', code => { for (const answer of waiting.values()) answer(JSON.stringify({ error: `the figure stand-in exited (${code}): ${stderr}` })); waiting.clear(); });
         return made;
     };
-    await page.exposeFunction('__uiSmokeFigure', (request: { command: string; payload: unknown; answers: unknown }) => new Promise(resolve => {
-        if (stopped) { resolve({ error: 'the test ended' }); return; }
+    // The page hands its request as JSON text too (the stand-in's answers can be megabytes), and gets the reply's line.
+    await page.exposeFunction('__uiSmokeFigure', (request: string) => new Promise<string>(resolve => {
+        if (stopped) { resolve(JSON.stringify({ error: 'the test ended' })); return; }
         child ??= start();
         const id = ++count;
         waiting.set(id, resolve);
-        child.stdin!.write(`${JSON.stringify({ id, ...request })}\n`);
+        child.stdin!.write(`{"id": ${id}, ${request.slice(1)}\n`);
     }));
     return () => { stopped = true; child?.stdin?.end(); child?.kill(); child = null; };
 }
