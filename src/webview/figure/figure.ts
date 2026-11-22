@@ -255,6 +255,12 @@ export interface FigureOptions {
      * that the screen draws once for all of them (the Tracks rows under their time ruler).
      */
     acrossAxis?: boolean;
+    /**
+     * Where the screen's own axis across has its ticks, as fractions (0–1) of the plot's width: a faint line is drawn
+     * down every lane at each, lines and images alike (a row of a screen whose rows share one time ruler; with
+     * `acrossAxis` false the Figure has no ticks across of its own).
+     */
+    acrossGrid?: () => readonly number[];
     /** How a level image is coloured where not in grey (a Tracks row's spectrogram: viridis). Signed values keep their own. */
     imagePalette?: 'viridis';
     /**
@@ -264,6 +270,13 @@ export interface FigureOptions {
      * there at once, coarser, until the picture of that place comes). Drawn and nothing else: it is never read.
      */
     imageUnder?: (lane: string) => string | undefined;
+    /**
+     * A lane of lines keeps, of each line, the widest picture's points of its answer (its key), and draws them where
+     * the line drawn now does not reach the plot's sides (a Tracks row scrolled past the part its picture was made
+     * for: the whole recording's waveform is there at once, coarser, until the picture of that place comes). Drawn
+     * and nothing else: it is never read.
+     */
+    lineUnder?: boolean;
     /**
      * A press on the plot gives its canvas the focus, and while it has the focus ← → are left to the screen (a Tracks
      * row: the screen's cursor keys, ← → and Space, are the focused row's; R7's one exception). Elsewhere a press
@@ -311,9 +324,12 @@ export interface FigureInspection {
         yLog: boolean;
         xTicks: Array<{ value: number; text: string; px: number }>;
         yTicks: Array<{ value: number; text: string; px: number }>;
+        /** Where the faint lines of the screen's own axis across are drawn down the lane (px; acrossGrid); absent without one. */
+        grid?: number[];
         order: string[];
         /** `bars`: a line of bands as drawn, a bar a point from its band's left edge to its right one (px) at its value's place; absent on any other line. */
-        lines: Array<{ id: string; colour: string; width: number; points: Array<[number, number] | null>; bars?: Array<[number, number, number] | null> }>;
+        /** `under`: the stretches (px, left to right) where the line's kept points are drawn under it (lineUnder); absent where none are. */
+        lines: Array<{ id: string; colour: string; width: number; under?: Array<[number, number]>; points: Array<[number, number] | null>; bars?: Array<[number, number, number] | null> }>;
         /**
          * An image lane's picture as drawn: how many cells, the colour axis (its confirmed ends, its name, its ticks
          * beside the colour bar) and the px its outer cell edges fall at. Absent on a lane of lines.
@@ -324,6 +340,8 @@ export interface FigureInspection {
             edges: { left: number; right: number; top: number; bottom: number };
             /** The image kept under it (FigureOptions.imageUnder): the px its outer column edges fall at; absent with none. */
             under?: { left: number; right: number };
+            /** The stretch (px) painted with the colour of no value: the whole axis across (a recording's length) inside the frame. */
+            ground: [number, number];
         };
         /** A bins lane's bars, dots, ticks and role lines as placed (binsLane.ts); absent on every other lane. */
         bins?: PlacedBins;
@@ -903,12 +921,13 @@ export function createFigure(options: FigureOptions): Figure {
                         ? alongAxisTicks(lane.range.y[0], lane.range.y[1], true).map(tick => ({ ...tick, px: lane.y.yOf(tick.value) }))
                         : valueAxisTicks({ min: lane.range.y[0], max: lane.range.y[1] }, lane.frame.height).map(tick => ({ value: tick.value, text: tick.text, px: lane.y.yOf(tick.value) })),
                     ...(imageOf(lane) ? { image: imageOf(lane) } : {}),
+                    ...(options.acrossGrid ? { grid: gridOf(lane.frame) } : {}),
                     ...(lane.lane.bins ? { bins: placeBins(lane.lane.bins, lane.frame, lane.x, lane.y), tag: binsTag(lane.lane, lane.lane.bins) } : {}),
                     order: order.map(line => line.id),
                     guides: lane.lane.guides.map(guide => ({ ...guide, px: guide.axis === 'x' ? xPx(lane, guide.at) : lane.y.yOf(guide.at) })),
                     ...(lane.lane.spans ? { spans: lane.lane.spans.map(span => ({ ...span, left: Math.max(lane.frame.left, Math.min(lane.frame.left + lane.frame.width, xPx(lane, span.start))), right: Math.max(lane.frame.left, Math.min(lane.frame.left + lane.frame.width, xPx(lane, span.end))) })) } : {}),
                     ...(lane.lane.events ? { events: lane.lane.events } : {}),
-                    lines: order.map(line => ({ id: line.id, ...styleOf(line, order.length > 1 && mark?.lane === lane.id && mark.line === line.id), points: line.xs.map((x, at) => { const value = line.values[at]; return value === null || value === undefined ? null : [xPx(lane, x), lane.y.yOf(value)] as [number, number]; }),
+                    lines: order.map(line => ({ id: line.id, ...styleOf(line, order.length > 1 && mark?.lane === lane.id && mark.line === line.id), ...(lineUnderOf(lane, line) ? { under: lineUnderOf(lane, line)?.spans } : {}), points: line.xs.map((x, at) => { const value = line.values[at]; return value === null || value === undefined ? null : [xPx(lane, x), lane.y.yOf(value)] as [number, number]; }),
                         ...(line.edges ? { bars: barsOf(lane, line.edges, line.values) } : {}) })),
                 };
             }),
@@ -929,6 +948,7 @@ export function createFigure(options: FigureOptions): Figure {
         const under = underOf(lane.id);
         return {
             ...(under ? { under: { left: xPx(lane, under.columnEdges[0]), right: xPx(lane, under.columnEdges[under.columnEdges.length - 1]) } } : {}),
+            ground: groundOf(lane.frame, lane.x, wholeOf(lane, 'x')),
             line: image.line, key: image.key, rows: image.cells.length, columns: image.cells[0]?.length ?? 0, colour: [colour[0], colour[1]], colourName: levelName(lane.lane),
             colourTicks: valueAxisTicks({ min: colour[0], max: colour[1] }, lane.frame.height).map(tick => ({ value: tick.value, text: tick.text, px: bar.yOf(tick.value) })),
             edges: {
@@ -1037,7 +1057,35 @@ export function createFigure(options: FigureOptions): Figure {
     const unders = new Map<string, DrawnImage>();
     const imageAcross = (image: DrawnImage): number => Math.abs((image.columnEdges.at(-1) ?? 0) - image.columnEdges[0]);
     /** A picture came: an image of the answer a lane keeps under is kept when it reaches at least as far across as the one kept. */
+    /** The lines kept under (lineUnder), by lane and line: the answer they are of and their points as the picture gave them. */
+    const lineUnders = new Map<string, { key: string | undefined; xs: readonly number[]; values: ReadonlyArray<number | null> }>();
+    const lineAcross = (xs: readonly number[]): number => (xs.length ? Math.abs(xs[xs.length - 1] - xs[0]) : 0);
+    /** The stretches (px) of a lane's frame a line drawn from `first` to `last` (px; none: null) leaves without it. */
+    const uncovered = (frame: { left: number; width: number }, ends: [number, number] | null): Array<[number, number]> => {
+        const right = frame.left + frame.width;
+        if (!ends) return [[frame.left, right]];
+        const out: Array<[number, number]> = [];
+        if (ends[0] > frame.left + 1) out.push([frame.left, Math.min(right, ends[0])]);
+        if (ends[1] < right - 1) out.push([Math.max(frame.left, ends[1]), right]);
+        return out;
+    };
+    /** Where a line's kept points are drawn under it now: the stretches its own points leave, where the kept ones reach. */
+    const lineUnderOf = (lane: LaneView, line: PictureLane['lines'][number]): { xs: readonly number[]; values: ReadonlyArray<number | null>; spans: Array<[number, number]> } | null => {
+        const kept = options.lineUnder ? lineUnders.get(`${lane.id} ${line.id}`) : undefined;
+        if (!kept || kept.key !== line.key || kept.xs === line.xs || !kept.xs.length) return null;
+        const ends: [number, number] | null = line.xs.length ? [xPx(lane, line.xs[0]), xPx(lane, line.xs[line.xs.length - 1])] : null;
+        const from = xPx(lane, kept.xs[0]), to = xPx(lane, kept.xs[kept.xs.length - 1]);
+        const spans = uncovered(lane.frame, ends).map(([left, right]): [number, number] => [Math.max(left, from), Math.min(right, to)]).filter(([left, right]) => right > left);
+        return spans.length ? { xs: kept.xs, values: kept.values, spans } : null;
+    };
     const keepUnder = (picture: Picture): void => {
+        if (options.lineUnder) for (const lane of picture.lanes) {
+            if (lane.image || lane.bins) continue;
+            for (const line of lane.lines) {
+                const name = `${lane.id} ${line.id}`, had = lineUnders.get(name);
+                if (!had || had.key !== line.key || lineAcross(line.xs) >= lineAcross(had.xs)) lineUnders.set(name, { key: line.key, xs: line.xs, values: line.values });
+            }
+        }
         if (!options.imageUnder) return;
         for (const lane of picture.lanes) {
             const image = lane.image;
@@ -1052,13 +1100,25 @@ export function createFigure(options: FigureOptions): Figure {
         if (had && had.key !== options.imageUnder?.(lane)) { unders.delete(lane); imagePixels.delete(`${lane} under`); return undefined; }
         return had;
     };
-    const drawImageLane = (ctx: CanvasRenderingContext2D, id: string, image: DrawnImage, frame: { left: number; top: number; width: number; height: number }, x: AxisScale, up: AxisScale, colour: readonly [number, number], ratio: number, palette: ImagePalette): void => {
+    /** Where the screen's axis across has its ticks on a frame (px): the faint lines down a lane (acrossGrid). */
+    const gridOf = (frame: { left: number; width: number }): number[] => (options.acrossGrid?.() ?? []).filter(at => at >= 0 && at <= 1).map(at => Math.round(frame.left + at * frame.width));
+    /**
+     * The stretch (px) of an image lane's frame painted with the colour of no value: where the image's whole axis
+     * across lies (a recording's start to its end). Past it nothing is painted, so the plot does not read as silence
+     * where there is no recording.
+     */
+    const groundOf = (frame: { left: number; width: number }, x: AxisScale, whole: readonly [number, number] | null): [number, number] => {
+        const ends = whole ? [x.fraction(whole[0]), x.fraction(whole[1])].map(at => Math.max(0, Math.min(1, at))) : [0, 1];
+        return [Math.round(frame.left + Math.min(ends[0], ends[1]) * frame.width), Math.round(frame.left + Math.max(ends[0], ends[1]) * frame.width)];
+    };
+    const drawImageLane = (ctx: CanvasRenderingContext2D, id: string, image: DrawnImage, frame: { left: number; top: number; width: number; height: number }, x: AxisScale, up: AxisScale, colour: readonly [number, number], ratio: number, palette: ImagePalette, whole: readonly [number, number] | null): void => {
+        const [from, to] = groundOf(frame, x, whole);
         ctx.fillStyle = emptyColourOf(palette);
-        ctx.fillRect(frame.left, frame.top, frame.width, frame.height);
+        if (to > from) ctx.fillRect(from, frame.top, to - from, frame.height);
         // The image kept under, where the lane's own does not reach both sides of the plot.
         const under = underOf(id);
-        const from = x.fraction(image.columnEdges[0]), to = x.fraction(image.columnEdges.at(-1) ?? 0);
-        if (under && under !== image && (Math.min(from, to) > 0 || Math.max(from, to) < 1)) putImage(ctx, `${id} under`, under, frame, x, up, colour, ratio, palette);
+        const first = x.fraction(image.columnEdges[0]), last = x.fraction(image.columnEdges.at(-1) ?? 0);
+        if (under && under !== image && (Math.min(first, last) > 0 || Math.max(first, last) < 1)) putImage(ctx, `${id} under`, under, frame, x, up, colour, ratio, palette);
         putImage(ctx, id, image, frame, x, up, colour, ratio, palette);
     };
     /** Tells the screen the line read now, when it is another than the one told last (FigureSignals.read). */
@@ -1123,7 +1183,10 @@ export function createFigure(options: FigureOptions): Figure {
                 ctx.beginPath();
                 ctx.rect(frame.left, frame.top, frame.width, frame.height);
                 ctx.clip();
-                drawImageLane(ctx, lane.id, viewed.lane.image, frame, viewed.x, viewed.up, lane.image.colour, ratio, paletteOf(viewed.lane));
+                drawImageLane(ctx, lane.id, viewed.lane.image, frame, viewed.x, viewed.up, lane.image.colour, ratio, paletteOf(viewed.lane), wholeOf(viewed, 'x'));
+                // The shared axis's ticks across, over the image (faint: a time is read down the rows).
+                ctx.fillStyle = GRID_COLOUR;
+                for (const px of gridOf(frame)) ctx.fillRect(px, frame.top, 1, frame.height);
                 ctx.restore();
                 paintColourBar(ctx, frame, lane.image.colour, paletteOf(viewed.lane));
                 const bar = colourBarBox(frame);
@@ -1206,11 +1269,33 @@ export function createFigure(options: FigureOptions): Figure {
                 ctx.fillStyle = GRID_COLOUR;
                 for (const tick of lane.yTicks) ctx.fillRect(frame.left, Math.round(tick.px), frame.width, 1);
                 for (const tick of lane.xTicks) ctx.fillRect(Math.round(tick.px), frame.top, 1, frame.height);
+                for (const px of gridOf(frame)) ctx.fillRect(px, frame.top, 1, frame.height);
             }
             if (lane.bins) paintBins(ctx, lane.bins, frame, markColour);
             for (const line of lane.lines) {
                 ctx.strokeStyle = line.colour;
                 ctx.lineWidth = line.width;
+                // The line kept under (lineUnder), in the stretches this one leaves.
+                const own = viewed?.lane.lines.find(item => item.id === line.id);
+                const under = viewed && own ? lineUnderOf(viewed, own) : null;
+                for (const [left, right] of under?.spans ?? []) {
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.rect(left, frame.top, right - left, frame.height);
+                    ctx.clip();
+                    ctx.beginPath();
+                    let joined = false;
+                    under?.xs.forEach((x, at) => {
+                        const value = under.values[at], px = viewed ? xPx(viewed, x) : 0;
+                        if (value === null || value === undefined || !viewed) { joined = false; return; }
+                        // (A point more than a plot's width off either side joins nothing in sight.)
+                        if (px < left - frame.width || px > right + frame.width) { joined = false; return; }
+                        if (joined) ctx.lineTo(px, viewed.y.yOf(value)); else ctx.moveTo(px, viewed.y.yOf(value));
+                        joined = true;
+                    });
+                    ctx.stroke();
+                    ctx.restore();
+                }
                 ctx.beginPath();
                 let open = false;
                 if (line.bars) {
@@ -1827,6 +1912,7 @@ export function createFigure(options: FigureOptions): Figure {
             press = null;
             imagePixels.clear();
             unders.clear();
+            lineUnders.clear();
             selected = null;
             keyRead = null;
             forgetClick(presses, token);

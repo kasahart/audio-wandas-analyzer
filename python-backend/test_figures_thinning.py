@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 import wandas as wd
 
-from figures.thinning import _min_max_indices, drawn_line
+from figures.thinning import POOLS, _min_max_indices, _pooled_columns, drawn_line
 from frames.stage_view import read_frame
 
 RATE = 16000
@@ -159,3 +159,23 @@ def test_a_thinned_line_keeps_a_break_at_each_gap_in_either_scale_and_buckets_st
         # move the buckets after it. The bucket of x 1800 holds the same points with and without the gaps.
         whole = xs[_min_max_indices(xs, np.cos(xs / 7.0), buckets, False, (1.0, 2000.0))].tolist()
         assert [x for x in whole if x > 1600] == [x for x in drawn_x if x > 1600], "a gap moved the linear buckets"
+
+
+@pytest.mark.parametrize("pooling", ["level", "value", "signed"])
+def test_an_images_columns_pooled_in_one_pass_are_each_blocks_own_pool(pooling: str) -> None:
+    """A picture's column blocks are pooled in one pass over the part of the answer on screen (a scroll step asks a
+    picture of thousands of columns). Each drawn cell is what the pool of its block alone gives (POOLS): one of the
+    answer's own cells, a block of no value the floor (a level) or no value, as float64 whatever the answer is kept
+    as."""
+    rng = np.random.default_rng(7)
+    plane = (rng.standard_normal((9, 40)) * 30 - 40).astype(np.float32)
+    plane[2, 5:9] = np.nan  # a whole block of no value on one row
+    plane[4, 11] = np.nan
+    plane[6, 20] = -np.inf
+    plane[7, 21] = np.inf
+    blocks = [(0, 5), (5, 9), (9, 10), (10, 23), (23, 37)]
+    pooled = _pooled_columns(plane, blocks, pooling)
+    each = np.stack([POOLS[pooling](plane[:, a:b].astype(np.float64), axis=1) for a, b in blocks], axis=1)
+    assert pooled.dtype == np.float64
+    assert pooled.shape == (9, len(blocks))
+    np.testing.assert_array_equal(pooled, each)

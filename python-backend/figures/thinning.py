@@ -186,6 +186,24 @@ def _farthest(values: np.ndarray, axis: int) -> np.ndarray:
     return np.where(-low > high, low, high)
 
 
+def _pooled_columns(plane: np.ndarray, blocks: list[tuple[int, int]], pooling: str) -> np.ndarray:
+    """``plane``'s columns pooled in ``blocks`` (each ``[a, b)``, one after the other), as float64: what
+    ``POOLS[pooling]`` gives of each block, made in one pass over the part of the answer on screen (the answer
+    is not copied, and a picture a scroll step asks is made of thousands of columns: a call a block was most of
+    its time). A pick of the answer's own cells either way: the same values."""
+    starts = np.array([a for a, _ in blocks], dtype=np.intp)
+    part = plane[:, : blocks[-1][1]]
+    if pooling == "signed":
+        low = np.fmin.reduceat(part, starts, axis=1).astype(np.float64)
+        high = np.fmax.reduceat(part, starts, axis=1).astype(np.float64)
+        return np.where(-low > high, low, high)
+    highest = np.fmax.reduceat(part, starts, axis=1).astype(np.float64)
+    if pooling == "level":
+        # (``_loudest``: a block of no value is the floor, and nothing is under it.)
+        return np.maximum(np.nan_to_num(highest, nan=FLOOR_DB, neginf=FLOOR_DB, posinf=-FLOOR_DB), FLOOR_DB)
+    return highest
+
+
 #: How cells are pooled to be drawn, by what they measure (ImageAnswer.pooling). Each drawn cell is one of its
 #: answer cells' own values: nothing is computed of them (第 1 節: 熱図は最大でまとめる).
 POOLS = {"level": _loudest, "value": _highest, "signed": _farthest}
@@ -232,7 +250,14 @@ class DrawnImage:
         """The cells as the picture sends them: column edges, row edges (one more than the cells each way) and the
         cells (rows over the row edges), to 0.1 dB (a value not in dB: to six decimals). Called by picture.py only."""
         cells = np.round(self._cells, self._decimals)
-        rows = [[float(v) if math.isfinite(v) else None for v in row] for row in cells.tolist()]
+        finite = np.isfinite(cells)
+        if bool(finite.all()):
+            rows = cells.tolist()
+        else:
+            # A cell with no value is sent as none (looked at as one array, not a cell at a time).
+            sent = cells.astype(object)
+            sent[~finite] = None
+            rows = sent.tolist()
         return [float(x) for x in self._column_edges.tolist()], [float(y) for y in self._row_edges.tolist()], rows
 
 
@@ -277,7 +302,7 @@ def drawn_image(
     decimals = _CELL_DECIMALS.get(pooling, 6)
     xs = np.asarray(xs, dtype=np.float64)
     ys = np.asarray(ys, dtype=np.float64)
-    values = np.asarray(values, dtype=np.float64)
+    values = np.asarray(values)
     # The rows that are placed: of a frequency or a quefrency axis the positive ones (the rows after any at 0).
     zero = int(np.searchsorted(ys, 0.0, side="right")) if positive else 0
     column_ends = cells_on_screen(xs, x_range, False)
@@ -290,7 +315,7 @@ def drawn_image(
     plane = values[:, column_ends[0] : column_ends[1]]
     edges = image_blocks(columns.size, width, cell_px)
     blocks = [(int(a), int(b)) for a, b in zip(edges[:-1], edges[1:], strict=True) if b > a]
-    columned = np.stack([pool(plane[:, a:b], axis=1) for a, b in blocks], axis=1)
+    columned = _pooled_columns(plane, blocks, pooling)
     every_column = cell_edges(xs, False)
     column_edges = np.array(
         [every_column[columns[a]] for a, _ in blocks] + [every_column[columns[blocks[-1][1] - 1] + 1]]

@@ -469,6 +469,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         document, answers: figures, words: { ...STR, stageTooLarge: STR.rowTooLarge, stageCombineFailed: STR.rowDrawFailed, range: rangePopoverStrings(STR) },
         ...(typeof ResizeObserver === 'function' ? { ResizeObserver } : {}),
         axisWidth: AXIS_W, laneGap: ROW_SPLIT_PX,
+        // The ruler's ticks (timeRuler.ts), down every row.
+        grid: () => { const seconds = laneVisibleSeconds(); return timeRulerTicks(seconds.start, seconds.end, 1).map(tick => tick.x); },
         // A box with no layout (its row hidden, the rows not on screen) holds no Figure: one drawn there would be drawn at no size.
         host: (trackIndex, channel) => { const box = document.getElementById(trackRowFigureId(trackIndex, channel)); return box && box.clientWidth > 0 && box.clientHeight > 0 ? box : null; },
         readout: () => document.getElementById(PLOT_READOUT_ID),

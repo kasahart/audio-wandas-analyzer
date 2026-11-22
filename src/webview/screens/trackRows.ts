@@ -103,6 +103,8 @@ export interface TrackRowsDeps {
     /** The rows' axis column (CSS px) and the split between a row's two lanes. */
     axisWidth: number;
     laneGap: number;
+    /** The rows' time ruler's ticks, as fractions of the plots' width. */
+    grid?: () => readonly number[];
     /** Where a channel's Figure goes; null while its row is not built. */
     host(track: TrackRowsTrack, channel: number): HTMLElement | null;
     /** The page's readout (R7). */
@@ -339,6 +341,7 @@ export function createTrackRows(deps: TrackRowsDeps): TrackRows {
             ...(deps.ResizeObserver ? { ResizeObserver: deps.ResizeObserver } : {}),
             ...(deps.hint ? { hint: deps.hint } : {}),
             margin: { left: deps.axisWidth, right: 0 }, laneGap: deps.laneGap,
+            ...(deps.grid ? { grid: deps.grid } : {}),
             laneHeights: () => { const heights = deps.heights(); return { [TRACK_WAVE_LANE]: heights.wave, [TRACK_SPECTROGRAM_LANE]: heights.spec }; },
             colour: () => now().colour, name: () => now().name(channel),
             viewed: (view, typed) => deps.viewed(now(), channel, view, typed),

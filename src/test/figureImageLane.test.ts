@@ -289,6 +289,33 @@ test('viridis and signed values are the pixels colourOf says', () => {
     }
 });
 
+test('past its whole axis across (a recording\'s end) an image lane paints nothing: the colour of no value is the recording\'s alone', () => {
+    const page = figurePage();
+    // The recording is 0 … 2 s; the screen shows 1 … 3 s (a longer recording's row beside it sets the time on screen).
+    const { figure } = shown(page, { x: [1, 3] });
+    const image = figure.inspect().lanes[0].image;
+    assert.ok(image);
+    near(image.ground[0], FRAME.left, 'painted from the plot\'s left side');
+    near(image.ground[1], FRAME.left + FRAME.width / 2, 'to the recording\'s end (2 s), not to the plot\'s right side');
+    // The whole recording on screen: the whole plot.
+    const whole = shown(figurePage()).figure.inspect().lanes[0].image;
+    assert.deepEqual(whole?.ground, [FRAME.left, FRAME.left + FRAME.width]);
+});
+
+test('the screen\'s own ticks across are drawn down an image lane too, where the screen says they are (acrossGrid)', () => {
+    const page = figurePage();
+    const figure = page.figure(undefined, { ...SIZE, acrossAxis: false, acrossGrid: () => [0.25, 0.5, 1.5, -0.1] });
+    figure.canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: SIZE.size.width, height: SIZE.size.height, right: SIZE.size.width, bottom: SIZE.size.height, x: 0, y: 0, toJSON: () => ({}) });
+    figure.show(SPEC, null);
+    const [draw] = page.draws();
+    draw.answer(picture(draw.message.payload as FigureDrawPayload, 'p1'));
+    const lane = figure.inspect().lanes[0];
+    assert.deepEqual(lane.xTicks, [], 'the Figure has no ticks across of its own');
+    assert.deepEqual(lane.grid, [lane.frame.left + lane.frame.width * 0.25, lane.frame.left + lane.frame.width * 0.5].map(Math.round), 'a line at each tick inside the plot, none outside it');
+    // With no such axis told, none.
+    assert.equal(shown(figurePage()).figure.inspect().lanes[0].grid, undefined);
+});
+
 // ── The image kept under (FigureOptions.imageUnder) ──────────────────────────────────────────────────────────────────
 
 test('the widest picture of the answer a lane keeps under stays under the picture drawn: of that answer alone, and never read', () => {

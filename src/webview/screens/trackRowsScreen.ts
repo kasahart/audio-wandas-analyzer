@@ -39,6 +39,8 @@ export interface TrackRowsScreenDeps {
     ResizeObserver?: typeof ResizeObserver;
     axisWidth: number;
     laneGap: number;
+    /** The time ruler's ticks, as fractions of the rows' plot width. */
+    grid?: () => readonly number[];
     /** A channel's box (trackLaneHtml.ts `.track-row-figure`): the Figure's host, with the layer and the words in it. */
     host: (trackIndex: number, channel: number) => HTMLElement | null;
     readout: () => HTMLElement | null;
@@ -154,6 +156,7 @@ export function createTrackRowsScreen(deps: TrackRowsScreenDeps): TrackRowsScree
 
     const controller = createTrackRows({
         document: deps.document, answers: deps.answers, words: deps.words, axisWidth: deps.axisWidth, laneGap: deps.laneGap,
+        ...(deps.grid ? { grid: deps.grid } : {}),
         ...(deps.ResizeObserver ? { ResizeObserver: deps.ResizeObserver } : {}),
         ...(deps.hint ? { hint: deps.hint } : {}),
         host: (track, channel) => deps.host(track.index, channel),

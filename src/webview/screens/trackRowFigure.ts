@@ -34,6 +34,8 @@ export interface TrackRowFigureDeps {
     label: string;
     /** The room left of the plots (the rows' axis column) and right of them, so every row's plots start where the time ruler does. */
     margin: { left: number; right: number };
+    /** The rows' time ruler's ticks, as fractions of the plot's width (a faint line down the row at each). */
+    grid?: () => readonly number[];
     /** The room between the waveform and the spectrogram (the split the user drags). */
     laneGap: number;
     /** Each lane's height for the box's height (the split's place). */
@@ -111,10 +113,11 @@ export function createTrackRowFigure(deps: TrackRowFigureDeps): TrackRowFigureSc
         const made = createFigure({
             document: deps.document, host: deps.host, requests: deps.answers.figure(), words: deps.words, label: deps.label, size: sizeOf(), fill: true,
             margin: { left: deps.margin.left, right: deps.margin.right, top: 0, bottom: 0 }, acrossAxis: false, imagePalette: 'viridis', pressFocuses: true, leaveForgets: true,
-            laneGap: deps.laneGap, laneHeights: deps.laneHeights, keepWhileWaiting: true, ahead: ROW_AHEAD,
+            laneGap: deps.laneGap, laneHeights: deps.laneHeights, keepWhileWaiting: true, ahead: ROW_AHEAD, lineUnder: true,
             ...(deps.readout ? { readout: deps.readout } : {}),
             ...(deps.hint ? { hint: deps.hint } : {}),
             ...(deps.under ? { imageUnder: () => deps.under?.() } : {}),
+            ...(deps.grid ? { acrossGrid: () => deps.grid?.() ?? [] } : {}),
             lineLabel: () => deps.name(),
             lineStyle: () => ({ colour: deps.colour(), width: LINE_WIDTH }),
         });

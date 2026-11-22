@@ -157,6 +157,48 @@ test('the line read is drawn wider than the others of its lane; a lane\'s one li
     assert.deepEqual(widths(one), unread);
 });
 
+test('a line\'s widest picture is kept under it and drawn where the line drawn now does not reach: of its answer alone', () => {
+    const page = figurePage();
+    const figure = page.figure(undefined, { ...SIZE, lineUnder: true });
+    figure.canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: SIZE.size.width, height: SIZE.size.height, right: SIZE.size.width, bottom: SIZE.size.height, x: 0, y: 0, toJSON: () => ({}) });
+    figure.show(SPEC, null);
+    const first = page.draws()[0];
+    first.answer(picture(first.message.payload as FigureDrawPayload, 'p1'));
+    const under = (id: string): Array<[number, number]> | undefined => figure.inspect().lanes[0].lines.find(line => line.id === id)?.under;
+    assert.equal(under('cmp'), undefined, 'the whole picture reaches both sides: nothing is under it');
+    // Scrolled to 1 … 2 s; the picture of that place reaches 1.25 … 1.5 s only (the row moved on past what was made).
+    figure.show(SPEC, { x: [1, 2] });
+    const second = page.draws().at(-1);
+    assert.ok(second);
+    const reply = picture(second.message.payload as FigureDrawPayload, 'p2');
+    const lane = (reply.lanes ?? [])[0];
+    lane.range = { x: [1, 2], y: [-0.8, 0.8] };
+    lane.lines = [
+        { id: 'cmp', role: 'compare1', key: 'rec', xs: [1.25, 1.5], values: [0.3, -0.3] },
+        { id: 'base', role: 'base', key: 'other', xs: [1.25, 1.5], values: [0.1, -0.1] },
+    ] as never;
+    second.answer(reply);
+    const spans = under('cmp');
+    assert.ok(spans, 'the whole recording\'s line is drawn under the one that falls short');
+    assert.equal(spans.length, 2);
+    near(spans[0][0], FRAME.left, 'from the plot\'s left side');
+    near(spans[0][1], FRAME.left + 150, 'to the line\'s own first point (1.25 s)');
+    near(spans[1][0], FRAME.left + 300, 'from its last point (1.5 s)');
+    near(spans[1][1], FRAME.left + FRAME.width, 'to the plot\'s right side');
+    assert.equal(under('base'), undefined, 'a line of another answer than the one kept has nothing under it');
+    // Without the option nothing is kept.
+    const plain = figurePage();
+    const { figure: other } = shown(plain);
+    other.show(SPEC, { x: [1, 2] });
+    const next = plain.draws().at(-1);
+    assert.ok(next);
+    const short = picture(next.message.payload as FigureDrawPayload, 'p2');
+    (short.lanes ?? [])[0].range = { x: [1, 2], y: [-0.8, 0.8] };
+    (short.lanes ?? [])[0].lines = [{ id: 'cmp', role: 'compare1', key: 'rec', xs: [1.25, 1.5], values: [0.3, -0.3] }] as never;
+    next.answer(short);
+    assert.equal(other.inspect().lanes[0].lines[0].under, undefined);
+});
+
 test('a draw answered "busy" is asked once more a little later; busy again, the Figure is told', () => {
     const { answers, posted, waits, answer } = busyPage();
     const replies: Array<FigureDrawResult | null> = [];
