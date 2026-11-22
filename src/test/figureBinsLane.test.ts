@@ -137,6 +137,7 @@ test('a bar reads its group, its bin\'s ends and its count; a click on it tells 
     const seen = figure.inspect();
     assert.equal(seen.readout, 'A / 50.0–75.0 / 3 recordings');
     near(seen.mark?.px ?? NaN, xPx(62.5), 'the mark across');
+    assert.equal(seen.mark?.cross, undefined, 'a bar read has no cross: its ends are the bar\'s own edges');
     near(seen.mark?.py ?? NaN, yPx('A', 3), 'the mark on the bar\'s top');
     click(page, figure, 'A', 62, 3);
     assert.deepEqual(ranges, [{ lane: 'A', x: [50, 75] }]);

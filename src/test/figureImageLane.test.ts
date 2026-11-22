@@ -99,6 +99,7 @@ test('a read on an image lane carries the pointer\'s time and frequency; the rea
     assert.deepEqual([seen.mark?.index, seen.mark?.row, seen.mark?.x, seen.mark?.y, seen.mark?.value], [250, 32, 1, 1000, -12.540070305527902]);
     near(seen.mark?.px ?? NaN, FRAME.left + 300, 'the mark across');
     near(seen.mark?.py ?? NaN, yPx(1000), 'the mark up');
+    assert.deepEqual(seen.mark?.cross, { top: FRAME.top, bottom: FRAME.top + FRAME.height, left: FRAME.left, right: FRAME.left + FRAME.width }, 'a cross through the cell read, across the lane (R7)');
 });
 
 test('the arrow keys step a column (← →) or a row (↑ ↓) from the cell read, by its name', () => {

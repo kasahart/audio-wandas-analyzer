@@ -355,7 +355,14 @@ export interface FigureInspection {
         events?: { used: number; total: number; missing?: 'pending' | 'stale' | 'failed' | 'evicted' | 'too-large' };
     }>;
     /** The read mark: on a line at its point's value; on an image at its cell's place up the axis (`y`). */
-    mark: { lane: string; line: string; index: number; x: number; value: number; px: number; py: number; row?: number; y?: number } | null;
+    mark: {
+        lane: string; line: string; index: number; x: number; value: number; px: number; py: number; row?: number; y?: number;
+        /**
+         * The cross drawn through the point read, to the ends of its lane's frame: a line down at the point's x and a
+         * line across at its value, so both can be read off the axes at a glance (R7). None on a lane of bins.
+         */
+        cross?: { top: number; bottom: number; left: number; right: number };
+    } | null;
     /** The place followed from outside (Figure.follow) and where its line is drawn (px across); null with none, or one out of the range shown. */
     followed: { x: number; px: number } | null;
 }
@@ -936,6 +943,7 @@ export function createFigure(options: FigureOptions): Figure {
                 lane: mark.lane, line: mark.line, index: mark.index, x: mark.point.x, value: mark.point.value, px: xPx(markLane, mark.point.x),
                 py: Math.max(markLane.frame.top, Math.min(markLane.frame.top + markLane.frame.height, markLane.y.yOf(mark.point.y ?? mark.point.value))),
                 ...(mark.point.row !== undefined && mark.point.y !== undefined ? { row: mark.point.row, y: mark.point.y } : {}),
+                ...(markLane.lane.bins ? {} : { cross: { top: markLane.frame.top, bottom: markLane.frame.top + markLane.frame.height, left: markLane.frame.left, right: markLane.frame.left + markLane.frame.width } }),
             } : null,
             followed: ((): { x: number; px: number } | null => { const px = followed !== null && lanes[0] ? followedPx(lanes[0]) : null; return followed !== null && px !== null ? { x: followed, px } : null; })(),
         };
@@ -1361,6 +1369,26 @@ export function createFigure(options: FigureOptions): Figure {
             ctx.restore();
         });
         if (seen.mark) {
+            // The cross through the point read (R7): down the lane at its x, across it at its value in the colour of the
+            // line read, so where the point is on both axes is seen at once. The dot alone left both to be guessed.
+            const cross = seen.mark.cross, px = seen.mark.px, py = seen.mark.py;
+            if (cross && px >= cross.left && px <= cross.right) {
+                const readLine = seen.lanes.find(lane => lane.id === seen.mark?.lane)?.lines.find(line => line.id === seen.mark?.line);
+                ctx.save();
+                ctx.lineWidth = 1;
+                ctx.setLineDash([3, 3]);
+                ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+                ctx.beginPath();
+                ctx.moveTo(px, cross.top);
+                ctx.lineTo(px, cross.bottom);
+                ctx.stroke();
+                ctx.strokeStyle = readLine?.colour ?? 'rgba(255,255,255,0.7)';
+                ctx.beginPath();
+                ctx.moveTo(cross.left, py);
+                ctx.lineTo(cross.right, py);
+                ctx.stroke();
+                ctx.restore();
+            }
             ctx.fillStyle = '#ffffff';
             ctx.strokeStyle = '#000000';
             ctx.beginPath();

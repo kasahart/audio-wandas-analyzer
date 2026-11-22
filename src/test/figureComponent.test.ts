@@ -96,6 +96,9 @@ for (const item of TABLE.r7.filter(row => row.changes_with !== 'spec1')) {
             assert.ok(seen.mark, `${what}: a mark`);
             near(seen.mark.px, FRAMES[lane].left + record.x_px, `${what}: the mark across`);
             near(seen.mark.py, FRAMES[lane].top + record.y_px, `${what}: the mark up`);
+            // R7: a cross through the point read, to the ends of its lane (down at its x, across at its value), so the
+            // point's place on both axes is seen at once. A dot alone was not enough to read either off the axes.
+            assert.deepEqual(seen.mark.cross, { top: FRAMES[lane].top, bottom: FRAMES[lane].top + FRAMES[lane].height, left: FRAMES[lane].left, right: FRAMES[lane].left + FRAMES[lane].width }, `${what}: the cross through the point read spans its lane (docs/display-rules.md R7)`);
             // As today's readout row writes it (showPlotReadout: name / values), a level in its axis's reference (the
             // stand-in's axis is dBFS; the recorded scene's had none, so its values carry no unit).
             assert.equal(seen.readout, `${record.name} / ${record.values}${lane === 'overlay' ? ' dBFS' : ''}`, `${what}: the readout (layer 3 rounds)`);
