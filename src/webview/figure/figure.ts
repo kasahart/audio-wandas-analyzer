@@ -450,6 +450,11 @@ const ROLE_COLOURS: Record<string, string> = { base: '#9aa0a6', compare1: '#e871
 const OTHER_COLOUR = '#7f7f7f';
 /** The lines at a lane's ticks, under its lines: faint, so no line of the data is mistaken for one. */
 const GRID_COLOUR = 'rgba(255, 255, 255, 0.08)';
+/**
+ * The lines down a lane of lines at the ticks across, drawn over its lines (as the old plots drew them): dark, so they
+ * show through a waveform's filled band as thin breaks, and are never mistaken for a line of the data.
+ */
+const ACROSS_GRID_COLOUR = 'rgba(52, 57, 66, 0.9)';
 
 interface LaneView {
     id: string;
@@ -1272,12 +1277,10 @@ export function createFigure(options: FigureOptions): Figure {
             ctx.beginPath();
             ctx.rect(frame.left, frame.top, frame.width, frame.height);
             ctx.clip();
-            // A faint line at every tick of a lane of lines, under the lines: a value is read off the axis across the plot.
+            // A faint line at every value tick of a lane of lines, under the lines: a value is read off the axis across the plot.
             if (!lane.bins && !lane.image) {
                 ctx.fillStyle = GRID_COLOUR;
                 for (const tick of lane.yTicks) ctx.fillRect(frame.left, Math.round(tick.px), frame.width, 1);
-                for (const tick of lane.xTicks) ctx.fillRect(Math.round(tick.px), frame.top, 1, frame.height);
-                for (const px of gridOf(frame)) ctx.fillRect(px, frame.top, 1, frame.height);
             }
             if (lane.bins) paintBins(ctx, lane.bins, frame, markColour);
             for (const line of lane.lines) {
@@ -1321,6 +1324,13 @@ export function createFigure(options: FigureOptions): Figure {
                     open = true;
                 }
                 ctx.stroke();
+            }
+            // The lines down at every tick of the axis across, over the lines (as the old plots drew them): a dense
+            // signal fills its lane (a waveform), and lines under it were hidden, so no time could be read down it.
+            if (!lane.bins && !lane.image) {
+                ctx.fillStyle = ACROSS_GRID_COLOUR;
+                for (const tick of lane.xTicks) ctx.fillRect(Math.round(tick.px), frame.top, 1, frame.height);
+                for (const px of gridOf(frame)) ctx.fillRect(px, frame.top, 1, frame.height);
             }
             // Where a trigger's events used were cut: shaded, under the guide lines.
             ctx.fillStyle = 'rgba(255, 255, 255, 0.07)';

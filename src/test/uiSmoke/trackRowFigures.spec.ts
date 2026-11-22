@@ -90,6 +90,17 @@ test('a row on the Figure path draws its waveform and spectrogram from the answe
     // Up the spectrogram: 0 Hz to Nyquist, on a linear axis.
     expect(seen.lanes[1].range?.y).toEqual([0, RATE / 2]);
     expect(seen.lanes[1].yLog).toBe(false);
+    // The time grid down the waveform is drawn over its band, as the old lanes drew it: a tone fills the lane, and a
+    // line under it would not show, so no time could be read down the row (docs/display-rules.md, Tracks 行の縦線).
+    const wave = seen.lanes[0];
+    const line = (wave.grid ?? []).find(px => px > wave.frame.left + 4 && px < wave.frame.left + wave.frame.width - 4);
+    expect(line, 'a time grid line down the waveform').toBeDefined();
+    const colours = await page.locator(ROW).evaluate((canvas, at) => {
+        const own = canvas as HTMLCanvasElement, ctx = own.getContext('2d')!, ratio = own.width / own.clientWidth;
+        const pixel = (x: number): number[] => [...ctx.getImageData(Math.round(x * ratio), Math.round(at.y * ratio), 1, 1).data.slice(0, 3)];
+        return { on: pixel(at.x), beside: pixel(at.x + 3) };
+    }, { x: line!, y: wave.frame.top + wave.frame.height / 2 });
+    expect(colours.on, 'the grid line shows through the waveform\'s band, not hidden under it').not.toEqual(colours.beside);
     // The lanes' own canvases are out of sight, the row says nothing, and its answers were asked once.
     await expect(page.locator('#track-canvas-0')).toBeHidden();
     await expect(page.locator('#track-row-figure-0 .track-row-says')).toBeHidden();

@@ -128,6 +128,7 @@
 - **録音のないところは塗りません。** スペクトログラムの段で値のない色（一番低い色）を塗るのは、録音の始まりから終わりまでだけです。録音の終わりより後ろを塗ると、無音が続いているように読めるからです（`figure.ts` の `groundOf`）。
 - テスト: `src/test/figureImageLane.test.ts` › past its whole axis across (a recording's end) an image lane paints nothing: the colour of no value is the recording's alone
 - **Tracks の行には、時間の目盛りの位置に薄い縦線を引きます。** 行は自分の時間軸の目盛りを持たないので、画面の上の時間の目盛り（`timeRuler.ts`）の位置を画面から受け取り、波形とスペクトログラムの両方に同じ位置で引きます（`figure.ts` の `acrossGrid`）。時刻を行の上から下へたどって読むためです。
+- **線の段の横軸の目盛りの縦線は、線の上に引きます。** 波形のように段を塗りつぶす線の下に引くと隠れて、時刻を上から下へたどれないからです（前の図も線の上に引いていました）。色は暗い灰色で、データの線と見間違えません。値の軸の横線は線の下のままです（`figure.ts` の `ACROSS_GRID_COLOUR`）。テスト: `src/test/uiSmoke/trackRowFigures.spec.ts` › a row on the Figure path draws its waveform and spectrogram from the answers the backend keeps
 - テスト: `src/test/figureImageLane.test.ts` › the screen's own ticks across are drawn down an image lane too, where the screen says they are (acrossGrid)
 - 同じ実際の録音で、狭い音の上に拡大すると、比較台のスペクトルの重ね図とその Δ の段は、範囲のビンを取り寄せません。図のサービス（`python-backend/figures/`）がすべてのビンを持っていて、指定範囲の中を、枠の幅の 1 px ごとの区画の最小と最大で描き直します（`figures/thinning.py`）。全体を間引いた線がその範囲に持っていた点の 2 倍より多くなり、一番高い点はその音で、全体のときと同じ高さです。範囲のビンが区画より少なくなるまで拡大すると、範囲の中のビンを 1 つ残らず、ビンの間隔（16000/8192 Hz）で描きます。範囲の外のもっと大きい音は図に出ません。差の段も同じ答え（すべてのビンの Δ）から描きます。
 - テスト: `src/test/uiSmoke/figureOverlay.spec.ts` › a narrow tone is drawn at its full level on the thinned whole spectrum, and zoomed onto it the window is drawn from every one of its own bins (R2, R3)
