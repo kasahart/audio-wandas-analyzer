@@ -62,7 +62,7 @@
 
 ## R2 線の間引きは区間ごとの最小と最大
 
-点が画面より多い線（波形、スペクトル、ケプストラム、差分）は、区間ごとに最小と最大の点を、それぞれ自分の x の位置に残します。平均したり、最大だけを残したりしません。どの画面でも同じ線になります。
+点が画面より多い線（波形、スペクトル、ケプストラム、差分）は、区間ごとに最小と最大の点を、それぞれ自分の x の位置に残します。平均したり、最大だけを残したりしません。どの画面でも同じ線になります。区間は枠の幅の 1 px ごとです（`figures/thinning.py` の `LINE_BUCKETS_PER_PX`）。2 px ごとにすると、点の多いスペクトルのノイズの帯で線の間から背景が見え、すべての点を描いた絵と違って見えるからです。
 
 - テスト: `python-backend/test_figures_thinning.py` › test_more_bins_than_the_screen_shows_keep_each_buckets_lowest_and_highest_bin_at_every_zoom
 - テスト: `python-backend/test_figures_thinning.py` › test_a_spectrums_buckets_keep_the_recorded_bins
@@ -129,7 +129,7 @@
 - テスト: `src/test/figureImageLane.test.ts` › past its whole axis across (a recording's end) an image lane paints nothing: the colour of no value is the recording's alone
 - **Tracks の行には、時間の目盛りの位置に薄い縦線を引きます。** 行は自分の時間軸の目盛りを持たないので、画面の上の時間の目盛り（`timeRuler.ts`）の位置を画面から受け取り、波形とスペクトログラムの両方に同じ位置で引きます（`figure.ts` の `acrossGrid`）。時刻を行の上から下へたどって読むためです。
 - テスト: `src/test/figureImageLane.test.ts` › the screen's own ticks across are drawn down an image lane too, where the screen says they are (acrossGrid)
-- 同じ実際の録音で、狭い音の上に拡大すると、比較台のスペクトルの重ね図とその Δ の段は、範囲のビンを取り寄せません。図のサービス（`python-backend/figures/`）がすべてのビンを持っていて、指定範囲の中を、枠の幅の 2 px ごとの区画の最小と最大で描き直します（`figures/thinning.py`）。全体を間引いた線がその範囲に持っていた点の 2 倍より多くなり、一番高い点はその音で、全体のときと同じ高さです。範囲のビンが区画より少なくなるまで拡大すると、範囲の中のビンを 1 つ残らず、ビンの間隔（16000/8192 Hz）で描きます。範囲の外のもっと大きい音は図に出ません。差の段も同じ答え（すべてのビンの Δ）から描きます。
+- 同じ実際の録音で、狭い音の上に拡大すると、比較台のスペクトルの重ね図とその Δ の段は、範囲のビンを取り寄せません。図のサービス（`python-backend/figures/`）がすべてのビンを持っていて、指定範囲の中を、枠の幅の 1 px ごとの区画の最小と最大で描き直します（`figures/thinning.py`）。全体を間引いた線がその範囲に持っていた点の 2 倍より多くなり、一番高い点はその音で、全体のときと同じ高さです。範囲のビンが区画より少なくなるまで拡大すると、範囲の中のビンを 1 つ残らず、ビンの間隔（16000/8192 Hz）で描きます。範囲の外のもっと大きい音は図に出ません。差の段も同じ答え（すべてのビンの Δ）から描きます。
 - テスト: `src/test/uiSmoke/figureOverlay.spec.ts` › a narrow tone is drawn at its full level on the thinned whole spectrum, and zoomed onto it the window is drawn from every one of its own bins (R2, R3)
 
 ## R4 両軸に量・単位・基準

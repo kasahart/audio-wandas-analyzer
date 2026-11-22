@@ -87,12 +87,20 @@ def _min_max_indices(
     return _with_breaks(kept[np.unique(np.concatenate([first, last]))], gaps)
 
 
+#: Buckets of a line a CSS px. Each bucket keeps two points (its lowest and highest), so a dense line (a spectrum's
+#: noise floor with many bins a pixel) is drawn with a stroke about every half pixel, closer than the line is wide,
+#: and reads as the filled band every point would draw. With a bucket per two pixels the strokes lay about a pixel
+#: apart and the background showed between them (compared on the app's screen with every bin drawn: 6 % of the
+#: plot's pixels differed, 1 to 2 % with this). Two points a pixel at most.
+LINE_BUCKETS_PER_PX = 1
+
+
 def drawn_line(
     xs: np.ndarray, values: np.ndarray, x_range: tuple[float, float], width: float, log: bool, silent_floor: bool
 ) -> Drawn:
     """The points of a line (its answer: ``xs``, ``values``) to draw across ``x_range`` in a frame ``width`` CSS px
-    wide (計算ウ): one bucket per two pixels, each its lowest and highest point; a gap where there is no value
-    (``silent_floor``: a level's −250 dB and below is no value either)."""
+    wide (計算ウ): one bucket per pixel (``LINE_BUCKETS_PER_PX``), each its lowest and highest point; a gap where there
+    is no value (``silent_floor``: a level's −250 dB and below is no value either)."""
     xs = np.asarray(xs, dtype=np.float64)
     values = np.asarray(values, dtype=np.float64)
     low, high = float(min(x_range)), float(max(x_range))
@@ -100,7 +108,7 @@ def drawn_line(
     inside = np.flatnonzero(placed & (xs >= low) & (xs <= high))
     if silent_floor:
         values = np.where(values > SILENT_DB, values, np.nan)
-    buckets = max(1, int(math.ceil(width / 2)))
+    buckets = max(1, int(math.ceil(width * LINE_BUCKETS_PER_PX)))
     picked = inside[_min_max_indices(xs[inside], values[inside], buckets, log, (low, high))]
     # The nearest answer point outside each end, whatever its value: a line crossing a range narrower than one bin,
     # or holding one bin, is drawn to the frame's edges, as the old overlay drew it (its strokes cut at the frame,
@@ -351,9 +359,9 @@ BAND_WORK_BYTES = 1 << 20
 
 
 #: Buckets of a band a CSS px. A band is drawn as a line through each bucket's lowest and highest sample at their
-#: own times, so two neighbouring extremes can lie up to two buckets apart: with a bucket per two pixels (a line's
-#: density) a steady tone was drawn as a zigzag with the background showing through, which read as a thinning gone
-#: wrong; with two buckets a pixel the strokes lie closer than the line is wide, and a dense signal is a filled band
+#: own times, so two neighbouring extremes can lie up to two buckets apart: with a bucket per two pixels a steady
+#: tone was drawn as a zigzag with the background showing through, which read as a thinning gone wrong; with two
+#: buckets a pixel the strokes lie closer than the line is wide, and a dense signal is a filled band
 #: (its upper and lower edge still each bucket's real extreme). Four points a pixel at most.
 BAND_BUCKETS_PER_PX = 2
 

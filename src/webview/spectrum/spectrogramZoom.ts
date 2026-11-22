@@ -21,7 +21,7 @@ export interface SpectrogramZoomSource {
     frames: number;
 }
 
-/** One column per this many pixels is enough, as a line is drawn with a bucket per two pixels (R2). */
+/** One column per this many pixels is enough for an image (a spectrogram is a picture of colours, not a line: R2). */
 const PIXELS_PER_COLUMN = 2;
 /** Column counts are rounded by the host (one frame beside each end): a window this close to the target still serves. */
 const COLUMN_SLACK = 0.95;

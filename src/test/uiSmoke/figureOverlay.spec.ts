@@ -234,7 +234,7 @@ test('a narrow tone is drawn at its full level on the thinned whole spectrum, an
     const zoomed = await zoomOnto(6);
     const [low, high] = zoomed.lanes[0].range!.x;
     expect(inWindow(zoomed).length, 'more points than the thinned whole spectrum held in the window').toBeGreaterThan(2 * wholeIn(low, high));
-    // No peak or dip lost (R2 at every zoom: each 2 px column keeps its lowest and highest bin): every bin of the window,
+    // No peak or dip lost (R2 at every zoom: each column of a pixel keeps its lowest and highest bin): every bin of the window,
     // as the figure service exports it unthinned, lies inside the drawn envelope of its own column.
     const lane = zoomed.lanes[0];
     const draw = await page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; command?: string; payload?: Record<string, unknown> }> }).__uiSmokePostedMessages

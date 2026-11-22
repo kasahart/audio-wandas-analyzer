@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 import wandas as wd
 
-from figures.thinning import POOLS, _min_max_indices, _pooled_columns, drawn_line
+from figures.thinning import LINE_BUCKETS_PER_PX, POOLS, _min_max_indices, _pooled_columns, drawn_line
 from frames.stage_view import read_frame
 
 RATE = 16000
@@ -67,15 +67,19 @@ def test_a_spectrums_buckets_keep_the_recorded_bins(case: dict) -> None:
 def test_more_bins_than_the_screen_shows_keep_each_buckets_lowest_and_highest_bin_at_every_zoom(
     spectrum: tuple[np.ndarray, np.ndarray],
 ) -> None:
-    # Each two pixels keep their lowest and highest bin, before a zoom and after it, so a peak keeps its height.
+    # Each pixel keeps its lowest and highest bin, before a zoom and after it, so a peak keeps its height. A bucket
+    # per pixel, never per two: a spectrum's noise floor drawn with a stroke a pixel showed the background between
+    # the strokes, unlike every bin drawn. If this fails after LINE_BUCKETS_PER_PX changed, compare on the screen
+    # with every bin drawn before moving the bound (docs/display-rules.md R2).
     freqs, levels = spectrum
     width = 800.0
     xs, values = _points(freqs, levels, (20.0, RATE / 2), width, True)
-    assert len(xs) <= 2 * math.ceil(width / 2) + 2
+    assert LINE_BUCKETS_PER_PX == 1
+    assert 2 * math.ceil(width / 2) < len(xs) <= 2 * math.ceil(width) + 2
     inside = (freqs >= 20.0) & (freqs <= RATE / 2)
     assert max(values) == levels[inside].max() and min(values) == levels[inside].min()
     closer_xs, closer = _points(freqs, levels, (900.0, 1100.0), 300.0, True)
-    assert len(closer_xs) <= 2 * 150 + 2 and max(closer) == max(values)
+    assert len(closer_xs) <= 2 * 300 + 2 and max(closer) == max(values)
     # Each value is a bin's own level, at that bin's frequency.
     own = dict(zip(freqs.tolist(), levels.tolist(), strict=True))
     assert all(own[x] == value for x, value in zip(closer_xs, closer, strict=True))
@@ -97,7 +101,7 @@ def test_a_zoomed_spectrums_buckets_are_laid_across_the_view_not_its_bins() -> N
     freqs = np.arange(1, 8001, dtype=np.float64)
     levels = np.random.default_rng(3).normal(-80, 5, freqs.size)
     xs, _ = _points(freqs, levels, (20.0, 24000.0), 200.0, True)
-    edges = np.geomspace(20.0, 24000.0, 101)
+    edges = np.geomspace(20.0, 24000.0, 201)
     assert len(xs) <= 2 * int(np.sum(edges[:-1] < 8000)) + 1
 
 
@@ -110,7 +114,7 @@ def test_a_long_cross_correlations_peak_is_drawn_at_its_own_lag() -> None:
         reading = read_frame(frame.cross_correlation(max_lag=3.0))
         assert reading is not None and reading.xs.size == 96001
         xs, drawn = _points(reading.xs, reading.values, (-3.0, 3.0), 1200.0, False)
-        assert len(xs) <= 1200
+        assert len(xs) <= 2 * 1200
         assert xs[drawn.index(max(drawn))] == pytest.approx(delay / RATE)
 
 
