@@ -1785,6 +1785,15 @@ def test_a_cursors_answers_do_not_wait_behind_a_rows_answers_for_the_same_file(m
     assert [response["requestId"] for response in responses] == ["range", "detail"], responses
 
 
+def test_a_figures_draw_and_read_are_interactive_a_recordings_answers_are_not() -> None:
+    """A picture (figure-draw) is what a scroll or a zoom waits for: with the workers busy it starts before a
+    recording's answers (track-answers: an STFT) asked earlier, as a read does."""
+    from backend_server import _INTERACTIVE_COMMANDS
+
+    assert {"figure-draw", "figure-read", "cursor-answers"} <= _INTERACTIVE_COMMANDS
+    assert "track-answers" not in _INTERACTIVE_COMMANDS
+
+
 def test_interactive_requests_start_before_other_ready_ones() -> None:
     from backend_server import _Lanes
 

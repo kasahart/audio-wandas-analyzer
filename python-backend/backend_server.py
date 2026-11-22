@@ -183,8 +183,10 @@ class _Lanes:
 
 # These change what later requests for their files see: dropping a track's STFT, or a file a scan opened.
 _BARRIER_COMMANDS = frozenset({"release-track-detail", "scan"})
-# A figure's read is interactive too (docs/figure-design.md 第 6 節: 対話の優先, never a pre-emption).
-_INTERACTIVE_COMMANDS = frozenset({"cursor-answers", "figure-read"})
+# A figure's read is interactive too (docs/figure-design.md 第 6 節: 対話の優先, never a pre-emption), and so is its
+# draw: a picture is what a scroll or a zoom waits for, and is made of answers already kept, so it never queues
+# behind a recording's STFT (a zoomed row's window of levels takes several times as long).
+_INTERACTIVE_COMMANDS = frozenset({"cursor-answers", "figure-read", "figure-draw"})
 
 
 def _lane(path: str) -> str:
