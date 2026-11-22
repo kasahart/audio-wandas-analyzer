@@ -25,6 +25,7 @@ import pytest
 
 from figures.ranges import nice_range
 from figures.service import FigureService
+from figures.thinning import LINE_BUCKETS_PER_PX
 from test_figure_bench_cases import FIXTURE, RECORDED_REL, _data
 from test_figure_heatmap_cases import numbers
 from transport.figure_answers import CombineOps, answer_of
@@ -163,9 +164,14 @@ def test_the_delta_headline_and_range_are_the_old_ones(case: dict[str, Any]) -> 
         if headline["x"] != pytest.approx(peak["x"], abs=1e-12):
             # Two points with the same largest |Δ| (a cepstrum mirrors about its middle): which of them is the larger
             # by a last bit differs by machine. Elsewhere than the recorded place, the peak has to be such a twin.
+            # Read of the drawn line within a pixel of the recorded place: twins closer than a pixel share a bucket,
+            # which keeps one of them (thinning.LINE_BUCKETS_PER_PX).
             (delta,) = lane["lines"]
-            twin = delta["values"][int(np.argmin(np.abs(np.asarray(delta["xs"]) - peak["x"])))]
-            near = pytest.approx(headline["value"], rel=RECORDED_REL, abs=1e-12)
+            low_x, high_x = lane["range"]["x"]
+            beside = np.abs(np.asarray(delta["xs"]) - peak["x"]) <= (high_x - low_x) / (600 * LINE_BUCKETS_PER_PX)
+            drawn = np.asarray([np.nan if value is None else value for value in delta["values"]], dtype=float)
+            twin = float(np.nanmax(np.abs(drawn[beside])))
+            near = pytest.approx(abs(headline["value"]), rel=RECORDED_REL, abs=1e-12)
             assert twin == near, f"the peak is at {headline['x']}"
         assert headline["xStep"] == pytest.approx(peak["xStep"], rel=1e-6)
         if detail is None:
