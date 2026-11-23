@@ -37,7 +37,7 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
             pythonStatusBarItem.hide();
         }
     };
-    const backend = new PythonBackendServer(context.extensionPath, () => pythonEnvironment.getPythonCommand(), (line) => {
+    const backend = new PythonBackendServer(context.extensionPath, () => pythonEnvironment.backendInvocation(), (line) => {
         if (line.startsWith('[ts]')) {
             logPerf(line);
             return;
@@ -45,8 +45,7 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
         logPerf(`[py] ${line.startsWith('[perf]') ? line.slice(7) : line}`);
     }, () => {
         if (deactivated) { return; }
-        const pythonCommand = pythonEnvironment.getPythonCommand();
-        pythonEnvironment.setStatusBarNormal(pythonStatusBarItem, pythonCommand);
+        pythonEnvironment.setStatusBarNormal(pythonStatusBarItem, pythonEnvironment.interpreterLabel());
     }, {
         current: filePath => ({ calibrationProfile: calibration.profile(filePath), analysisRevision: calibration.analysisRevision(filePath) }),
         discardStale: async (filePath, error, attempted) => attempted.calibrationProfile !== undefined
@@ -56,7 +55,7 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
         crashed: error => {
             logChannel.error(error.message);
             if (deactivated) { return; }
-            pythonEnvironment.setStatusBarWarning(pythonStatusBarItem, pythonEnvironment.getPythonCommand(), fillTemplate(getStrings(vscode.env.language).pyTooltipBackendStopped, { message: error.message }));
+            pythonEnvironment.setStatusBarWarning(pythonStatusBarItem, pythonEnvironment.interpreterLabel(), fillTemplate(getStrings(vscode.env.language).pyTooltipBackendStopped, { message: error.message }));
         },
     });
     const analysis = new AnalysisOrchestrator(backend, logPerf);
@@ -65,6 +64,7 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
     // Nothing touches Python until the user does something that needs it, so opening a window stays free.
     type PythonPreparation = 'idle' | 'checking' | 'ready' | 'failed';
     let preparation: PythonPreparation = 'idle';
+    // The selection (getPythonCommand) the preparation is for; the interpreter it found is interpreterInUse().
     let preparedCommand: string | undefined;
     let defaultInterpreterLookup: Promise<unknown> | undefined;
     // The check→install→warmup run for `preparedCommand`; resolves to whether its dependencies are importable.
@@ -73,7 +73,8 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
 
     const runPythonPreparation = async (pythonCommand: string, generation: number): Promise<boolean> => {
         const isCurrent = (): boolean => generation === preparationGeneration;
-        const dependenciesReady = await pythonEnvironment.checkAndPromptInstallDependencies(pythonCommand, pythonStatusBarItem);
+        // Tries the selection's candidates in order (on its own, a chosen interpreter; else the OS's fallback commands).
+        const dependenciesReady = await pythonEnvironment.checkAndPromptInstallDependencies(pythonEnvironment.getPythonCandidates(), pythonStatusBarItem);
         if (deactivated) { return dependenciesReady; }
         // The prompt switched interpreters or started a newer check (Create .venv and Install, Select Environment,
         // even of the same interpreter): what a waiting analysis needs is that preparation, not this one's answer.
@@ -82,13 +83,13 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
             preparation = 'failed';
             return false;
         }
-        setStatusBarImporting(pythonStatusBarItem, pythonCommand);
+        setStatusBarImporting(pythonStatusBarItem, pythonEnvironment.interpreterLabel());
         try {
             await backend.warmup();
             if (deactivated) { return true; }
             if (isCurrent()) {
                 preparation = 'ready';
-                pythonEnvironment.setStatusBarNormal(pythonStatusBarItem, pythonCommand);
+                pythonEnvironment.setStatusBarNormal(pythonStatusBarItem, pythonEnvironment.interpreterLabel());
             }
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -97,7 +98,7 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
                 preparation = 'failed';
                 pythonEnvironment.setStatusBarWarning(
                     pythonStatusBarItem,
-                    pythonCommand,
+                    pythonEnvironment.interpreterLabel(),
                     fillTemplate(getStrings(vscode.env.language).pyTooltipBackendFailed, { message }),
                 );
             }
@@ -131,7 +132,7 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
     const restartPython = (): void => {
         backend.dispose();
         const pythonCommand = pythonEnvironment.getPythonCommand();
-        pythonEnvironment.setStatusBarNormal(pythonStatusBarItem, pythonCommand);
+        pythonEnvironment.setStatusBarNormal(pythonStatusBarItem, pythonEnvironment.interpreterLabel());
         if (preparation === 'idle') { return; }
         void warmPythonBackend(pythonCommand);
     };
@@ -217,7 +218,7 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
         );
     }
 
-    pythonEnvironment.setStatusBarNormal(pythonStatusBarItem, pythonEnvironment.getPythonCommand());
+    pythonEnvironment.setStatusBarNormal(pythonStatusBarItem, pythonEnvironment.interpreterLabel());
     updateStatusBarVisibility();
 }
 
