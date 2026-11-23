@@ -1,4 +1,4 @@
-import type { KeyRouter } from './keyRouter';
+import type { KeyRouter } from '../shell/keyRouter';
 import { keydownContextFor, keydownIntent, type FocusedElementLike, type GlobalShortcutAction } from './shortcuts';
 
 export interface GlobalKeyboardHandlers<A extends FocusedElementLike> {

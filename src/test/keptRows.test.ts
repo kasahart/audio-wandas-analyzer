@@ -2,37 +2,42 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { getStrings } from '../shared/i18n/strings';
-import { datasetRows, type Results } from '../shared/dataset/datasetTable';
-import type { ScanResult } from '../shared/protocol/backendProtocol';
+import { datasetRows, type DatasetRow, type FileInfo } from '../shared/dataset/datasetTable';
 import { datasetRowsHtml, ENTRY_ROW_HEIGHT, type DatasetScreenView } from '../webview/runtime/entryTableHtml';
 import { writeKeptRows } from '../webview/runtime/keptRows';
 
 const strings = getStrings('en');
 const files = ['/d/a.wav', '/d/b.wav', '/d/c.wav'];
-const rows = datasetRows(files, '/d', new Map(), new Map(), new Map(files.map(file => [file, 1])));
-const view = (results: Results, extra: Partial<DatasetScreenView> = {}): DatasetScreenView => ({
-    rows, results, group: 'none', value: 'leq', valueReady: results.size === files.length, mode: 'all', unmatched: [], filtered: new Set(),
-    columns: { name: { id: 'name', label: 'File', numeric: false }, ch: { id: 'ch', label: 'ch', numeric: true }, value: { id: 'leq', label: 'Leq', numeric: true } },
+/** The rows with the headers read so far (`info`): a file's length, sample rate and calibration arrive after its row is drawn. */
+const rowsWith = (info: ReadonlyMap<string, FileInfo>): DatasetRow[] => datasetRows(files, '/d', new Map(), new Map(files.map(file => [file, 1])), path => info.get(path));
+const rows = rowsWith(new Map());
+const view = (info: ReadonlyMap<string, FileInfo>, extra: Partial<DatasetScreenView> = {}): DatasetScreenView => ({
+    rows: rowsWith(info), group: 'none', value: 'none', mode: 'all', unmatched: [], filtered: new Set(),
+    columns: {
+        name: { id: 'name', label: 'File', numeric: false }, ch: { id: 'ch', label: 'ch', numeric: true },
+        info: [{ id: 'duration', label: 'Length [s]', numeric: true }, { id: 'fs', label: 'fs [Hz]', numeric: true }, { id: 'calibration', label: 'Calibration', numeric: false }],
+    },
     filters: [], sort: { column: 'name', descending: false }, slots: [null, null, null, null], focused: null, playing: null, memo: new Map(), ...extra,
 });
-const result = (leq: number): ScanResult => JSON.parse(JSON.stringify({ ok: true, leqDbA: [leq] })) as ScanResult;
+const header = (durationS: number): FileInfo => ({ durationS, sampleRate: 48000, calibrated: false, calibration: 'Uncalibrated' });
 const tbody = (): HTMLElement => {
     const { document } = new JSDOM('<table><tbody></tbody></table>').window;
     return document.querySelector('tbody')!;
 };
 const write = (body: HTMLElement, screen: DatasetScreenView, first = 0, last = rows.length): void => writeKeptRows(body, datasetRowsHtml(screen, first, last, ENTRY_ROW_HEIGHT, strings));
+const infoCells = (body: HTMLElement): string[][] => [...body.querySelectorAll('tr.entry-row')].map(row => [...row.querySelectorAll('.entry-col-info')].map(cell => cell.textContent ?? ''));
 
-test('a value that arrives goes into the cell that was drawn while it was pending: no row or cell is drawn anew (#781)', () => {
+test('a file\'s information that arrives goes into the cells that were drawn while its header was not read: no row or cell is drawn anew (#781)', () => {
     const body = tbody();
     write(body, view(new Map()));
     const cells = [...body.querySelectorAll('tr.entry-row td')];
-    assert.deepEqual([...body.querySelectorAll('.entry-col-value')].map(cell => cell.textContent), ['—', '—', '—']);
-    write(body, view(new Map([['/d/a.wav', result(-34.2)]])));
-    write(body, view(new Map(files.map((file, index) => [file, result(-30 - index)]))));
-    assert.deepEqual([...body.querySelectorAll('.entry-col-value')].map(cell => cell.textContent), ['−30.0', '−31.0', '−32.0']);
+    assert.deepEqual(infoCells(body), [['—', '—', '—'], ['—', '—', '—'], ['—', '—', '—']]);
+    write(body, view(new Map([['/d/a.wav', header(2)]])));
+    write(body, view(new Map(files.map((file, index) => [file, header(2 + index * 10)]))));
+    assert.deepEqual(infoCells(body), [['2.00', '48000', 'Uncalibrated'], ['12.0', '48000', 'Uncalibrated'], ['22.0', '48000', 'Uncalibrated']]);
     const now = [...body.querySelectorAll('tr.entry-row td')];
     assert.equal(now.length, cells.length);
-    assert.ok(now.every((cell, index) => cell === cells[index]), 'each cell is the one drawn while pending');
+    assert.ok(now.every((cell, index) => cell === cells[index]), 'each cell is the one drawn while its header was not read');
 });
 
 test('the rows end as the markup says: a focused row\'s class, a row scrolled out and its spacer, attributes the runtime added taken off', () => {

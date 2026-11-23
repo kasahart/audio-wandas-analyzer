@@ -29,7 +29,7 @@ test('the row: ↶ ↷, the name, the input, the steps joined by → ＋ (the re
     assert.equal(root.querySelector('[data-action="step-undo"]')?.hasAttribute('disabled'), true);
     assert.equal(chips({ canUndo: true }).querySelector('[data-action="step-undo"]')?.hasAttribute('disabled'), false);
     assert.equal(root.querySelector('.step-outside-row'), null);
-    assert.ok(chips({ expanded: true }).querySelector('.step-outside-row .awa-tag'));
+    assert.equal(chips({ expanded: true }).querySelector('.step-outside-row'), null, 'the app adds no step outside the Recipe: no row of them');
 });
 
 test('the stage on screen is framed, the steps after it dimmed', () => {

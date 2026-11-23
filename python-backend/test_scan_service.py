@@ -11,15 +11,15 @@ import pytest
 import soundfile as sf
 import wandas as wd
 
-import analysis_spec as spec
-from analysis_engine import AnalysisEngine, file_version
-from analysis_service import AnalysisService
 from browser_service import create_service
-from command_dispatch import dispatch, validate_request
-from protocol_schema import DEFINITIONS, first_violation
-from recipe_builder import RecipeSource, spectrum_recipe
-from scan_service import analysed_samples, log_spectrum, passband, region_label, scan_plans, welch_params
-from stage_view import SPECTRUM_LINE_BUCKETS
+from frames import analysis_spec as spec
+from services.analysis_engine import AnalysisEngine, file_version
+from services.analysis_service import AnalysisService
+from services.recipe_builder import RecipeSource, spectrum_recipe
+from services.scan_service import scan_plans, welch_params
+from services.stage_combine import STORE, StageData
+from transport.command_dispatch import dispatch, validate_request
+from transport.protocol_schema import DEFINITIONS, first_violation
 
 ENTRY_RECIPE = json.loads((Path(__file__).parent / "recipes" / "entry-scan.recipe.json").read_text())
 ENTRY100 = Path(__file__).parents[1] / "src" / "test" / "fixtures" / "entry100" / "generate.py"
@@ -36,17 +36,44 @@ def _sine(frequency: float, amplitude: float, seconds: float = 2.0, rate: int = 
 
 
 def _scan(service: AnalysisService, path: str, **payload: object) -> dict:
-    request = validate_request({"cmd": "scan", "requestId": "r", "filePath": path, "recipe": ENTRY_RECIPE, **payload})
+    """A scan of one step: the step named, or the one the Recipe ends in (a scan always names a step)."""
+    recipe = payload.get("recipe", ENTRY_RECIPE)
+    stage = recipe.get("output", "node-2") if isinstance(recipe, dict) else "node-2"
+    request = validate_request(
+        {"cmd": "scan", "requestId": "r", "filePath": path, "recipe": ENTRY_RECIPE, "stage": stage, **payload}
+    )
     result = dispatch(request, service)
     assert first_violation(DEFINITIONS["ScanResult"], result) is None
     return result
 
 
-def _band(result: dict, channel: int, center: float) -> float | None:
-    return result["thirdOctDb"][channel][spec.THIRD_OCTAVE_CENTERS_HZ.index(center)]
+def _kept(stage: dict) -> StageData:
+    """Every value the scan kept of the step it describes (``stage``: a result's ``stage``)."""
+    kept = STORE.get(stage["data"])
+    assert kept is not None
+    return kept
 
 
-def test_scan_measures_the_analysis_spec_metrics(tmp_path: Path) -> None:
+def _span(stage: dict) -> tuple[float, float]:
+    """The first and the last x of the step's kept values (a signal's samples are at start + n / rate)."""
+    kept = _kept(stage)
+    if kept.mode == "signal":
+        return kept.start, kept.start + (kept.values.size - 1) / kept.rate
+    return float(kept.xs[0]), float(kept.xs[-1])
+
+
+def _level_at(result: dict, hz: float) -> float:
+    """The level of a spectrum step at the bin nearest ``hz``, from every value the scan kept of it."""
+    kept = _kept(result["stage"])
+    return float(kept.values[int(np.argmin(np.abs(kept.xs - hz)))])
+
+
+def _peak_hz(result: dict) -> float:
+    kept = _kept(result["stage"])
+    return float(kept.xs[int(np.argmax(kept.values))])
+
+
+def test_a_scan_names_its_input_and_carries_the_steps_description_alone(tmp_path: Path) -> None:
     service = AnalysisService(AnalysisEngine())
     path = _write(tmp_path / "tones.wav", [_sine(1000, 0.5), _sine(3150, 0.1)])
 
@@ -67,36 +94,12 @@ def test_scan_measures_the_analysis_spec_metrics(tmp_path: Path) -> None:
         "channelCalibration": ["uncalibrated", "uncalibrated"],
         "region": None,
     }
-    rms_db = [20 * np.log10(0.5 / np.sqrt(2)), 20 * np.log10(0.1 / np.sqrt(2))]
-    # A-weighting is 0 dB at 1 kHz and +1.2 dB at 3.15 kHz.
-    assert result["leqDbA"] == pytest.approx([rms_db[0], rms_db[1] + 1.2], abs=0.3)
-    assert result["peakHz"][0] == 1000
-    assert abs(result["peakHz"][1] - 3150) <= RATE / spec.WELCH_N_FFT
-    assert [len(row) for row in result["spectrumDb"]] == [spec.SPECTRUM_POINTS] * 2
-    # A stored result keeps only the 192 points; a report asks for every Welch bin too (spectrumBins).
-    assert "spectrumBinsDb" not in result
-    binned = _scan(service, path, spectrumBins=True)
-    assert binned["spectrumDb"] == result["spectrumDb"]
-    assert [len(row) for row in binned["spectrumBinsDb"]] == [spec.WELCH_N_FFT // 2 + 1] * 2
-    assert binned["spectrumBinHz"] == pytest.approx(RATE / spec.WELCH_N_FFT)
-    peak = int(np.argmax(binned["spectrumBinsDb"][0])) * binned["spectrumBinHz"]
-    assert peak == pytest.approx(1000, abs=RATE / spec.WELCH_N_FFT)
-    assert [len(row) for row in result["thirdOctDb"]] == [len(spec.THIRD_OCTAVE_CENTERS_HZ)] * 2
-    assert _band(result, 0, 1000.0) == pytest.approx(rms_db[0], abs=0.5)
-    assert _band(result, 1, 3150.0) == pytest.approx(rms_db[1], abs=0.5)
-    # 20 Hz is measured (wandas 0.10); 8 kHz is above 0.88 x Nyquist at 16 kHz.
-    assert _band(result, 0, 20.0) is not None
-    assert _band(result, 0, 8000.0) is None
-    assert _band(result, 0, 6300.0) is not None
-    assert result["crest"] == pytest.approx([np.sqrt(2)] * 2, abs=0.01)
-    assert result["specVersion"] == spec.ANALYSIS_SPEC_VERSION
-    # Sent as wandas measures them, never rounded: the webview takes channel means, medians and every Δ from these.
-    leq = np.asarray(result["leqDbA"])
-    assert any(value != round(value, 4) for value in leq)
-    assert any(value != round(value, 4) for row in result["thirdOctDb"] for value in row if value is not None)
-    assert any(value != round(value, 3) for value in result["crest"])
-    # Only the 192 drawn points are rounded, as a picture (no number is taken of them), to keep a stored result small.
-    assert all(value == round(value, spec.SPECTRUM_DRAWN_DECIMALS) for row in result["spectrumDb"] for value in row)
+    assert result["specVersion"] == spec.ANALYSIS_SPEC_VERSION and result["wandasVersion"] == wd.__version__
+    # Nothing is measured of the file beside the step asked for: no level, peak, crest factor, band or spectrum.
+    assert set(result) == {"ok", "input", "stage", "specVersion", "wandasVersion", "elapsedMs"}
+    # A scan names its step: the protocol refuses one without.
+    with pytest.raises(Exception, match="stage"):
+        validate_request({"cmd": "scan", "requestId": "r", "filePath": path, "recipe": ENTRY_RECIPE})
 
 
 def _pascal(channel: int) -> dict:
@@ -179,68 +182,19 @@ def test_a_gain_correction_in_fs_scans_with_an_uncalibrated_channel_on_the_same_
     assert _described(_scan(service, wav, channels=[0], calibration=profile)) == ("FS", 1.0, "dBFS", "calibrated", True)
 
 
-def test_scan_repeats_exactly_and_names_the_condition(tmp_path: Path) -> None:
+def test_scan_repeats_exactly_and_names_the_region_asked_for(tmp_path: Path) -> None:
     service = AnalysisService(AnalysisEngine())
     path = _write(tmp_path / "noise.wav", [np.random.default_rng(1).standard_normal(RATE * 2) * 0.1])
 
     first, second = _scan(service, path), _scan(service, path)
-    region = _scan(service, path, region={"start": 0.5, "end": 1.5})
+    asked = {"start": 0.5001, "end": 1.5}
+    region = _scan(service, path, region=asked)
 
     first.pop("elapsedMs"), second.pop("elapsedMs")
     assert first == second
-    assert region["conditionId"] != first["conditionId"]
-    other_recipe = spectrum_recipe(RecipeSource(1, RATE), n_fft=2048, hpf_hz=40.0, trim=(0.0, None))
-    assert _scan(service, path, recipe=other_recipe)["conditionId"] != first["conditionId"]
-
-
-def test_condition_id_tells_regions_under_a_millisecond_apart(tmp_path: Path) -> None:
-    # #768: starts of 0.5001 s and 0.5004 s are 14 samples apart at 48 kHz but share the 3-decimal label, which the
-    # ID used to hash. The ID now hashes the analysed samples; the label stays the same (it is for reading only).
-    rate = 48000
-    service = AnalysisService(AnalysisEngine())
-    path = _write(tmp_path / "noise.wav", [np.random.default_rng(3).standard_normal(rate * 2) * 0.1], rate=rate)
-    early, late = {"start": 0.5001, "end": 1.5}, {"start": 0.5004, "end": 1.5}
-    assert region_label(early) == region_label(late)
-
-    first, second = _scan(service, path, region=early), _scan(service, path, region=late)
-
-    assert first["ok"] and second["ok"]
-    assert first["conditionId"] != second["conditionId"]
-    # Each result names the region it was asked for, its ends exact (the webview's sameCondition reads it).
-    assert first["input"]["region"] == early and second["input"]["region"] == late
-
-
-def test_condition_id_is_the_same_for_the_same_analysed_samples(tmp_path: Path) -> None:
-    # Regions spelled apart that analyse the same samples are one condition: the edge guard moves a start inside
-    # it to the guard, and the whole file is the region from 0 to its end.
-    rate = 48000
-    service = AnalysisService(AnalysisEngine())
-    path = _write(tmp_path / "noise.wav", [np.random.default_rng(4).standard_normal(rate * 2) * 0.1], rate=rate)
-    within_guard = [_scan(service, path, region={"start": start, "end": 1.5}) for start in (0.0, spec.EDGE_GUARD_S / 2)]
-    whole = [_scan(service, path), _scan(service, path, region={"start": 0.0, "end": 2.0})]
-    # Under half a sample apart: the same nearest sample.
-    sub_sample = [_scan(service, path, region={"start": 0.5, "end": end}) for end in (1.5, 1.5 + 0.4 / rate)]
-
-    for pair in (within_guard, whole, sub_sample):
-        assert all(result["ok"] for result in pair)
-        assert pair[0]["conditionId"] == pair[1]["conditionId"]
-    assert within_guard[0]["conditionId"] != whole[0]["conditionId"]
-
-
-@pytest.mark.parametrize("version", [1, 2])
-def test_analysed_samples_are_the_samples_the_time_slice_keeps(version: int) -> None:
-    # analysed_samples names the samples wandas' own time slice keeps, for either slice version a Recipe may name:
-    # if wandas rounds otherwise, the IDs would no longer say which samples were analysed.
-    rate = 48000
-    frame = wd.from_numpy(np.zeros((1, rate * 2)), sampling_rate=rate)
-    rng = np.random.default_rng(5)
-    bounds = [(0.5001, 1.5), (0.5004, 1.5), (0.145, 0.155), (0.5 + 0.5 / rate, 1.0 - 0.5 / rate)]
-    bounds += [tuple(sorted(rng.uniform(0.15, 1.85, 2))) for _ in range(50)]
-    for start, end in bounds:
-        sliced = frame.trim(start, end) if version == 2 else frame._time_slice_recipe_v1(start, end)
-        first, last = analysed_samples(start, end, rate, version)
-        assert last - first == sliced.n_samples, (start, end)
-        assert first == round(float(np.atleast_1d(sliced.source_time_offset)[0]) * rate), (start, end)
+    # The region's ends exactly as sent, and another region's step is another kept answer.
+    assert region["input"]["region"] == asked
+    assert region["stage"]["data"] != first["stage"]["data"]
 
 
 def test_scan_takes_the_region_from_the_payload_not_the_recipe(tmp_path: Path) -> None:
@@ -250,71 +204,38 @@ def test_scan_takes_the_region_from_the_payload_not_the_recipe(tmp_path: Path) -
     late_slice = spectrum_recipe(RecipeSource(1, RATE), n_fft=1024, hpf_hz=20.0, trim=(1.0, None))
 
     loud = _scan(service, path, recipe=late_slice, region={"start": 0.0, "end": 1.0})
+    quiet = _scan(service, path, recipe=late_slice, region={"start": 1.0, "end": 2.0})
 
-    assert loud["leqDbA"][0] == pytest.approx(20 * np.log10(0.5 / np.sqrt(2)), abs=0.5)
+    # The Recipe's own slice starts at 1 s (the quiet part); the spectrum is of the region asked for.
+    assert _level_at(loud, 1000) - _level_at(quiet, 1000) == pytest.approx(20, abs=0.5)
 
 
-def test_scan_runs_the_recipe_to_its_region_then_its_branches() -> None:
+def test_scan_runs_the_recipe_to_its_region_then_each_step_after_it() -> None:
     plans = scan_plans(ENTRY_RECIPE, 0.15, 1.85, RATE)
 
-    # The shared steps end in the time slice, set to the measured region (the file's guarded ends left out).
+    # The shared steps end in the time slice, set to the region (the file's guarded ends left out).
     region = plans["region"].to_dict()
     assert [node["operation"] for node in region["nodes"]] == [
         "wandas.audio.highpass_filter",
         "wandas.frame.time_slice",
     ]
-    assert [node["operation"] for node in plans["welch"].to_dict()["nodes"]] == ["wandas.audio.welch"]
-    noct = plans["noct"].to_dict()["nodes"][0]
-    assert noct["operation"] == "wandas.audio.noct_spectrum"
-    assert dict(noct["params"]["entries"])["n"] == 3
-    assert len(plans["sha256"]) == 64
-    # The Recipe's own welch settings are the branch's.
-    finer = spectrum_recipe(RecipeSource(1, RATE), n_fft=2048, hpf_hz=20.0, trim=(0.0, None))
-    assert (
-        dict(scan_plans(finer, 0.15, 1.85, RATE)["welch"].to_dict()["nodes"][0]["params"]["entries"])["n_fft"] == 2048
-    )
+    assert [(step, [node["operation"] for node in plan.to_dict()["nodes"]]) for step, plan in plans["steps"]] == [
+        ("node-2", ["wandas.audio.welch"])
+    ]
 
 
-def test_scan_takes_the_spectrum_settings_from_the_recipes_average_step(tmp_path: Path) -> None:
+def test_a_spectrum_step_has_the_recipes_own_settings(tmp_path: Path) -> None:
     service = AnalysisService(AnalysisEngine())
     path = _write(tmp_path / "tone.wav", [_sine(1010, 0.5)])
     assert welch_params(ENTRY_RECIPE) == {"n_fft": 1024, "window": "hann"}
     finer = spectrum_recipe(RecipeSource(1, RATE), n_fft=8192, hpf_hz=20.0, trim=(0.0, None))
     assert welch_params(finer)["n_fft"] == 8192
 
-    coarse_peak = _scan(service, path)["peakHz"][0]
-    fine_peak = _scan(service, path, recipe=finer)["peakHz"][0]
+    coarse_peak = _peak_hz(_scan(service, path))
+    fine_peak = _peak_hz(_scan(service, path, recipe=finer))
 
     # 1024 points at 16 kHz resolve 15.6 Hz bins, 8192 points 2 Hz: only the finer step finds 1010 Hz.
     assert abs(fine_peak - 1010) <= 2 < abs(coarse_peak - 1010)
-
-
-def test_scan_leaves_out_bands_outside_the_recipes_passband(tmp_path: Path) -> None:
-    service = AnalysisService(AnalysisEngine())
-    path = _write(tmp_path / "noise.wav", [np.random.default_rng(2).standard_normal(RATE * 2) * 0.1])
-    assert passband(ENTRY_RECIPE) == (20.0, float("inf"))
-    hpf100 = spectrum_recipe(RecipeSource(1, RATE), n_fft=1024, hpf_hz=100.0, trim=(0.0, None))
-    assert passband(hpf100)[0] == 100.0
-
-    result = _scan(service, path, recipe=hpf100)
-
-    assert _band(result, 0, 80.0) is None
-    assert _band(result, 0, 100.0) is not None
-    assert _band(_scan(service, path), 0, 31.5) is not None
-
-
-def test_the_spectrum_is_log_spaced_from_20_hz_to_nyquist() -> None:
-    freqs = np.linspace(0, 8000, 513)
-    levels = np.where(np.abs(freqs - 3000) < 1, 0.0, -60.0)[None, :]
-
-    spectrum = log_spectrum(levels, freqs, 192, 8000.0)
-
-    edges = np.geomspace(20.0, 8000.0, 193)
-    peak = int(np.argmax(spectrum[0]))
-    assert edges[peak] <= 3000 < edges[peak + 1]
-    # The low points are narrower than a 15.6 Hz bin: interpolated, never empty.
-    assert np.isfinite(spectrum).all()
-    assert spectrum.shape == (1, 192)
 
 
 def test_scan_selects_channels_and_applies_calibration(tmp_path: Path) -> None:
@@ -348,8 +269,8 @@ def test_scan_selects_channels_and_applies_calibration(tmp_path: Path) -> None:
 
     assert result["input"]["channels"] == [1]
     assert (result["input"]["unit"], result["input"]["ref"]) == ("Pa", 2e-5)
-    assert len(result["leqDbA"]) == len(result["spectrumDb"]) == 1
-    assert result["leqDbA"][0] == pytest.approx(20 * np.log10(0.2 / np.sqrt(2) / 2e-5), abs=0.3)
+    # The channel's own tone (amplitude 0.1 FS), corrected by its factor of 2 and read against 20 µPa.
+    assert _level_at(result, 1000) == pytest.approx(20 * np.log10(0.2 / 2e-5), abs=0.5)
     mixed = _scan(service, path, calibration=profile)
     assert mixed == {
         "ok": False,
@@ -410,7 +331,7 @@ def test_browser_scan_names_sources_by_content_and_keeps_them(tmp_path: Path) ->
     second = _scan(service, "/sources/b/tone.wav")
 
     assert first["input"]["id"].startswith("sha256:")
-    assert first["conditionId"] == second["conditionId"]
+    assert first["input"]["id"] == second["input"]["id"]
     assert service.engine.is_loaded("/sources/a/tone.wav")
 
 
@@ -433,7 +354,7 @@ def entry100_scan(tmp_path_factory: pytest.TempPathFactory) -> tuple[list[Path],
     return files, results, time.perf_counter() - started
 
 
-def test_scan_of_the_entry100_fixture_finds_its_outliers(
+def test_scan_of_the_entry100_fixture_names_its_unreadable_file_and_shows_its_outliers(
     entry100_scan: tuple[list[Path], dict[str, dict], float],
     record_property: Callable[[str, object], None],
 ) -> None:
@@ -442,11 +363,11 @@ def test_scan_of_the_entry100_fixture_finds_its_outliers(
     assert len(files) == 100
     assert [name for name, result in results.items() if not result["ok"]] == ["Rec_0012.wav"]
     assert results["mono_48k.wav"]["input"]["channels"] == [0]
-    # The three outliers' 3150 Hz band stands at least 10 dB above their group's median.
+    # The three outliers' spectrum at 3150 Hz stands at least 10 dB above their group's median.
     for outlier in ("L1_1500rpm_run018.wav", "L2_1500rpm_run043.wav", "L3_1500rpm_run060.wav"):
         group = outlier.split("_run")[0]
-        levels = [_band(result, 0, 3150.0) for name, result in results.items() if name.startswith(group + "_")]
-        assert _band(results[outlier], 0, 3150.0) - float(np.median(levels)) >= 10
+        levels = [_level_at(result, 3150.0) for name, result in results.items() if name.startswith(group + "_")]
+        assert _level_at(results[outlier], 3150.0) - float(np.median(levels)) >= 10
 
 
 # 10 s is the requirement on the developer's PC; runners' and loaded machines' speed varies (10.9-21 s seen).
@@ -490,20 +411,18 @@ def test_scan_runs_every_step_after_the_slice_on_the_frame_before(tmp_path: Path
     service = AnalysisService(AnalysisEngine())
     path = _write(tmp_path / "tones.wav", [_sine(200, 0.5) + _sine(3150, 0.5)])
     plain = _scan(service, path)
-    # A low-pass between the region and the average spectrum: the time signal the metrics read is filtered.
+    # A low-pass between the region and the average spectrum: the spectrum is of the filtered signal.
     filtered = _with_step(ENTRY_RECIPE, "node-1", "wandas.audio.lowpass_filter", 1, [["cutoff", _float(1000.0)]])
 
     result = _scan(service, path, recipe=filtered)
 
-    assert result["endFrame"] == plain["endFrame"] == "SpectralFrame"
-    # The 3.15 kHz tone is filtered out: its band is outside the passband, and Leq drops by its share.
-    assert _band(result, 0, 3150.0) is None and _band(plain, 0, 3150.0) is not None
-    assert result["leqDbA"][0] < plain["leqDbA"][0] - 2
-    assert result["spectrumDb"][0][-40] < plain["spectrumDb"][0][-40] - 20
-    assert abs(result["peakHz"][0] - 200) <= RATE / spec.WELCH_N_FFT
+    assert result["stage"]["frame"] == plain["stage"]["frame"] == "SpectralFrame"
+    # The 3.15 kHz tone is filtered out; the 200 Hz one is now the largest.
+    assert _level_at(result, 3150) < _level_at(plain, 3150) - 20
+    assert abs(_peak_hz(result) - 200) <= RATE / spec.WELCH_N_FFT
 
 
-def test_scan_names_the_frame_the_chain_ends_in_and_draws_any_step(tmp_path: Path) -> None:
+def test_scan_describes_any_step_and_names_its_frame(tmp_path: Path) -> None:
     service = AnalysisService(AnalysisEngine())
     path = _write(tmp_path / "tone.wav", [_sine(1000, 0.5)])
     # The average spectrum swapped for a spectrogram: the chain ends in a SpectrogramFrame.
@@ -515,10 +434,8 @@ def test_scan_names_the_frame_the_chain_ends_in_and_draws_any_step(tmp_path: Pat
         "params": {"$type": "map", "entries": []},
     }
 
-    result = _scan(service, path, recipe=stft)
     view = _scan(service, path, recipe=stft, stage="node-2")["stage"]
 
-    assert result["endFrame"] == "SpectrogramFrame"
     assert (view["frame"], view["kind"], view["x"], view["yAxis"], view["quantity"]) == (
         "SpectrogramFrame",
         "heatmap",
@@ -526,27 +443,33 @@ def test_scan_names_the_frame_the_chain_ends_in_and_draws_any_step(tmp_path: Pat
         "frequency",
         "level",
     )
-    assert len(view["matrix"]) == len(view["ys"]) and len(view["matrix"][0]) == len(view["xs"])
+    cells = _kept(view)
+    assert cells.ys is not None and cells.values.shape == (cells.ys.size, cells.xs.size)
     # Columns at the region's ends, whose windows stick out of it, are marked; the rest are whole.
-    whole = view["whole"]
-    assert len(whole) == len(view["xs"]) and not whole[0] and not whole[-1] and any(whole)
-    # The metrics still read the time signal: Leq is the same as with the spectrum.
-    assert result["leqDbA"] == _scan(service, path)["leqDbA"]
+    assert cells.whole is not None
+    whole = cells.whole.tolist()
+    assert len(whole) == cells.xs.size and not whole[0] and not whole[-1] and any(whole)
     # A step before the slice runs over the whole file: its signal over time spans the file.
     hpf = _scan(service, path, stage="node-0", region={"start": 0.5, "end": 1.0})["stage"]
     assert (hpf["frame"], hpf["kind"], hpf["x"], hpf["quantity"]) == ("ChannelFrame", "line", "time", "value")
-    assert hpf["xs"][0] < 0.01 and hpf["xs"][-1] > 1.99
+    assert _span(hpf)[0] < 0.01 and _span(hpf)[1] > 1.99
     # The time slice's Frame is the region.
     region = _scan(service, path, stage="node-1", region={"start": 0.5, "end": 1.0})["stage"]
-    assert region["xs"][0] >= 0.5 and region["xs"][-1] <= 1.0
+    assert _span(region)[0] >= 0.5 and _span(region)[1] <= 1.0
     spectrum = _scan(service, path, stage="node-2")["stage"]
     assert (spectrum["kind"], spectrum["x"], spectrum["xScale"]) == ("line", "frequency", "log")
-    assert spectrum["xs"][0] >= spec.SPECTRUM_MIN_HZ and len(spectrum["xs"]) <= 2 * SPECTRUM_LINE_BUCKETS
     # The input is a stage too: the file's signal over the whole file, before any step.
     raw = _scan(service, path, stage="node-input", region={"start": 0.5, "end": 1.0})["stage"]
     assert (raw["frame"], raw["kind"], raw["x"]) == ("ChannelFrame", "line", "time")
-    assert raw["xs"][0] < 0.01 and raw["xs"][-1] > 1.99
-    # The app's 1/3-octave values beside the chain are not a step to show.
+    assert _span(raw)[0] < 0.01 and _span(raw)[1] > 1.99
+    # A scan tells what each step's result is and the key of its kept answer, with no point of it (the figures are
+    # the figure service's, drawn from the kept answer); the sound itself says it is one.
+    words = {"frame", "kind", "x", "xScale", "quantity", "unit", "yAxis", "pair", "signal", "measure", "data"}
+    for told in (raw, spectrum, hpf, region, view):
+        assert set(told) <= words, sorted(set(told) - words)
+    assert raw["signal"] is True and hpf["signal"] is True
+    assert "signal" not in spectrum
+    # A node the Recipe does not have is not a step to show.
     assert _scan(service, path, stage="node-noct")["ok"] is False
 
 
@@ -560,7 +483,7 @@ def _hits(times: list[float], seconds: float = 2.0) -> np.ndarray:
     return signal
 
 
-def test_a_trigger_right_after_the_input_draws_its_events_over_the_whole_file(tmp_path: Path) -> None:
+def test_a_trigger_right_after_the_input_finds_its_events_over_the_whole_file(tmp_path: Path) -> None:
     # ＋ right after the input on the default chain: the trigger comes before the high-pass and the slice, so it runs
     # over the whole file, and wandas will not end a Recipe in its segments.
     service = AnalysisService(AnalysisEngine())
@@ -583,6 +506,8 @@ def test_a_trigger_right_after_the_input_draws_its_events_over_the_whole_file(tm
         assert events["ok"] is True, events
         assert events["stage"]["frame"] == "ChannelFrameSegments"
         assert [round(event["time"], 2) for event in events["stage"]["events"]] == [0.3, 0.8, 1.3]
+        # Each event by its number and when it triggered, with no point of its signal.
+        assert all(set(event) == {"id", "time"} for event in events["stage"]["events"])
     # The steps before the slice that take a time signal cannot follow it: the high-pass is named as the step failing.
     after = _scan(service, path, recipe=chain, stage=head["id"])
     assert after["ok"] is False and after["failedStep"] == head["id"]
@@ -645,7 +570,7 @@ def test_a_trigger_after_the_channel_picked_fires_on_that_channel_over_the_whole
     assert [round(event["time"], 2) for event in events["stage"]["events"]] == [0.3, 0.8, 1.3]
 
 
-def test_a_trigger_step_draws_each_event_and_the_steps_after_it_take_them(tmp_path: Path) -> None:
+def test_a_trigger_step_keeps_each_event_and_the_steps_after_it_take_them(tmp_path: Path) -> None:
     service = AnalysisService(AnalysisEngine())
     hits = _hits([0.3, 0.8, 1.3])
     path = _write(tmp_path / "hits.wav", [hits, 0.5 * hits])
@@ -657,7 +582,6 @@ def test_a_trigger_step_draws_each_event_and_the_steps_after_it_take_them(tmp_pa
 
     events = _scan(service, path, recipe=averaged, stage="node-3")["stage"]
     mean = _scan(service, path, recipe=averaged, stage="node-4")["stage"]
-    result = _scan(service, path, recipe=averaged)
 
     # Each event is its own line over the time from its trigger, numbered by wandas' event IDs.
     assert (events["frame"], events["kind"], events["x"], events["quantity"]) == (
@@ -668,18 +592,15 @@ def test_a_trigger_step_draws_each_event_and_the_steps_after_it_take_them(tmp_pa
     )
     assert [event["id"] for event in events["events"]] == [0, 1, 2]
     assert [round(event["time"], 2) for event in events["events"]] == [0.3, 0.8, 1.3]
-    assert events["xs"][0] == pytest.approx(-0.01, abs=1e-3) and events["xs"][-1] < 0.19
-    assert all(len(event["values"]) == len(event["xs"]) for event in events["events"])
-    # The block of largest magnitude keeps each hit's peak (channels averaged: 1 and 0.5).
-    assert max(max(abs(value) for value in event["values"] if value is not None) for event in events["events"]) > 0.7
-    # Zoomed, the events come at the samples' own resolution over the part on screen.
-    zoomed = _scan(service, path, recipe=averaged, stage="node-3", detail={"x": [0.0, 0.01], "points": 2000})["stage"]
-    assert zoomed["detail"] is True and len(zoomed["xs"]) == 161 and zoomed["xs"][0] >= 0.0
-    # The mean of the events is a short time signal (the entry Recipe's average spectrum follows it); the chain's
-    # metrics still read the region.
-    assert mean["frame"] == "ChannelFrame" and mean["xs"][-1] - mean["xs"][0] < 0.2
-    assert result["ok"] is True and result["endFrame"] == "SpectralFrame"
-    assert result["leqDbA"] == _scan(service, path)["leqDbA"]
+    lines = _kept(events)
+    assert lines.rows is not None and lines.rows.shape == (3, lines.xs.size)
+    assert lines.xs[0] == pytest.approx(-0.01, abs=1e-3) and lines.xs[-1] < 0.19
+    # Every sample of each event is kept, at the samples' own step, so each hit keeps its peak (channels averaged:
+    # 1 and 0.5).
+    assert np.diff(lines.xs) == pytest.approx(1 / RATE)
+    assert float(np.abs(lines.rows).max()) > 0.7
+    # The mean of the events is a short time signal (the entry Recipe's average spectrum follows it).
+    assert mean["frame"] == "ChannelFrame" and _span(mean)[1] - _span(mean)[0] < 0.2
     # The transfer function averaged over the events, ch2 over ch1: half, at every frequency the hits excite.
     transfer = _with_step(
         _with_step(
@@ -695,8 +616,9 @@ def test_a_trigger_step_draws_each_event_and_the_steps_after_it_take_them(tmp_pa
     )
     gain = _scan(service, path, recipe=transfer, stage="node-5")["stage"]
     assert gain["frame"] == "TransferFunctionFrame" and gain["pair"] == {"output": 2, "input": 1}
-    near = [value for x, value in zip(gain["xs"], gain["values"], strict=True) if 400 < x < 600]
-    assert near and all(abs(value - 20 * np.log10(0.5)) < 0.1 for value in near)
+    levels = _kept(gain)
+    near = levels.values[(levels.xs > 400) & (levels.xs < 600)]
+    assert near.size and bool(np.all(np.abs(near - 20 * np.log10(0.5)) < 0.1))
     # Events left out on the comparison: wandas.segments.drop after the trigger, and the steps after it take the rest.
     dropped = _with_step(
         _with_step(
@@ -731,15 +653,11 @@ def test_a_trigger_step_draws_each_event_and_the_steps_after_it_take_them(tmp_pa
     against = {"filePath": base, "step": "node-6", "recipe": paired([])}
     coherent = _scan(service, path, recipe=paired([1]), stage="node-6", reference=against)
     assert coherent["ok"] is True and coherent["stage"]["pair"] == {"output": 2, "input": 1, "base": True}
-    # A level nothing crosses: still the trigger's picture, with no event on it (zoomed too).
+    # A level nothing crosses: still the trigger's result, with no event in it.
     high = [["duration", _float(0.2)], ["pre", _float(0.01)], ["threshold", _float(5.0)]]
     none = _with_step(ENTRY_RECIPE, "node-1", "wandas.audio.trigger", 1, high)
     empty = _scan(service, path, recipe=none, stage="node-3")["stage"]
     assert (empty["frame"], empty["kind"], empty["events"]) == ("ChannelFrameSegments", "line", [])
-    assert (
-        _scan(service, path, recipe=none, stage="node-3", detail={"x": [0.0, 0.01], "points": 2000})["stage"]["events"]
-        == []
-    )
 
 
 def test_a_step_that_fails_on_a_file_is_named(tmp_path: Path) -> None:
@@ -760,10 +678,10 @@ def test_a_step_that_fails_on_a_file_is_named(tmp_path: Path) -> None:
     assert _scan(service, path, stage="node-9")["reason"] == "The Recipe has no step 'node-9'"
 
 
-def test_a_steps_picture_comes_alone(tmp_path: Path) -> None:
+def test_a_steps_description_comes_alone(tmp_path: Path) -> None:
     service = AnalysisService(AnalysisEngine())
     path = _write(tmp_path / "tone.wav", [_sine(1000, 0.5)])
-    # The comparison asks for one step's Frame at a time: the metrics, the spectrum and the bands are not computed.
+    # The comparison asks for one step's Frame at a time, and nothing else is measured of the file.
     for stage in ("node-0", "node-1", "node-2"):
         result = _scan(service, path, stage=stage)
         assert set(result) == {"ok", "input", "stage", "specVersion", "wandasVersion", "elapsedMs"}
@@ -787,18 +705,10 @@ def _with_channel(recipe: dict, index: int) -> dict:
     return copy
 
 
-def test_a_recipe_that_starts_with_get_channel_scans_and_draws_that_channel(tmp_path: Path) -> None:
+def test_a_recipe_that_starts_with_get_channel_scans_that_channel(tmp_path: Path) -> None:
     service = AnalysisService(AnalysisEngine())
     path = _write(tmp_path / "two.wav", [_sine(1000, 0.5), _sine(3150, 0.1)])
-    whole = _scan(service, path)
-    request = validate_request(
-        {"cmd": "scan", "requestId": "r", "filePath": path, "recipe": _with_channel(ENTRY_RECIPE, 1)}
-    )
-    ch2 = dispatch(request, service)
-    assert ch2["ok"] is True
-    assert ch2["leqDbA"] == pytest.approx(whole["leqDbA"][1:], abs=1e-6)
-    assert ch2["thirdOctDb"] == [whole["thirdOctDb"][1]]
-    # A step's picture is of that channel only (its 3.15 kHz tone, not the 1 kHz one of ch 1).
+    # A step's values are of that channel only (its 3.15 kHz tone, not the 1 kHz one of ch 1).
     welch = next(node["id"] for node in ENTRY_RECIPE["nodes"] if node["operation"] == "wandas.audio.welch")
     ch2_recipe = _with_channel(ENTRY_RECIPE, 1)
     staged = dispatch(
@@ -806,22 +716,44 @@ def test_a_recipe_that_starts_with_get_channel_scans_and_draws_that_channel(tmp_
         service,
     )
     assert staged["ok"] is True
-    view = staged["stage"]
-    peak = view["xs"][int(np.argmax([value if value is not None else -1e9 for value in view["values"]]))]
-    assert 2800 < peak < 3500
+    assert 2800 < _peak_hz(staged) < 3500
 
 
-def test_the_input_is_drawn_as_the_channel_the_chain_picks_not_the_channels_mean(tmp_path: Path) -> None:
+def test_a_channel_row_of_a_file_with_mixed_units_scans_as_that_channel_alone(tmp_path: Path) -> None:
+    service = AnalysisService(AnalysisEngine())
+    path = _write(tmp_path / "two.wav", [_sine(1000, 0.5), _sine(3150, 0.1)])
+    # ch 1 in pascals, ch 2 left in full scale: the two do not compare, but each row of the file does.
+    first_only = {"schemaVersion": 1, "channels": [_pascal(0), _uncalibrated(1)]}
+    for index, unit, status in ((0, "Pa", "calibrated"), (1, "FS", "uncalibrated")):
+        result = _scan(service, path, recipe=_with_channel(ENTRY_RECIPE, index), calibration=first_only)
+        assert result["ok"] is True
+        assert (result["input"]["unit"], result["input"]["calibrationStatus"]) == (unit, status)
+    assert _scan(service, path, calibration=first_only)["ok"] is False
+
+
+def test_the_input_and_a_step_before_the_slice_do_not_need_a_region_as_long_as_one_fft(tmp_path: Path) -> None:
+    service = AnalysisService(AnalysisEngine())
+    # 0.2 s: nothing is left once the first and last 0.15 s are skipped, but the input is of the whole file.
+    path = _write(tmp_path / "short.wav", [_sine(1000, 0.5, seconds=0.2)])
+    recipe = _with_channel(ENTRY_RECIPE, 0)
+    for stage in ("node-input", "node-channel"):
+        drawn = _scan(service, path, recipe=recipe, stage=stage)
+        assert drawn["ok"] is True and drawn["stage"]["signal"] is True and _kept(drawn["stage"]).values.size
+    spectrum = _scan(service, path, recipe=recipe)
+    assert spectrum["ok"] is False and spectrum["reason"].startswith("Region is too short")
+
+
+def test_the_input_is_the_channel_the_chain_picks_not_the_channels_mean(tmp_path: Path) -> None:
     service = AnalysisService(AnalysisEngine())
     path = _write(tmp_path / "two.wav", [_sine(1000, 0.5), _sine(3150, 0.1)])
     for index, amplitude in ((0, 0.5), (1, 0.1)):
         request = {"cmd": "scan", "requestId": "r", "filePath": path, "stage": "node-input"}
         drawn = dispatch(validate_request({**request, "recipe": _with_channel(ENTRY_RECIPE, index)}), service)
         assert drawn["ok"] is True
-        waveform = drawn["stage"]["waveform"]
+        samples = _kept(drawn["stage"]).values
         # The channel's own peak (the mean of the two would peak near 0.3), as its legend names it.
-        assert max(waveform["max"]) == pytest.approx(amplitude, rel=0.02)
-        assert min(waveform["min"]) == pytest.approx(-amplitude, rel=0.02)
+        assert float(samples.max()) == pytest.approx(amplitude, rel=0.02)
+        assert float(samples.min()) == pytest.approx(-amplitude, rel=0.02)
     # A channel the file lacks fails as the channel step, as it does when that step itself is asked for.
     request = {"cmd": "scan", "requestId": "r", "filePath": path, "recipe": _with_channel(ENTRY_RECIPE, 5)}
     missing = dispatch(validate_request({**request, "stage": "node-input"}), service)
@@ -829,7 +761,7 @@ def test_the_input_is_drawn_as_the_channel_the_chain_picks_not_the_channels_mean
 
 
 def test_a_median_welch_is_never_split_into_parts(monkeypatch: pytest.MonkeyPatch) -> None:
-    import scan_service
+    from services import scan_service
 
     monkeypatch.setattr(scan_service, "WELCH_PART_SEGMENTS", 2)
     frame = wd.from_numpy(np.zeros((1, 48_000)), sampling_rate=48_000)
@@ -840,20 +772,22 @@ def test_a_median_welch_is_never_split_into_parts(monkeypatch: pytest.MonkeyPatc
 def test_a_long_region_s_welch_is_computed_in_parts_with_the_same_result(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import scan_service
+    from services import scan_service
 
     service = AnalysisService(AnalysisEngine())
     path = _write(tmp_path / "long.wav", [_sine(1000, 0.5, seconds=6.0), _sine(3150, 0.1, seconds=6.0)])
-    whole = _scan(service, path)
+    kept = STORE.get(_scan(service, path)["stage"]["data"])
+    assert kept is not None
+    single = kept.values.copy()
+    STORE.clear()
     # Parts of a few segments: the result is the segments' mean power all the same.
     monkeypatch.setattr(scan_service, "WELCH_PART_SEGMENTS", 37)
     parted = _scan(AnalysisService(AnalysisEngine()), path)
-    # To the output's hundredth of a dB, where there is signal (far below it is rounding noise of a pure tone).
-    split, single = np.array(parted["spectrumDb"]), np.array(whole["spectrumDb"])
+    # To a hundredth of a dB at every bin, where there is signal (far below it is rounding noise of a pure tone).
+    split = STORE.get(parted["stage"]["data"])
+    assert split is not None
     heard = single > -150
-    assert np.abs(split[heard] - single[heard]).max() <= 0.01
-    assert parted["peakHz"] == whole["peakHz"]
-    assert parted["leqDbA"] == whole["leqDbA"]
+    assert heard.any() and np.abs(split.values[heard] - single[heard]).max() <= 0.01
 
 
 def test_a_cross_channel_step_pairs_the_scanned_recording_with_the_reference_recording(tmp_path: Path) -> None:
@@ -876,8 +810,8 @@ def test_a_cross_channel_step_pairs_the_scanned_recording_with_the_reference_rec
 
     # The pair is the recording over the base one, said so (not two channels of one recording).
     assert near["pair"] == far["pair"] == {"output": 2, "input": 1, "base": True}
-    assert 0.35 < np.median(near["values"]) < 0.65
-    assert np.median(far["values"]) < 0.1
+    assert 0.35 < np.median(_kept(near).values) < 0.65
+    assert np.median(_kept(far).values) < 0.1
     # Alone, a one-channel recording has only itself: nothing is drawn.
     assert _scan(service, alike, recipe=coherence, stage="node-2")["stage"]["kind"] == "none"
     # A reference at another sampling rate cannot be paired: this file's ✕, not the step's.
@@ -909,7 +843,7 @@ def test_a_cross_channel_step_pairs_the_scanned_recording_with_the_reference_rec
     derived["output"] = "node-3"
     through = _scan(service, alike, recipe=derived, stage="node-3", reference={**reference, "recipe": derived})["stage"]
     assert through["pair"] == {"output": 2, "input": 1, "base": True}
-    assert 0.35 < np.median(through["values"]) < 0.65
+    assert 0.35 < np.median(_kept(through).values) < 0.65
 
 
 def test_overlapping_scans_leave_the_dask_scheduler_as_it_was() -> None:
@@ -917,7 +851,7 @@ def test_overlapping_scans_leave_the_dask_scheduler_as_it_was() -> None:
 
     import dask
 
-    import scan_service
+    from services import scan_service
 
     before = dask.config.get("scheduler", None)
     a_in, b_in, a_out = threading.Event(), threading.Event(), threading.Event()
@@ -952,7 +886,7 @@ def test_a_running_scan_leaves_other_threads_dask_computes_threaded() -> None:
 
     import dask.array as da
 
-    from scan_service import _synchronous_dask
+    from services.scan_service import _synchronous_dask
 
     def compute_thread() -> int:
         # A one-chunk array's single task runs on the computing thread only under the synchronous scheduler.
@@ -1000,7 +934,7 @@ def test_importing_and_creating_the_browser_service_leaves_the_dask_scheduler_al
 
 
 def test_a_file_replaced_within_the_same_millisecond_is_another_input(tmp_path: Path) -> None:
-    """The scan's input id and condition id name the version read: a rewrite within the same millisecond, or a
+    """The scan's input id names the version read: a rewrite within the same millisecond, or a
     copy that keeps the old modification time and size, is read again and named anew (never by a truncated mtime)."""
     service = AnalysisService(AnalysisEngine())
     path = _write(tmp_path / "tone.wav", [_sine(1000, 0.5)])
@@ -1013,31 +947,30 @@ def test_a_file_replaced_within_the_same_millisecond_is_another_input(tmp_path: 
     os.utime(path, ns=(mtime + 1_000, mtime + 1_000))
     second = _scan(service, path)
     assert second["input"]["id"] != first["input"]["id"]
-    assert second["conditionId"] != first["conditionId"]
-    assert second["leqDbA"][0] < first["leqDbA"][0] - 10
+    assert _level_at(second, 1000) < _level_at(first, 1000) - 10
     # Replaced by a copy carrying the old modification time (cp -p): the same mtime and size, another file.
     replacement = _write(tmp_path / "copy.wav", [_sine(1000, 0.5)])
     os.utime(replacement, ns=(mtime, mtime))
     os.replace(replacement, path)
     third = _scan(service, path)
     assert third["input"]["id"] not in {first["input"]["id"], second["input"]["id"]}
-    assert third["leqDbA"][0] == pytest.approx(first["leqDbA"][0], abs=0.01)
+    assert _level_at(third, 1000) == pytest.approx(_level_at(first, 1000), abs=0.01)
 
 
 def test_a_step_over_the_store_budget_is_not_named_by_a_key_it_was_refused(tmp_path: Path) -> None:
-    """Every ``data`` key a scan gives is held by the store (stage-combine finds it), so a combination never answers
-    ``missing`` for a key the store refused, and the comparison never scans the step again for it: over the budget
-    the result says ``stageDataTooLarge`` instead, on every scan of that step (zoomed too)."""
-    from stage_combine import STAGE_DATA_BUDGET_BYTES as STAGE_BUDGET
-    from stage_combine import STORE, combine_keys
+    """Every ``data`` key a scan gives is held by the store (the figure service finds it), so a figure never counts a
+    key the store refused as let go, and the comparison never scans the step again for it: over the budget
+    the result says ``stageDataTooLarge`` instead, on every scan of that step."""
+    from services.stage_combine import STAGE_DATA_BUDGET_BYTES as STAGE_BUDGET
+    from services.stage_combine import STORE
 
     service = AnalysisService(AnalysisEngine())
     path = _write(tmp_path / "tone.wav", [_sine(1000, 0.5)])
     STORE.clear()
     try:
         STORE.resize(1)
-        for detail in (None, {"x": [0.1, 0.2], "points": 2000}):
-            result = _scan(service, path, stage="node-0", **({"detail": detail} if detail else {}))
+        for _again in range(2):
+            result = _scan(service, path, stage="node-0")
             assert result["ok"] is True and "data" not in result["stage"]
             assert result["stageDataTooLarge"] is True
         STORE.resize(STAGE_BUDGET)
@@ -1045,15 +978,6 @@ def test_a_step_over_the_store_budget_is_not_named_by_a_key_it_was_refused(tmp_p
         assert "stageDataTooLarge" not in kept
         key = kept["stage"]["data"]
         assert STORE.has(key)
-        assert combine_keys([key], None)["ok"] is True
     finally:
         STORE.resize(STAGE_BUDGET)
         STORE.clear()
-
-
-def test_scan_spec_names_what_decides_a_scans_numbers_beside_file_and_recipe(tmp_path: Path) -> None:
-    """The host keeps stored scans under it (entryScan.ts): a scan of another analysis spec or wandas is not reused."""
-    service = AnalysisService(AnalysisEngine())
-    answer = dispatch(validate_request({"cmd": "scan-spec", "requestId": "r"}), service)
-    assert answer == {"specVersion": spec.ANALYSIS_SPEC_VERSION, "wandasVersion": wd.__version__}
-    assert first_violation(DEFINITIONS["ScanSpecResult"], dict(answer)) is None

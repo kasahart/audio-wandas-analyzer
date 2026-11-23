@@ -1,10 +1,9 @@
-"""The comparison's picture of every Frame kind a step from ＋ can give (R7).
+"""What the comparison is told of every Frame kind a step from ＋ can give (R7).
 
-``src/test/fixtures/stageViewKinds.json`` holds, per Frame kind, the StageView this backend makes of a short
-recording's Frame of that kind. The UI test of the plot contract answers the comparison with each of them, so every
-kind is drawn and given the same gestures as every plot; the node test holds the kinds to the operation catalogue's.
-This test fails when a picture no longer is what the fixture says. Write it again with
-``python python-backend/test_stage_view_kinds.py --write``.
+``src/test/fixtures/stageViewKinds.json`` holds, per Frame kind, the StageView (stage_view.describe) this backend
+makes of a short recording's Frame of that kind. The UI tests answer the comparison with them; the node test holds
+the kinds to the operation catalogue's. This test fails when a description no longer is what the fixture says. Write
+it again with ``python python-backend/test_stage_view_kinds.py --write``.
 """
 
 from __future__ import annotations
@@ -18,8 +17,8 @@ import numpy as np
 import pytest
 import wandas as wd
 
-from protocol_schema import DEFINITIONS, first_violation
-from stage_view import stage_view
+from frames.stage_view import stage_view
+from transport.protocol_schema import DEFINITIONS, first_violation
 
 FIXTURE = Path(__file__).resolve().parents[1] / "src/test/fixtures/stageViewKinds.json"
 RATE = 16000
@@ -61,22 +60,12 @@ def views() -> dict[str, dict]:
     return out
 
 
-def _shape(view: dict) -> dict:
-    """What a picture is, not its numbers: its kind, axes and quantity, and how many points or cells it has."""
-    keys = ("frame", "kind", "x", "xScale", "quantity", "yAxis", "unit")
-    shape = {key: view.get(key) for key in keys}
-    shape["points"] = len(view.get("xs") or [])
-    shape["rows"] = len(view.get("ys") or [])
-    shape["events"] = len(view.get("events") or [])
-    return shape
-
-
 @pytest.fixture(scope="module")
 def made() -> dict[str, dict]:
     return views()
 
 
-def test_every_frame_kinds_picture_is_a_stage_view_the_comparison_draws(made: dict[str, dict]) -> None:
+def test_every_frame_kinds_description_is_a_stage_view_the_comparison_draws(made: dict[str, dict]) -> None:
     for kind, view in made.items():
         assert first_violation(DEFINITIONS["StageView"], view) is None, kind
         assert view["kind"] in ("line", "bar", "heatmap"), f"{kind} is drawn"
@@ -88,13 +77,13 @@ def test_a_roughness_spectrum_is_named_specific_roughness_per_bark_not_the_total
     assert made["RoughnessFrame"]["unit"] == "asper/Bark"
 
 
-def test_the_frame_kinds_fixture_is_what_the_backend_draws_now(made: dict[str, dict]) -> None:
+def test_the_frame_kinds_fixture_is_what_the_backend_says_now(made: dict[str, dict]) -> None:
     fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     assert sorted(fixture) == sorted(made), (
         "write the fixture again: python python-backend/test_stage_view_kinds.py --write"
     )
     for kind, view in made.items():
-        assert _shape(fixture[kind]) == _shape(view), kind
+        assert fixture[kind] == view, kind
 
 
 if __name__ == "__main__":

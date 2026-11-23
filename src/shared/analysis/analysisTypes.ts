@@ -4,9 +4,7 @@ import type {
     ChannelMeasurementContext,
     ChannelSummary,
     DbScaleMetadata,
-    SpectrogramData,
     StftOptions,
-    WaveformEnvelope,
 } from '../protocol/generated/backendProtocolSchema';
 
 export type {
@@ -15,9 +13,7 @@ export type {
     ChannelMeasurementContext,
     ChannelSummary,
     DbScaleMetadata,
-    SpectrogramData,
     StftOptions,
-    WaveformEnvelope,
 };
 
 export type CalibrationStatus = 'uncalibrated' | 'calibrated';

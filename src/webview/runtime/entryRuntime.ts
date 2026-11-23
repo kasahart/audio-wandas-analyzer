@@ -1,60 +1,54 @@
 /**
  * The entry screen: a folder's recordings, one row per recording and channel, with the attributes of the CSV
- * the user picked and the values computed from their sound. The user picks the value and the grouping, filters
- * and sorts each column like a spreadsheet, and puts rows in slots 0–3 to compare them. Nothing is computed
- * until 「計算」 is pressed. Keys while a row has the focus: 0–3 (put the row in that slot), Space (play it),
+ * the user picked and what each file's header says. The user picks the value and the grouping, filters
+ * and sorts each column like a spreadsheet, and puts rows in slots 0–3 to compare them. The entry analyses
+ * nothing: a row put in a slot becomes a track, and the comparison asks for its pictures. Keys while a row has the focus: 0–3 (put the row in that slot), Space (play it),
  * M (its memo), Enter (open the slotted rows), ↑/↓ (move), Esc (close what is open, then leave). Keys on a
  * button or a field are that element's own.
  */
-import { createLatestAnswers, createScanAnswers, type CurrentAnswers, type ScanAnswer } from './answerStore';
-import { redrawWhenResized } from './canvasResize';
+import { createLatestAnswers } from './answerStore';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
-import type { UiStrings } from '../../shared/i18n/strings';
+import { rangePopoverStrings, type UiStrings } from '../../shared/i18n/strings';
 import { uiNumber } from '../../shared/utils/format';
-import { compareScanId } from '../../shared/analysis/entryScan';
-import type { CompareCombineMessage, ComparePublication, CompareScanMessage, EntryConditionTable, EntryProbeCancelMessage, EntryProbeMessage, EntryProbePublication, EntryPublication, EntryScanCancelMessage, EntryScanMessage, EntrySaveSessionMessage } from '../../shared/analysis/entryScan';
-import type { ScanResult } from '../../shared/protocol/backendProtocol';
-import { BAND_CENTERS_HZ, bandLabel, buildEntryModel, derivedKey, entryCsv, type BaseDefinition, type DerivedRow, type EntryModel } from './entryTable';
-import { bandLevelColumns, levelColumns, ownLevelName, plainTitle, unreferencedName, type ExclusionReason, type FigureSet, type FigureTitle, type PlainTitle } from './figureModel';
+import type { EntryOpenMessage, EntryProbeCancelMessage, EntryProbeMessage, EntryProbePublication, EntryPublication, EntrySaveSessionMessage } from '../../shared/analysis/entryScan';
+import { csvColumnTitle, type ExclusionReason, type FigureSet } from './figureModel';
 import { batchBundle, batchCount } from '../../shared/batch/batchBundle';
-import { type CompareModel, type LevelInput } from './comparePanes';
 import { compareGroupNames, groupLabels } from '../../shared/dataset/distribution';
-import { createDistributionPane } from './entryDistributionPane';
+import type { FigureAnswers } from '../answers/figureRequests';
+import { BINS_LANE_ID, createDistributionFigure, distributionHeight, distributionLane } from '../screens/distributionFigure';
 import { createFilterPopover } from './entryFilterPopover';
-import { createHeldPlot } from './entryHeldPlot';
-import { signedNumberText } from '../plot/plotText';
-import { createSidePlots } from './entrySidePlots';
-import { binnedAnswers, channelOfRow, createEntryBase, type AnswerSource } from './entryBase';
+import { channelOfRow, createEntryBase } from './entryBase';
 import { HostRequests } from './hostRequests';
-import { createRemeasure } from './entryRemeasure';
-import { LARGE_BASE, LARGE_BASE_S } from './trackStageMode';
-import { createStepBar, endsInSpectrum, runnableRecipe, stepLimits, unpairedRecipe } from './stepBar';
-import { entryMeasure, remeasured } from './compareReport';
-import { activeSlotReferenced, brokenStep, chainEnd, endsInEvents, isRecipeChain, recipeKey, recipeNodes } from '../../shared/recipe/recipeSteps';
+import { LARGE_BASE } from './trackStageMode';
+import { runnableRecipe, stepLimits } from './stepBar';
+import type { ReportRow } from './compareReport';
+import { activeSlotReferenced, brokenStep, endsInEvents, isRecipeChain, recipeKey, recipeNodes } from '../../shared/recipe/recipeSteps';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
-import { baseName, isMetadataCandidate, withFolderColumns } from '../../shared/analysis/entryMetadata';
-import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
+import { baseName, isMetadataCandidate } from '../../shared/analysis/entryMetadata';
 import { CSVColumnCountError, csvColumnCountMessage } from '../../shared/dataset/csvDiagnostics';
-import { keyRouterFor } from './keyRouter';
-import { createHeaderProbe, createScanProgress } from './entryScanQueue';
+import { keyRouterFor } from '../shell/keyRouter';
+import { createHeaderProbe, readCost } from './entryHeaders';
 import { createRedraw, createThrottle } from './entryRedraw';
 import { createSessionSaver, readStoredSession, SESSION_VERSION } from './entrySession';
-import { channelRowKey, comparedKeys, emptySlots, firstFreeCompareSlot, recordingColor as colorOfRecording, restoredSlots, roleKey, roleSlot, slotFiles as filesOfSlots, slotsForFiles, slotsOfFile, trackChanges, withoutFile, withSlot, type Slots } from './entrySlots';
+import { comparedKeys, settledKey, emptySlots, firstFreeCompareSlot, restoredSlots, roleKey, roleSlot, slotFiles as filesOfSlots, slotsForFiles, slotsOfFile, trackChanges, withoutFile, withSlot, type Slots } from './entrySlots';
 import { setHint } from './hintFooter';
 import { ENTRY_KEYS, keyAction } from './shortcuts';
 import {
-    annotatedCsv, datasetRows, filteredRows, fileOfKey, groupOf as datasetGroupOf, isComputed, matchCsv, readDatasetCsv, valueOf, visibleRows,
-    type ColumnId, type CsvMatch, type DatasetCsv, type DatasetFilter, type DatasetRow, type GroupId, type ValueId,
+    annotatedCsv, datasetRows, filteredRows, fileOfKey, groupOf as datasetGroupOf, isInfo, matchCsv, readDatasetCsv, tableCsv, valueOf, visibleRows,
+    type ColumnId, type CsvMatch, type DatasetCsv, type DatasetFilter, type DatasetRow, type FileInfo, type GroupId, type InfoId, type ValueId,
+    type ValueRange,
 } from '../../shared/dataset/datasetTable';
 import {
-    closesEntryDialog, filterChipText, rowWindow, tableLines, type DerivedItem, datasetColsHtml, datasetHeadHtml, datasetRowsHtml, entryScreenHtml, filterChipsHtml, formatValue, plotValueText,
-    baseOptionsHtml, batchPopHtml, groupOptionsHtml, memoPopHtml, slotMenuHtml, unmatchedRowsHtml, valueOptionsHtml, ENTRY_ROW_HEIGHT,
-    type DatasetScreenView, type EntryStrings,
+    closesEntryDialog, filterChipText, rowWindow, tableLines, datasetColsHtml, datasetHeadHtml, datasetRowsHtml, entryScreenHtml, filterChipsHtml, formatValue,
+    baseOptionsHtml, distributionLegendHtml, batchPopHtml, groupOptionsHtml, memoPopHtml, slotMenuHtml, unmatchedRowsHtml, valueOptionsHtml, ENTRY_ROW_HEIGHT,
+    type DatasetColumn, type DatasetScreenView, type EntryStrings,
 } from './entryTableHtml';
 import { writeKeptRows } from './keptRows';
 
 /** Scan results are redrawn at most this often (entryRedraw.ts' createThrottle). */
 const REDRAW_MS = 250;
+/** A lane of the distribution's Figure (CSS px): low above the table, between these on the right. */
+const DIST_FIGURE_STRIP_LANE = 40, DIST_FIGURE_LANE_MIN = 64, DIST_FIGURE_LANE_MAX = 150;
 /** The table's rows are this tall, exactly (CSS: .entry-table tr.entry-row), so only the rows on screen are drawn. */
 const ROW_HEIGHT = ENTRY_ROW_HEIGHT;
 /** A CSV larger than this is read but not kept for the next session (the webview's state would grow too large). */
@@ -75,56 +69,31 @@ interface EntryChoices {
     baseGroup: string | null;
 }
 
-const defaultChoices = (): EntryChoices => ({ value: 'leq', group: 'none', filters: [], sort: { column: 'name', descending: false }, mode: 'all', tracksOnly: false, baseGroup: null });
-
-/** The files a fixed difference is of: its own and its base's. */
-export const derivedFilesOf = (row: DerivedRow): string[] => [row.parentPath, ...(row.base.paths ?? [])];
-
-/**
- * Whether a fixed difference (D) is no longer of what its files are now: another Recipe, a file's scan stale (another
- * chain or calibration than the current one), or a file's condition (its version and calibration, the scan's
- * conditionId) another than when it was fixed. Such a row is ≠: no number of it is shown or written as current.
- */
-export function derivedIsStale(row: DerivedRow, now: { recipeKey: string; stale(path: string): boolean; conditionOf(path: string): string }): boolean {
-    if (row.recipeKey !== now.recipeKey) return true;
-    return derivedFilesOf(row).some(path => now.stale(path) || (row.conditions !== undefined && row.conditions[path] !== now.conditionOf(path)));
-}
-
-/** A fixed difference's request to be measured again over its region: its own asker (compareScanAsker), the row's key. */
-export const derivedRemeasureId = (row: DerivedRow, count: number): string => compareScanId(`derived|${derivedKey(row)}`, count);
+const defaultChoices = (): EntryChoices => ({ value: 'none', group: 'none', filters: [], sort: { column: 'name', descending: false }, mode: 'all', tracksOnly: false, baseGroup: null });
 
 /** What a comparison of the slotted files needs of the entry table (the track view's steps mode, D and the report). */
 export interface CompareData {
-    model: EntryModel;
-    /** The table's scans of the current chain and calibration (the answer store's): a stale one is not among them. */
-    results: CurrentAnswers;
     slots: (string | null)[];
-    /**
-     * The step bar's Recipe, and the one the table's scans run (invalid steps and steps measured against the base
-     * slot left out; undefined = the host's own).
-     */
+    /** The step bar's Recipe, and the one the comparison runs (invalid steps left out; undefined = the host's own). */
     recipe?: RecipeDocument | null;
     runRecipe?: RecipeDocument;
-    /** Steps that failed on a file, left out of the scans. */
+    /** Steps that failed on a file, left out of the chain run. */
     failed?: Readonly<Record<string, string>>;
-    /** The step the comparison opens on (a chip pressed on the entry table); the chain's end without one. */
+    /** The step the comparison opens on; the chain's end without one. */
     stage?: string;
-    /** Files whose entry-table results are of an earlier chain or calibration. */
-    stale: ReadonlySet<string>;
-    /** How many times a file's calibration changed while the folder is open: part of what its pictures are of (stageBasis). */
+    /** How many times a file's calibration or the file itself changed while the folder is open: part of what its pictures are of (stageBasis). */
     fileEpoch?(path: string): string;
 }
 
 export interface EntryScreenDeps {
     document: Document;
+    /** The page's figure requests: for the distribution on the new path, shown to the tests only. */
+    figures?: FigureAnswers;
     window: Pick<Window, 'addEventListener' | 'setTimeout' | 'clearTimeout' | 'requestAnimationFrame'> & { performance: Pick<Performance, 'now'> };
     strings: UiStrings;
-    post(message: EntryScanMessage | EntryScanCancelMessage | EntryProbeMessage | EntryProbeCancelMessage | EntrySaveSessionMessage | CompareScanMessage | CompareCombineMessage): void;
+    post(message: EntryOpenMessage | EntryProbeMessage | EntryProbeCancelMessage | EntrySaveSessionMessage): void;
     loadSlots(): readonly (string | null)[] | undefined;
     saveSlots(slots: (string | null)[]): void;
-    /** Differences fixed on the comparison, kept across sessions like the slots. */
-    loadDerived?(): readonly DerivedRow[] | undefined;
-    saveDerived?(rows: DerivedRow[]): void;
     /** The attribute CSV the user picked (its name and text), kept for the next session; undefined forgets it. */
     loadCsv?(): { name: string; text: string } | undefined;
     saveCsv?(csv: { name: string; text: string } | undefined): void;
@@ -182,19 +151,12 @@ export interface EntryScreen {
     handle(message: { type: string }): boolean;
     /** Shows the table again as it was, without scanning (the comparison's way back). */
     show(slots: (string | null)[]): void;
-    /** A difference fixed on the comparison (D): one derived row under its parent. */
-    addDerived(row: DerivedRow): void;
-    /** Takes a fixed difference back out (a click on its card on the comparison). */
-    removeDerived(parentPath: string, region: string, baseLabel?: string): void;
-    /** A Recipe edited on the comparison's step bar: the table scans again with it. */
+    /** A Recipe edited on the comparison's step bar: the table keeps it (the folder's session, the bundle). */
     setRecipe(recipe: RecipeDocument): void;
-    /** A step that failed on a file (a comparison scan's): it is left out and the table scans again without it. */
+    /** A step that failed on a file (a comparison scan's): it is left out of the chain run. */
     stepFailed(step: string, reason: string): void;
-    /** What the comparison needs of the table: its conditions, results, slots and Recipes. */
+    /** What the comparison needs of the table: its slots and Recipes. */
     compareData(): CompareData;
-    /** What a file's levels are in, as the table's scan read it (cheap: no model built), for the figures' identity. */
-    levelsOf(paths: readonly string[]): Array<LevelInput | undefined>;
-    levelOf(filePath: string): LevelInput | undefined;
     /** The slots 0–3: the base file (or null for the group median) and the files to compare. */
     slots(): (string | null)[];
     /** Whether the rows are grouped: with slot 0 empty, the base is then the compared file's group median. */
@@ -206,24 +168,26 @@ export interface EntryScreen {
      * slot; the track stays on the track view either way.
      */
     setTrackRole(filePath: string, slot: number | null): void;
-    /** What a compared file is measured against: the slot-0 file, or the other files of its condition. */
+    /** What a compared file is measured against: the slot-0 file, or the other files of its group. */
     basePaths(comparePath: string, group?: boolean): string[];
-    /** The base's name: the slot-0 file, or "Base group · rpm 1500 · median of n · ch2 (within ch = 2)". */
-    baseTitle(comparePath: string, group?: boolean, over?: AnswerSource): string;
-    /** The base's heading for another figure's set of its members (a step figure's, of their pictures): its one set's n. */
+    /** The base's heading over a figure's set of its members (the figure service's counts); none yet: its name alone. */
     /** `each`: its waveforms drawn each, so the set's n is said as "n files" (entryBaseCount), not a median's. */
-    baseHeading(comparePath: string, group: boolean, set: FigureSet<unknown> | null, each?: boolean): string;
-    /** The base group's recordings the table's answers leave out for another reference or axis, with why. */
+    baseHeading(comparePath: string, group: boolean, set: FigureSet | null, each?: boolean): string;
+    /** The base group's recordings the table knows cannot be drawn with it: fewer channels than the one compared, or a file that could not be read. */
     baseLeft(comparePath: string, group: boolean): Array<{ path: string; reason: ExclusionReason }>;
-    /** What the base is, for the report and a fixed difference. */
-    baseDefinition(comparePath: string, group?: boolean, over?: AnswerSource): BaseDefinition;
+    /** How many channels a file of the table has (its rows' count); undefined for a file the table does not list. */
+    channelCount(path: string): number | undefined;
     /** The channel `path` is drawn with when `comparePath` is compared (null: its channels together). */
     stageChannel(path: string, comparePath: string | null, group?: boolean): number | null;
-    /** The comparison of a file with its base, as the table defines the base (over `results` when given, e.g. a region's). */
-    comparison(comparePath: string, group?: boolean, over?: AnswerSource, entryRegionBase?: boolean): CompareModel;
-    /** Files' scans as the answer store hands them (stale when of an earlier chain or calibration). */
-    answersOf(paths: readonly string[]): ScanAnswer[];
-    /** How much audio these files are and about how long computing them takes, by the files' lengths. */
+    /** A compared recording as the report writes it: its name, value on show, memo, channel, base and condition cells. */
+    /**
+     * `byGroup`: the comparison measures against the group though slot 0 holds a recording (its B switch). `against`:
+     * the recording whose base the comparison's figure has (the active one's; every line of the figure shares it).
+     */
+    reportRow(path: string, byGroup?: boolean, against?: string | null): ReportRow;
+    /** The table's condition columns (the CSV's and the folders'), as the report heads them. */
+    conditionColumns(): string[];
+    /** How much audio these files are and about how long reading them takes, by the lengths their headers say. */
     cost(paths: readonly string[]): { seconds: number; ms: number };
     /** A compared file's name (with its channel), its value on show and its memo. */
     rowInfo(path: string): { label: string; value: string; memo: string };
@@ -234,18 +198,15 @@ export interface EntryScreen {
     exportNotes(): void;
     /** What the table is narrowed to, for the report. */
     selection(): { value: string; group: string; filters: string[]; excluded: number };
-    /** The differences fixed with D. */
-    derivedRows(): DerivedRow[];
     /** Turns the "Compared" filter on: the compared files and their base. */
     showCompared(): void;
-    /** The Recipe the table scans with (its edited one, else the host's), and the one its scans run; null before either is known. */
-    /** The chain the table measures with, the one its scans run, and the steps that failed on a file (with why); `channels`: the fewest of the files they run on, when not the table's. */
+    /** The chain (the edited one, else the host's), the one that runs, and the steps that failed on a file (with why); `channels`: the fewest of the files they run on, when not the table's. */
     recipes(channels?: number): { recipe: RecipeDocument; runRecipe?: RecipeDocument; failed?: Readonly<Record<string, string>> } | null;
     /** What the table currently shows, for tests. */
     snapshot(): {
-        open: boolean; docked: boolean; cols: number; rows: number; visible: number; scanned: number; slots: (string | null)[]; focused: string | null;
+        open: boolean; docked: boolean; cols: number; rows: number; visible: number; slots: (string | null)[]; focused: string | null;
         value: string; group: string; filters: DatasetFilter[]; sort: { column: string; descending: boolean }; excluded: string[]; memo: Record<string, string>;
-        mode: string; unmatched: number; csv: string | null; playing: string | null; visibleKeys: string[]; scanning: boolean;
+        mode: string; unmatched: number; csv: string | null; playing: string | null; visibleKeys: string[];
         dist: { groups: Array<{ name: string; n: number; inRange: number }>; missing: number; unit: string; low: number; high: number; range: { low: number; high: number } | null; base: string | null; strip: boolean } | null;
     };
 }
@@ -274,110 +235,150 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const basePick = query<HTMLElement>('[data-entry-base-pick]');
     const csvInput = query<HTMLInputElement>('[data-entry-csv-input]');
     const tableWrap = query<HTMLElement>('.entry-table-wrap');
-    const held = query<HTMLElement>('[data-entry-held]');
-    const heldTitle = query<HTMLElement>('[data-entry-held-title]');
-    const heldCanvas = query<HTMLCanvasElement>('[data-entry-held-canvas]');
-    const overview = query<HTMLCanvasElement>('[data-entry-overview]');
-    const side = query<HTMLElement>('.entry-side');
-    /** The overview strip and the held plot beside the distribution, each zoomed as the lanes are. */
-    const sidePlots = createSidePlots({
-        reference: () => entryModel().reference, answers: paths => scans.answers(paths),
-        document, window, strings, screen, side, body, tableWrap, overview, heldCanvas,
-        rows: () => shownRows, focusedRow: () => focus.key, paintDistribution: () => paintDistribution(),
-        paintHeld: () => heldPlot.paint(), heldPicture: () => heldPlot.picture(), pickRow: key => { const back = tableNow(); redraw.batch(() => focusRow(key, true)); return back; },
-    });
-    const distPane = createDistributionPane({
-        screen, strings,
-        // A range of the value: a chip, which narrows the table.
-        pick({ low, high }) {
-            const back = tableNow();
-            focus.picked = false;
-            choose({ filters: [...chosen.filters.filter(filter => filter.column !== chosen.value), { column: chosen.value, kind: 'range', low, high }], mode: 'all' }, true);
-            deps.announce(strings.dsDistPicked.replace('{n}', uiNumber(shownRows.length, strings.uiLocale)));
-            return back;
+    /** The distribution is drawn on the next frame after a change, once however many changes ask. */
+    let distributionAsked = false;
+    const scheduleDistribution = (): void => {
+        if (distributionAsked) return;
+        distributionAsked = true;
+        window.requestAnimationFrame(() => { distributionAsked = false; paintColumn(); });
+    };
+    // A range of the value picked on the distribution: a chip, which narrows the table.
+    const pickValueRange = ({ low, high, closed }: ValueRange): (() => void) => {
+        const back = tableNow();
+        focus.picked = false;
+        choose({ filters: [...chosen.filters.filter(filter => filter.column !== chosen.value), { column: chosen.value, kind: 'range', low, high, ...(closed ? { closed: true } : {}) }], mode: 'all' }, true);
+        deps.announce(strings.dsDistPicked.replace('{n}', uiNumber(shownRows.length, strings.uiLocale)));
+        return back;
+    };
+    const pickDistributionRow = (key: string): (() => void) => {
+        const back = tableNow();
+        // The very row the readout read (R7, R13), filters off if they hide it: never another row of its file. A
+        // dot of a recording (a value of the file, not of a channel) goes to the file's row (focusFile).
+        if (rows.some(row => row.key === key)) {
+            if (!shownRows.some(row => row.key === key)) choose({ mode: 'all', filters: [], tracksOnly: false });
+            focusRow(key, true);
+        } else focusFile(fileOfKey(key));
+        return back;
+    };
+    // The distribution of a CSV column of numbers is the Figure's (screens/distributionFigure.ts): the figure service
+    // bins, counts and reads it, in the distribution's own box. The entry computes no value of its own.
+    const distBox = query<HTMLElement>('[data-entry-dist]');
+    const distHost = query<HTMLElement>('[data-entry-dist-figure]');
+    const distReadout = distBox.querySelector<HTMLElement>('.entry-dist-note > [data-plot-readout]');
+    const distEmpty = query<HTMLElement>('[data-entry-dist-empty]');
+    /** Nothing to draw: the Figure off, and why in its place (nothing said while folded above the table). */
+    const noDistribution = (why: string): false => {
+        distFigure?.hide();
+        distHost.hidden = true;
+        for (const part of ['count', 'legend', 'note']) query<HTMLElement>(`[data-entry-dist-${part}]`).textContent = '';
+        distEmpty.textContent = why;
+        distEmpty.hidden = screen.classList.contains('is-dist-strip');
+        return false;
+    };
+    /** Just folded above the table: its lanes in view go to the compared row's group, once its picture is drawn. */
+    let distToSlot = false;
+    const distFigure = deps.figures ? createDistributionFigure({
+        document, host: distHost, ...(distReadout ? { readout: distReadout } : {}), answers: deps.figures, words: { ...strings, range: rangePopoverStrings(strings) },
+        pickRange: range => pickValueRange(range), pickRow: pickDistributionRow,
+        drawn: () => {
+            if (!distToSlot || !screen.classList.contains('is-dist-strip')) return;
+            distToSlot = false;
+            const lane = distFigure?.inspect()?.lanes.find(item => item.bins?.marks.length);
+            if (lane) distHost.scrollTop = Math.max(0, lane.frame.top - 10);
         },
-        dot(key) {
-            const back = tableNow();
-            // The very row the readout read (R7, R13), filters off if they hide it: never another row of its file. A
-            // dot of a recording (a value of the file, not of a channel) goes to the file's row (focusFile).
-            if (rows.some(row => row.key === key)) {
-                if (!shownRows.some(row => row.key === key)) choose({ mode: 'all', filters: [], tracksOnly: false });
-                focusRow(key, true);
-            } else focusFile(fileOfKey(key));
-            return back;
-        },
-    });
-    const stepBar = createStepBar({
-        document, strings, mode: 'entry', onChange: recipe => setRecipe(recipe),
-        // A step pressed opens the comparison on that step's Frame.
-        onStepSelect: step => openSlotted(step.id),
-        // On the entry table a hold shows one row: without a step of its time signal, or its spectrum or bands.
-        canHold: step => heldPlot.canHold(step),
-        onStepHold: step => heldPlot.holdStep(step),
-    });
+    }) : null;
+    /** The column last handed to the figure service, as text, and its version: another text is another version (compared whole, never by a hash of it). */
+    let columnText = '', columnVersion = 0;
+    /**
+     * The CSV column the distribution shows, through the figure service: the column's value per table row, each
+     * group's recordings (one row a recording) and the slots' rows. What is drawn and counted of them is the
+     * service's. Whether the Figure shows it (not: no figure service here, no CSV column of numbers, or no number at
+     * all, which its place then says).
+     */
+    const paintColumn = (): boolean => {
+        const value = chosen.value;
+        if (screen.hidden) { distFigure?.hide(); return false; }
+        if (value === 'none') return noDistribution(attached.csv ? strings.dsDistNoNumber : strings.dsDistNoCsv);
+        if (!distFigure) return noDistribution(strings.dsDistEmpty);
+        const poolRows = distributionRows();
+        const values = poolRows.map(row => valueOf(row, value));
+        // The column's version: its rows and values as text (a table edited or filtered is another version).
+        const text = [value, poolRows.map(row => row.key).join('\n'), values.join(',')].join('\u0000');
+        if (text !== columnText) { columnText = text; columnVersion += 1; }
+        const groups = new Map<string, string[]>();
+        // The row that stands for a recording in a group (its first), by the recording and the group.
+        const once = new Map<string, string>();
+        // Each row's own stand-in: a slot on another channel of the recording is that recording's line.
+        const standIn = new Map<string, string>();
+        // The groups with a number at all (no lane of a group with none).
+        const numbered = new Set<string>();
+        for (const row of poolRows) {
+            const name = datasetGroupOf(row, chosen.group);
+            if (Number.isFinite(valueOf(row, value))) numbered.add(name);
+            // A CSV value is the recording's: each recording once a group (its first row). A row with a blank is the
+            // group's too: the service counts it (its `blank`), the screen does not leave it out.
+            const first = once.get(`${row.filePath}\u0000${name}`);
+            standIn.set(row.key, first ?? row.key);
+            if (first !== undefined) continue;
+            once.set(`${row.filePath}\u0000${name}`, row.key);
+            groups.set(name, [...(groups.get(name) ?? []), row.key]);
+        }
+        const shown = [...groups.entries()].filter(([name]) => numbered.has(name)).sort(([a], [b]) => compareGroupNames(a, b)).map(([name, keys]) => ({ name, rows: keys }));
+        if (!shown.length) return noDistribution(strings.dsDistEmpty);
+        distEmpty.hidden = true;
+        const range = valueRange();
+        const strip = screen.classList.contains('is-dist-strip');
+        // The heading: each lane says its own n (the service's count); many groups are said, as before.
+        query<HTMLElement>('[data-entry-dist-count]').textContent = shown.length > 4 ? strings.dsDistGroups.replace('{n}', String(shown.length)) : '';
+        const legend = query<HTMLElement>('[data-entry-dist-legend]');
+        const legendHtml = distributionLegendHtml(slots, strings);
+        if (legend.innerHTML !== legendHtml) legend.innerHTML = legendHtml;
+        query<HTMLElement>('[data-entry-dist-note]').textContent = !range && !strip ? strings.dsDistDrag : '';
+        const labels = groupLabels(shown.map(group => group.name));
+        const prefix = chosen.group === 'ch' ? `${strings.dsCh} ` : '';
+        // On the right the groups share the height; above the table they stay low, two of them in view (the rest scroll),
+        // so the table under it is where it was.
+        distHost.hidden = false;
+        const available = Math.max(0, query<HTMLElement>('[data-entry-dist-area]').clientHeight - distHost.offsetTop - 16);
+        const lane = strip ? DIST_FIGURE_STRIP_LANE : Math.max(DIST_FIGURE_LANE_MIN, Math.min(DIST_FIGURE_LANE_MAX, distributionLane(available, shown.length)));
+        distHost.style.height = strip ? `${distributionHeight(Math.min(2, shown.length), lane)}px` : '';
+        distHost.style.maxHeight = strip ? '' : `${Math.max(available, distributionHeight(1, DIST_FIGURE_LANE_MIN))}px`;
+        distFigure.show({
+            column: { key: `column:${value}`, version: `v${columnVersion}`, rows: poolRows.map(row => row.key), values },
+            columnName: csvColumnTitle(value.slice(4), strings),
+            groups: shown,
+            groupLabel: name => (chosen.group === 'none' ? strings.dsDistAll : `${prefix}${labels.get(name) ?? name}` || strings.dsFilterBlank),
+            roles: slots.flatMap((key, slot) => { const row = key ? standIn.get(key) : undefined; return row ? [{ row, role: slot === 0 ? 'base' : `compare${slot}` }] : []; }),
+            rowName, selection: range, axes: `${value}|${chosen.group}`,
+        }, Math.max(240, distHost.clientWidth || distBox.clientWidth || 400), lane);
+        return true;
+    };
     // The chain is edited where the analysis is decided: the track view's steps (trackStageMode.ts). The table
-    // only keeps its state, so its values are measured with the same chain.
+    // only keeps its state (the folder's session, the bundle it writes).
     const recipeState: {
-        /** The host's entry Recipe, and the one edited in the step bar (which the scans then use). */
+        /** The host's Recipe, and the one edited in the comparison's step bar. */
         standard: RecipeDocument | null;
         edited: RecipeDocument | null;
         /** Steps that failed on a file, with wandas' reason: the chain is broken until the Recipe changes. */
         failed: Record<string, string>;
-        /** The folder's sample rate and its shortest file's samples, kept when a new Recipe clears the results so its steps are still checked against them. */
-        knownRate?: number;
-        knownShortest?: number;
     } = { standard: null, edited: null, failed: {} };
 
     let filePaths: string[] = [];
-    /** Each file's latest scan, with the Recipe it was measured with (recipeKey of the run): a result of another chain is greyed. */
-    const scans = createScanAnswers(() => ({ recipeKey: currentKey(), condition: fileEpoch, conditions: calibrationChanges }));
-    /** Every file's latest scan, for showing (a stale one greyed); what is counted is `scans.current()`. */
-    const results = scans.shown();
-    /** A scan asked for came in, kept under what it was asked under (answerStore); one of an asking already ended is not. */
-    function noteResult(filePath: string, result: ScanResult): void {
-        if (!scans.answered(filePath, result)) return;
-        sidePlots.noteResult(filePath, result);
-    }
-    /** What the table asked the host for: the folder's stored results or a computation ('scan'), a fixed difference measured again. */
+    /** What the table asked the host for at open: the folder's session and the host's Recipe (only the latest asking is answered). */
     const requests = new HostRequests<undefined>();
-    /** Whether the chain cannot run (a step that cannot, and so nothing after it): the table then has no values for it. */
+    /** Whether the chain cannot run (a step that cannot, and so nothing after it). */
     const broken = (): boolean => { const recipe = recipeState.edited ?? recipeState.standard; return !!recipe && !!brokenStep(recipe, limits()); };
-    /**
-     * The chain the table's scans are of now. Made again only when what it is made of changes (the Recipes, the
-     * failed steps, the scans its limits are read from): it is asked for each file whose freshness is asked.
-     */
-    let keyMade: { of: readonly unknown[]; key: string } | null = null;
-    const currentKey = (): string => {
-        const of = [recipeState.edited, recipeState.standard, recipeState.failed, recipeState.knownRate, recipeState.knownShortest, scans.revision];
-        if (keyMade && keyMade.of.every((part, index) => part === of[index])) return keyMade.key;
-        const key = broken() ? 'broken' : recipeKey(scanRecipe());
-        keyMade = { of, key };
-        return key;
-    };
-    /** A scan that failed for a reason that may pass (not a step that cannot run on the file): 「計算」 tries it again. */
     /** How many times each file's calibration changed while the folder is open (the host says so). */
     const calibrations = createLatestAnswers<number>();
-    /** How many calibration changes the folder has heard of: the current scans are taken again after each. */
-    let calibrationChanges = 0;
     const calibrationEpoch = (path: string): number => calibrations.get(path) ?? 0;
     /** How many times each file was written on disk while the folder is open (the host's watcher says so). */
     const sources = createLatestAnswers<number>();
     const sourceEpoch = (path: string): number => sources.get(path) ?? 0;
-    /** What a file's scans and pictures are asked under beyond the chain: its calibration's and its own changes. */
+    /** What a file's pictures are asked under beyond the chain: its calibration's and its own changes. */
     const fileEpoch = (path: string): string => `${calibrationEpoch(path)}.${sourceEpoch(path)}`;
-    const passingFailure = (path: string): boolean => { const failed = scans.failure(path); return !!failed && !failed.failedStep; };
-    /** Whether a file's result is of another chain or calibration than the current one (the answer store decides). */
-    const isStale = (path: string): boolean => scans.stale(path);
-    function stalePaths(): Set<string> {
-        const current = scans.current();
-        return new Set(filePaths.filter(path => results.has(path) && !current.has(path)));
-    }
-    /** The files' headers (channels, lengths), read at open; then the computation the user started, and what one costs. */
+    /** The files' headers (channels, length, sample rate), read at open: the entry reads nothing else of a file. */
     // A header that could not be read is read again once its pause is over (the folder's files as they are then).
     const headers = createHeaderProbe(undefined, () => probe(filePaths));
-    /** Each file's length: from its result, else from its header (WAV, FLAC). */
-    const durationOf = (path: string): number | undefined => results.get(path)?.input?.durationS ?? headers.durations.get(path);
-    const progress = createScanProgress(() => window.performance.now(), durationOf);
     let rootPath = '';
 
     // ---- the dataset: the CSV the user picked, and what the user chose to see
@@ -408,45 +409,24 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     let slots: Slots = emptySlots();
     /** The focused row; until the user picks one (`picked`), the focus follows the top of the table. */
     const focus: { key: string | null; picked: boolean } = { key: null, picked: false };
-    let derived: DerivedRow[] = [];
     /** The folder's session, kept by the host: saved a moment after each change once the stored one is back. */
     const session = createSessionSaver(window, SESSION_SAVE_MS, () => sessionOf(),
         (stored, csvToSave) => deps.post({ type: 'entry-save-session', rootPath, session: stored, ...(csvToSave !== undefined ? { csv: csvToSave } : {}) }));
-    /**
-     * The comparison's model of the files (their conditions, Δ, groups): built when the comparison, the overview
-     * strip or the CSV export reads it, not on every redraw of the table (it costs a pass over every file).
-     */
-    let builtModel: EntryModel | null = null;
-    function entryModel(): EntryModel {
-        if (builtModel) return builtModel;
-        // The CSV's attributes and the subfolders as its condition table, grouped by the column the table groups by.
-        const { csv, match } = attached;
-        const attributes = csv?.attributes ?? [];
-        const own: EntryConditionTable | null = csv && match ? {
-            columns: attributes, checked: [],
-            rows: Object.fromEntries([...match.attributes].map(([filePath, row]) => [filePath, attributes.map(column => row[column] ?? '')])),
-            numeric: attributes.map(column => csv.numeric[column] ?? false), source: csv.name,
-        } : null;
-        const folders = withFolderColumns(own, filePaths, rootPath, level => strings.entryFolderLevel.replace('{n}', String(level)));
-        const checked = chosen.group.startsWith('csv:') ? [attributes.indexOf(chosen.group.slice(4))] : chosen.group.startsWith('folder:') ? [attributes.length + Number(chosen.group.slice(7)) - 1] : [];
-        const table = folders && { ...folders, checked: checked.filter(index => index >= 0 && index < folders.columns.length) };
-        // A stale result (of an earlier chain or calibration) is shown greyed, never counted, chosen from or written.
-        builtModel = buildEntryModel(filePaths.map(filePath => ({ filePath, result: results.get(filePath), ...(isStale(filePath) ? { stale: true } : {}) })), table, { derived });
-        return builtModel;
-    }
+    /** The table's condition columns: the CSV's attributes, then the subfolder levels (as the grouping offers them). */
+    const conditionColumns = (): string[] => [
+        ...(attached.csv?.attributes ?? []),
+        ...Array.from({ length: rows.reduce((most, row) => Math.max(most, row.folders.length), 0) }, (_, index) => strings.entryFolderLevel.replace('{n}', String(index + 1))),
+    ];
     /** The rows through the filters but the value's own (unsorted), kept until the next rebuild. */
     let pool: DatasetRow[] | null = null;
-    /** Whether a recording was read (or failed only at a step): an unreadable one is no row of the table. */
-    const readable = (path: string): boolean => !(headers.errors.has(path) && !results.get(path)?.ok) && (results.get(path)?.ok !== false || !!results.get(path)?.failedStep);
-    /** The rows are made again only when the files, their results, their headers or the CSV change, not on every redraw. */
+    /** Whether a recording's header was read: an unreadable one is no row of the table. */
+    const readable = (path: string): boolean => !headers.errors.has(path);
+    /** The rows are made again only when the files, their headers or the CSV change, not on every redraw. */
     let rowsDirty = true;
-    const focusedFile = (): string | null => (focus.key ? fileOfKey(focus.key) : null);
     const slotFiles = (): (string | null)[] => filesOfSlots(slots);
-    /** The colour a file is drawn in beside the table: its role's, else its track's own, as the comparison draws it (R5). */
-    const recordingColor = (filePath: string): string => colorOfRecording(slots, filePath, deps.recordingColor?.(filePath));
     let byKey = new Map<string, DatasetRow>();
     const rowOf = (key: string | null): DatasetRow | undefined => (key ? byKey.get(key) : undefined);
-    /** Results and headers as they arrive: a big table takes longer to draw, so it waits longer. */
+    /** Headers as they arrive: a big table takes longer to draw, so it waits longer. */
     const resultsRedraw = createThrottle(window, () => window.performance.now(), REDRAW_MS, () => rebuild());
     /**
      * The table drawn again (the bar, the head, the rows, the slots) and the comparison told its data changed:
@@ -499,53 +479,22 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         render();
         tellCompare();
     }
-    /** A file's condition as its scan now has it (the backend's conditionId: its version, calibration, unit and reference). */
-    const conditionOf = (path: string): string => { const answer = scans.answer(path); return answer.state === 'ready' || answer.state === 'stale' ? answer.value?.conditionId ?? '' : ''; };
-    /**
-     * Whether a fixed difference is of what the files are now: the current Recipe, and each file's version and
-     * calibration as it was fixed (its scan stale, or of another condition since, makes it ≠, never a current number).
-     */
-    const derivedStale = (row: DerivedRow): boolean => derivedIsStale(row, { recipeKey: recipeKey(scanRecipe()), stale: path => scans.stale(path), conditionOf });
-    /** A difference just measured (D, or measured again): of the files' conditions now. */
-    const fixedNow = (row: DerivedRow): DerivedRow => ({ ...row, conditions: Object.fromEntries(derivedFilesOf(row).map(path => [path, conditionOf(path)])), stale: false });
-    /** Every fixed difference marked ≠ or not by what the files are now. */
-    /**
-     * The one way the fixed differences are kept: each judged against what the files are now (the chain, each file's
-     * version and calibration), never trusting a `stale` stored with it (a session saved before the file changed).
-     */
-    function keepDerived(rows: readonly DerivedRow[], only?: DerivedRow): void {
-        // `only`: the one row judged anew (measured again); the others keep their objects, so a remeasure on its way
-        // for one of them still answers it (handleRemeasure matches by the row).
-        derived = rows.map(row => (only && row !== only ? row : { ...row, stale: derivedStale(row) }));
-    }
-    function markDerived(): void {
-        keepDerived(derived);
-        deps.saveDerived?.(derived);
-    }
-    /** The differences fixed with D changed: kept, and their rows drawn. */
-    function setDerived(next: DerivedRow[]): void {
-        keepDerived(next);
-        deps.saveDerived?.(derived);
-        rebuild();
-    }
-
-    /** Whether the chain ends in a spectrum or band levels, so there are band values and a peak. */
-    function spectral(): boolean {
-        const recipe = recipeState.edited ?? recipeState.standard;
-        return !recipe || endsInSpectrum(recipe, limits()) || (!!brokenStep(recipe, limits()) && ['SpectralFrame', 'NOctFrame'].includes(chainEnd(recipe, limits())));
-    }
-    /** The values the table can show: the CSV's numeric columns, then those computed from the sound. */
-    function valueOptions(): Array<{ id: ValueId; label: string; computed: boolean; ready: boolean }> {
+    /** The values the table can show: the CSV's columns of numbers (the entry computes none). */
+    function valueOptions(): Array<{ id: ValueId; label: string }> {
         const csv = attached.csv;
-        const own = (csv?.attributes ?? []).filter(column => csv?.numeric[column]).map(column => ({ id: `csv:${column}` as ValueId, label: column, computed: false, ready: true }));
-        const computed: Array<{ id: ValueId; label: string }> = [
-            { id: 'leq', label: sidePlots.levelName(strings.dsLeq) },
-            ...(spectral() ? [{ id: 'peak' as ValueId, label: strings.dsPeak }] : []),
-            { id: 'crest', label: strings.dsCrest },
-            ...(spectral() ? BAND_CENTERS_HZ.map((_, band) => ({ id: `band:${band}` as ValueId, label: sidePlots.levelName(strings.dsBand.replace('{band}', bandLabel(band))) })) : []),
-        ];
-        return [...own, ...computed.map(item => ({ ...item, computed: true, ready: false }))];
+        return (csv?.attributes ?? []).filter(column => csv?.numeric[column]).map(column => ({ id: `csv:${column}` as ValueId, label: column }));
     }
+    /** The columns of a file's own information, as the table names them. */
+    const infoColumns = (): Array<DatasetColumn & { id: InfoId }> => [
+        { id: 'duration', label: strings.entryColDuration, numeric: true },
+        { id: 'fs', label: strings.entryColRate, numeric: true, title: strings.entryColRateTitle },
+        { id: 'calibration', label: strings.entryColCalibration, numeric: false },
+    ];
+    /** A file's own information: what its header says, and whether the host has a calibration for it (in the screen's word). */
+    const infoOf = (filePath: string): FileInfo => {
+        const info = headers.info.get(filePath);
+        return { ...info, ...(info?.calibrated !== undefined ? { calibration: info.calibrated ? strings.entryCalibrated : strings.entryUncalibrated } : {}) };
+    };
     function groupOptions(): Array<{ id: GroupId; label: string }> {
         const folders = rows.reduce((most, row) => Math.max(most, row.folders.length), 0);
         return [
@@ -555,54 +504,29 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             { id: 'none', label: strings.dsGroupNone },
         ];
     }
-    const valueLabel = (id: ValueId): string => valueOptions().find(option => option.id === id)?.label ?? id;
-    /** A computed level value's template ("Leq A特性{uncal} [{label}]"); null for a value that is not a level. */
-    const levelTemplate = (id: ValueId): string | null => (id === 'leq' ? strings.dsLeq : id.startsWith('band:') ? strings.dsBand.replace('{band}', bandLabel(Number(id.slice(5)))) : null);
-    /** The distribution's value axis: a level named by the folder's reference, else a non-level's own name. */
-    const valueTitle = (id: ValueId): FigureTitle | PlainTitle => {
-        const template = levelTemplate(id);
-        return template ? sidePlots.levelName(template) : plainTitle(strings, id === 'peak' ? 'dsPeak' : 'dsCrest');
-    };
-    /**
-     * A row's value as it names itself (R1, R4): a level by its own fresh answer's reference and calibration, never
-     * the folder's; '' while its level is not known.
-     */
-    function ownValueText(id: ValueId, path: string, number: number): string {
-        const template = levelTemplate(id);
-        if (!template) return `${valueLabel(id)} ${formatColumn(id, number)}`;
-        const answer = scans.answers([path])[0];
-        const name = ownLevelName(strings, template, answer?.state === 'ready' ? answer.identity.level : null);
-        return name ? `${name} ${formatColumn(id, number)}` : '';
-    }
+    const valueLabel = (id: ValueId): string => (id === 'none' ? strings.dsValueNone : id.slice(4));
     const groupLabel = (id: GroupId): string => groupOptions().find(option => option.id === id)?.label ?? id;
     const columnLabel = (column: ColumnId): string => (column === 'name' ? strings.entryColFile : column === 'ch' ? strings.dsCh
-        : column === 'none' ? strings.dsGroupNone : column.startsWith('csv:') || column.startsWith('folder:') ? (valueOptions().find(option => option.id === column)?.label ?? groupLabel(column as GroupId)) : valueLabel(column as ValueId));
-    /** A column's numbers: the CSV's numeric columns and the computed values (a range filter, numeric sort). */
-    const numericColumn = (column: ColumnId): boolean => (column.startsWith('csv:') ? !!attached.csv?.numeric[column.slice(4)] : column === 'ch' ? false : column !== 'name' && column !== 'none' && !column.startsWith('folder:'));
-    const formatColumn = (column: ColumnId, number: number): string => (column.startsWith('csv:') ? String(+number.toPrecision(6)) : formatValue(column as ValueId, number));
+        : column === 'none' ? strings.dsGroupNone : isInfo(column) ? (infoColumns().find(item => item.id === column)?.label ?? column)
+            : column.startsWith('csv:') ? column.slice(4) : groupLabel(column));
+    /** A column of numbers (a range filter, numeric order): a CSV column of numbers, a file's length or sample rate. */
+    const numericColumn = (column: ColumnId): boolean => (column.startsWith('csv:') ? !!attached.csv?.numeric[column.slice(4)] : column === 'duration' || column === 'fs');
+    const formatColumn = (_column: ColumnId, number: number): string => formatValue(number);
     function datasetView(): DatasetScreenView {
-        const stale = stalePaths();
-        const ready = !isComputed(chosen.value) || shownRows.every(row => results.has(row.filePath) && !stale.has(row.filePath));
         return {
-            rows: shownRows, derived: derived.length ? derivedItems : undefined, results, group: chosen.group, value: chosen.value, filters: chosen.filters, sort: chosen.sort, slots, focused: focus.key, playing: deps.playing?.() ?? null, memo, valueReady: ready, stale, levelWord: path => sidePlots.levelMarkOf(path), mode: chosen.mode, shown: shownFiles(), tracksAllOff: tracks.tried !== null && tracks.tried === listedFiles().join('\n'),
+            rows: shownRows, group: chosen.group, value: chosen.value, filters: chosen.filters, sort: chosen.sort, slots, focused: focus.key, playing: deps.playing?.() ?? null, memo, mode: chosen.mode, shown: shownFiles(), tracksAllOff: tracks.tried !== null && tracks.tried === listedFiles().join('\n'),
             unmatched: attached.match?.unmatched ?? [], filtered: new Set(chosen.filters.map(filter => filter.column)),
             columns: {
                 name: { id: 'name', label: strings.entryColFile, numeric: false },
                 ch: { id: 'ch', label: strings.dsCh, numeric: true },
+                info: infoColumns(),
                 ...(chosen.group === 'none' ? {} : { group: { id: chosen.group, label: groupLabel(chosen.group), numeric: false } }),
-                value: { id: chosen.value, label: valueLabel(chosen.value), numeric: true },
+                ...(chosen.value === 'none' ? {} : { value: { id: chosen.value, label: valueLabel(chosen.value), numeric: true } }),
             },
         };
     }
     function unreadable(): Array<{ filePath: string; reason: string }> {
-        return filePaths.flatMap(filePath => {
-            const result = results.get(filePath);
-            const headerError = headers.errors.get(filePath);
-            if (headerError !== undefined && !result?.ok) return [{ filePath, reason: headerError }];
-            // Unreadable now: a failure of an earlier chain or condition (stale) is no reason about the file as it is.
-            const failure = scans.failure(filePath);
-            return result && !result.ok && failure && !failure.failedStep ? [{ filePath, reason: failure.reason }] : [];
-        });
+        return filePaths.flatMap(filePath => { const reason = headers.errors.get(filePath); return reason === undefined ? [] : [{ filePath, reason }]; });
     }
     /** The CSV rows and recordings that did not match; an unreadable recording is listed once, as unreadable. */
     function unmatchedItems(): CsvMatch['unmatched'] {
@@ -610,33 +534,40 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const broken = new Set(unreadable().map(item => item.filePath));
         return attached.match.unmatched.filter(item => !item.filePath || !broken.has(item.filePath));
     }
-    /** A row taken (slotted, left out, noted, focused) before its file's channels were known follows it to its ch 1 once they are. */
+    /**
+     * A row taken (slotted, left out, noted, focused) before its file's channels were known follows it to its ch 1
+     * once they are. A channel the file no longer has (rewritten with fewer) leaves its slot and is no longer left
+     * out: ch 1 is never compared in its place. Its memo stays stored, shown again if the channel comes back.
+     */
     function followChannels(): void {
         const keys = new Set(rows.map(row => row.key));
-        const moved = (key: string): string | null => channelRowKey(key, keys);
-        slots = slots.map(key => (key && moved(key)) || key);
-        for (const key of [...excluded]) { const to = moved(key); if (to) { excluded.delete(key); excluded.add(to); } }
-        for (const [key, note] of [...memo]) { const to = moved(key); if (to) { memo.delete(key); if (!memo.has(to)) memo.set(to, note); } }
-        if (focus.key) focus.key = moved(focus.key) ?? focus.key;
+        const settled = (key: string): string | null => settledKey(key, keys, headers.channels);
+        slots = slots.map(key => (key ? settled(key) : key));
+        for (const key of [...excluded]) { const to = settled(key); if (to !== key) { excluded.delete(key); if (to) excluded.add(to); } }
+        for (const [key, note] of [...memo]) { const to = settled(key); if (to && to !== key) { memo.delete(key); if (!memo.has(to)) memo.set(to, note); } }
+        if (focus.key) focus.key = settled(focus.key) ?? focus.key;
     }
     function rebuild(): void {
-        builtModel = null;
         pool = null;
         if (rowsDirty) {
             rowsDirty = false;
-            rows = datasetRows(filePaths, rootPath, attached.match?.attributes ?? new Map(), results, headers.channels)
+            rows = datasetRows(filePaths, rootPath, attached.match?.attributes ?? new Map(), headers.channels, infoOf)
                 .filter(row => readable(row.filePath));
             byKey = new Map(rows.map(row => [row.key, row]));
             followChannels();
         }
-        // A value or grouping the data no longer has (another CSV, no subfolders) gives way to the first it has.
+        // A value or grouping the data no longer has (another CSV, no subfolders) gives way to the first it has; a
+        // filter or an order on a column the table no longer has (a session of an earlier version) is dropped.
         const values = valueOptions();
-        if (!values.some(option => option.id === chosen.value)) chosen.value = values[0]?.id ?? 'leq';
+        if (!values.some(option => option.id === chosen.value)) chosen.value = values[0]?.id ?? 'none';
+        const known = (column: string): boolean => column === 'name' || column === 'ch' || column === 'none' || isInfo(column) || column.startsWith('folder:') || (column.startsWith('csv:') && !!attached.csv?.columns.includes(column.slice(4)));
+        if (!chosen.filters.every(filter => known(filter.column))) chosen.filters = chosen.filters.filter(filter => known(filter.column));
+        if (!['name', 'ch', 'group', 'value'].includes(chosen.sort.column) && !isInfo(chosen.sort.column)) chosen.sort = { column: 'name', descending: false };
         const groups = groupOptions();
         if (!groups.some(option => option.id === chosen.group)) chosen.group = groups.find(option => option.id.startsWith('csv:') && !attached.csv?.numeric[option.id.slice(4)])?.id ?? 'none';
         const onTracks = chosen.tracksOnly ? shownFiles() : null;
         shownRows = chosen.mode === 'excluded' ? rows.filter(row => excluded.has(row.key))
-            : visibleRows({ rows, group: chosen.group, value: chosen.value, filters: chosen.filters, sort: chosen.sort, excluded }, results).filter(row => !onTracks || onTracks.has(row.filePath));
+            : visibleRows({ rows, group: chosen.group, value: chosen.value, filters: chosen.filters, sort: chosen.sort, excluded }).filter(row => !onTracks || onTracks.has(row.filePath));
         if (!focus.picked || !focus.key || !rows.some(row => row.key === focus.key)) focus.key = shownRows[0]?.key ?? null;
         // An open question about showing the listed files counts the rows listed now.
         if (tracks.pending) { const adding = chosen.mode === 'all' ? notShown(listedFiles()) : []; tracks.pending = adding.length ? adding : null; }
@@ -647,8 +578,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function paint(): void {
         const view = datasetView();
         const values = valueOptions();
-        if (!values.some(option => option.id === chosen.value)) chosen.value = values[0]?.id ?? 'leq';
-        const valueHtml = valueOptionsHtml(values.map(option => ({ ...option, label: option.computed && !view.valueReady && option.id === chosen.value ? option.label : option.label })), chosen.value, text);
+        if (!values.some(option => option.id === chosen.value)) chosen.value = values[0]?.id ?? 'none';
+        const valueHtml = valueOptionsHtml(values, chosen.value, text);
         if (valueSelect.innerHTML !== valueHtml) valueSelect.innerHTML = valueHtml;
         valueSelect.value = chosen.value;
         const groupHtml = groupOptionsHtml(groupOptions(), chosen.group);
@@ -656,7 +587,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         groupSelect.value = chosen.group;
         const chips = filterChipsHtml(chosen.filters, columnLabel, formatColumn, text, chosen.mode === 'all' ? { count: new Set(rows.filter(row => view.shown?.has(row.filePath)).map(row => row.filePath)).size, only: chosen.tracksOnly, confirm: tracks.pending?.length } : undefined);
         if (chipsBox.innerHTML !== chips) chipsBox.innerHTML = chips;
-        renderCompute(view);
+        renderProbing();
         const unmatchedButton = query<HTMLButtonElement>('[data-action="entry-view-unmatched"]');
         const unmatchedCount = unmatchedItems().length + unreadable().length;
         unmatchedButton.hidden = unmatchedCount === 0;
@@ -675,9 +606,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (writeHtml(head, datasetHeadHtml(view, text)) && headFocused) focusHeadMark();
         renderRows(view);
         paintBase();
-        stepBar.set({ recipe: recipeState.edited ?? recipeState.standard, sampleRate: sampleRate(), shortestSamples: shortestSamples(), channels: channelCount(), failed: recipeState.failed, files: filePaths.length });
         screen.dataset.mode = chosen.mode;
-        sidePlots.schedule();
+        scheduleDistribution();
         session.schedule();
     }
     /** Markup last written to an element by writeHtml, which writes it again only when it changes. */
@@ -718,11 +648,11 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         // ↑/↓ the next Space or Enter takes the row that is lit, not the one the keys left.
         const focusedMark = document.activeElement?.closest?.('[data-action="entry-row-track"]');
         const markKey = focusedMark && body.contains(focusedMark) ? focusedMark.getAttribute('data-key') : null;
-        // The rows still drawn keep their cells: a value that arrives changes its cell's text only (#781).
+        // The rows still drawn keep their cells: a header that arrives changes its cells' text only (#781).
         writeKeptRows(body, datasetRowsHtml(view, first, last, ROW_HEIGHT, text));
         if (markKey !== null) body.querySelector<HTMLElement>(`[data-action="entry-row-track"][data-key="${CSS.escape(focus.key ?? markKey)}"]`)?.focus({ preventScroll: true });
         // A 0–3 button still lighting up (openSlotted) goes on with its light where it was: the rows are drawn again on
-        // any change of size (a footer line, a scan landing), which would put it out at once.
+        // any change of size (a footer line, a header landing), which would put it out at once.
         if (flash) {
             const elapsed = performance.now() - flash.at;
             const button = elapsed < FLASH_MS ? body.querySelector<HTMLElement>(`tr[data-key="${CSS.escape(flash.key)}"] [data-action="entry-row-slotmenu"]`) : null;
@@ -740,7 +670,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     /** The rows a recipe bundle is for: those the table shows through its filters, or every row not excluded. */
     function batchRows(choice: 'filtered' | 'all'): DatasetRow[] {
-        return choice === 'filtered' ? visibleRows({ rows, group: chosen.group, value: chosen.value, filters: chosen.filters, sort: chosen.sort, excluded }, results) : rows.filter(row => !excluded.has(row.key));
+        return choice === 'filtered' ? visibleRows({ rows, group: chosen.group, value: chosen.value, filters: chosen.filters, sort: chosen.sort, excluded }) : rows.filter(row => !excluded.has(row.key));
     }
     function openBatch(): void {
         filterPop.close(); popovers.slotMenu = null; popovers.memoKey = null;
@@ -766,7 +696,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     function sessionOf(): Record<string, unknown> {
         return {
-            version: SESSION_VERSION, value: chosen.value, group: chosen.group, filters: chosen.filters, sort: chosen.sort, baseGroup: chosen.baseGroup, slots, memo: [...memo], excluded: [...excluded], derived,
+            version: SESSION_VERSION, value: chosen.value, group: chosen.group, filters: chosen.filters, sort: chosen.sort, baseGroup: chosen.baseGroup, slots, memo: [...memo], excluded: [...excluded],
             ...(recipeState.edited ? { recipe: recipeState.edited } : {}),
         };
     }
@@ -787,234 +717,111 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         for (const [key, note] of kept.memo) memo.set(key, note);
         excluded.clear();
         for (const key of kept.excluded) excluded.add(key);
-        if (kept.derived) { keepDerived(kept.derived); deps.saveDerived?.(derived); }
-        // A chain saved with the session is the one its stored values are of: they are asked for again under it.
+        // A chain saved with the session is the one the comparison opens with.
         const recipe = kept.recipe;
-        if (recipe && recipeKey(recipe) !== recipeKey(recipeState.edited ?? undefined)) { recipeState.edited = recipe; deps.saveRecipe?.(recipe); loadStored(); }
+        if (recipe && recipeKey(recipe) !== recipeKey(recipeState.edited ?? undefined)) { recipeState.edited = recipe; deps.saveRecipe?.(recipe); }
     }
     const chipText = (filter: DatasetFilter): string => filterChipText(filter, columnLabel, formatColumn, text);
-    /** What a compared row is measured against: the slot-0 recording, else a group's median. */
-    /** The answer store's answers as a base's source. */
-    const store: AnswerSource = { answers: paths => scans.answers(paths) };
+    /** What a compared row is measured against: the slot-0 recording, else a group's recordings. */
     const entryBase = createEntryBase({
         strings, slots: () => slots, rows: () => rows, rowOf, pool: () => basePool(), group: () => chosen.group, baseGroup: () => chosen.baseGroup,
         narrowedBy: () => chosen.filters.filter(filter => filter.column !== chosen.value).map(chipText),
-        groupLabel, rowName: key => rowName(key), answersOf: paths => scans.answers(paths), reference: () => entryModel().reference,
+        groupLabel, rowName: key => rowName(key), fileName: path => rows.find(row => row.filePath === path)?.name ?? baseName(path),
     });
     /** A compared file as the comparison names it: its name and channel, the value on show, its memo. */
     function rowInfo(path: string): { label: string; value: string; memo: string } {
         const row = entryBase.slotRowOf(path) ?? rows.find(item => item.filePath === path);
         if (!row) return { label: baseName(path), value: '', memo: '' };
-        const number = usable(row) ? valueOf(row, chosen.value, results) : null;
-        return { label: rowName(row.key), value: number === null ? '' : ownValueText(chosen.value, row.filePath, number), memo: memo.get(row.key) ?? '' };
-    }
-    function removeDerived(parentPath: string, region: string, baseLabel?: string): void {
-        setDerived(derived.filter(item => item.parentPath !== parentPath || item.region !== region || (baseLabel !== undefined && (item.base.label ?? '') !== baseLabel)));
-    }
-    /** The differences fixed on a row (D), under it: their Δ of the value on show when it is Leq or a band. */
-    function derivedItems(row: DatasetRow): DerivedItem[] {
-        return derived.filter(item => item.parentPath === row.filePath && (item.ch ? item.ch === row.ch : row.ch === 1)).map(item => {
-            const result = item.result;
-            let delta: number | null = null;
-            if (result.ok && chosen.value === 'leq' && result.leqDbA?.length) delta = powerMeanDb(result.leqDbA) - item.base.leq;
-            else if (result.ok && chosen.value.startsWith('band:')) {
-                const band = Number(chosen.value.slice(5));
-                const level = powerMeanOrNull((result.thirdOctDb ?? []).map(channel => channel[band]));
-                const reference = item.base.bands[band];
-                if (level !== null && reference !== null && reference !== undefined) delta = level - reference;
-            }
-            const label = [item.region === 'all' ? '└ Δ' : `└ Δ ${item.region} s`, ...(item.base.label ? [item.base.label] : [])].join(' · ');
-            return {
-                key: derivedKey(item), label, value: delta === null ? '—' : `Δ ${signedNumberText(delta)}`, stale: !!item.stale,
-                title: label, parentPath: item.parentPath, region: item.region, baseLabel: item.base.label ?? '',
-            };
-        });
+        const number = valueOf(row, chosen.value);
+        return { label: rowName(row.key), value: number === null ? '' : `${valueLabel(chosen.value)} ${formatValue(number)}`, memo: memo.get(row.key) ?? '' };
     }
     /** The rows the distribution draws from: not excluded, through every filter but the one on the value itself. */
     function distributionPool(): DatasetRow[] {
-        pool ??= filteredRows({ rows, filters: chosen.filters.filter(filter => filter.column !== chosen.value), excluded }, results);
+        pool ??= filteredRows({ rows, filters: chosen.filters.filter(filter => filter.column !== chosen.value), excluded });
         return pool;
     }
-    /** A base group's pool: the distribution's, and the unreadable recordings of its filters (each counted failed). */
+    /** The rows the distribution counts: the pool, and with "Tracks only" on, its rows on the tracks, as the table lists. */
+    function distributionRows(): DatasetRow[] {
+        if (!chosen.tracksOnly) return distributionPool();
+        const onTracks = shownFiles();
+        return distributionPool().filter(row => onTracks.has(row.filePath));
+    }
+    /** A base group's pool: the distribution's, and the unreadable recordings of its filters (each said failed). */
     function basePool(): DatasetRow[] {
-        // A recording that could not be read is no row of the table, but still a member of its base group: its set
-        // says it failed, with the rest (R4), never leaves it out unsaid. Its rows are made here, held nowhere.
+        // A recording that could not be read is no row of the table, but still a member of its base group: the
+        // comparison says it failed, with the rest (R4), never leaves it out unsaid. Its rows are made here, held nowhere.
         const unread = filePaths.filter(path => !readable(path));
         if (!unread.length) return distributionPool();
-        const failed = filteredRows({ rows: datasetRows(unread, rootPath, attached.match?.attributes ?? new Map(), results, headers.channels), filters: chosen.filters.filter(filter => filter.column.startsWith('csv:')), excluded }, results);
+        // The filters an unreadable recording can answer: its name, its folders, its CSV row. Its channels and its
+        // header's information are unknown, so a filter on those does not drop it.
+        const unreadFilter = (column: string): boolean => column === 'name' || column.startsWith('folder:') || column.startsWith('csv:');
+        const failed = filteredRows({ rows: datasetRows(unread, rootPath, attached.match?.attributes ?? new Map(), headers.channels), filters: chosen.filters.filter(filter => filter.column !== chosen.value && unreadFilter(filter.column)), excluded });
         return failed.length ? [...distributionPool(), ...failed] : distributionPool();
     }
     /** The range picked on the value drawn: it marks the distribution and narrows the table. */
-    function valueRange(): { low: number; high: number } | null {
+    function valueRange(): ValueRange | null {
         const filter = chosen.filters.find(item => item.column === chosen.value);
-        return filter?.kind === 'range' ? { low: filter.low, high: filter.high } : null;
+        return filter?.kind === 'range' ? { low: filter.low, high: filter.high, ...(filter.closed ? { closed: true } : {}) } : null;
     }
-    /** A level (Leq, a band): drawn on an axis of one reference. */
-    const isLevel = (value: ValueId): boolean => value === 'leq' || value.startsWith('band:');
-    /** A computed value counts only when it is of the current chain. */
-    const usable = (row: DatasetRow): boolean => !isComputed(chosen.value) || (results.has(row.filePath) && !isStale(row.filePath));
-    /** 「計算」 for the rows on screen without a value of this chain; while it runs, its progress and 中止. */
-    function renderCompute(view: DatasetScreenView): void {
-        let html = '';
-        // Reading the headers (channels) comes first; it is quick but a large folder takes a moment, and it can be stopped.
+    /** Reading the headers: quick, but a large folder takes a moment, and it can be stopped. */
+    function renderProbing(): void {
         const probing = headers.progress();
-        if (probing) html += `<span class="awa-tag" data-entry-probing>${escapeHtml(strings.dsProbing.replace('{done}', String(probing.done)).replace('{n}', String(probing.total)))}</span>`
-            + `<button type="button" data-action="entry-probe-cancel">${escapeHtml(strings.entryScanCancel)}</button>`;
-        if (progress.running) {
-            html += `<span class="awa-tag" data-entry-progress>${escapeHtml(strings.dsComputing.replace('{done}', String(progress.done)).replace('{n}', String(progress.total)))}</span>`
-                + `<button type="button" data-action="entry-compute-cancel">${escapeHtml(strings.entryScanCancel)}</button>`;
-        } else if (broken()) {
-            html += `<span class="awa-tag entry-stale-tag is-broken">${escapeHtml(strings.entryChainBroken)}</span>`;
-        } else {
-            const pending = computeTargets();
-            if (pending.length) {
-                const minutes = progress.estimateMs(pending) / 60000;
-                const estimate = minutes >= 1 ? strings.entryMinutes.replace('{n}', String(Math.ceil(minutes))) : strings.entrySeconds.replace('{n}', String(Math.max(1, Math.ceil(minutes * 60))));
-                // Some rows have the value: the rest is said in channels and offered (never started by itself).
-                const pool = isComputed(chosen.value) ? distributionPool() : view.rows;
-                const missing = pool.filter(row => !usable(row)).length;
-                const partial = isComputed(chosen.value) && missing < pool.length;
-                const label = partial ? strings.dsComputeRest.replace('{time}', estimate) : strings.dsCompute.replace('{n}', String(pending.length)).replace('{time}', estimate);
-                html += (partial ? `<span class="awa-tag" data-entry-uncomputed>${escapeHtml(strings.dsUncomputed.replace('{n}', String(missing)))}</span>` : '')
-                    + `<button type="button" data-action="entry-compute"${` data-hint="${escapeHtml(strings.hintCompute)}"`}>${escapeHtml(label)}</button>`;
-            }
-        }
+        const html = probing ? `<span class="awa-tag" data-entry-probing>${escapeHtml(strings.dsProbing.replace('{done}', String(probing.done)).replace('{n}', String(probing.total)))}</span>`
+            + `<button type="button" data-action="entry-probe-cancel">${escapeHtml(strings.entryScanCancel)}</button>` : '';
         if (computeBox.innerHTML !== html) computeBox.innerHTML = html;
     }
-    /** The files of the rows on screen (filters applied) that have no value of this chain yet. */
-    function computeTargets(): string[] {
-        // A computed value: the distribution's rows (a range on the value takes only computed rows, so it is not applied).
-        const pool = isComputed(chosen.value) ? distributionPool() : chosen.mode === 'all' ? shownRows : visibleRows({ rows, group: chosen.group, value: chosen.value, filters: chosen.filters, sort: chosen.sort, excluded }, results);
-        // 「トラックのみ」 computes only the files on a track, as the table shows.
-        const onTracks = chosen.tracksOnly && chosen.mode === 'all' ? shownFiles() : null;
-        // A file whose scan failed for a reason that may pass has no row to be on screen by (its row is left out, its
-        // name listed as unreadable): it is asked again with every 「計算」, as a file never scanned is. A failure under
-        // an earlier chain or version (stale) is of that chain: under this one it is asked again, whatever it was.
-        const failedFiles = filePaths.filter(path => passingFailure(path) || (isStale(path) && results.get(path)?.ok === false));
-        return [...new Set([...pool.map(row => row.filePath), ...failedFiles])].filter(path => (!onTracks || onTracks.has(path)) && (!results.has(path) || isStale(path) || passingFailure(path)));
-    }
+    /** The folder's sample rate (its first file's whose header says one), which the steps are checked against. */
     function sampleRate(): number | undefined {
-        for (const result of results.values()) if (result.ok && result.input) return recipeState.knownRate = result.input.fs;
-        return recipeState.knownRate;
+        for (const path of filePaths) { const rate = headers.info.get(path)?.sampleRate; if (rate) return rate; }
+        return undefined;
     }
+    /** The shortest file's samples, by the headers. */
     function shortestSamples(): number | undefined {
         let shortest: number | undefined;
-        for (const result of results.values()) {
-            if (!result.ok || !result.input) continue;
-            const samples = Math.floor(result.input.durationS * result.input.fs);
+        for (const path of filePaths) {
+            const info = headers.info.get(path);
+            if (info?.durationS === undefined || !info.sampleRate) continue;
+            const samples = Math.floor(info.durationS * info.sampleRate);
             shortest = shortest === undefined ? samples : Math.min(shortest, samples);
         }
-        if (shortest !== undefined) recipeState.knownShortest = shortest;
-        return recipeState.knownShortest;
+        return shortest;
     }
     function limits() {
         return stepLimits({ sampleRate: sampleRate(), shortestSamples: shortestSamples(), channels: channelCount(), failed: recipeState.failed });
     }
-    /** The fewest channels of the scanned files, which a channel index must stay below. */
+    /** The fewest channels of the files whose headers were read, which a channel index must stay below. */
     function channelCount(): number | undefined {
         let fewest: number | undefined;
-        for (const result of results.values()) if (result.ok && result.input) fewest = Math.min(fewest ?? Infinity, result.input.channels.length);
+        for (const channels of headers.channels.values()) fewest = Math.min(fewest ?? Infinity, channels);
         return fewest;
     }
-    /** The Recipe the scans run; undefined is the host's own, unchanged (nothing edited, no step left out). */
+    /** The Recipe that runs; undefined is the host's own, unchanged (nothing edited, no step left out). */
     function runRecipe(channels?: number): RecipeDocument | undefined {
         const recipe = recipeState.edited ?? (Object.keys(recipeState.failed).length ? recipeState.standard : null);
         return recipe ? runnableRecipe(recipe, channels ? { ...limits(), channels } : limits()) : undefined;
     }
-    /** What the table's scans run: without the steps measured against the base slot, which they do not pair. */
-    function scanRecipe(): RecipeDocument | undefined {
-        return unpairedRecipe(runRecipe(), recipeState.edited);
-    }
     function compareData(stage?: string): CompareData {
-        return { model: entryModel(), results: scans.current(), slots: slotFiles(), recipe: recipeState.edited ?? recipeState.standard, runRecipe: scanRecipe(), failed: recipeState.failed, stale: stalePaths(), fileEpoch, ...(stage ? { stage } : {}) };
+        return { slots: slotFiles(), recipe: recipeState.edited ?? recipeState.standard, runRecipe: runRecipe(), failed: recipeState.failed, fileEpoch, ...(stage ? { stage } : {}) };
     }
     /**
-     * A step that failed on a file breaks the chain (⚠ on its chip and on every step after it): the computation
-     * stops and the table keeps its values until the steps change; a step already marked, or one this Recipe does
-     * not have, changes nothing.
+     * A step that failed on a file breaks the chain (⚠ on its chip and on every step after it) until the steps
+     * change; a step already marked, or one this Recipe does not have, changes nothing.
      */
     function stepFailed(step: string, reason: string): void {
         const recipe = recipeState.edited ?? recipeState.standard;
         const known = recipeNodes(recipe).some(node => node.id === step);
         if (!known || recipeState.failed[step] !== undefined) return;
         recipeState.failed = { ...recipeState.failed, [step]: reason };
-        stopScan();
         rebuild();
         deps.stepsChanged?.();
     }
-    /** A new Recipe from a step bar: every number changes, so the table scans again from the start. */
-    /**
-     * Fixed differences of an earlier chain, measured again after a computation the user started (never at open);
-     * one over a region whose base is a large group stays ≠ rather than scanning that group unasked.
-     */
-    function remeasureStale(): void {
-        if (broken()) return;
-        derived.forEach(row => {
-            const basePaths = row.base.paths;
-            if (!row.stale || !basePaths?.length) return;
-            if (row.region !== 'all' && (basePaths.length > LARGE_BASE || progress.seconds(basePaths) > LARGE_BASE_S)) return;
-            if (row.region === 'all') {
-                // Measured again only when the figure model counts every file it was fixed with now (compareReport.remeasured):
-                // one still of an earlier chain or calibration, pending or failed keeps it ≠.
-                const [compared, ...base] = scans.answers([row.parentPath, ...basePaths]);
-                const next = compared ? remeasured(row, compared, base, recipeKey(scanRecipe())) : null;
-                if (next) { const fixed = fixedNow(next); keepDerived(derived.map(item => (item === row ? fixed : item)), fixed); }
-                return;
-            }
-            // Each fixed difference is its own asker: measuring one again never stops another's request on the host.
-            remeasure.ask(row);
-        });
-        deps.saveDerived?.(derived);
-    }
-    /** The held plot: a slot key or chip held shows its row's Δ, a step chip held what the step does to one row. */
-    const heldPlot = createHeldPlot({
-        document, window, strings, held, title: heldTitle, canvas: heldCanvas, post: message => deps.post(message), scheduleSide: () => sidePlots.schedule(),
-        keepWindow: (name, key) => sidePlots.keepWindow(name, key), shown: results, current: () => scans.current(), fileEpoch, focusedFile,
-        // The focused row's channel when it is that file's row, else the row the file is compared as (entryBase).
-        channelOf: path => (focus.key && fileOfKey(focus.key) === path ? channelOfRow(rowOf(focus.key)) : entryBase.stageChannel(path, null)),
-        comparison: (path, binned) => entryBase.comparison(path, false, binned ? binnedAnswers(store, binned) : undefined), basePaths: path => entryBase.resolve(path).members, scanRecipe: () => scanRecipe(), slotFiles, colorOf: recordingColor, recipe: () => recipeState.edited ?? recipeState.standard, runRecipe: () => runRecipe(), limits, spectral,
-        tapped(slot) { if (focus.key && rows.some(row => row.key === focus.key)) setSlot(slot, focus.key); },
-    });
-    /** Fixed differences over a region measured again (entryRemeasure.ts): found by key, written only under the chain now. */
-    const remeasure = createRemeasure({
-        derived: () => derived, recipe: () => scanRecipe(), fileEpoch, post: message => deps.post(message),
-        requestId: row => derivedRemeasureId(row, ++requestCount), remeasured,
-        replace(row, next) {
-            // Only this row is judged anew: the others keep their objects (and any remeasure on its way for them).
-            const fixed = fixedNow(next);
-            keepDerived(derived.map(item => (item === row ? fixed : item)), fixed);
-            deps.saveDerived?.(derived);
-            rebuild();
-        },
-    });
+    /** A new Recipe from the comparison's step bar: kept, and tried whole again. */
     function setRecipe(recipe: RecipeDocument): void {
         recipeState.edited = recipe;
         // A new Recipe is tried whole again: a step that failed under the old one may not now.
         recipeState.failed = {};
         deps.saveRecipe?.(recipe);
-        // The folder is not scanned again by itself: the table keeps the previous chain's values, greyed,
-        // until "Scan all"; the focused row and the comparison's files are measured at once.
-        stopScan();
-        // The row on screen keeps the focus: re-sorted by its new value, the top row would take it and be measured next, and so on down the folder.
-        if (focus.key) focus.picked = true;
-        // Differences fixed under another Recipe stay, marked ≠ until measured again under this one
-        // (after the scan); one fixed under this very Recipe needs nothing.
-        markDerived();
         rebuild();
-    }
-    function paintDistribution(): void {
-        distPane.paint({
-            pool: distributionPool(), value: chosen.value, group: chosen.group, results, range: valueRange(), usable, slots, rowOf,
-            // A level's recordings as one set of the folder's reference: its heading's n and what it left out, with why.
-            // A recording whose value is not there (a band beyond its Nyquist) is in the set as empty, said with why.
-            set: isLevel(chosen.value) ? entryBase.folderSet(distributionPool().map(row => row.filePath), path => distributionPool().some(row => row.filePath === path && valueOf(row, chosen.value, results) !== null)) : null,
-            // The base line where the comparison measures its Δ from (one definition: entryBase), of the axis's reference.
-            base: entryBase.groupBase(chosen.value, isLevel(chosen.value) ? entryModel().reference.level : undefined),
-            onAxis: row => !isLevel(chosen.value) || sidePlots.onLevelAxis(row.filePath),
-            // A level is read with the folder's reference and each recording's own calibration word (R4, R7).
-            valueLabel: valueTitle(chosen.value), format: (number, step) => plotValueText(chosen.value, number, step, entryModel().reference.label),
-            rowName: key => `${rowName(key)}${isLevel(chosen.value) ? sidePlots.levelWordOf(fileOfKey(key)) : ''}`,
-        });
     }
     /** The files shown as tracks now (a hidden track is not). */
     const shownFiles = (): Set<string> => new Set([...deps.shownTracks?.() ?? []].filter(([, hidden]) => !hidden).map(([filePath]) => filePath));
@@ -1066,25 +873,11 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function setSlot(slot: number, key: string | null, follow = true): void {
         setSlots(withSlot(slots, slot, key), follow);
     }
-    /** 「計算」: the value for the rows on screen that have none of this chain, slotted rows first. */
-    function compute(): void {
-        if (broken()) return;
-        const pending = computeTargets();
-        if (!pending.length) return;
-        const slotted = pending.filter(path => slotFiles().includes(path));
-        const { requestId } = requests.ask('scan', `entry-${++requestCount}`, currentKey(), undefined);
-        scans.asking(pending);
-        progress.start(pending.length);
-        const recipe = scanRecipe();
-        deps.post({ type: 'entry-scan', requestId, rootPath, filePaths: [...slotted, ...pending.filter(path => !slotted.includes(path))], ...(recipe ? { recipe } : {}) });
-        render();
+    /** Asks the host for the folder's session and its Recipe: nothing of a file is read for it. */
+    function askSession(): void {
+        requests.ask('open', `entry-${++requestCount}`, rootPath, undefined, ({ requestId }) => deps.post({ type: 'entry-open', requestId, rootPath }));
     }
-    /** The results stored for this chain come back without computing anything. */
-    function loadStored(): void {
-        const recipe = scanRecipe();
-        requests.ask('scan', `entry-${++requestCount}`, currentKey(), undefined, ({ requestId }) => (scans.asking(filePaths), deps.post({ type: 'entry-scan', requestId, rootPath, filePaths, cachedOnly: true, ...(recipe ? { recipe } : {}) })));
-    }
-    /** Reads the files' headers for their channels, so rows split by channel before anything is computed. */
+    /** Reads the files' headers: their channels (rows split by channel), length and sample rate. */
     function probe(paths: readonly string[]): void {
         const message = headers.start(paths, () => `probe-${++requestCount}`);
         if (message) deps.post(message);
@@ -1095,28 +888,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         headers.cancel();
         render();
     }
-    /** 中止: what was computed stays; the rest keeps no value until computed. */
-    function cancelCompute(): void {
-        if (!progress.running) return;
-        stopScan();
-        rebuild();
-    }
-    /**
-     * Stops the computation running, however it is stopped (中止, a new chain, a step that cannot run): the host sends
-     * nothing more of it, so its request is settled and every file it had not answered is missing again, not pending.
-     */
-    function stopScan(): void {
-        if (!progress.running) return;
-        deps.post({ type: 'entry-scan-cancel' });
-        progress.stop();
-        requests.settle(requests.pending('scan')?.requestId ?? '');
-        scans.settled();
-    }
     /** Moves the focus to a row and brings it on screen (the rows are drawn only where they are seen). */
     function focusRow(key: string | null, center = false): void {
         if (!key) return;
-        // Its line in the table: fixed differences under rows above it take lines too.
-        const index = tableLines(datasetView()).findIndex(line => 'key' in line && line.key === key && !('baseLabel' in line));
+        const index = tableLines(datasetView()).findIndex(line => line.key === key);
         if (index >= 0) {
             const top = index * ROW_HEIGHT, bottom = top + ROW_HEIGHT, view = tableWrap.clientHeight - ROW_HEIGHT;
             if (center) tableWrap.scrollTop = Math.max(0, top - view / 2);
@@ -1149,28 +924,47 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const columns = maximized ? 6 : COLUMN_WIDTHS.filter(edge => width >= edge).length;
         if (screen.dataset.cols !== String(columns)) {
             screen.dataset.cols = String(columns);
-            if (columns >= 6) sidePlots.schedule();
+            if (columns >= 6) scheduleDistribution();
         }
     }
     const Observer = (globalThis as { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
     if (Observer) new Observer(() => { syncColumns(); renderRows(); }).observe(screen);
-    // A side plot resized by the layout (the distribution moved under the table in a narrow window) is drawn again.
-    redrawWhenResized(Observer, [overview, heldCanvas], () => sidePlots.schedule(false));
+    // The distribution's Figure takes its width of its box and its lanes' height of the room beside the table: asked
+    // again when either is another (a window resized).
+    const distArea = query<HTMLElement>('[data-entry-dist-area]');
+    let distWidth = distBox.clientWidth, distRoom = distArea.clientHeight;
+    if (Observer) {
+        const resized = new Observer(() => {
+            const width = distBox.clientWidth, room = distArea.clientHeight;
+            if (width === distWidth && room === distRoom) return;
+            distWidth = width;
+            distRoom = room;
+            if (distFigure?.shown()) scheduleDistribution();
+        });
+        resized.observe(distBox);
+        resized.observe(distArea);
+    }
     /** Choosing, the distribution fills the right side; while a comparison is open it folds above the table. */
-    distPane.place(maximized);
+    function placeDistribution(max: boolean): void {
+        const entryBody = query<HTMLElement>('.entry-body');
+        if (max) { if (distBox.parentElement !== distArea) distArea.prepend(distBox); }
+        else if (distBox.nextElementSibling !== entryBody) entryBody.before(distBox);
+        screen.classList.toggle('is-dist-strip', !max);
+    }
+    placeDistribution(maximized);
     function setMaximized(next: boolean): void {
-        if (!next) stepBar.close();
         // The table's 書き出し menu shows only maximized: it does not come back open.
         if (!next) query<HTMLDetailsElement>('#entry-export-menu').open = false;
         maximized = next;
-        distPane.place(maximized);
+        if (!next) distToSlot = true;
+        placeDistribution(maximized);
         screen.classList.toggle('is-max', next);
         sizeButton.textContent = next ? '⤡' : '⤢';
         sizeButton.setAttribute('aria-pressed', String(next));
         syncColumns();
         deps.maximizedChanged?.(next);
         render();
-        sidePlots.schedule();
+        scheduleDistribution();
         // Maximized, the table takes the keys; shrunk, they go back to the track view (its lanes, its comparison).
         redraw.after(() => {
             if (next) table.focus?.();
@@ -1212,24 +1006,13 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         setMaximized(false);
         redraw.after(() => deps.openFiles(Array.from(new Set(files)), compareData(stage)));
     }
+    /** The table as a CSV: every row with its file's information, the CSV's columns, its slot, its memo and whether it is left out. */
     function exportCsv(): void {
-        const model = entryModel();
-        const csvText = entryCsv(model, {
-            file: strings.entryColFile,
-            condition: n => strings.entryColCondition.replace('{n}', String(n)),
-            regionStart: strings.reportRegionStart,
-            regionEnd: strings.reportRegionEnd,
-            level: levelColumns(strings),
-            peak: strings.entryColPeak,
-            bandLevel: bandLevelColumns(strings, bandLabel(model.band)),
-            deltaLeq: `Δ ${strings.entryColLeq}`,
-            deltaBand: `Δ ${bandLabel(model.band)} dB`,
-            groupSize: strings.entryCsvGroupSize,
-            groupLeft: strings.entryCsvGroupLeft,
-            status: strings.dsReason,
-            stale: strings.reportChainPrevious,
-        }, filePath => entryMeasure(entryBase.fileComparison(filePath), model.band, strings));
-        deps.download(csvText, 'entry-table.csv');
+        const slotName = (slot: number): string => (slot === 0 ? strings.entryBase : strings.dsSlotCompare.replace('{n}', String(slot)));
+        deps.download(tableCsv(rows, attached.csv?.attributes ?? [], {
+            file: strings.entryColFile, ch: strings.dsCh, duration: strings.entryColDuration, rate: strings.entryColRate, calibration: strings.entryColCalibration,
+            slot: strings.entryCsvSlot, memo: strings.entryCsvMemo, excluded: strings.entryCsvExcluded,
+        }, key => slots.flatMap((item, slot) => (item === key ? [slotName(slot)] : [])).join(' '), memo, excluded), 'entry-table.csv');
     }
 
     // ---- the CSV: picked (or dropped) by the user, read by asd-insight's rules; nothing is looked for by itself.
@@ -1242,11 +1025,11 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         // A new CSV opens on its first numeric column, grouped by its first column that is not a number.
         if (next) {
             const numeric = next.attributes.find(column => next.numeric[column]);
-            if (numeric && (chosen.value.startsWith('csv:') || !results.size)) chosen.value = `csv:${numeric}`;
+            chosen.value = numeric ? `csv:${numeric}` : 'none';
             const category = next.attributes.find(column => !next.numeric[column]);
             if (category && (chosen.group === 'none' || chosen.group.startsWith('csv:') || !groupOptions().some(option => option.id === chosen.group))) chosen.group = `csv:${category}`;
         } else {
-            if (chosen.value.startsWith('csv:')) chosen.value = 'leq';
+            chosen.value = 'none';
             if (chosen.group.startsWith('csv:')) chosen.group = 'none';
         }
         if (keep !== undefined) { deps.saveCsv?.(keep.text.length <= KEEP_CSV_BYTES ? keep : undefined); session.keepCsv(keep); }
@@ -1274,7 +1057,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
 
     // ---- the column filter: like a spreadsheet's ▾ (sort, clear, search + a check list or a range, OK / Cancel)
     const filterPop = createFilterPopover({
-        screen, head, chipsBox, text, rows: () => rows, excluded, results, csv: () => attached.csv, groupOptions, valueOptions,
+        screen, head, chipsBox, text, rows: () => rows, excluded, infoColumns, csv: () => attached.csv, groupOptions,
         filters: () => chosen.filters, sort: () => chosen.sort, group: () => chosen.group, value: () => chosen.value,
         columnLabel, numericColumn, formatColumn, choose, after: fn => redraw.after(fn), renderPopovers: () => renderPopovers(),
         announce: message => deps.announce(message), shownCount: () => shownRows.length,
@@ -1350,8 +1133,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         'entry-pick-csv': () => csvInput.click(),
         'entry-view-unmatched': () => choose({ mode: chosen.mode === 'unmatched' ? 'all' : 'unmatched' }, true),
         'entry-view-excluded': () => choose({ mode: chosen.mode === 'excluded' ? 'all' : 'excluded' }, true),
-        'entry-compute': () => compute(),
-        'entry-compute-cancel': () => cancelCompute(),
         'entry-probe-cancel': () => cancelProbe(),
         'entry-export-csv': exportCsv,
         'entry-export-notes': () => {
@@ -1384,12 +1165,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         'entry-batch': () => openBatch(),
         'entry-batch-go': () => exportBatch(),
         'entry-batch-cancel': () => closePopovers(),
-        'entry-derived-remove': target => {
-            const parent = target.getAttribute('data-parent'), region = target.getAttribute('data-region');
-            if (parent !== null && region !== null) removeDerived(parent, region, target.getAttribute('data-base') ?? undefined);
-        },
     };
-    tableWrap.addEventListener('scroll', () => { renderRows(); sidePlots.schedule(false); });
+    tableWrap.addEventListener('scroll', () => { renderRows(); });
     screen.addEventListener('click', event => redraw.batch(() => {
         const target = event.target as HTMLElement;
         const action = target.closest<HTMLElement>('[data-action]');
@@ -1485,10 +1262,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (!slots.slice(1).includes(key)) setSlot(firstFreeCompareSlot(slots), key);
         openSlotted();
     }));
-    // The lanes' gestures on the side panel's plots: box zoom, Ctrl+wheel, Shift+wheel, double-click reset or
-    // axis range. A press that stays put (within the lanes' 3 px) is still a click: a point picked, a row gone to.
-    sidePlots.attach();
-
     /** Maximized, the table takes the keys; in the side panel, only keys pressed while it has the focus. */
     const keysHere = (event: Event): boolean => !screen.hidden && (maximized || screen.contains(event.target as Node));
     /** A button, a field or a popover takes its own keys (Enter, Space, digits): the table's keys act on rows only. */
@@ -1507,7 +1280,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 if (closePopovers()) return true;
                 if (tracks.pending) { askTracks(null); return true; }
                 if (closeExportMenu()) return true;
-                if (stepBar.close()) return true;
                 if (chosen.mode !== 'all') { choose({ mode: 'all' }); return true; }
                 // The range picked on the distribution goes before the table shrinks.
                 if (maximized && valueRange()) { choose({ filters: chosen.filters.filter(filter => filter.column !== chosen.value) }); return true; }
@@ -1525,7 +1297,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (ownKeys(event) || event.ctrlKey || event.metaKey || event.altKey) return true;
             const action = keyAction(ENTRY_KEYS, event.key);
             if (action) event.preventDefault();
-            if (action === 'slot') { if (!event.repeat) heldPlot.press(Number(event.key)); }
+            if (action === 'slot') { if (!event.repeat && focus.key && rows.some(row => row.key === focus.key)) setSlot(Number(event.key), focus.key); }
             else if (action === 'open') openSlotted();
             else if (action === 'play') { if (focus.key) deps.play?.(fileOfKey(focus.key)); }
             else if (action === 'memo') { if (focus.key) openMemo(focus.key); }
@@ -1533,25 +1305,17 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             else if (action === 'row-up' || action === 'row-down') moveFocus(action === 'row-down' ? 1 : -1);
             return true;
         }),
-        keyup: event => redraw.batch(() => {
-            if (!keysHere(event) || ownKeys(event)) return false;
-            if (keyAction(ENTRY_KEYS, event.key) === 'slot') heldPlot.release(Number(event.key));
-            return true;
-        }),
     });
 
     return {
-        dispose() { removeKeys(); sidePlots.dispose(); distPane.dispose(); stepBar.dispose(); },
+        dispose() { removeKeys(); distFigure?.dispose(); },
         open(paths: string[], root = '', maximize = false): void {
             filePaths = paths.filter(path => !isMetadataCandidate(path));
             rootPath = root;
-            recipeState.knownShortest = undefined;
-            scans.clear();
-            calibrations.clear();
-            calibrationChanges++;
-            sidePlots.clear();
+            // The counts of a file's changes are kept over an opening: the comparison's pictures outlive it, and a
+            // count that began again at 0 would name a picture taken before the file was rewritten as the file's now.
+            requests.clear();
             rowsDirty = true;
-            recipeState.knownRate = undefined;
             excluded.clear();
             memo.clear();
             chosen.filters = [];
@@ -1563,13 +1327,11 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             session.reset();
             slots = restoredSlots(deps.loadSlots() ?? [], path => filePaths.includes(path));
             focus.key = null; focus.picked = false;
-            // Judged now: until the stored results come back no file is known to be as it was fixed, so each is ≠.
-            keepDerived((deps.loadDerived?.() ?? []).filter(row => filePaths.includes(row.parentPath)));
             const savedRecipe = deps.loadRecipe?.();
             recipeState.edited = isRecipeChain(savedRecipe) ? savedRecipe : null;
             if (savedRecipe !== undefined && savedRecipe !== null && !recipeState.edited) { deps.saveRecipe?.(undefined); deps.announce(strings.stepRecipeWarning); }
             // The CSV picked last time comes back if it still reads (and matches these recordings by its own rules).
-            attached.csv = null; attached.match = null; chosen.value = 'leq'; chosen.group = rootPath && filePaths.some(path => path.replaceAll('\\', '/').slice(rootPath.length + 1).includes('/')) ? 'folder:1' : 'none';
+            attached.csv = null; attached.match = null; chosen.value = 'none'; chosen.group = rootPath && filePaths.some(path => path.replaceAll('\\', '/').slice(rootPath.length + 1).includes('/')) ? 'folder:1' : 'none';
             const kept = deps.loadCsv?.();
             if (kept) {
                 try { attached.csv = readDatasetCsv(new TextEncoder().encode(kept.text), kept.name); } catch { attached.csv = null; deps.saveCsv?.(undefined); }
@@ -1578,8 +1340,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             // A folder just opened keeps the table beside the tracks; ⤢ widens it when asked.
             setMaximized(maximize);
             applyCsv(attached.csv);
-            // What is stored for this chain comes back; nothing is computed until 「計算」. The headers say each file's channels.
-            loadStored();
+            // The folder's session comes back; the headers say each file's channels, length and sample rate. Nothing is computed.
+            askSession();
             headers.clear();
             probe(filePaths);
             table.setAttribute('tabindex', '0');
@@ -1610,25 +1372,19 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         }),
         setRecipe,
         stepFailed,
-        addDerived(row: DerivedRow): void {
-            setDerived([...derived.filter(item => derivedKey(item) !== derivedKey(row)), fixedNow(row)]);
-        },
-        removeDerived: (parentPath: string, region: string, baseLabel?: string) => removeDerived(parentPath, region, baseLabel),
         show(next: (string | null)[]): void {
             slots = slotsForFiles(next, slots);
             screen.hidden = false;
             setMaximized(true);
         },
         handle(message): boolean {
-            if (message.type.startsWith('compare-')) return heldPlot.handle(message) || remeasure.handle(message as ComparePublication);
             if (!message.type.startsWith('entry-')) return false;
             if (message.type === 'entry-calibration-changed') {
-                const { filePath } = message as Extract<EntryPublication, { type: 'entry-calibration-changed' }>;
+                const { filePath, calibrated } = message as Extract<EntryPublication, { type: 'entry-calibration-changed' }>;
                 if (!filePaths.includes(filePath)) return true;
+                // The calibration column says it at once (the file's header is as it was: not read again).
+                if (calibrated !== undefined) headers.calibrated(filePath, calibrated);
                 calibrations.set(filePath, calibrationEpoch(filePath) + 1);
-                calibrationChanges++;
-                // A difference fixed of the file is of its old calibration now: ≠ until measured again.
-                markDerived();
                 rowsDirty = true;
                 resultsRedraw.schedule();
                 return true;
@@ -1636,13 +1392,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (message.type === 'entry-source-changed') {
                 const { filePath } = message as Extract<EntryPublication, { type: 'entry-source-changed' }>;
                 if (!filePaths.includes(filePath)) return true;
-                // The file was written on disk: its scans, header and the differences fixed of it are of the old version,
-                // stale until 「計算」 asks them again (computeTargets takes stale files).
+                // The file was written on disk: its header is read again (its rows stay as they were until it is in).
                 sources.set(filePath, sourceEpoch(filePath) + 1);
-                calibrationChanges++;
                 headers.forget(filePath);
                 probe(filePaths);
-                markDerived();
                 rowsDirty = true;
                 resultsRedraw.schedule();
                 return true;
@@ -1655,46 +1408,25 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 resultsRedraw.schedule();
                 return true;
             }
-            const publication = message as Exclude<EntryPublication, { type: 'entry-calibration-changed' | 'entry-source-changed' }>;
-            // A computation stopped with 中止 sends nothing more that counts.
-            if (!requests.answering('scan', publication.requestId)) return true;
-            if (publication.type === 'entry-conditions') {
-                if (publication.recipe) recipeState.standard = publication.recipe;
-                // At open the folder's session comes back with what is stored; from then on, changes are saved.
-                const loading = !session.loaded;
-                if (loading) {
-                    applySession(publication.session, publication.csv);
-                    // A CSV kept by the webview alone (before sessions) goes to the host's store with the next save.
-                    if (!publication.csv && attached.csv) session.keepCsv(deps.loadCsv?.() ?? undefined);
-                }
-                rebuild();
-                // What the table settled on at open is what is stored: only a change after it is saved.
-                if (loading) session.markLoaded();
-            } else if (publication.type === 'entry-scan-result') {
-                noteResult(publication.filePath, publication.result);
-                rowsDirty = true;
-                progress.fileDone(publication.filePath);
-                const { failedStep, reason } = publication.result;
-                if (failedStep) { stepFailed(failedStep, reason ?? ''); return true; }
-                if (attached.csv && !attached.match?.attributes.size) attached.match = matchCsv(attached.csv, filePaths, rootPath);
-                resultsRedraw.schedule();
-            } else if (publication.type === 'entry-scan-done') {
-                resultsRedraw.cancel();
-                requests.settle(publication.requestId);
-                scans.settled();
-                // Only a computation the user started measures fixed differences again; reading what is stored does not.
-                const started = progress.stop();
-                // A file scanned again may be of another version or calibration than a difference fixed of it.
-                markDerived();
-                if (started) remeasureStale();
-                rebuild();
+            if (message.type !== 'entry-conditions') return true;
+            const publication = message as Extract<EntryPublication, { type: 'entry-conditions' }>;
+            // Only the latest asking's answer counts (a folder opened again meanwhile).
+            if (!requests.answering('open', publication.requestId)) return true;
+            requests.settle(publication.requestId);
+            if (publication.recipe) recipeState.standard = publication.recipe;
+            // At open the folder's session comes back; from then on, changes are saved.
+            const loading = !session.loaded;
+            if (loading) {
+                applySession(publication.session, publication.csv);
+                // A CSV kept by the webview alone (before sessions) goes to the host's store with the next save.
+                if (!publication.csv && attached.csv) session.keepCsv(deps.loadCsv?.() ?? undefined);
             }
+            rebuild();
+            // What the table settled on at open is what is stored: only a change after it is saved.
+            if (loading) session.markLoaded();
             return true;
         },
         compareData: () => compareData(),
-        // Only a fresh answer's (the answer store's ready one): a stale scan's reference is of an earlier calibration.
-        levelOf: path => { const answer = scans.answer(path); return answer.state === 'ready' ? answer.value.input : undefined; },
-        levelsOf: paths => scans.answers(paths).map(answer => (answer.state === 'ready' ? answer.value.input : undefined)),
         slots: () => slotFiles(),
         grouped: () => chosen.group !== 'none',
         trackRole(filePath) {
@@ -1714,25 +1446,34 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             // The file the slot held before keeps its track: only the roles change.
             setSlot(slot, key, false);
         },
-        basePaths: (comparePath, byGroup = false) => entryBase.resolve(comparePath, byGroup).members,
-        baseTitle: (comparePath, byGroup = false, over) => entryBase.resolve(comparePath, byGroup, undefined, over).title,
-        baseLeft: (comparePath, byGroup) => entryBase.resolve(comparePath, byGroup).set.excluded.filter(item => item.reason === 'other-reference' || item.reason === 'other-channels' || item.reason === 'other-axis' || item.reason === 'no-channel' || item.reason === 'failed'),
+        // A member whose file could not be read is not asked for at a step (no picture of it can be had): baseLeft says it failed.
+        basePaths: (comparePath, byGroup = false) => entryBase.resolve(comparePath, byGroup).members.filter(readable),
+        channelCount: path => { const own = rows.filter(row => row.filePath === path); return own.length ? Math.max(...own.map(row => row.channels ?? 1)) : undefined; },
+        baseLeft: (comparePath, byGroup) => {
+            const base = entryBase.resolve(comparePath, byGroup);
+            return [...base.fewer.map(path => ({ path, reason: 'no-channel' as const })), ...base.members.filter(path => !readable(path)).map(path => ({ path, reason: 'failed' as const }))];
+        },
         baseHeading: (comparePath, byGroup, set, each = false) => {
             const base = entryBase.resolve(comparePath, byGroup);
-            return set || each ? base.heading(set ?? base.set, each ? strings.entryBaseCount : undefined) : base.title;
+            return set ? base.heading(set, each ? strings.entryBaseCount : undefined) : base.name;
         },
-        answersOf: paths => scans.answers(paths),
-        baseDefinition: (comparePath, byGroup = false, over) => entryBase.resolve(comparePath, byGroup, undefined, over).definition,
         stageChannel: (path, comparePath, byGroup = false) => entryBase.stageChannel(path, comparePath, byGroup),
-        comparison: (comparePath, byGroup = false, over, entryRegionBase = false) => entryBase.comparison(comparePath, byGroup, over, entryRegionBase),
+        reportRow: (path, byGroup = false, against = null) => {
+            const row = entryBase.slotRowOf(path) ?? rows.find(item => item.filePath === path);
+            const columns = attached.csv?.attributes ?? [];
+            return {
+                ...rowInfo(path), channel: entryBase.stageChannel(path, against ?? path, byGroup), base: entryBase.resolve(against ?? path, byGroup).definition,
+                cells: row ? [...columns.map(column => row.attributes?.[column] ?? ''), ...row.folders] : [],
+            };
+        },
+        conditionColumns,
         rowInfo: path => rowInfo(path),
-        cost: paths => ({ seconds: progress.seconds(paths), ms: progress.estimateMs(paths) }),
+        cost: paths => readCost(paths, path => headers.info.get(path)?.durationS),
         selection: () => ({
             // Over rows of several references: each value names its own (rowInfo), the heading none.
-            value: levelTemplate(chosen.value) ? unreferencedName(levelTemplate(chosen.value) ?? '') : valueLabel(chosen.value), group: chosen.group === 'none' ? strings.dsGroupNone : groupLabel(chosen.group),
+            value: valueLabel(chosen.value), group: chosen.group === 'none' ? strings.dsGroupNone : groupLabel(chosen.group),
             filters: chosen.filters.map(filter => chipText(filter)), excluded: excluded.size,
         }),
-        derivedRows: () => derived.slice(),
         openBatch: () => openBatch(),
         exportTable: () => actions['entry-export-csv'](screen),
         exportNotes: () => actions['entry-export-notes'](screen),
@@ -1748,16 +1489,20 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             return recipe ? { recipe, runRecipe: runRecipe(channels), failed: recipeState.failed } : null;
         },
         snapshot: () => {
-            const last = distPane.last();
+            // A table column's distribution, as the Figure drew it: its groups, their n and how many a selected range
+            // takes are the picture's counts (the service's), its axis the picture's whole one.
+            const seen = distFigure?.shown() ? distFigure.inspect() : null;
+            const lanes = seen?.pictureId ? seen.lanes.flatMap(lane => (lane.bins ? [{ id: lane.id, bins: lane.bins }] : [])) : [];
             return {
                 open: !screen.hidden && maximized, docked: !screen.hidden && !maximized, cols: Number(screen.dataset.cols ?? 0), rows: rows.length, visible: shownRows.length,
-                scanned: [...results.values()].filter(result => result.ok).length, slots: slots.slice(), focused: focus.key, value: chosen.value, group: chosen.group, filters: chosen.filters.map(filter => ({ ...filter })),
+                slots: slots.slice(), focused: focus.key, value: chosen.value, group: chosen.group, filters: chosen.filters.map(filter => ({ ...filter })),
                 sort: { ...chosen.sort }, excluded: [...excluded], memo: Object.fromEntries(memo), mode: chosen.mode, unmatched: unmatchedItems().length + unreadable().length,
-                csv: attached.csv?.name ?? null, playing: deps.playing?.() ?? null, visibleKeys: shownRows.slice(0, 200).map(row => row.key), scanning: progress.running,
-                dist: last ? {
-                    groups: last.groups.map(item => ({ name: item.name, n: item.members.length, inRange: item.members.filter(member => member.inRange).length })),
-                    missing: last.missing, unit: last.unit, low: last.low, high: last.high, range: valueRange(), base: entryBase.groupName(),
-                    strip: !maximized,
+                csv: attached.csv?.name ?? null, playing: deps.playing?.() ?? null, visibleKeys: shownRows.slice(0, 200).map(row => row.key),
+                dist: seen ? {
+                    // (No group until its picture is drawn: `waiting` says so.)
+                    groups: lanes.map(lane => ({ name: lane.id.slice(BINS_LANE_ID.length), n: lane.bins.n, inRange: lane.bins.nPicked ?? lane.bins.n })),
+                    missing: 0, unit: 'recording', low: seen.whole?.[0] ?? 0, high: seen.whole?.[1] ?? 0, range: valueRange(), base: entryBase.groupName(),
+                    strip: !maximized, figure: true, waiting: seen.waiting || !seen.pictureId, failure: seen.failure,
                 } : null,
             };
         },

@@ -19,7 +19,7 @@ export interface ResultsPaneParts {
 export type SpectrumBandsSetting = 0 | 1 | 3;
 
 export type ResultsPaneStrings = Pick<UiStrings,
-    | 'ariaToolbar' | 'spectrumSectionTitle' | 'heightSpectrumLabel' | 'ariaResizeSpectrumHeight'
+    | 'ariaToolbar' | 'spectrumSectionTitle' | 'spectrumNoData' | 'heightSpectrumLabel' | 'ariaResizeSpectrumHeight'
     | 'ariaSpecZoomOut' | 'ariaSpecZoomIn' | 'ariaSpecZoomReset' | 'btnSpecZoomReset'
     | 'hintSpecZoomOut' | 'hintSpecZoomIn' | 'hintSpecZoomReset' | 'btnSpectrumSettingsTitle' | 'hintSpectrumHeightResizer' | 'hintWheelGestures' | 'hintSpectrumPlot'
     | 'hintSpectrumFft' | 'hintSpectrumOctave1' | 'hintSpectrumOctave3'
@@ -34,7 +34,7 @@ function spectrumBandsButtons(selected: SpectrumBandsSetting, strings: ResultsPa
 
 export function resultsPaneHtml(parts: ResultsPaneParts, strings: ResultsPaneStrings): string {
     return '<div id="toolbar" role="toolbar" aria-label="' + escapeHtml(strings.ariaToolbar) + '">' + parts.toolbarHtml + '</div>'
-        + '<div id="tracks-wrapper" data-plot-stack>'
+        + '<div id="tracks-wrapper">'
         + '  <div id="ruler-row"><div id="ruler-spacer"></div><div id="ruler-axis-spacer" style="width:' + parts.axisWidth + 'px;flex:none"></div><canvas id="ruler-canvas"' + hintAttr(strings.hintWheelGestures) + '></canvas></div>'
         + '  <div id="stacked-wrap">' + parts.tracksHtml + '</div>'
         + '  <div id="empty-state"><p>' + escapeHtml(parts.emptyMessage) + '</p>'
@@ -53,11 +53,11 @@ export function resultsPaneHtml(parts: ResultsPaneParts, strings: ResultsPaneStr
         + '    <button class="tb-btn" data-action="spectrum-settings"' + hintAttr(strings.btnSpectrumSettingsTitle) + ' aria-label="' + escapeHtml(strings.btnSpectrumSettingsTitle) + '">⚙</button>'
         + '  </div>'
         + '  <div id="spectrum-split">'
-        + '    <div id="spectrum-overlay-wrap"><div id="spectrum-overlay-header" class="spectrum-pane-header"><span id="spectrum-cursor-time"></span><span id="spectrum-axis-legend" hidden></span><span id="spectrum-freq-readout" class="plot-readout spectrum-readout" data-plot-readout hidden><span class="plot-readout-name"></span><span class="plot-readout-values"></span></span></div><canvas id="spectrum-overlay-canvas" data-plot-names="spectrum-axis-legend" tabindex="0" aria-label="' + escapeHtml(strings.spectrumSectionTitle) + '"' + hintAttr(strings.hintSpectrumPlot) + '></canvas></div>'
+        + '    <div id="spectrum-overlay-wrap"><div id="spectrum-overlay-header" class="spectrum-pane-header"><span id="spectrum-cursor-time"></span><span id="spectrum-axis-legend" hidden></span><span id="spectrum-freq-readout" class="plot-readout spectrum-readout" data-plot-readout hidden><span class="plot-readout-name"></span><span class="plot-readout-values"></span></span></div><div id="spectrum-overlay-plot" class="tracks-figure"></div><div id="spectrum-overlay-empty" class="tracks-figure-empty" hidden>' + escapeHtml(strings.spectrumNoData) + '</div></div>'
         + '    <div id="pair-divider" class="pair-divider" data-action="pair-divider-drag"' + hintAttr(strings.hintPairDivider) + ' role="separator" tabindex="0" aria-orientation="vertical" aria-label="' + escapeHtml(strings.hintPairDivider) + '"></div>'
         + '    <div id="pair-spectrum-wrap" aria-label="' + escapeHtml(strings.pairSectionTitle) + '">'
         + '      <div id="pair-spectrum-header" class="spectrum-pane-header"><span id="pair-spectrum-summary"></span><span id="pair-spectrum-legend"></span><span id="pair-spectrum-readout" class="plot-readout spectrum-readout" data-plot-readout hidden><span class="plot-readout-name"></span><span class="plot-readout-values"></span></span></div>'
-        + '      <div id="pair-spectrum-plot" data-plot-stack>' + ['gain', 'phase', 'coherence'].map(lane => '<canvas class="pair-lane-canvas" id="pair-lane-' + lane + '" data-pair-lane="' + lane + '"' + ' aria-label="' + escapeHtml(strings.pairSectionTitle) + '"' + hintAttr(strings.hintPairPlot) + '></canvas>').join('') + '<div id="pair-spectrum-message" style="display:none"></div></div>'
+        + '      <div id="pair-spectrum-plot"><div id="pair-spectrum-figure" class="tracks-figure"></div><div id="pair-spectrum-message" style="display:none"></div></div>'
         + '    </div>'
         + '  </div>'
         + '</div>'

@@ -55,7 +55,7 @@ test('isSelectPythonEnvironmentMessage only accepts the dedicated message type',
 });
 
 
-test('isRequestTrackDetailMessage accepts lazy spectrogram detail requests', () => {
+test('isRequestTrackDetailMessage accepts a row\'s request for its kept answers, which names how the frequency axis is drawn', () => {
     assert.equal(isRequestTrackDetailMessage({
         type: 'request-track-detail',
         requestId: 'detail-1',
@@ -63,6 +63,7 @@ test('isRequestTrackDetailMessage accepts lazy spectrogram detail requests', () 
         settingsSignature: 'settings-1',
         trackIndex: 0,
         filePath: '/tmp/a.wav',
+        answers: 'log',
     }), true);
     assert.equal(isRequestTrackDetailMessage({
         type: 'request-track-detail',
@@ -71,7 +72,16 @@ test('isRequestTrackDetailMessage accepts lazy spectrogram detail requests', () 
         settingsSignature: 'settings-1',
         trackIndex: '0',
         filePath: '/tmp/a.wav',
+        answers: 'log',
     }), false);
+    assert.equal(isRequestTrackDetailMessage({
+        type: 'request-track-detail',
+        requestId: 'detail-1',
+        analysisId: 'analysis-1',
+        settingsSignature: 'settings-1',
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+    }), false, 'the old request for a picture (no answers) is not one');
 });
 
 test('isRequestSpectrumSliceMessage accepts cursor spectrum slice requests', () => {
@@ -83,7 +93,18 @@ test('isRequestSpectrumSliceMessage accepts cursor spectrum slice requests', () 
         trackIndex: 0,
         filePath: '/tmp/a.wav',
         cursorNorm: 0.25,
+        answers: 'linear',
     }), true);
+    // A request names the scale its kept lines are of: one without it is refused (the old reply is gone).
+    assert.equal(isRequestSpectrumSliceMessage({
+        type: 'request-spectrum-slice',
+        requestId: 'slice-1',
+        analysisId: 'analysis-1',
+        settingsSignature: 'settings-1',
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+        cursorNorm: 0.25,
+    }), false);
     assert.equal(isRequestSpectrumSliceMessage({
         type: 'request-spectrum-slice',
         requestId: 'slice-1',
@@ -92,6 +113,7 @@ test('isRequestSpectrumSliceMessage accepts cursor spectrum slice requests', () 
         trackIndex: 0,
         filePath: '/tmp/a.wav',
         cursorNorm: '0.25',
+        answers: 'linear',
     }), false);
     assert.equal(isRequestSpectrumSliceMessage({
         type: 'request-spectrum-slice',
@@ -101,6 +123,7 @@ test('isRequestSpectrumSliceMessage accepts cursor spectrum slice requests', () 
         trackIndex: 0,
         filePath: '/tmp/a.wav',
         cursorNorm: undefined,
+        answers: 'linear',
     }), false);
 });
 
@@ -117,7 +140,7 @@ test('WAV export accepts bounded per-file timeline regions and preserves legacy 
 
 test('isRequestSpectrumSliceMessage accepts only 1 or 3 bands per octave', () => {
     const request = { type: 'request-spectrum-slice', requestId: 'slice-1', analysisId: 'analysis-1',
-        settingsSignature: 'settings-1', trackIndex: 0, filePath: '/tmp/a.wav', cursorNorm: 0.25 };
+        settingsSignature: 'settings-1', trackIndex: 0, filePath: '/tmp/a.wav', cursorNorm: 0.25, answers: 'log' };
     assert.equal(isRequestSpectrumSliceMessage({ ...request, bandsPerOctave: 1 }), true);
     assert.equal(isRequestSpectrumSliceMessage({ ...request, bandsPerOctave: 3 }), true);
     assert.equal(isRequestSpectrumSliceMessage({ ...request, bandsPerOctave: 6 }), false);

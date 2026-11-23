@@ -14,14 +14,14 @@ proofs = importlib.util.module_from_spec(_spec)
 sys.modules["check_test_proofs"] = proofs
 _spec.loader.exec_module(proofs)
 
-HEAD = "import numpy as np\nfrom conftest import assert_not_drawn\nfrom decimator import decimated_waveform\n\n\n"
+HEAD = "import numpy as np\nfrom conftest import assert_not_drawn\nfrom services.analyzer import absolute_peak\n\n\n"
 SETUP = (
     "def test_it():\n"
     "    samples = np.sin(np.arange(5000) * 0.3)\n"
     "    samples[3210] = -0.95\n"
-    "    result = decimated_waveform(samples, 50, 0, 5000)\n"
+    '    result = {"absolutePeak": absolute_peak(samples)}\n'
 )
-TARGET = {"decimator:decimated_waveform"}
+TARGET = {"services.analyzer:absolute_peak"}
 
 
 def _problem(tmp_path: Path, body: str, targets: set[str] | None = None) -> str | None:
@@ -71,7 +71,7 @@ def test_a_proof_that_never_calls_the_rows_code_fails(tmp_path: Path) -> None:
         '    assert result["absolutePeak"] == 0.95\n'
         '    assert_not_drawn(result["absolutePeak"], float(np.abs(samples[::100]).max()))\n'
     )
-    problem = _problem(tmp_path, body, {"stage_view:stage_view"})
+    problem = _problem(tmp_path, body, {"frames.stage_view:stage_view"})
     assert problem is not None and "never reaches it" in problem
 
 
@@ -163,8 +163,7 @@ def test_the_discovery_names_tests_as_pytest_collects_them() -> None:
 
 
 def test_every_checker_script_is_under_the_same_ruff_and_pyright_commands() -> None:
-    # Ruff runs on the paths verify.mjs gives it; pyright on pyproject.toml's include. check_test_proofs.py was in
-    # neither, check_decimation_flow.py only in Ruff's.
+    # Ruff runs on the paths verify.mjs gives it; pyright on pyproject.toml's include.
     import tomllib
 
     root = SCRIPT.parents[1]
@@ -172,7 +171,11 @@ def test_every_checker_script_is_under_the_same_ruff_and_pyright_commands() -> N
     ruff = [line for line in verify.splitlines() if "'-m', 'ruff'" in line]
     include = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["pyright"]["include"]
     checkers = sorted(f"scripts/{path.name}" for path in (root / "scripts").glob("check_*.py"))
-    assert checkers == ["scripts/check_decimation_flow.py", "scripts/check_test_proofs.py"]
+    # check_figure_imports.py: the figure service's folder rules (figure-design.md 第 2 節 A, B, F).
+    assert checkers == [
+        "scripts/check_figure_imports.py",
+        "scripts/check_test_proofs.py",
+    ]
     for script in checkers:
         assert len(ruff) == 2 and all(f"'{script}'" in line for line in ruff), script
         assert script in include, script

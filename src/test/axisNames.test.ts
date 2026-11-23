@@ -1,17 +1,10 @@
-import { Y } from './helpers/figure';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { getStrings, type UiStrings } from '../shared/i18n/strings';
-import type { StageView } from '../shared/protocol/backendProtocol';
-import { axisNameParts, DIMENSIONLESS, fitAxisTitle, fontPixels, scaledFont, shortQuantities } from '../webview/plot/axisTitle';
-import { paneAxes, type LevelInput } from '../webview/runtime/comparePanes';
-import { csvAxisName } from '../webview/runtime/entryDistributionPane';
-import { pairLanes } from '../webview/runtime/pairSpectrum';
-import { amplitudeAxisTitle, stageAxes, stageHover, type StagePlot } from '../webview/runtime/stagePanes';
-import { held } from './helpers/heldSource';
-import { testLine } from './helpers/whole';
+import { axisNameParts, DIMENSIONLESS, fitAxisTitle, fontPixels, scaledFont, shortQuantities } from '../webview/figure/axisTitle';
+import { csvColumnTitle } from '../webview/runtime/figureModel';
 
 const LOCALES = ['en', 'ja'] as const;
 
@@ -54,116 +47,13 @@ test('every axis-name string, in every language, names its quantity and its unit
     }
 });
 
-const calibrated: LevelInput = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: false };
-const views = (): StageView[] => {
-    const xs = ['frequency', 'time', 'band', 'quefrency', 'lag'] as const;
-    const quantities = ['level', 'gain', 'coherence', 'value', 'roughness', 'cepstrum', 'correlation'] as const;
-    const units = [undefined, 'sone', 'acum', 'asper', 'asper/Bark', 'dB re 1 FS', 'Pa'];
-    const lines = xs.flatMap(x => quantities.flatMap(quantity => units.map((unit): StageView => ({ frame: 'SpectralFrame', kind: 'line', x, xScale: 'linear', quantity, ...(unit ? { unit } : {}), xs: [1, 2], values: [0, 1] }))));
-    const pairs = lines.flatMap((view): StageView[] => [{ ...view, pair: { output: 2, input: 1 } }, { ...view, pair: { output: 1, input: 1, base: true } }]);
-    const measures = (['amplitude', 'rms', 'timeWeightedRms', 'power', 'unknown'] as const).flatMap((measure): StageView[] => [undefined, 3].flatMap((measureExponent): StageView[] => [
-        { frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'value', unit: measure === 'unknown' ? '' : 'Pa', measure, ...(measureExponent ? { measureExponent } : {}), xs: [0, 1], values: [1, 2] },
-        { frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'level', unit: measure === 'unknown' ? '' : 'dB re 1 input unit', measure, xs: [0, 1], values: [1, 2] },
-    ]));
-    const waveforms = ['Pa', ''].map((unit): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', xs: [0, 1], waveform: { min: [0], max: [1], minT: [0], maxT: [1], absolutePeak: 1, unit, ref: 1 } }));
-    const events: StageView = { frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xs: [0, 1], values: [0, 1] };
-    const heatmaps = (['level', 'roughness', 'cepstrum', 'value'] as const).flatMap(quantity => (['frequency', 'bark', 'quefrency'] as const).flatMap(yAxis => [undefined, 'asper'].map((unit): StageView => ({ frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', quantity, yAxis, ...(unit ? { unit } : {}), xs: [0, 1], ys: [1, 2], matrix: [[0, 0], [0, 0]] }))));
-    return [...lines, ...pairs, ...measures, ...waveforms, events, ...heatmaps];
-};
-
-test('every axis a picture is drawn on names its quantity and unit, whatever it measures, with or without a unit, Δ or not (R4)', () => {
-    for (const locale of LOCALES) {
-        const strings = getStrings(locale);
-        for (const view of views()) {
-            for (const input of [undefined, calibrated]) {
-                for (const diff of [false, true]) {
-                    const axes = stageAxes(strings, view, input, diff);
-                    const where = `${locale} ${view.frame}/${view.kind}/${view.x}/${view.quantity}/${view.unit ?? '-'}${view.pair ? '/pair' : ''}${diff ? '/Δ' : ''}`;
-                    named(`${where} x`, axes.x);
-                    named(`${where} y`, axes.y);
-                    if (view.kind === 'heatmap') named(`${where} colour`, axes.colour);
-                }
-            }
-        }
-        // A series with no unit says its unit is not known, with an input or without, never an assumed full scale
-        // (R4): the unit of a picture's values is the backend's (stage_view.signal_unit), and none sent is none claimed.
-        assert.equal(axisNameParts(stageAxes(strings, { frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'value', xs: [0, 1], values: [1, 2] }, undefined).y)?.unit, strings.axisUnitUnknown);
-        assert.equal(axisNameParts(stageAxes(strings, { frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'value', xs: [0, 1], values: [1, 2] }, { ...calibrated, unit: '', fullScale: true, calibrationStatus: 'uncalibrated' }).y)?.unit, strings.axisUnitUnknown);
-        // A lane's amplitude axis names its file's channel unit, and full scale for an uncalibrated file of none.
-        assert.equal(axisNameParts(amplitudeAxisTitle(strings, '', { ...calibrated, unit: '', fullScale: true, calibrationStatus: 'uncalibrated' }))?.unit, 'FS');
-        for (const measure of [undefined, 'amplitude', 'rms', 'timeWeightedRms', 'power', 'unknown'] as const) {
-            for (const input of [undefined, calibrated]) {
-                for (const exponent of [undefined, 3]) named(`${locale} amplitude ${measure}^${exponent ?? 1}`, amplitudeAxisTitle(strings, input?.unit, input, measure, false, exponent));
-            }
-        }
-        for (const input of [undefined, calibrated]) {
-            const { level, delta } = paneAxes(strings, input);
-            for (const name of [level.x, level.y, delta.x, delta.y]) named(`${locale} compare pane`, name);
-        }
-        const lanes = pairLanes({ frequencyBins: 2, maxFrequencyHz: 1000, curves: [] }, { frequencyMin: 0, frequencyMax: 1000 }, strings);
-        for (const lane of lanes) { named(`${locale} pair ${lane.key} x`, lane.axes.x); named(`${locale} pair ${lane.key} y`, lane.axes.y); }
-        for (const count of [strings.dsCh, strings.dsUnitRecording]) named(`${locale} distribution count`, strings.dsDistCountAxis.replace('{unit}', count));
-    }
-});
-
-/**
- * The unit and the quantity the backend sends after a chain of operations (stage_view.signal_unit and
- * signal_measure, one walk; the same rows are test_stage_view.py's
- * test_the_unit_of_a_signal_after_operations_is_walked_through_its_history), and the axis name the webview makes of
- * them in each language: the unit as given, the quantity the steps made (R4).
- */
-const SENT_UNITS: Array<{ chain: string; unit: string; measure?: StageView['measure']; measureExponent?: number; en: string; ja: string }> = [
-    { chain: 'power(2)', unit: 'Pa\u00b2', measure: 'power', en: 'Power [Pa\u00b2]', ja: 'パワー [Pa\u00b2]' },
-    { chain: 'power(3)', unit: 'Pa\u00b3', measure: 'amplitude', measureExponent: 3, en: 'Amplitude^3 [Pa\u00b3]', ja: '振幅の 3 乗 [Pa\u00b3]' },
-    { chain: 'lowpass → resampling → power(3)', unit: 'Pa\u00b3', measure: 'amplitude', measureExponent: 3, en: 'Amplitude^3 [Pa\u00b3]', ja: '振幅の 3 乗 [Pa\u00b3]' },
-    { chain: 'abs → power(0.5)', unit: 'Pa^0.5', measure: 'amplitude', measureExponent: 0.5, en: 'Amplitude^0.5 [Pa^0.5]', ja: '振幅の 0.5 乗 [Pa^0.5]' },
-    { chain: 'power(2) → power(0.5)', unit: 'Pa', en: 'Amplitude [Pa]', ja: '振幅 [Pa]' },
-    { chain: 'rms_trend → power(2)', unit: 'Pa\u00b2', measure: 'rms', measureExponent: 2, en: 'RMS^2 [Pa\u00b2]', ja: '実効値の 2 乗 [Pa\u00b2]' },
-    { chain: 'power(2) → rms_trend', unit: 'Pa\u00b2', measure: 'rms', en: 'RMS [Pa\u00b2]', ja: '実効値 [Pa\u00b2]' },
-    { chain: 'rms_trend', unit: 'Pa', measure: 'rms', en: 'RMS [Pa]', ja: '実効値 [Pa]' },
-    { chain: 'scaled by 2', unit: 'Pa', en: 'Amplitude [Pa]', ja: '振幅 [Pa]' },
-    { chain: 'normalize (its effect on the unit and the quantity not known)', unit: '', measure: 'unknown', en: 'Value [unit unknown]', ja: '値 [単位不明]' },
-];
-
-test('a signal after operations is named by the quantity and the unit the backend sent: a power by its exponent, an unknown chain as a value of unknown unit, never an amplitude it is not (R4)', () => {
-    for (const row of SENT_UNITS) {
-        const series: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: row.unit, xs: [0, 1, 2], values: [0.25, 0.5, 0.75], ...(row.measure ? { measure: row.measure } : {}), ...(row.measureExponent ? { measureExponent: row.measureExponent } : {}) };
-        for (const locale of LOCALES) {
-            assert.equal(stageAxes(getStrings(locale), series, calibrated).y, row[locale], `${locale} ${row.chain}: the value axis is "${stageAxes(getStrings(locale), series, calibrated).y}", not "${row[locale]}". `
-                + 'The quantity comes from view.measure and view.measureExponent (stage_view.signal_measure); stagePanes.amplitudeAxisTitle turns them into words (axisRaised, axisQuantityUnknown in strings.ts). Never fall back to "Amplitude" for a measure the backend sent (R4).');
-        }
-    }
-});
-
-test('the axis name and the readout of a signal after operations carry the same unit, the one the backend sent, and none where it sent none (R4, R7)', () => {
-    const strings = getStrings('en');
-    for (const { chain, unit, measure } of SENT_UNITS) {
-        const series: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit, xs: [0, 1, 2], values: [0.25, 0.5, 0.75], ...(measure ? { measure } : {}) };
-        const wave = { ...series, xs: [], values: [], waveform: { min: [0.25], max: [0.75], minT: [0], maxT: [2], absolutePeak: 0.75, unit, ref: 1 } } as unknown as StageView;
-        for (const [shape, view, full] of [['series', series, held(series)], ['waveform', wave, testLine([0, 1, 2], [0.25, 0.5, 0.75])]] as const) {
-            const axis = axisNameParts(stageAxes(strings, view, calibrated).y)?.unit;
-            const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value * 100, xOf: x => x / 100, ...Y(value => 100 - value * 100, 100), ratioStep: 1.12, lines: [{ view, color: 'blue', full }], diff: false };
-            const read = stageHover(plot, 100, 50);
-            assert.ok(read && read.value === 0.5, `${chain} (${shape}): the pointer reads the middle point`);
-            const readUnit = /0\.500\s*(\S*)\s*$/u.exec(read.values)?.[1] ?? '';
-            if (unit) {
-                assert.equal(axis, unit, `${chain} (${shape}): the axis names the unit the backend sent (stage_view.signal_unit), as given. Write view.unit through figureModel's names; never add an exponent to it (R4)`);
-                assert.equal(readUnit, unit, `${chain} (${shape}): the readout "${read.values}" writes the unit the axis names. Take view.unit (or waveform.unit) as sent (R7)`);
-            } else {
-                assert.equal(axis, strings.axisUnitUnknown, `${chain} (${shape}): with no unit sent the axis claims none, not the file's or full scale (R4)`);
-                assert.equal(readUnit, '', `${chain} (${shape}): with no unit sent the readout "${read.values}" writes none (R7)`);
-            }
-        }
-    }
-});
-
 test('a CSV column\'s value axis names the unit its header gives, and says when it gives none', () => {
     const strings = getStrings('en');
-    assert.equal(csvAxisName('temp [°C]', strings), 'temp (CSV column) [°C]');
-    assert.equal(csvAxisName('speed (rpm)', strings), 'speed (CSV column) [rpm]');
-    assert.equal(csvAxisName('temp_c', strings), 'temp_c (CSV column) [unit unknown]');
-    assert.equal(csvAxisName('a$&b', strings), 'a$&b (CSV column) [unit unknown]');
-    assert.equal(csvAxisName('温度', getStrings('ja')), '温度（CSV の列） [単位不明]');
+    assert.equal(csvColumnTitle('temp [°C]', strings), 'temp (CSV column) [°C]');
+    assert.equal(csvColumnTitle('speed (rpm)', strings), 'speed (CSV column) [rpm]');
+    assert.equal(csvColumnTitle('temp_c', strings), 'temp_c (CSV column) [unit unknown]');
+    assert.equal(csvColumnTitle('a$&b', strings), 'a$&b (CSV column) [unit unknown]');
+    assert.equal(csvColumnTitle('温度', getStrings('ja')), '温度（CSV の列） [単位不明]');
 });
 
 test('a name too long for its axis keeps its quantity and its unit: smaller, on two lines, then its quantity shortened', () => {
@@ -199,7 +89,7 @@ test('a fitted axis name is never longer than the room it was given, at any size
                 const parts = axisNameParts(name)!;
                 const longest = Math.max(...fitted.lines.map(measure)) * fitted.scale;
                 assert.ok(longest <= room + 1e-9, `"${name}" fitted to ${room} px on ${lines} line(s) is ${longest.toFixed(1)} px long (${JSON.stringify(fitted)}): it would be drawn past its canvas. `
-                    + 'Fix: fitAxisTitle (src/webview/plot/axisTitle.ts) must return a scale at which every line fits the length it was given; see docs/display-rules.md R4.');
+                    + 'Fix: fitAxisTitle (src/webview/figure/axisTitle.ts) must return a scale at which every line fits the length it was given; see docs/display-rules.md R4.');
                 assert.ok(fitted.lines.join(' ').includes(`[${parts.unit}]`) && fitted.lines.join(' ').trim() !== `[${parts.unit}]`, `"${name}" fitted to ${room} px lost its quantity or its unit (${JSON.stringify(fitted)}): shorten or shrink it, never drop a part (R4).`);
                 // The font the name is drawn in is the measured one times a scale no larger than the fitted one.
                 const drawnSize = fontPixels(scaledFont('10px sans-serif', fitted.scale));
@@ -231,7 +121,7 @@ test('a range popover names its axis as the plot does: the plot\'s own axis name
     };
     walk(root);
     // What a popover may be named by: the plot's axis-name strings, or the title the plot drew its axis with.
-    const PLOT_NAMES = [/^STR\.axis\w+(\.replace\(.*\))?(\s*\|\|.*)?$/u, /^spectrumLevelAxisTitle\b/u, /^spectrumRightAxis\.title\b/u, /^spectrogramLevelTitle\(/u, /^laneAmplitudeAxis\(.*\)\.title$/u, /^mapping\.label\b/u];
+    const PLOT_NAMES = [/^STR\.axis\w+(\.replace\(.*\))?(\s*\|\|.*)?$/u, /^mapping\.label\b/u];
     let opens = 0;
     for (const file of files) {
         const source = readFileSync(file, 'utf8');
@@ -242,7 +132,9 @@ test('a range popover names its axis as the plot does: the plot\'s own axis name
             assert.ok(!/['"`]\s*\(/u.test(expression), `${path.relative(root, file)}: "${expression}" writes a unit in round brackets`);
         }
     }
-    assert.ok(opens >= 5, `the popovers are walked (${opens})`);
+    // Every Figure's range boxes (the rows', the cursor spectrum's, the pair figure's) are the Figure's own (figure/, named by
+    // the picture); what is left here is the one popover of the shell, named by the mapping its caller gives (the time ruler's).
+    assert.ok(opens >= 1, `the popovers are walked (${opens})`);
 });
 
 test('no absolute level falls back to a bare "dB" unit anywhere in src (a default, ?? / || / ternary, or return): it names its reference, or says full scale (R4, R7, A50)', () => {

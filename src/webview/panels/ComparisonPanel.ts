@@ -96,6 +96,8 @@ interface ComparisonPanelRenderedUi {
         waveformMinDrawX: number | null;
         waveformMaxDrawX: number | null;
         waveformCanvasWidth: number | null;
+        waveformFrame: { left: number; top: number; width: number; height: number } | null;
+        waveformRange: [number, number] | null;
         resultError: string | null;
         spectrumSlicePresent: boolean;
     }>;
@@ -398,7 +400,6 @@ export class ComparisonPanel {
 
 export function renderComparisonHtml(webview: vscode.Webview, state: ComparisonState, extensionUri: vscode.Uri, testHooks = false): string {
     return renderComparisonDocument(state, {
-        waveformScriptUri: webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'comparisonWaveform.js')).toString(),
         runtimeScriptUri: webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'comparisonRuntime.js')).toString(),
         cspSource: webview.cspSource,
         language: typeof vscode.env?.language === 'string' ? vscode.env.language : 'en',

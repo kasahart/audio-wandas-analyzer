@@ -1,7 +1,7 @@
 import type { AnalysisCancellationSignal } from '../../shared/analysis/analysisClient';
 import type { SessionRequests } from '../../shared/analysis/analysisSession';
 import { BackendProtocolError, PendingBackendRequests, rejectPendingRequests, settleBackendRequest } from '../../shared/protocol/backendProtocol';
-import { parseWorkerMessage, parseWorkerResult, type WorkerCommand, type WorkerMessage, type WorkerRequest, type WorkerResult } from './workerProtocol';
+import { parseWorkerMessage, parseWorkerResult, type WorkerCommand, type WorkerRequest, type WorkerResult } from './workerProtocol';
 
 export type PythonState = 'starting' | 'ready' | 'failed' | 'stopped';
 
@@ -14,12 +14,9 @@ export interface WorkerSource {
 
 export interface WorkerConnectionDeps<S extends WorkerSource> {
     Worker: typeof Worker;
-    setTimeout: typeof setTimeout;
     /** The selected tracks: a Worker that has to be replaced gets them loaded again. */
     sources: { readonly size: number; values(): Iterable<S>; owns(path: string, source: S): boolean };
     sourceGeneration: SessionRequests;
-    /** Runs `task` in the host's source batch queue, so a Worker swap never lands inside a batch. */
-    exclusive<T>(task: () => Promise<T>): Promise<T>;
     /** `quiet`: a restart the user did not ask for (after a folder scan) keeps to the footer dot. */
     showState(state: PythonState, quiet?: boolean): void;
     /** The optional packages the booted runtime cannot import. */
@@ -41,13 +38,6 @@ export interface WorkerConnection {
     reset(reason: Error): void;
     /** Drops every source: an idle Worker only releases them, so Pyodide boots once per page. */
     clear(): void;
-    /**
-     * After a folder scan Pyodide's heap stays as large as the scan made it, so a fresh Worker takes over.
-     * It boots and loads the selected tracks behind the current one, which keeps answering meanwhile; it is
-     * swapped in at a moment no request is waiting, and the old one is then dropped. Nothing waits for the
-     * boot. A spare that fails, or whose tracks no longer match, is dropped and the current one stays.
-     */
-    replaceBehind(): void;
     /** True while `requestId` waits for a reply, or while sources are being loaded again. */
     isWaiting(requestId: string): boolean;
     readonly running: boolean;
@@ -58,18 +48,15 @@ const WORKER_URL = './audio.worker.js';
 const cancelled = (): Error => new Error('Analysis cancelled');
 
 export function createWorkerConnection<S extends WorkerSource>(deps: WorkerConnectionDeps<S>): WorkerConnection {
-    const { Worker, setTimeout, sources, sourceGeneration } = deps;
+    const { Worker, sources, sourceGeneration } = deps;
     let worker: Worker | undefined;
     let recovery: Promise<void> | undefined;
     let bootFailed = false;
-    /** A Worker booting behind the current one after a folder scan (replaceBehind). */
-    let spare: Worker | undefined;
     const pending = new PendingBackendRequests<unknown, WorkerCommand>('browser-');
 
     function reset(reason: Error): void {
         deps.cancelReanalysis();
         worker?.terminate(); worker = undefined;
-        spare?.terminate(); spare = undefined;
         deps.showState('stopped');
         recovery = undefined;
         rejectPendingRequests(pending, reason);
@@ -154,66 +141,11 @@ export function createWorkerConnection<S extends WorkerSource>(deps: WorkerConne
             send({ cmd: 'clear' }).catch(() => { if (worker === kept) reset(cancelled()); });
         }
     }
-    function replaceBehind(): void {
-        if (spare || !worker) return;
-        const generation = sourceGeneration.current;
-        const next = new Worker(WORKER_URL, { type: 'module' });
-        spare = next;
-        const replies = new Map<string, (reply: Extract<WorkerMessage, { kind: 'reply' }>) => void>();
-        let calls = 0;
-        const abandon = (): void => { if (spare === next) spare = undefined; next.terminate(); };
-        next.onmessage = (event: MessageEvent<unknown>): void => {
-            const message = parseWorkerMessage(event.data);
-            if (message?.kind === 'ready') { if (!message.ready) abandon(); return; }
-            if (message) replies.get(message.requestId)?.(message);
-        };
-        next.onerror = (): void => abandon();
-        const call = (command: WorkerRequest<'limits' | 'load'>, bytes?: ArrayBuffer): Promise<void> => new Promise((resolve, reject) => {
-            const requestId = `spare-${++calls}`;
-            replies.set(requestId, reply => {
-                replies.delete(requestId);
-                try {
-                    if (reply.error !== undefined || !reply.wellFormed) throw new Error('refused');
-                    parseWorkerResult(command.cmd, reply.result);
-                    resolve();
-                } catch { reject(new Error('spare Worker refused a command')); }
-            });
-            next.postMessage({ ...command, requestId, bytes }, bytes ? [bytes] : []);
-        });
-        const loaded = new Set<string>();
-        const loadMissing = async (): Promise<void> => {
-            for (const source of sources.values()) {
-                if (loaded.has(source.sourceId)) continue;
-                await call({ cmd: 'load', sourceId: source.sourceId }, await source.file.arrayBuffer());
-                loaded.add(source.sourceId);
-            }
-        };
-        void (async () => {
-            try {
-                // Answered once Pyodide has booted.
-                await call({ cmd: 'limits' });
-                await loadMissing();
-                await deps.exclusive(async () => {
-                    while (pending.size) await new Promise(resolve => setTimeout(resolve, 20));
-                    // A track picked meanwhile is loaded too; one released meanwhile, or a Clear, drops the spare.
-                    const current = new Set(Array.from(sources.values(), source => source.sourceId));
-                    if (spare !== next || !worker || recovery || !sourceGeneration.isCurrent(generation) || [...loaded].some(id => !current.has(id))) { abandon(); return; }
-                    await loadMissing();
-                    const old = worker;
-                    attachWorker(next);
-                    worker = next;
-                    spare = undefined;
-                    old.terminate();
-                });
-            } catch { abandon(); }
-        })();
-    }
     return {
         start: () => { worker = startWorker(); },
         request,
         reset,
         clear,
-        replaceBehind,
         isWaiting: requestId => pending.has(requestId) || recovery !== undefined,
         get running() { return worker !== undefined; },
         get recovering() { return recovery !== undefined; },

@@ -1,7 +1,7 @@
 /**
  * Per-step pictures (StageView) of files, as a screen asks the host for them with 'compare-scan': one request in
  * flight per source (a new one supersedes it on the host), results cached per spec (Recipe, region, step,
- * detail) and file. Request ids carry the source's prefix, so each screen takes only its own answers.
+ * step) and file. Request ids carry the source's prefix, so each screen takes only its own answers.
  */
 import type { ComparePublication, CompareScanMessage } from '../../shared/analysis/entryScan';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
@@ -12,7 +12,7 @@ import { HostRequests } from './hostRequests';
 
 export interface StageSpec {
     key: string;
-    message: Pick<CompareScanMessage, 'region' | 'recipe' | 'stage' | 'detail' | 'reference' | 'spectrumBins'>;
+    message: Pick<CompareScanMessage, 'region' | 'recipe' | 'stage' | 'reference'>;
 }
 
 export interface StageSource {
@@ -35,21 +35,27 @@ export interface StageSource {
      * asked. The figure model reads the identity here, never makes one.
      */
     answer(spec: StageSpec, filePath: string): Answer<StageView>;
+    /**
+     * The file's scan for `spec` (its picture and what its levels are in) under an earlier basis (the file recorded again, its calibration changed) while its
+     * picture now is not in: an answer gone stale, kept so its figure keeps the picture and stops reading it until the
+     * new one comes (第 6 節「描き直しの決まり」1). Undefined when there is none.
+     */
+    previous(spec: StageSpec, filePath: string): ScanResult | undefined;
     /** Takes the host's answers to this source's requests; false for anything else. */
     handle(message: { type: string }): boolean;
 }
 
 /** What a file's picture for `spec` is of (pictureIdentity): the full recipe, the region, the spec and the basis it was asked under. */
 export function stageIdentity(spec: StageSpec, filePath: string, result: ScanResult | undefined, basis: string): AnswerIdentity {
-    return pictureIdentity(filePath, result, { recipeKey: recipeKey(spec.message.recipe), region: JSON.stringify(spec.message.region ?? null), asked: JSON.stringify([stageCacheKey(spec), basis]) });
+    return pictureIdentity(filePath, result, { recipeKey: recipeKey(spec.message.recipe), region: JSON.stringify(spec.message.region ?? null), asked: JSON.stringify([spec.key, basis]) });
 }
 
 const CACHED_SPECS = 48;
 
 /**
  * What a file's pictures depend on beyond their spec (Recipe, region, step, detail): the version of the file and its
- * calibration. From the screen's own scan of the file (its conditionId: the backend's hash of the file's version,
- * calibration, unit and reference) and the track's analysis (its calibration signature and revision), whichever the
+ * calibration. From the screen's own scan of the file (its input id: the version of the file that was read) and
+ * the track's analysis (its calibration signature and revision), whichever the
  * screen has. A file being scanned again keeps the condition it last had, so a rescan alone asks for nothing; a
  * rescan that failed is not that condition (the file as it is now could not be read).
  * Changing either asks every picture of the file again (createStageSource's basisOf).
@@ -63,7 +69,7 @@ export function stageBasis(
     return filePath => {
         const scan = scanOf(filePath);
         // A scan that failed is of no version the pictures were taken of: none of them is this file's now.
-        const condition = scan?.ok ? scan.conditionId ?? scan.input?.id ?? '' : scan ? `failed|${scan.reason ?? ''}` : known.get(filePath) ?? '';
+        const condition = scan?.ok ? scan.input?.id ?? '' : scan ? `failed|${scan.reason ?? ''}` : known.get(filePath) ?? '';
         if (scan?.ok) known.set(filePath, condition);
         const analysis = analysisOf(filePath);
         // The track's file version (sourceVersion: a track analysed again after its file changed is another), and the
@@ -71,16 +77,6 @@ export function stageBasis(
         // its pictures are of the old one.
         return JSON.stringify([condition, analysis?.sourceVersion ?? '', analysis?.calibrationSignature ?? '', analysis?.analysisRevision ?? null, fileEpoch(filePath)]);
     };
-}
-
-/**
- * What a spec's pictures are cached and asked under: its key, and the part on screen exactly as it is sent (a zoomed
- * picture's StageDetail, JSON reads each number back to the same double). Two specs share it only when they ask the
- * host for the same samples or bins, whatever their keys round, so one window's detail is never drawn for another.
- */
-export function stageCacheKey(spec: StageSpec): string {
-    const detail = spec.message.detail;
-    return detail ? `${spec.key}|${JSON.stringify([detail.x, detail.y ?? null, detail.points])}` : spec.key;
 }
 
 /** A file's answer to a spec, under the file's basis (its version and calibration) when it was asked for. */
@@ -108,11 +104,11 @@ export function createStageSource(prefix: string, post: (message: CompareScanMes
         const against = spec.message.reference?.filePath;
         return against ? JSON.stringify([basisOf(filePath), against, basisOf(against)]) : basisOf(filePath);
     };
-    const current = (spec: StageSpec, filePath: string): ScanResult | undefined => answers.value(fileKey(stageCacheKey(spec), filePath, basisFor(spec, filePath)));
-    const stateOf = (spec: StageSpec, filePath: string) => answers.state(fileKey(stageCacheKey(spec), filePath, basisFor(spec, filePath)));
+    const current = (spec: StageSpec, filePath: string): ScanResult | undefined => answers.value(fileKey(spec.key, filePath, basisFor(spec, filePath)));
+    const stateOf = (spec: StageSpec, filePath: string) => answers.state(fileKey(spec.key, filePath, basisFor(spec, filePath)));
     return {
         ensure(spec, files) {
-            const key = stageCacheKey(spec);
+            const key = spec.key;
             // A failed picture is asked again only once the store's pause is over (then it is missing again).
             const need = files.filter(path => stateOf(spec, path) === 'missing');
             if (!need.length) return false;
@@ -125,10 +121,10 @@ export function createStageSource(prefix: string, post: (message: CompareScanMes
         },
         result: (spec, filePath) => current(spec, filePath),
         failure(spec, filePath) {
-            const key = fileKey(stageCacheKey(spec), filePath, basisFor(spec, filePath));
+            const key = fileKey(spec.key, filePath, basisFor(spec, filePath));
             return answers.state(key) === 'failed' ? answers.reason(key) ?? '' : undefined;
         },
-        forget(spec, filePath) { answers.forget(fileKey(stageCacheKey(spec), filePath, basisFor(spec, filePath))); },
+        forget(spec, filePath) { answers.forget(fileKey(spec.key, filePath, basisFor(spec, filePath))); },
         forgetData(keys) {
             answers.forgetWhere(result => !!(result.ok && result.stage?.data && keys.includes(result.stage.data)));
         },
@@ -140,16 +136,24 @@ export function createStageSource(prefix: string, post: (message: CompareScanMes
         },
         answer(spec, filePath) {
             const basis = basisFor(spec, filePath);
-            const found = answers.answer(fileKey(stageCacheKey(spec), filePath, basis), stageIdentity(spec, filePath, undefined, basis));
+            const found = answers.answer(fileKey(spec.key, filePath, basis), stageIdentity(spec, filePath, undefined, basis));
             if (found.state === 'missing') {
                 // Asked for and on its way, under this spec and basis: pending.
                 const asked = requests.pending('pictures')?.meta;
-                return asked?.key === stageCacheKey(spec) && asked.bases.get(filePath) === basis ? { state: 'pending', identity: found.identity } : found;
+                return asked?.key === spec.key && asked.bases.get(filePath) === basis ? { state: 'pending', identity: found.identity } : found;
             }
             if (found.state !== 'ready') return found.state === 'stale' ? { state: 'stale', identity: found.identity } : found;
-            // Whether a picture has values to count is the figure model's (pictureSet), not decided here.
+            // Whether a step's result has values to count is the figure service's (figures/members.py), not decided here.
             const view = found.value.ok ? found.value.stage : undefined;
             return view ? { state: 'ready', value: view, identity: found.identity } : { state: 'failed', identity: found.identity };
+        },
+        previous(spec, filePath) {
+            const ask = spec.key;
+            for (const [key, held] of answers.newestFirst()) {
+                if (key.ask !== ask || held.state !== 'ready' || held.identity?.path !== filePath) continue;
+                return held.value.ok && held.value.stage ? held.value : undefined;
+            }
+            return undefined;
         },
         handle(message) {
             const publication = message as ComparePublication;

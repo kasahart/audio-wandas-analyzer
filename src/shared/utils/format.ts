@@ -1,5 +1,5 @@
 import type { SupportedLocale } from '../i18n/strings';
-import { levelText, withMinus } from '../../webview/plot/plotText';
+import { levelText, withMinus } from '../../webview/shell/numberText';
 // Display formatters shared by the comparison runtime and the report builders.
 
 export interface LevelMeasurement {
@@ -21,19 +21,6 @@ export interface ChannelLabelSource {
  */
 export function uncalibratedUnits(fullScale: boolean): { linear: string; level: string } {
     return fullScale ? { linear: 'FS', level: 'dBFS' } : { linear: 'input unit', level: 'dB re 1 input unit' };
-}
-
-/**
- * The level reference most of these files have, as wandas names it ("dBFS", "dB SPL re 20 µPa"); none ('') before any. Never
- * plain dB: an absolute level always names its reference (R4), so files of another reference are shown apart, not
- * under a common bare "dB" (the entry table compares only files of its most common shape, too).
- */
-export function commonLevelLabel(labels: Iterable<string>): string {
-    const counts = new Map<string, number>();
-    for (const label of labels) counts.set(label, (counts.get(label) ?? 0) + 1);
-    let best = '', most = 0;
-    for (const [label, count] of counts) if (count > most) { best = label; most = count; }
-    return best;
 }
 
 /** Linear measurement values: 0 / 2 / 3 decimals by magnitude, 3 significant digits below 0.01. */

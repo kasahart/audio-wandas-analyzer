@@ -3,10 +3,9 @@
  * entry table, saved a moment after each change once the stored one has come back at open (so the defaults of a
  * fresh open never overwrite it), and read back with anything that no longer fits the folder's files left out.
  */
-import { fileOfKey, type DatasetFilter, type GroupId, type ValueId } from '../../shared/dataset/datasetTable';
+import { fileOfKey, INFO_COLUMNS, type DatasetFilter, type GroupId, type ValueId } from '../../shared/dataset/datasetTable';
 import { isRecipeChain } from '../../shared/recipe/recipeSteps';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
-import type { DerivedRow } from './entryTable';
 import type { DatasetScreenView } from './entryTableHtml';
 import { restoredSlots, type Slots } from './entrySlots';
 
@@ -22,14 +21,25 @@ export interface StoredSession {
     slots?: Slots;
     memo: Array<[string, string]>;
     excluded: string[];
-    derived?: DerivedRow[];
     recipe?: RecipeDocument;
 }
 
-const SORT_COLUMNS: ReadonlyArray<DatasetScreenView['sort']['column']> = ['name', 'ch', 'group', 'value'];
+const SORT_COLUMNS: ReadonlyArray<DatasetScreenView['sort']['column']> = ['name', 'ch', ...INFO_COLUMNS, 'group', 'value'];
 
-const isFilter = (filter: DatasetFilter | null | undefined): filter is DatasetFilter => !!filter && typeof filter.column === 'string'
-    && (filter.kind === 'values' ? Array.isArray(filter.values) : filter.kind === 'range' && typeof filter.low === 'number' && typeof filter.high === 'number');
+/**
+ * A stored filter, or null when it is not one. A range open at one end (only "from" or only "to" typed) is kept
+ * with ±Infinity, which JSON stores as null: it comes back as the open end it was.
+ */
+function readFilter(stored: unknown): DatasetFilter | null {
+    const filter = stored as { column?: unknown; kind?: unknown; values?: unknown; low?: unknown; high?: unknown } | null | undefined;
+    if (!filter || typeof filter.column !== 'string') return null;
+    if (filter.kind === 'values') return Array.isArray(filter.values) ? stored as DatasetFilter : null;
+    if (filter.kind !== 'range') return null;
+    const end = (value: unknown, open: number): number | null => (value === null ? open : typeof value === 'number' ? value : null);
+    const low = end(filter.low, -Infinity), high = end(filter.high, Infinity);
+    if (low === null || high === null || (low === -Infinity && high === Infinity)) return null;
+    return { ...(stored as DatasetFilter), low, high } as DatasetFilter;
+}
 
 /** A session as it came back from the host, of the folder's `files`; null when there is none of this version. */
 export function readStoredSession(session: Record<string, unknown> | undefined, files: ReadonlySet<string>): StoredSession | null {
@@ -38,13 +48,12 @@ export function readStoredSession(session: Record<string, unknown> | undefined, 
     const stored: StoredSession = { baseGroup: typeof session['baseGroup'] === 'string' ? session['baseGroup'] : null, memo: [], excluded: [] };
     if (typeof session['value'] === 'string') stored.value = session['value'] as ValueId;
     if (typeof session['group'] === 'string') stored.group = session['group'] as GroupId;
-    if (Array.isArray(session['filters'])) stored.filters = (session['filters'] as Array<DatasetFilter | null | undefined>).filter(isFilter);
+    if (Array.isArray(session['filters'])) stored.filters = (session['filters'] as unknown[]).map(readFilter).filter((filter): filter is DatasetFilter => filter !== null);
     const sort = session['sort'] as DatasetScreenView['sort'] | undefined;
     if (sort && SORT_COLUMNS.includes(sort.column)) stored.sort = { column: sort.column, descending: !!sort.descending };
     if (Array.isArray(session['slots'])) stored.slots = restoredSlots(session['slots'], path => files.has(path));
     if (Array.isArray(session['memo'])) for (const item of session['memo'] as unknown[]) if (Array.isArray(item) && keyOk(item[0]) && typeof item[1] === 'string') stored.memo.push([item[0], item[1]]);
     if (Array.isArray(session['excluded'])) for (const key of session['excluded'] as unknown[]) if (keyOk(key)) stored.excluded.push(key);
-    if (Array.isArray(session['derived'])) stored.derived = (session['derived'] as Array<DerivedRow | null | undefined>).filter((row): row is DerivedRow => !!row && files.has(row.parentPath) && !!row.result && !!row.base);
     if (isRecipeChain(session['recipe'])) stored.recipe = session['recipe'];
     return stored;
 }

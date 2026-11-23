@@ -9,10 +9,11 @@ import soundfile as sf
 from wandas.frames import NOctFrame, TransferFunctionFrame
 from wandas.pipeline import RecipePlan
 
-from analysis_engine import AnalysisEngine
-from analysis_service import AnalysisService
-from backend_errors import InputError
-from command_dispatch import dispatch, validate_request
+from conftest import cursor_lines
+from services.analysis_engine import AnalysisEngine
+from services.analysis_service import AnalysisService
+from services.backend_errors import InputError
+from transport.command_dispatch import dispatch, validate_request
 
 STFT = {"nFft": 1024, "overlapPercent": 75, "window": "hamming"}
 
@@ -72,7 +73,7 @@ def test_octave_recipe_uses_the_bands_the_panel_shows(tmp_path: Path) -> None:
     assert operation == "wandas.audio.noct_spectrum"
     assert params["n"] == 3
     # 16 kHz files stop at the 6.3 kHz band, as in the panel.
-    assert service.spectrum_slice(path, cursor_norm=0.5, bands_per_octave=3)["bandCentersHz"][-1] == 6300.0
+    assert cursor_lines(service, path, cursor_norm=0.5, bands_per_octave=3)["bandCentersHz"][-1] == 6300.0
     assert isinstance(_replay(service, built["recipe"], signal=path), NOctFrame)
 
 
@@ -137,7 +138,7 @@ def test_a_transfer_recipe_saved_from_equal_rates_runs_on_files_at_other_rates(t
 
 
 def test_entry_scan_recipe_file_is_the_generated_recipe() -> None:
-    from recipe_builder import entry_scan_recipe
+    from services.recipe_builder import entry_scan_recipe
 
     path = Path(__file__).parent / "recipes" / "entry-scan.recipe.json"
     assert json.loads(path.read_text()) == entry_scan_recipe()
@@ -149,7 +150,7 @@ def test_entry_scan_recipe_file_is_the_generated_recipe() -> None:
 
 
 def test_the_saved_transfer_fixture_the_step_bar_opens_is_what_save_as_recipe_writes() -> None:
-    from recipe_builder import RecipeSource, transfer_recipe
+    from services.recipe_builder import RecipeSource, transfer_recipe
 
     path = Path(__file__).resolve().parents[1] / "src" / "test" / "fixtures" / "savedTransfer.recipe.json"
     sources = [RecipeSource(1, 16000.0), RecipeSource(1, 16000.0)]

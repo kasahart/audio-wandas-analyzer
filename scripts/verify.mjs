@@ -4,8 +4,8 @@
 //
 // Runs: tsc compile, ESLint, Webview pattern lint, generated protocol types, single-source consistency,
 // agent skills copy, GUI triggerability audit, node:test, ruff check + format --check, pyright, the backend's
-// drawn-points flow check, pytest, and the skip gate (in CI, CI=true, a test that skips fails unless
-// scripts/test-skip-allowlist.json lists it: scripts/test-skips.mjs).
+// drawn-points flow check, the figure service import check, pytest, and the skip gate (in CI, CI=true, a test that
+// skips fails unless scripts/test-skip-allowlist.json lists it: scripts/test-skips.mjs).
 //   AWA_VERIFY_BROWSER=1  also checks the browser runtime assets and Worker/native parity
 //   AWA_SLOW=1            also runs the slow pytest checks (the operation catalog's probe); CI sets it
 //   AWA_PERF=1            also holds the pytest and node:test wall-clock budgets (they are reported either way)
@@ -65,7 +65,7 @@ const lanes = [
     ['TypeScript', [
         ['tsc compile', ...npm(['run', 'compile'])],
         ['webview pattern lint', ...node('scripts/lint-webview-patterns.js')],
-        ['generated protocol types (python-backend/protocol_schema.py)', ...node('scripts/generate-protocol-types.mjs')],
+        ['generated protocol types (python-backend/transport/protocol_schema.py)', ...node('scripts/generate-protocol-types.mjs')],
         ['single-source consistency (dependency pins, browser limits)', ...node('scripts/check-single-sources.mjs')],
         ['agent skills copy (.claude/skills from .agents/skills)', ...node('scripts/sync-skills.mjs', '--check')],
         ['gui triggerability audit', ...npm(['run', 'lint:gui-triggerability'])],
@@ -76,13 +76,15 @@ const lanes = [
         ['eslint', ...npm(['run', 'lint'])],
     ]],
     ['Python', [
-        ['ruff check', python, ['-m', 'ruff', 'check', 'python-backend', 'scripts/check_decimation_flow.py', 'scripts/check_test_proofs.py']],
-        ['ruff format --check', python, ['-m', 'ruff', 'format', '--check', 'python-backend', 'scripts/check_decimation_flow.py', 'scripts/check_test_proofs.py']],
+        ['ruff check', python, ['-m', 'ruff', 'check', 'python-backend', 'scripts/check_test_proofs.py', 'scripts/check_figure_imports.py']],
+        ['ruff format --check', python, ['-m', 'ruff', 'format', '--check', 'python-backend', 'scripts/check_test_proofs.py', 'scripts/check_figure_imports.py']],
         // Configured in pyproject.toml ([tool.pyright]); --pythonpath points it at the interpreter verify runs. pyright
         // needs that interpreter's absolute path: given a bare command (`python3`) it finds no site-packages.
         ['pyright', python, ['-m', 'pyright', '--pythonpath', () => pythonExecutable()]],
         // What the backend thins to draw (min/max per bucket, block averages) never becomes a number it sends (R1, R2).
-        ['drawn points never become numbers (scripts/check_decimation_flow.py)', python, ['scripts/check_decimation_flow.py']],
+        // The figure service's folder rules (figure-design.md 第 2 節 A, B, F): what figures/ imports, numpy only
+        // in the five rule files, the name Drawn only where it is made and received.
+        ['figure service imports and Drawn (scripts/check_figure_imports.py)', python, ['scripts/check_figure_imports.py']],
         ['pytest', python, ['-m', 'pytest', 'python-backend', ...pytestArgs, ...pytestSkipArgs(pytestSkips)], { after: 'tsc compile' }],
         ['skipped tests (in CI only those scripts/test-skip-allowlist.json lists)', ...node('scripts/test-skips.mjs', 'check', `node:test=${nodeSkips}`, `pytest=${pytestSkips}`), { after: 'node:test' }],
     ]],

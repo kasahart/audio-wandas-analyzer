@@ -59,3 +59,10 @@ export function csvRecords(text: string): string[][] {
     if (started || field || record.length) records.push([...record, field]);
     return records;
 }
+
+/** A number for the CSVs: seconds to 2 decimals and the like; never "-0.0"; nothing for no number. */
+export function csvNumber(value: number | null | undefined, decimals: number): string {
+    if (value === null || value === undefined || !Number.isFinite(value)) return '';
+    const text = value.toFixed(decimals);
+    return Number(text) === 0 ? (0).toFixed(decimals) : text;
+}

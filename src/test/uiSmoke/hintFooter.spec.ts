@@ -1,6 +1,8 @@
 import { expect, test } from './canvasAudit';
 import { getStrings } from '../../shared/i18n/strings';
 import { buildUiSmokeHtml } from './buildHtml';
+import { pointOnLane, pointOnRowAxis, rowFigure, ROW_WAVE, drawnRow } from './tracksFigures';
+
 
 const STR = getStrings('en');
 
@@ -18,10 +20,9 @@ test('hints show in the footer instead of tooltips beside the pointer', async ({
     await expect(footer).toHaveText(STR.btnFollowCursorTitle);
     await page.locator('#tb-more-menu > summary').click();
 
-    const canvas = page.locator('.track-canvas').first();
-    const box = await canvas.boundingBox();
-    if (!box) throw new Error('track canvas has no layout box');
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await drawnRow(page);
+    const plot = await pointOnLane(page, rowFigure(0), ROW_WAVE, 0.5);
+    await page.mouse.move(plot.x, plot.y);
     await expect(footer).toHaveText(STR.hintRectZoomDrag + ' / ' + STR.hintDoubleClickResetZoom + ' / ' + STR.hintWheelGestures);
 
     const footerBox = await footer.boundingBox();
@@ -37,20 +38,18 @@ test('axes, the spectrum and every toolbar control explain their gestures in the
 
     await page.locator('[data-action="zoom-in"]').hover();
     await expect(footer).toHaveText(STR.hintZoomIn);
-    await page.locator('.track-axis-canvas').first().hover();
-    await expect(footer).toHaveText(STR.hintWaveformAmplitudeAxis + ' / ' + STR.hintWheelGestures);
+    // A row's axis is its Figure's: it says what a double-click on it does, as every Figure's axis does.
+    const axis = await pointOnRowAxis(page, 'amplitude');
+    await page.mouse.move(axis.x, axis.y);
+    await expect(footer).toHaveText(STR.compareHintAxis);
 
-    const spectrum = page.locator('#spectrum-overlay-canvas');
+    const spectrum = page.locator('#spectrum-overlay-plot');
     const box = await spectrum.boundingBox();
     if (!box) throw new Error('spectrum canvas has no layout box');
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await expect(footer).toHaveText(STR.hintSpectrumPlot);
     await page.mouse.move(box.x + 4, box.y + box.height / 2);
-    await expect(footer).toHaveText(STR.hintSpectrumDbAxis);
-
-    await page.mouse.move(0, 0);
-    await spectrum.focus();
-    await expect(footer).toHaveText(STR.hintSpectrumPlot);
-    await expect(spectrum).toHaveAttribute('aria-description', STR.hintSpectrumPlot);
+    // An axis of the Figure says what a double-click on it does, as on the comparison's.
+    await expect(footer).toHaveText(STR.compareHintAxis);
 });
 

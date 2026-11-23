@@ -2,9 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { channelOfRecipe, channelResult, withBaseInput, withChannel, BASE_INPUT, CHANNEL_NODE, GET_CHANNEL } from '../shared/recipe/channelSelection';
+import { channelOfRecipe, withBaseInput, withChannel, BASE_INPUT, CHANNEL_NODE, GET_CHANNEL } from '../shared/recipe/channelSelection';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
-import type { ScanResult } from '../shared/protocol/backendProtocol';
 
 const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as RecipeDocument;
 
@@ -19,14 +18,6 @@ test('a channel is a get_channel step at the head of the chain, as wandas writes
     assert.equal(channelOfRecipe(recipe), null);
     // The original is untouched.
     assert.equal((recipe as unknown as { nodes: Array<{ id: string }> }).nodes[0].id, 'node-0');
-});
-
-test('one channel of a result scanned over every channel; a recording with fewer channels has none', () => {
-    const result = { ok: true, input: { id: 'x', fs: 16000, channels: [0, 1], durationS: 2, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true }, leqDbA: [-30, -40], peakHz: [100, 3150], crest: [3, 4], thirdOctDb: [[1], [2]], spectrumDb: [[5], [6]], specVersion: 5 } as unknown as ScanResult;
-    const ch2 = channelResult(result, 2) as unknown as Record<string, unknown>;
-    assert.deepEqual([ch2.leqDbA, ch2.peakHz, ch2.crest, ch2.thirdOctDb, ch2.spectrumDb], [[-40], [3150], [4], [[2]], [[6]]]);
-    assert.deepEqual((ch2.input as { channels: number[] }).channels, [1]);
-    assert.equal(channelResult(result, 3)?.ok, false);
 });
 
 test('a chain that compares two channels of the recording keeps them: a channel row adds no get_channel', () => {

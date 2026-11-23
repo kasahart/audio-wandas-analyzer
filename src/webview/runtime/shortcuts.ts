@@ -2,7 +2,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 
 export type GlobalShortcutAction = 'zoom-in' | 'zoom-out' | 'zoom-reset' | 'toggle-follow-cursor' | 'zoom-to-selection';
 export type EntryKeyAction = 'row-up' | 'row-down' | 'slot' | 'open' | 'play' | 'track' | 'memo';
-export type CompareKeyAction = 'slot' | 'toggle-base' | 'zoom-in' | 'zoom-out' | 'zoom-reset' | 'fix' | 'play' | 'back';
+export type CompareKeyAction = 'slot' | 'toggle-base' | 'zoom-in' | 'zoom-out' | 'zoom-reset' | 'play' | 'back';
 
 /**
  * A row of the help and, with `bind`, the keys (KeyboardEvent.key) that run its action. The help lists
@@ -16,13 +16,10 @@ export interface KeyRow<A extends string = string> {
     readonly bind?: Readonly<Record<string, A>>;
 }
 
-const ZOOM_BINDINGS = { '+': 'zoom-in', '=': 'zoom-in', '-': 'zoom-out', '_': 'zoom-out', '0': 'zoom-reset' } as const;
-
-/** What + / − / 0 (ZOOM_BINDINGS) do to the plot under the pointer, which every plot answers (plotInteraction.ts); null for another key. */
-export function zoomKeyAction(key: string): 'in' | 'out' | 'reset' | null {
-    const action = Object.prototype.hasOwnProperty.call(ZOOM_BINDINGS, key) ? ZOOM_BINDINGS[key as keyof typeof ZOOM_BINDINGS] : null;
-    return action === 'zoom-in' ? 'in' : action === 'zoom-out' ? 'out' : action === 'zoom-reset' ? 'reset' : null;
-}
+// + / − / 0 over a plot: shell/zoomKeys.ts's (one table for the old plots and the Figure), bound here as the actions.
+export { zoomKeyAction } from '../shell/zoomKeys';
+import { ZOOM_KEYS } from '../shell/zoomKeys';
+const ZOOM_BINDINGS = Object.fromEntries(Object.entries(ZOOM_KEYS).map(([key, action]) => [key, `zoom-${action}` as const])) as Readonly<Record<string, 'zoom-in' | 'zoom-out' | 'zoom-reset'>>;
 
 export const GENERAL_KEYS: readonly KeyRow[] = [
     { shortcut: '? / F1', labelKey: 'helpRowQuestion' },
@@ -61,7 +58,6 @@ export const COMPARE_KEYS: readonly KeyRow<CompareKeyAction>[] = [
     { shortcut: '1–3', labelKey: 'helpCompareSlot', bind: { 1: 'slot', 2: 'slot', 3: 'slot' } },
     { shortcut: 'B', labelKey: 'helpCompareBase', bind: { b: 'toggle-base', B: 'toggle-base' } },
     { shortcut: '+ / − / 0', labelKey: 'helpCompareZoom', bind: ZOOM_BINDINGS },
-    { shortcut: 'D', labelKey: 'helpCompareFix', bind: { d: 'fix', D: 'fix' } },
     { shortcut: 'Space', labelKey: 'helpComparePlay', bind: { ' ': 'play' } },
     { shortcut: 'Esc', labelKey: 'helpCompareEsc', bind: { Escape: 'back' } },
     { shortcut: 'Compare / Overlay', shortcutKey: 'helpCompareLayoutKey', labelKey: 'helpCompareLayout' },
@@ -138,13 +134,15 @@ export interface FocusedElementLike {
     id: string;
     tagName: string;
     classList: { contains(token: string): boolean };
+    closest?(selector: string): unknown;
 }
 
 export function keydownContextFor(active: FocusedElementLike | null, helpOverlay: { hidden: boolean } | null): KeydownContext {
     return {
         helpOpen: !!(helpOverlay && !helpOverlay.hidden),
         textEntryFocused: isTextEntryTag(active && active.tagName),
-        trackCanvasFocused: !!(active && active.classList.contains('track-canvas')),
+        // The canvas of a row's Figure.
+        trackCanvasFocused: !!(active && active.tagName === 'CANVAS' && !!active.closest?.('.track-row-figure')),
     };
 }
 

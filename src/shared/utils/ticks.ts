@@ -1,5 +1,8 @@
 /** Axis ticks at round values, shared by the app's plots (the clock-time ruler keeps its own minute steps). */
 
+// The round tick values: one rule for the old plots and the Figure (src/webview/figure/ticks.ts imports these;
+// figure-design.md 第 2 節 D). Tick values are neither measurement
+// arithmetic nor a figure decision, so they may live in src/shared (第 8 節).
 /** A tick step of 1, 2, 2.5 or 5 times a power of ten, about `raw` wide. */
 export function niceStep(raw: number): number {
     if (!(raw > 0) || !Number.isFinite(raw)) return 1;
@@ -15,6 +18,7 @@ export function niceTicks(low: number, high: number, count: number): number[] {
     for (let index = Math.ceil(low / step); index * step <= high + step * 1e-9; index++) values.push(+(index * step).toPrecision(12));
     return values;
 }
+
 
 /**
  * An auto range widened outward to round ends: the coarsest step of 1, 2 or 5 times a power of ten (at most a fifth

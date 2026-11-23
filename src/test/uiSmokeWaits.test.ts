@@ -16,14 +16,11 @@ const UI_SMOKE = 'src/test/uiSmoke';
 /** Fixed waits that test a time, by file and the line's text (trimmed). */
 const TIMED: ReadonlyArray<{ file: string; line: string; why: string }> = [
     { file: 'laneCulling.spec.ts', line: 'await page.waitForTimeout(5600);', why: 'past the answer store\'s 5 s pause, after which a passing failure would be asked again' },
-    { file: 'laneCulling.spec.ts', line: 'await page.waitForTimeout(2000);', why: 'a range asked for and never answered stops counting as on its way after a while' },
     { file: 'liveSpectrumExtensionHost.spec.ts', line: 'if (holdRate) await page.waitForTimeout(3000);', why: 'AWA_PERF=1: the response rate is measured over 3 s of playback' },
     { file: 'playbackCursor.spec.ts', line: 'await page.waitForTimeout(400);', why: 'draws counted over a span of playback' },
-    { file: 'plotContract.spec.ts', line: 'await plot.page().waitForTimeout(100);', why: 'the interval of a bounded poll for the point read' },
-    { file: 'plotContract.spec.ts', line: 'for (let tries = 0; tries < 50 && await plot.getAttribute(\'data-plot-read\') === \'pending\'; tries++) await page.waitForTimeout(100);', why: 'the interval of a bounded poll for a read waiting for its full data' },
-    { file: 'plotContract.spec.ts', line: 'if (!keptOut) await page.waitForTimeout(100);', why: 'the interval of a bounded poll for the point kept' },
     { file: 'realBackend.ts', line: 'await new Promise(resolve => setTimeout(resolve, 30));', why: 'the interval at which the bridge to the real backend looks for requests the page posted (settled() waits for their answers)' },
     { file: 'trackCompare.spec.ts', line: 'await page.waitForTimeout(300);', why: 'a slot key held longer than a tap' },
+    { file: 'trackRowFigures.spec.ts', line: 'await new Promise(resolve => setTimeout(resolve, 60));', why: 'a scroll held on: one move every 60 ms, faster than a picture comes back' },
     { file: 'trackSwipe.spec.ts', line: 'await page.waitForTimeout(300);', why: 'a pause between swipes, which starts a new one' },
 ];
 

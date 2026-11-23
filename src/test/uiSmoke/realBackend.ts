@@ -98,15 +98,18 @@ export function postLastAnswer({ data, requestId }: { data: { type: string; requ
 
 /**
  * Answers the comparison's requests on `page` as the host does, from `backend`: each picture asked for ('compare-scan',
- * file by file, then done) and each median and difference ('compare-combine'). The ui-smoke page's own stand-in for
- * the combine is held off. Returns a stop function, which resolves to the backend's refusals.
+ * file by file, then done) and each of the Figures' requests ('figure-request'); with `rows`, a Tracks row's kept
+ * answers too (a 'request-track-detail' with `answers`, as analysisClient.ts executeLazyAnalysis answers it). The
+ * ui-smoke page's own stand-in for the figure service is held off. Returns a stop function, which resolves to the
+ * backend's refusals.
  */
-export async function bridgeComparison(page: Page, backend: RealBackend, entryRecipe: Record<string, unknown>): Promise<() => Promise<string[]>> {
+export async function bridgeComparison(page: Page, backend: RealBackend, entryRecipe: Record<string, unknown>, rows = false): Promise<() => Promise<string[]>> {
     await page.evaluate(types => {
-        (window as unknown as { __uiSmokeHoldCombine: boolean }).__uiSmokeHoldCombine = true;
+        // The Figures' requests go to the backend that scanned the pictures (it keeps their values), not the stand-in.
+        (window as unknown as { __uiSmokeRealFigures: boolean }).__uiSmokeRealFigures = true;
         // The page has not answered what it asked until the backend has (canvasAudit.ts settled()).
         (window as unknown as { __settle?: { awaitHost(types: readonly string[]): void } }).__settle?.awaitHost(types);
-    }, ['compare-scan', 'compare-combine']);
+    }, ['compare-scan', 'figure-request', ...(rows ? ['request-track-detail'] : [])]);
     let seen = 0;
     let stopped = false;
     const failures: string[] = [];
@@ -116,25 +119,48 @@ export async function bridgeComparison(page: Page, backend: RealBackend, entryRe
     const close = (requestId: string, message: { type: string; requestId: string; [field: string]: unknown }): Promise<void> => page.evaluate(postLastAnswer, { data: message, requestId });
     const answer = async (message: Posted): Promise<void> => {
         if (message.type === 'compare-scan') {
-            const { requestId, filePaths, recipe, region, stage, detail, reference, spectrumBins } = message as Posted & { filePaths: string[] };
+            const { requestId, filePaths, recipe, region, stage, detail, reference } = message as Posted & { filePaths: string[] };
             for (const filePath of filePaths) {
                 // What the host passes on (panelController.ts): the entry Recipe when the request names none.
-                const fields = { recipe: recipe ?? entryRecipe, region, stage, detail, reference, spectrumBins: spectrumBins || undefined };
+                const fields = { recipe: recipe ?? entryRecipe, region, stage, detail, reference };
                 const result = await backend.request({ cmd: 'scan', filePath, ...fields });
                 if (!stopped) await post({ type: 'compare-scan-result', requestId, filePath, result });
             }
             if (!stopped) await close(requestId, { type: 'compare-scan-done', requestId });
-        } else if (message.type === 'compare-combine') {
-            const { type: _type, requestId, ...fields } = message;
-            const result = await backend.request({ cmd: 'stage-combine', ...fields });
-            if (!stopped) await close(requestId, { type: 'compare-combine-result', requestId, result });
+        } else if (message.type === 'figure-request') {
+            // The figure service's five requests, as the host hands them to the backend (entryScan.ts runFigureRequest).
+            const { requestId, command, payload } = message as Posted & { command: string; payload: Record<string, unknown> };
+            let reply: Record<string, unknown>;
+            try {
+                reply = { type: 'figure-result', requestId, command, result: await backend.request({ cmd: command, ...payload }) };
+            } catch (error) {
+                reply = { type: 'figure-result', requestId, command, failed: String(error) };
+            }
+            if (stopped) return;
+            if (command === 'figure-release') await page.evaluate(id => (window as unknown as { __settle?: { answered(requestId: string): void } }).__settle?.answered(id), requestId);
+            else await close(requestId, reply as { type: string; requestId: string });
+        } else if (message.type === 'request-track-detail') {
+            const { requestId, analysisId, settingsSignature, trackIndex, filePath, answers, startNorm, endNorm, spectrogram, extents } = message;
+            const identity = { requestId, analysisId, settingsSignature, trackIndex, filePath };
+            const timed = startNorm !== undefined && endNorm !== undefined ? { startNorm, endNorm } : {};
+            // As the host asks: with the page's STFT settings when they are set, with none while they are automatic.
+            const settings = JSON.parse(typeof settingsSignature === 'string' ? settingsSignature : '{}') as { auto?: boolean; stft?: unknown };
+            const stft = settings.auto === false && settings.stft ? { stftOptions: settings.stft } : {};
+            let reply: { type: string; requestId: string; [field: string]: unknown };
+            try {
+                const kept = await backend.request({ cmd: 'track-answers', filePath, scale: answers, ...timed, ...stft, ...(spectrogram === false ? { spectrogram: false } : {}), ...(extents === true ? { extents: true } : {}) });
+                reply = { ...kept, ...identity, ...timed, type: 'track-answers-result', scale: answers };
+            } catch (error) {
+                reply = { ...identity, type: 'track-detail-error', error: String(error) };
+            }
+            if (!stopped) await close(requestId, reply);
         }
     };
     const poll = async (): Promise<void> => {
         while (!stopped && !page.isClosed()) {
             const posted = await page.evaluate(from => (window as unknown as { __uiSmokePostedMessages: Posted[] }).__uiSmokePostedMessages.slice(from), seen).catch(() => [] as Posted[]);
             seen += posted.length;
-            for (const message of posted) if (message.type === 'compare-scan' || message.type === 'compare-combine') pending.push(answer(message).catch((error: unknown) => { failures.push(String(error)); }));
+            for (const message of posted) if (message.type === 'compare-scan' || message.type === 'figure-request' || (rows && message.type === 'request-track-detail' && message.answers)) pending.push(answer(message).catch((error: unknown) => { failures.push(String(error)); }));
             await new Promise(resolve => setTimeout(resolve, 30));
         }
     };

@@ -14,13 +14,14 @@ HERE = Path(__file__).resolve().parent
 BACKEND = HERE.parents[3] / "python-backend"
 sys.path[:0] = [str(HERE), str(BACKEND)]
 
-from analysis_engine import AnalysisEngine  # noqa: E402
-from analysis_service import AnalysisService  # noqa: E402
+from services.analysis_engine import AnalysisEngine  # noqa: E402
+from services.analysis_service import AnalysisService  # noqa: E402
 from generate import generate  # noqa: E402
 
 if __name__ == "__main__":
     files = sorted(generate(Path(sys.argv[1])))
     recipe = json.loads((BACKEND / "recipes" / "entry-scan.recipe.json").read_text())
+    stage = recipe["output"]  # A scan is of one step: the Recipe's last.
     service = AnalysisService(AnalysisEngine())
-    rows = [{"filePath": str(path), "result": service.scan(str(path), recipe=recipe)} for path in files]
+    rows = [{"filePath": str(path), "result": service.scan(str(path), recipe=recipe, stage=stage)} for path in files]
     json.dump(rows, sys.stdout)

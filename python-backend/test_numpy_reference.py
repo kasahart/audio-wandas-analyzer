@@ -176,10 +176,53 @@ def scan(backend: Backend, path: Path, plan: dict[str, Any]) -> dict[str, Any]:
     return result["stage"]
 
 
-def combine(backend: Backend, base: list[str], compare: str | None = None, **payload: object) -> dict[str, Any]:
-    result = backend.ask("stage-combine", base=base, compare=compare, **payload)
-    assert result["ok"], result
+_FIGURES = iter(range(1, 1_000_000))
+
+
+def lines_spec(base: list[str], compare: str | None = None) -> dict[str, Any]:
+    """A figure of lines as the comparison declares one: the base (a recording, or its group's median) and, with
+    ``compare``, the compared recording over it and compare − base in a lane of its own."""
+    keys = [*base, *([compare] if compare else [])]
+    overlay = [{"id": "base", "of": {"median": base}, "role": "base"}]
+    lanes: list[dict[str, Any]] = [{"id": "overlay", "kind": "lines", "lines": overlay}]
+    if compare:
+        overlay.append({"id": "compare", "of": {"key": compare}, "role": "compare1"})
+        delta = {"id": "delta", "of": {"delta": {"compare": compare, "base": base}}}
+        lanes.append({"id": "delta", "kind": "lines", "lines": [delta]})
+    return {"lanes": lanes, "keys": [{"key": key, "state": "usable", "version": key} for key in keys]}
+
+
+def draw(backend: Backend, spec: dict[str, Any]) -> dict[str, Any]:
+    """The figure service's picture of ``spec``, whole (640 × 240 px), under a figure id of its own."""
+    result = backend.ask(
+        "figure-draw",
+        figureId=f"ref-{next(_FIGURES)}",
+        generation=1,
+        requestNumber=1,
+        spec=spec,
+        width=640,
+        height=240,
+        view=None,
+        selection=None,
+    )
+    assert result["status"] == "picture", result
     return result
+
+
+def drawn_line(picture: dict[str, Any], lane: str, line: str) -> tuple[np.ndarray, np.ndarray]:
+    found = next(item for item in picture["lanes"] if item["id"] == lane)
+    points = next(item for item in found["lines"] if item["id"] == line)
+    return np.asarray(points["xs"], dtype=np.float64), _floats(points["values"])
+
+
+def every_value(
+    backend: Backend, spec: dict[str, Any], picture: dict[str, Any], line: str
+) -> tuple[np.ndarray, np.ndarray]:
+    """Every value of ``line`` as the figure service writes it out (figure-export): none thinned, none rounded."""
+    result = backend.ask("figure-export", spec=spec, view=None, dataId=picture["dataId"], requestNumber=2)
+    assert result["status"] == "rows", result
+    column = next(item for item in result["columns"] if item["line"] == line)
+    return np.asarray(column["xs"], dtype=np.float64), _floats(column["values"])
 
 
 def _floats(values: list[float | None]) -> np.ndarray:
@@ -291,30 +334,35 @@ def test_the_notch_case_is_hard(notch: dict[str, Path]) -> None:
     assert picked[np.isfinite(picked)].min() > delta[at] + 20
 
 
+def _notch_figure(backend: Backend, notch: dict[str, Path]) -> tuple[dict[str, Any], dict[str, Any]]:
+    keys = [scan(backend, notch[name], WELCH)["data"] for name in ("base0", "base1", "base2", "compare")]
+    spec = lines_spec(keys[:3], keys[3])
+    return spec, draw(backend, spec)
+
+
 def test_the_difference_headline_is_the_notch_at_its_bin_with_its_unrounded_depth(
     backend: Backend, notch: dict[str, Path]
 ) -> None:
     freqs, _, delta = _notch_answer(notch)
-    keys = [scan(backend, notch[name], WELCH)["data"] for name in ("base0", "base1", "base2", "compare")]
-    result = combine(backend, keys[:3], keys[3])
+    _, picture = _notch_figure(backend, notch)
     keep = drawn_band(freqs)
     at = int(np.flatnonzero(keep)[np.argmax(np.abs(delta[keep]))])
-    peak = result["diff"]["peak"]
+    (peak,) = picture["headlines"]
+    assert (peak["lane"], peak["line"]) == ("delta", "delta")
     assert peak["x"] == pytest.approx(freqs[at], abs=1e-9)
-    # Its value to the rounding the levels are kept with (the rounding itself: the read's test below).
-    assert peak["value"] == pytest.approx(delta[at], abs=0.02)
+    # The Frame's unrounded difference itself (to the reference's own float32 arithmetic).
+    assert peak["value"] == pytest.approx(delta[at], abs=5e-4)
 
 
 def test_the_drawn_difference_keeps_the_notch_and_every_bump_at_their_own_bins_depth_and_height(
     backend: Backend, notch: dict[str, Path]
 ) -> None:
     freqs, _, delta = _notch_answer(notch)
-    keys = [scan(backend, notch[name], WELCH)["data"] for name in ("base0", "base1", "base2", "compare")]
-    drawn = combine(backend, keys[:3], keys[3])["diff"]
-    xs, values = np.asarray(drawn["xs"], dtype=np.float64), _floats(drawn["values"])
+    _, picture = _notch_figure(backend, notch)
+    xs, values = drawn_line(picture, "delta", "delta")
     assert xs.size < drawn_band(freqs).sum()  # thinned: fewer points than bins
     keep = drawn_band(freqs)
-    # Thinning keeps each bucket's extremes (the rounding is the read's test below).
+    # Thinning keeps each bucket's extremes (the rounding of drawn points only: the next test reads every value).
     at = int(np.flatnonzero(keep)[np.argmin(delta[keep])])
     assert np.nanmin(values) == pytest.approx(delta[at], abs=0.02)
     assert xs[np.nanargmin(values)] == pytest.approx(freqs[at], abs=1e-9)
@@ -327,21 +375,20 @@ def test_the_drawn_difference_keeps_the_notch_and_every_bump_at_their_own_bins_d
         assert xs[near][np.nanargmax(values[near])] == pytest.approx(freqs[k], abs=1e-9)
 
 
-def test_a_read_of_the_difference_is_the_frames_unrounded_difference_bin_by_bin(
+def test_every_value_of_the_difference_is_the_frames_unrounded_difference_bin_by_bin(
     backend: Backend, notch: dict[str, Path]
 ) -> None:
     freqs, _, delta = _notch_answer(notch)
-    keys = [scan(backend, notch[name], WELCH)["data"] for name in ("base0", "base1", "base2", "compare")]
+    spec, picture = _notch_figure(backend, notch)
+    xs, values = every_value(backend, spec, picture, "delta")
     window = [NOTCH_HZ - 200, NOTCH_HZ + 200]
-    points = combine(backend, keys[:3], keys[3], read={"x": window, "of": "diff", "beyond": 0})["points"]
-    assert points["complete"]
     inside = (freqs >= window[0]) & (freqs <= window[1])
-    np.testing.assert_allclose(points["xs"], freqs[inside], atol=1e-9)
+    sent = (xs >= window[0]) & (xs <= window[1])
+    np.testing.assert_allclose(xs[sent], freqs[inside], atol=1e-9)
     # The Frame's unrounded difference itself (to the reference's own float32 arithmetic): only the text the webview
-    # writes rounds it, never the read (two levels 0.008 dB apart are read apart, not both at the same 0.01 dB).
-    values = _floats(points["values"])
-    np.testing.assert_allclose(values, delta[inside], rtol=0, atol=5e-4)
-    assert np.mean(np.abs(values - np.round(values, 2)) > 1e-3) > 0.5
+    # writes rounds it, never the values (two levels 0.008 dB apart stay apart, not both at the same 0.01 dB).
+    np.testing.assert_allclose(values[sent], delta[inside], rtol=0, atol=5e-4)
+    assert np.mean(np.abs(values[sent] - np.round(values[sent], 2)) > 1e-3) > 0.5
 
 
 @pytest.fixture(scope="module")
@@ -374,15 +421,16 @@ def test_a_groups_median_is_taken_bin_by_bin_so_tones_in_other_bins_do_not_make_
     assert picked[band] > median[inside].max() + 30
 
     keys = [scan(backend, nearby_tones[f"base{index}"], WELCH)["data"] for index in range(3)]
-    result = combine(backend, keys)
-    drawn = _floats(result["base"]["values"])
-    xs = np.asarray(result["base"]["xs"], dtype=np.float64)
+    spec = lines_spec(keys)
+    picture = draw(backend, spec)
+    xs, drawn = drawn_line(picture, "overlay", "base")
     near = (xs >= window[0]) & (xs <= window[1])
     # The drawn median keeps the bins' highest median there, and nothing like the tones.
     assert np.nanmax(drawn[near]) == pytest.approx(median[inside].max(), abs=0.01)
-    points = combine(backend, keys, read={"x": window, "of": "base", "beyond": 0})["points"]
-    np.testing.assert_allclose(points["xs"], freqs[inside], atol=1e-9)
-    np.testing.assert_allclose(_floats(points["values"]), median[inside], atol=0.01)
+    every_x, every = every_value(backend, spec, picture, "base")
+    sent = (every_x >= window[0]) & (every_x <= window[1])
+    np.testing.assert_allclose(every_x[sent], freqs[inside], atol=1e-9)
+    np.testing.assert_allclose(every[sent], median[inside], atol=5e-4)
 
 
 ORDER_WINDOW = (1_000.0, 4_000.0)
@@ -417,39 +465,6 @@ def test_the_order_case_is_hard(rough_and_smooth: dict[str, Path]) -> None:
     assert extremes["rough"] > extremes["smooth"]
 
 
-def test_each_recordings_level_bins_are_every_bins_power_so_the_quietest_is_drawn_on_top(
-    backend: Backend, rough_and_smooth: dict[str, Path]
-) -> None:
-    window_power = {}
-    for name, path in rough_and_smooth.items():
-        freqs, levels = spectrum_db(reference_frame(path, WELCH))
-        view = scan(backend, path, WELCH)
-        bins = view["levelBins"]
-        edges = np.asarray(bins["edges"], dtype=np.float64)
-        keep = drawn_band(freqs)
-        first = float(freqs[keep][0])
-        np.testing.assert_allclose(edges, np.geomspace(first, RATE / 2, edges.size), rtol=1e-9)
-        which = np.clip(np.searchsorted(edges, freqs[keep], side="right") - 1, 0, edges.size - 2)
-        power = np.where(levels[keep] <= SILENT_DB, 0.0, 10 ** (levels[keep] / 10))
-        counts = np.bincount(which, minlength=edges.size - 1)
-        expected = np.divide(
-            np.bincount(which, weights=power, minlength=edges.size - 1),
-            counts,
-            out=np.zeros(counts.size),
-            where=counts > 0,
-        )
-        np.testing.assert_array_equal(bins["count"], counts)
-        np.testing.assert_allclose(bins["power"], expected, rtol=3e-3)
-        # The window's power the overlay orders its lines by, asked of the backend as the plot asks it.
-        level = combine(backend, [view["data"]], read={"x": list(ORDER_WINDOW), "level": "db"})["points"]["level"]
-        inside = (freqs >= ORDER_WINDOW[0]) & (freqs <= ORDER_WINDOW[1])
-        assert level["count"] == int(inside.sum())
-        assert level["power"] == pytest.approx(_mean_power(levels[inside]), rel=3e-3)
-        window_power[name] = level["power"]
-    # The quieter line (the rough one, by every bin) is the one drawn on top.
-    assert min(window_power, key=window_power.__getitem__) == "rough"
-
-
 # --- A time signal: a one-sample spike ------------------------------------------------------------------------
 
 SIGNAL = recipe()
@@ -472,45 +487,43 @@ def _samples(frame: Any) -> np.ndarray:
     return np.asarray(frame.data, dtype=np.float64).reshape(-1)
 
 
-def test_a_time_signals_difference_headline_is_the_spike_at_its_samples_time(
+def test_a_time_signals_one_sample_spike_is_drawn_at_its_height_and_read_as_its_own_sample(
     backend: Backend, spike: dict[str, Path]
 ) -> None:
-    base, compare = (reference_frame(spike[name], SIGNAL) for name in ("base", "compare"))
-    delta = _samples(compare) - _samples(base)
-    at = int(np.argmax(np.abs(delta)))
+    """The comparison draws each recording's own samples (a time signal has no Δ lane): the spike is one sample of
+    the compared recording, which a bucket of averaged samples would drown."""
+    samples = _samples(reference_frame(spike["compare"], SIGNAL))
+    at = int(np.argmax(np.abs(samples)))
     # The Frame's time starts at its slice; the plot's axis is the file's time.
     start = EDGE_GUARD_S
-    # Hard: 2000 averaged buckets leave the spike under a twentieth of its height.
-    assert np.abs(np.array([block.mean() for block in np.array_split(delta, 2000)])).max() < SPIKE / 20
+    assert at == int(round((SPIKE_S - start) * RATE))
+    # Hard: 640 averaged buckets (one a pixel column) leave nothing of the spike's height.
+    assert np.abs(np.array([block.mean() for block in np.array_split(samples, 640)])).max() < samples[at] / 20
 
-    keys = [scan(backend, spike[name], SIGNAL)["data"] for name in ("base", "compare")]
-    result = combine(backend, keys[:1], keys[1])
-    peak = result["diff"]["peak"]
-    assert peak["x"] == pytest.approx(start + at / RATE, abs=0.5 / RATE)
-    assert peak["value"] == pytest.approx(delta[at], abs=1e-6)
-    drawn = _floats(result["diff"]["values"])
-    assert drawn.size < delta.size
-    assert np.nanmax(drawn) == pytest.approx(delta.max(), abs=1e-6)
-    # A dense window read under the pointer at the spike's height finds the spike itself.
-    window = [SPIKE_S - 0.5, SPIKE_S + 0.5]
-    points = combine(
-        backend, keys[:1], keys[1], read={"x": window, "of": "diff", "columns": 40, "near": 0.0, "beyond": 0}
-    )["points"]
-    values = _floats(points["values"])
-    assert np.nanmax(values) == pytest.approx(delta[at], abs=1e-6)
-    assert points["xs"][int(np.nanargmax(values))] == pytest.approx(start + at / RATE, abs=0.5 / RATE)
-
-
-def test_a_time_signals_level_bins_are_its_every_samples_mean_square(backend: Backend, spike: dict[str, Path]) -> None:
-    samples = _samples(reference_frame(spike["compare"], SIGNAL))
-    bins = scan(backend, spike["compare"], SIGNAL)["levelBins"]
-    edges = np.linspace(0, samples.size, len(bins["power"]) + 1).round().astype(np.int64)
-    expected = [float(np.mean(samples[a:b] ** 2)) for a, b in zip(edges[:-1], edges[1:], strict=True)]
-    np.testing.assert_array_equal(bins["count"], np.diff(edges))
-    np.testing.assert_allclose(bins["power"], expected, rtol=1e-5)
-    # Hard: what a thinned line keeps (each bucket's lowest and highest sample) has several times the power.
-    extremes = np.concatenate([[block.min(), block.max()] for block in np.array_split(samples, 2048)])
-    assert np.mean(extremes**2) > 2 * np.mean(samples**2)
+    key = scan(backend, spike["compare"], SIGNAL)["data"]
+    line = {"id": "sound", "role": "compare1", "of": {"key": key}}
+    spec = {
+        "lanes": [{"id": "sound", "kind": "band", "lines": [line]}],
+        "keys": [{"key": key, "state": "usable", "version": key}],
+    }
+    picture = draw(backend, spec)
+    xs, drawn = drawn_line(picture, "sound", "sound")
+    assert drawn.size < samples.size
+    assert np.nanmax(drawn) == pytest.approx(samples[at], abs=1e-6)
+    assert xs[int(np.nanargmax(drawn))] == pytest.approx(start + at / RATE, abs=0.5 / RATE)
+    # A pointer a pixel column beside the spike, at its height, reads the spike's own sample.
+    (lane,) = picture["lanes"]
+    x0, x1 = lane["range"]["x"]
+    y0, y1 = lane["range"]["y"]
+    scale = [640 / (x1 - x0), 240 / (y1 - y0)]
+    pointer = {"lane": "sound", "x": start + at / RATE + 1 / scale[0], "y": float(samples[at]), "scale": scale}
+    read = backend.ask(
+        "figure-read", figureId=picture["figureId"], pictureId=picture["pictureId"], requestNumber=2, pointer=pointer
+    )
+    assert read["status"] == "point", read
+    assert read["point"]["index"] == at
+    assert read["point"]["value"] == pytest.approx(samples[at], abs=1e-6)
+    assert read["point"]["x"] == pytest.approx(start + at / RATE, abs=0.5 / RATE)
 
 
 # --- A spectrogram: a one-frame burst in a long recording ------------------------------------------------------
@@ -537,49 +550,39 @@ def _plane_db(frame: Any) -> np.ndarray:
     return np.asarray(frame.dB, dtype=np.float64).reshape(-1, *np.shape(frame.dB)[-2:]).mean(axis=0)
 
 
-def test_a_spectrograms_difference_headline_is_the_bursts_own_cell(backend: Backend, burst: dict[str, Path]) -> None:
-    base_frame, compare_frame = (reference_frame(burst[name], STFT) for name in ("base", "compare"))
-    freqs = np.asarray(compare_frame.freqs, dtype=np.float64)
-    delta = _plane_db(compare_frame) - _plane_db(base_frame)
-    rows = (freqs >= SPECTRUM_MIN_HZ) & (freqs > 0)
-    view = scan(backend, burst["compare"], STFT)
-    whole = np.asarray(view["whole"], dtype=bool)
-    keys = [scan(backend, burst["base"], STFT)["data"], view["data"]]
-    result = combine(backend, keys[:1], keys[1])
-    times = np.asarray(compare_frame.times, dtype=np.float64)
-    part = np.abs(delta[np.ix_(rows, np.arange(times.size))])
-    row, column = np.unravel_index(int(np.argmax(part)), part.shape)
-    row = int(np.flatnonzero(rows)[row])
-    # Hard: thirty frames power-averaged put the burst's difference far under its own cell's.
-    thirty = 10 * np.log10(np.convolve(10 ** (_plane_db(compare_frame)[row] / 10), np.ones(30) / 30, mode="valid"))
-    assert _plane_db(compare_frame)[row, column] - thirty.max() > 6
-    peak = result["diff"]["peak"]
-    assert peak["y"] == pytest.approx(freqs[row], abs=1e-9)
-    assert peak["x"] == pytest.approx(EDGE_GUARD_S + times[column], abs=STFT_HOP / RATE / 2)
-    assert peak["value"] == pytest.approx(delta[row, column], abs=0.02)
-    assert whole.size and np.asarray(result["diff"]["matrix"]).shape[1] < times.size
-
-
-def test_the_track_spectrograms_colour_range_ends_are_the_stfts_own_extremes(
+def test_a_spectrograms_one_frame_burst_is_drawn_at_its_height_and_read_as_its_own_cell(
     backend: Backend, burst: dict[str, Path]
 ) -> None:
-    path = burst["compare"]
-    frame = wd.read_wav(str(path)).stft(n_fft=STFT_N_FFT, hop_length=STFT_HOP, window="hann")
-    levels = np.asarray(frame.dB, dtype=np.float64).reshape(-1)
-    # Hard: the averaged cells' highest is well under the burst's frame.
-    plane = np.asarray(frame.dB, dtype=np.float64).reshape(np.shape(frame.dB)[-2:])
-    blocks = 10 * np.log10(
-        np.mean(10 ** (plane[:, : plane.shape[1] // 10 * 10] / 10).reshape(plane.shape[0], -1, 10), 2)
+    """The comparison draws one recording's spectrogram (an image has no Δ): a drawn column stands for some thirty
+    frames and still shows the burst, and the cell a pointer reads is the STFT's own, unrounded."""
+    frame = reference_frame(burst["compare"], STFT)
+    freqs = np.asarray(frame.freqs, dtype=np.float64)
+    times = np.asarray(frame.times, dtype=np.float64)
+    plane = _plane_db(frame)
+    rows = (freqs >= SPECTRUM_MIN_HZ) & (freqs > 0)
+    part = plane[np.ix_(rows, np.arange(times.size))]
+    row, column = np.unravel_index(int(np.argmax(part)), part.shape)
+    row = int(np.flatnonzero(rows)[row])
+    # Hard: thirty frames power-averaged put the burst far under its own cell.
+    thirty = 10 * np.log10(np.convolve(10 ** (plane[row] / 10), np.ones(30) / 30, mode="valid"))
+    assert plane[row, column] - thirty.max() > 6
+
+    key = scan(backend, burst["compare"], STFT)["data"]
+    spec = {
+        "lanes": [{"id": "image", "kind": "image", "lines": [{"id": "sound", "of": {"key": key}}]}],
+        "keys": [{"key": key, "state": "usable", "version": key}],
+    }
+    picture = draw(backend, spec)
+    (lane,) = picture["lanes"]
+    cells = np.asarray([[np.nan if v is None else v for v in line] for line in lane["image"]["cells"]])
+    assert cells.shape[1] < times.size, "the picture averages frames into its columns"
+    # Its drawn cell keeps the burst's height (a drawn point, rounded to a tenth), not the thirty frames' average.
+    assert np.nanmax(cells) == pytest.approx(plane[row, column], abs=0.05)
+    pointer = {"lane": "image", "x": EDGE_GUARD_S + float(times[column]), "y": float(freqs[row]), "scale": [1.0, 1.0]}
+    read = backend.ask(
+        "figure-read", figureId=picture["figureId"], pictureId=picture["pictureId"], requestNumber=2, pointer=pointer
     )
-    assert levels.max() - blocks.max() > 3
-    result = backend.ask(
-        "track-detail",
-        filePath=str(path),
-        trackIndex=0,
-        analysisId="ref",
-        settingsSignature="ref",
-        stftOptions={"nFft": STFT_N_FFT, "overlapPercent": 100 * (1 - STFT_HOP / STFT_N_FFT), "window": "hann"},
-    )
-    spectrogram = result["channels"][0]["spectrogram"]
-    assert spectrogram["maxDb"] == pytest.approx(levels.max(), abs=0.01)
-    assert spectrogram["minDb"] == pytest.approx(max(levels.min(), -300.0), abs=0.01)
+    assert read["status"] == "point", read
+    assert read["point"]["y"] == pytest.approx(freqs[row], abs=1e-9)
+    assert read["point"]["x"] == pytest.approx(EDGE_GUARD_S + times[column], abs=STFT_HOP / RATE / 2)
+    assert read["point"]["value"] == pytest.approx(plane[row, column], abs=5e-4)

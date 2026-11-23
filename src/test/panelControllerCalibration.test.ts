@@ -153,7 +153,7 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
 
     let receiveMessage: ((message: unknown) => unknown) | undefined;
     let resolveAnalysisUpdate: ((message: { results: AnalysisResultWithError[] }) => void) | undefined;
-    let resolveWaveformResult: ((message: unknown) => void) | undefined;
+    let resolveLazyResult: ((message: unknown) => void) | undefined;
     const nextAnalysisUpdate = (): Promise<{ results: AnalysisResultWithError[] }> => new Promise((resolve) => {
         resolveAnalysisUpdate = resolve;
     });
@@ -170,9 +170,9 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
                     resolveAnalysisUpdate = undefined;
                 }
                 if (message && typeof message === 'object'
-                    && (message as { type?: unknown }).type === 'waveform-range-result') {
-                    resolveWaveformResult?.(message);
-                    resolveWaveformResult = undefined;
+                    && (message as { type?: unknown }).type === 'track-answers-result') {
+                    resolveLazyResult?.(message);
+                    resolveLazyResult = undefined;
                 }
                 return true;
             },
@@ -239,21 +239,12 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     };
     let lazyCalibration: import('../shared/protocol/backendProtocol').CalibrationRequestContext | undefined;
     const backend = {
-        requestRange: async (
+        requestTrackAnswers: async (
             _filePath: string,
-            startNorm: number,
-            endNorm: number,
-            _points: number,
-            _requestId?: string,
-            calibration?: import('../shared/protocol/backendProtocol').CalibrationRequestContext,
+            calibration: import('../shared/protocol/backendProtocol').CalibrationRequestContext,
         ) => {
             lazyCalibration = calibration;
-            return {
-                startNorm,
-                endNorm,
-                channels: [],
-                analysisRevision: calibration?.analysisRevision,
-            };
+            return { channels: [], analysisRevision: calibration?.analysisRevision };
         },
     } as unknown as PanelBackend;
     const controller = new PanelController(
@@ -281,17 +272,17 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
         new BackendRequestError('stale-calibration', 'invalid-input', 'Calibration channel label mismatch'),
         failedCalibratedProfile,
     );
-    const waveformResult = new Promise<unknown>((resolve) => { resolveWaveformResult = resolve; });
+    const lazyResult = new Promise<unknown>((resolve) => { resolveLazyResult = resolve; });
     receiveMessage({
-        type: 'request-waveform-range',
-        requestId: 'range-old-revision',
+        type: 'request-track-detail',
+        requestId: 'row-old-revision',
+        analysisId: 'a',
+        settingsSignature: 's',
         trackIndex: 0,
         filePath: calibratedPath,
-        startNorm: 0,
-        endNorm: 1,
-        points: 100,
+        answers: 'log',
     });
-    await waveformResult;
+    await lazyResult;
     assert.equal(lazyCalibration?.analysisRevision, 0);
     assert.deepEqual(lazyCalibration?.calibrationProfile, calibrationProfile);
     releaseCalibrationRefresh?.();
@@ -423,7 +414,7 @@ test('a calibration change refreshes every lane that shows the file, under each 
                     calibrationListener = listener;
                     return { dispose: () => undefined };
                 },
-                configureTrack: async () => undefined,
+                profile: () => undefined, configureTrack: async () => undefined,
             },
             {
                 getCurrentPythonEnvironmentState: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
@@ -502,7 +493,7 @@ test('a file written over on disk is told to the webview under each path it is o
             {} as PanelBackend,
             { analyzeFiles: async (filePaths) => filePaths.map((filePath) => result(filePath, 0, 0)), warmup: () => undefined },
             {} as ExportFlows,
-            { analysisRevision: () => 0, onDidChange: () => ({ dispose: () => undefined }), configureTrack: async () => undefined },
+            { analysisRevision: () => 0, onDidChange: () => ({ dispose: () => undefined }), profile: () => undefined, configureTrack: async () => undefined },
             {
                 getCurrentPythonEnvironmentState: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
                 onDidChangePythonEnvironmentState: () => ({ dispose: () => undefined }),
@@ -598,7 +589,7 @@ test('a track analysed again for a new calibration is analysed with the STFT sav
                 warmup: () => undefined,
             },
             {} as ExportFlows,
-            { analysisRevision: () => revision, onDidChange: (listener) => { calibrationListener = listener; return { dispose: () => undefined }; }, configureTrack: async () => undefined },
+            { analysisRevision: () => revision, onDidChange: (listener) => { calibrationListener = listener; return { dispose: () => undefined }; }, profile: () => undefined, configureTrack: async () => undefined },
             {
                 getCurrentPythonEnvironmentState: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
                 onDidChangePythonEnvironmentState: () => ({ dispose: () => undefined }),

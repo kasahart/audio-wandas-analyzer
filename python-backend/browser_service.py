@@ -14,12 +14,12 @@ import numpy as np
 import soundfile as sf
 import wandas as wd
 
-from analysis_engine import AnalysisEngine, CachedAnalysis, source_dtype
-from analysis_service import AnalysisService, PairSpectrumResult, pair_overlap, pair_stft_params
-from analyzer import resolve_stft_params, sample_range
-from backend_errors import INTERNAL_ERROR, InputError, MemoryBudgetError, UnreadableFileError, error_payload
-from calibration_profile import finite_source_channel_peaks
-from command_dispatch import dispatch, validate_request
+from services.analysis_engine import AnalysisEngine, CachedAnalysis, source_dtype
+from services.analysis_service import AnalysisService, pair_overlap, pair_stft_params
+from services.analyzer import resolve_stft_params, sample_range
+from services.backend_errors import INTERNAL_ERROR, InputError, MemoryBudgetError, UnreadableFileError, error_payload
+from services.calibration_profile import finite_source_channel_peaks
+from transport.command_dispatch import dispatch, validate_request
 
 MIB = 1024 * 1024
 # Browser session limits. This module is the single source; browser_limits() hands the
@@ -211,7 +211,7 @@ class BrowserService(AnalysisService):
         self.engine.discard_spectrograms(file_path)
         return {}
 
-    def pair_spectrum(
+    def pair_rows(  # type: ignore[no-untyped-def]
         self,
         reference: Mapping[str, object],
         responses: list[Mapping[str, object]],
@@ -219,8 +219,8 @@ class BrowserService(AnalysisService):
         start_seconds: float | None = None,
         end_seconds: float | None = None,
         stft_options: Mapping[str, object] | None = None,
-        **options: object,
-    ) -> PairSpectrumResult:
+    ):
+        # Guards the one place the pairs are computed (pair_answers asks here).
         # Peak memory follows the two-channel STFT and its cross spectra, measured near 64 bytes per bin.
         x = self._pair_source(reference)
         n_fft, hop_length, _ = pair_stft_params(x.frame.n_samples, stft_options)
@@ -237,13 +237,8 @@ class BrowserService(AnalysisService):
             raise MemoryBudgetError(
                 "Pair spectrum exceeds browser estimated memory budget; shorten the range or lower the overlap"
             )
-        return super().pair_spectrum(
-            reference,
-            responses,
-            start_seconds=start_seconds,
-            end_seconds=end_seconds,
-            stft_options=stft_options,
-            **options,
+        return super().pair_rows(
+            reference, responses, start_seconds=start_seconds, end_seconds=end_seconds, stft_options=stft_options
         )
 
 
@@ -261,7 +256,7 @@ def _service() -> BrowserService:
         # Pyodide has no threads; the Worker is this process's only user of dask.
         dask.config.set(scheduler="synchronous")
         # The steps' values kept for the comparison's medians and differences share the Worker's memory limit.
-        from stage_combine import STORE
+        from services.stage_combine import STORE
 
         STORE.resize(256 * MIB)
         service = create_service()

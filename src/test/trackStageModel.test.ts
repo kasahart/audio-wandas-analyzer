@@ -1,21 +1,18 @@
 import assert from 'node:assert/strict';
-import { drawableLine } from '../shared/drawnPoints';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { recipeChain, recipeSteps, withBypass, withParam } from '../shared/recipe/recipeSteps';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
-import type { StageView } from '../shared/protocol/backendProtocol';
 import { INPUT_STAGE, runnableRecipe } from '../webview/runtime/stepBarModel';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
-import { stageCacheKey } from '../webview/runtime/stageSource';
 import { pictureSummary } from '../webview/runtime/pictureSummary';
-import { channelRecipe, chosenStage, comparedPath, enterStageState, holdStageSpec, initialStageState, liveRegion, openStageState, plotsOf, combineRequest, regionStageSpec, stageSpec } from '../webview/runtime/trackStageModel';
+import type { FigureInspection } from '../webview/figure/index';
+import { channelRecipe, chosenStage, comparedPath, enterStageState, holdStageSpec, initialStageState, liveRegion, openStageState, stageSpec, watchedChannel } from '../webview/runtime/trackStageModel';
 
 const entry = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as RecipeDocument;
 const limits = { sampleRate: 16000 };
 const [hpf, slice, welch] = recipeSteps(entry, 16000);
-const line = (values: Array<number | null>, xs = values.map((_, index) => 100 * (index + 1))): StageView => ({ kind: 'line', x: 'frequency', quantity: 'level', xs, values } as StageView);
 
 test('the step shown: the one chosen, else the chain\'s end; the step before a bypassed one', () => {
     assert.equal(chosenStage(entry, limits, null), welch.id);
@@ -46,42 +43,6 @@ test('the region compared is the chip\'s unless it is bypassed', () => {
     assert.equal(liveRegion(undefined, null), null);
 });
 
-test('a scan\'s key names its Recipe, region and step; one channel adds a get_channel step', () => {
-    const recipe = { recipe: entry, runRecipe: runnableRecipe(entry, 16000) };
-    const spec = stageSpec(recipe, null, welch.id);
-    assert.match(spec.key, new RegExp(`^stage\\|.*\\|.*\\|${welch.id}$`));
-    assert.equal(spec.message.stage, welch.id);
-    assert.equal(spec.message.region, undefined);
-    const over = stageSpec(recipe, { start: 0.5, end: 1 }, welch.id);
-    assert.notEqual(over.key, spec.key);
-    assert.deepEqual(over.message.region, { start: 0.5, end: 1 });
-    const two = stageSpec(recipe, null, welch.id, 2);
-    assert.notEqual(two.key, spec.key);
-    assert.ok(recipeChain(two.message.recipe as RecipeDocument).some(node => node.operation === 'wandas.frame.get_channel'));
-    assert.equal(channelRecipe(entry, null, entry), entry);
-    assert.equal(channelRecipe(undefined, 2, undefined), undefined);
-    assert.deepEqual(stageSpec(null, null, welch.id).message, { stage: welch.id });
-    assert.equal(regionStageSpec(recipe, { start: 0, end: 1 }).message.stage, undefined);
-    assert.match(regionStageSpec(recipe, null).key, /^region\|/);
-});
-
-test('every scan\'s key holds its region exactly as it is sent: a region imported from a selection and one typed to 0.01 s never share a cache', () => {
-    const recipe = { recipe: entry, runRecipe: runnableRecipe(entry, 16000) };
-    const imported = { start: 1.2345, end: 2.5 };
-    const typed = { start: 1.23, end: 2.5 };
-    const specs = [
-        (region: { start: number; end: number }) => stageSpec(recipe, region, welch.id),
-        (region: { start: number; end: number }) => regionStageSpec(recipe, region),
-        (region: { start: number; end: number }) => holdStageSpec(recipe, welch.id, hpf, limits, region)!,
-    ];
-    for (const of of specs) {
-        const a = of(imported), b = of(typed);
-        assert.deepEqual(a.message.region, imported);
-        assert.notEqual(stageCacheKey(a), stageCacheKey(b), `${a.key} and ${b.key} ask for different samples`);
-        assert.equal(stageCacheKey(of({ ...imported })), stageCacheKey(a), 'the same region is the same key');
-    }
-});
-
 test('holding a step scans the chain without it, on the step before it when it is the one shown', () => {
     const recipe = { recipe: entry, runRecipe: runnableRecipe(entry, 16000) };
     const held = holdStageSpec(recipe, welch.id, hpf, limits, null);
@@ -96,37 +57,14 @@ test('holding a step scans the chain without it, on the step before it when it i
     assert.ok(recipeChain(channel?.message.recipe as RecipeDocument).some(node => node.operation === 'wandas.frame.get_channel'));
 });
 
-test('the base is one file\'s picture or a group\'s combined median; the difference is the combination\'s', () => {
-    const views: Record<string, StageView | null | undefined> = { a: { ...line([-10, -20]), data: 'ka' }, b: { ...line([-30, -40]), data: 'kb' }, c: { ...line([-20, -20]), data: 'kc' } };
-    const tracks = ['a', 'b', 'c', 'd'].map(filePath => ({ filePath }));
-    const combined = { base: line([-20, -30]), diff: line([0, 10]) };
-    const plots = plotsOf(path => views[path], tracks, 'c', ['a', 'b'], combined);
-    assert.deepEqual(plots.base?.values, [-20, -30]);
-    assert.deepEqual(plots.compare?.values, [-20, -20]);
-    assert.deepEqual(plots.diff?.values, [0, 10]);
-    assert.deepEqual(plots.others.map(item => [item.track.filePath, item.view]), [['d', null]]);
-    assert.equal(plotsOf(path => views[path], tracks, 'c', ['a', 'b'], undefined).base, null, 'a group\'s median not combined yet');
-    assert.equal(plotsOf(path => views[path], tracks, 'c', ['a'], combined).base, views.a, 'one base file is the base itself');
-    assert.equal(plotsOf(path => views[path], tracks, 'a', ['a', 'b'], combined).diff, null, 'a file is not compared with a base it is in');
-    // What is combined: the pictures' kept values, once every one is in.
-    assert.deepEqual(combineRequest(path => views[path], 'c', ['a', 'b']), { base: ['ka', 'kb'], compare: 'kc' });
-    assert.deepEqual(combineRequest(path => views[path], 'a', ['a', 'b']), { base: ['ka', 'kb'], compare: null });
-    assert.equal(combineRequest(path => (path === 'b' ? undefined : views[path]), 'c', ['a', 'b']), undefined, 'a picture not in yet');
-    assert.equal(combineRequest(path => views[path], 'a', ['a']), null, 'one base file and nothing compared');
-    assert.equal(combineRequest(path => (path === 'c' ? line([1, 2]) : views[path]), 'c', ['a']), null, 'a picture without kept values');
-    assert.deepEqual(combineRequest(path => (path === 'c' ? null : views[path]), 'c', ['a', 'b']), { base: ['ka', 'kb'], compare: null }, 'a compared file without an event: the group\'s median still');
-    // A picture whose values the backend refused to keep (stageDataTooLarge, so no key): nothing is asked, nothing
-    // scanned again, and the comparison says it is too large rather than nothing to compare.
-    const unkept = (path: string) => (path === 'b' ? line([1, 2]) : views[path]);
-    assert.equal(combineRequest(unkept, 'c', ['a', 'b'], path => path === 'b'), 'tooLarge');
-    assert.equal(combineRequest(path => views[path], 'c', ['a', 'b'], path => path === 'c'), 'tooLarge', 'the compared file too large');
-    assert.equal(combineRequest(path => (path === 'b' ? undefined : views[path]), 'c', ['a', 'b'], () => true), undefined, 'still waiting for a picture');
-});
-
-test('a picture is summed up by its points with a level and their median', () => {
-    assert.deepEqual(pictureSummary(line([-300, -20, -10, -30])), { stageValues: 3, stageMedian: -20 });
-    assert.deepEqual(pictureSummary({ kind: 'heatmap', matrix: [[-1, null], [-3, -2]] } as StageView), { stageValues: 3, stageMedian: -2 });
-    assert.deepEqual(pictureSummary(undefined), { stageValues: 0, stageMedian: null });
+test('the Figure is summed up by the points its first lane draws and their median on its value axis', () => {
+    const frame = { left: 0, top: 10, width: 100, height: 100 };
+    const seen = (lane: object, waiting = false): FigureInspection => ({ waiting, lanes: [{ frame, range: { x: [0, 1], y: [-40, 0] }, lines: [], ...lane }] } as unknown as FigureInspection);
+    // Drawn 25, 50 and 75 px down a 100 px axis from 0 to -40 dB: -10, -20 and -30 dB; a gap is no point.
+    assert.deepEqual(pictureSummary(seen({ lines: [{ points: [[0, 35], null, [5, 60]] }, { points: [[9, 85]] }] })), { stageValues: 3, stageMedian: -20 });
+    assert.deepEqual(pictureSummary(seen({ image: { rows: 2, columns: 3 } })), { stageValues: 6, stageMedian: null });
+    assert.deepEqual(pictureSummary(seen({ lines: [{ points: [[0, 35]] }] }, true)), { stageValues: 0, stageMedian: null }, 'a picture on its way is not on the canvas');
+    assert.deepEqual(pictureSummary(null), { stageValues: 0, stageMedian: null });
 });
 
 test('opening the mode keeps the step shown last, the region and the base groups allowed, and forgets the rest', () => {
@@ -161,12 +99,52 @@ test('the first opening shows the input, from either entrance; later ones the st
     assert.equal(fromTracks.stage, welch.id, 'opened from the table after the tracks: still the step shown last');
 });
 
-test('a base group of waveforms is drawn each as it is: no median signal, its title counts its files', () => {
-    const wave = (peak: number): StageView => ({ ...line([peak, -peak]), x: 'time', waveform: { min: [-peak], max: [peak] } } as unknown as StageView);
-    const views: Record<string, StageView> = { a: wave(0.1), b: wave(0.2), c: wave(0.5) };
-    const plots = plotsOf(path => views[path], [{ filePath: 'c' }], 'c', ['a', 'b'], undefined);
-    assert.deepEqual(plots.baseMembers, [{ path: 'a', view: views.a }, { path: 'b', view: views.b }]);
-    assert.equal(plots.base?.waveform, undefined);
-    assert.deepEqual(plotsOf(path => views[path], [{ filePath: 'c' }], 'c', ['a'], undefined).baseMembers, [], 'one base file is the base itself');
-    assert.deepEqual(plotsOf(path => line([drawableLine(views[path].values ?? [])[0] ?? 0]), [{ filePath: 'c' }], 'c', ['a', 'b'], undefined).baseMembers, [], 'levels have a median');
+test('the recording drawn under a trigger\'s events is the channel the trigger watches (its index from 0), never the channels averaged; a compared channel row is its own', () => {
+    const recipe = { recipe: entry, runRecipe: entry } as Parameters<typeof stageSpec>[0];
+    const selected = (ch: number): unknown => {
+        const nodes = (stageSpec(recipe, null, welch.id, ch).message.recipe as unknown as { nodes: Array<{ operation: string; params: { entries: Array<[string, unknown]> } }> }).nodes;
+        return nodes.find(node => node.operation.endsWith('get_channel'))?.params.entries.find(([name]) => name === 'channel_idx')?.[1];
+    };
+    // A whole stereo recording: the trigger's channel 0 is wandas' index 0, its channel 1 index 1 (not "all channels", not the one before).
+    assert.equal(selected(watchedChannel(null, 0)), 0);
+    assert.equal(selected(watchedChannel(null, 1)), 1);
+    // No channel parameter (a trigger of an older recipe): the first channel, as wandas takes it.
+    assert.equal(selected(watchedChannel(null, undefined)), 0);
+    // A channel row compared (from 1) is drawn as itself.
+    assert.equal(watchedChannel(2, 0), 2);
+    assert.equal(selected(watchedChannel(2, 0)), 1);
 });
+
+test('a scan\'s key names its Recipe, region and step; one channel adds a get_channel step', () => {
+    const recipe = { recipe: entry, runRecipe: runnableRecipe(entry, 16000) };
+    const spec = stageSpec(recipe, null, welch.id);
+    assert.match(spec.key, new RegExp(`^stage\\|.*\\|.*\\|${welch.id}$`));
+    assert.equal(spec.message.stage, welch.id);
+    assert.equal(spec.message.region, undefined);
+    const over = stageSpec(recipe, { start: 0.5, end: 1 }, welch.id);
+    assert.notEqual(over.key, spec.key);
+    assert.deepEqual(over.message.region, { start: 0.5, end: 1 });
+    const two = stageSpec(recipe, null, welch.id, 2);
+    assert.notEqual(two.key, spec.key);
+    assert.ok(recipeChain(two.message.recipe as RecipeDocument).some(node => node.operation === 'wandas.frame.get_channel'));
+    assert.equal(channelRecipe(entry, null, entry), entry);
+    assert.equal(channelRecipe(undefined, 2, undefined), undefined);
+    assert.deepEqual(stageSpec(null, null, welch.id).message, { stage: welch.id });
+});
+
+test('every scan\'s key holds its region exactly as it is sent: a region imported from a selection and one typed to 0.01 s never share a cache', () => {
+    const recipe = { recipe: entry, runRecipe: runnableRecipe(entry, 16000) };
+    const imported = { start: 1.2345, end: 2.5 };
+    const typed = { start: 1.23, end: 2.5 };
+    const specs = [
+        (region: { start: number; end: number }) => stageSpec(recipe, region, welch.id),
+        (region: { start: number; end: number }) => holdStageSpec(recipe, welch.id, hpf, limits, region)!,
+    ];
+    for (const of of specs) {
+        const a = of(imported), b = of(typed);
+        assert.deepEqual(a.message.region, imported);
+        assert.notEqual(a.key, b.key, `${a.key} and ${b.key} ask for different samples`);
+        assert.equal(of({ ...imported }).key, a.key, 'the same region is the same key');
+    }
+});
+

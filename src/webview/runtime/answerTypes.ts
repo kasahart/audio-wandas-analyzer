@@ -18,7 +18,7 @@ export interface AnswerIdentity {
     recipeKey: string;
     /** The measured region, in whole samples. */
     region: string;
-    /** The analysis condition (table conditionId). */
+    /** The analysis condition: what the answer was asked under beyond its file, recipe and region (a picture's spec and basis). */
     conditionId: string;
 }
 

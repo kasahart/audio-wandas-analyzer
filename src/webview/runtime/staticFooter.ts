@@ -1,7 +1,7 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import { SUPPORTED_AUDIO_FILE_EXTENSIONS } from '../../shared/utils/audioTarget';
 import { setHint } from './hintFooter';
-import { keyRouterFor } from './keyRouter';
+import { keyRouterFor } from '../shell/keyRouter';
 import type { PythonState } from './staticWorker';
 
 /** Actions the browser version cannot run: greyed out, and a press says why instead of acting. */
