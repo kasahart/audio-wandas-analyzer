@@ -51,7 +51,7 @@ interface Seen {
     waiting: boolean; pictureId: string | null; readout: string; headline: string; failure: string | null;
     lanes: Array<{
         id: string; frame: { left: number; top: number; width: number; height: number }; range: { x: [number, number]; y: [number, number] } | null; axisNames: { x: string; y: string };
-        lines: Array<{ id: string; points: Array<[number, number] | null> }>;
+        lines: Array<{ id: string; colour: string; points: Array<[number, number] | null> }>;
     }>;
     mark: { line: string; index: number; x: number; value: number; px: number; py: number } | null;
 }
@@ -178,6 +178,35 @@ test('the sound itself is overlaid by the one Figure of the new path: its sample
  * time from the trigger in the signal's unit; a read names the event and where in the recording it was cut; a click on
  * a line itself leaves that event out (the tracks under it say so) and a click in the empty part of the plot nothing.
  */
+test('the sound itself, thinned to several points a pixel, is painted as the pixels its lines cover, not stroked: a painting of it takes a few ms, not hundreds', async ({ page }) => {
+    test.skip(!ready(), `no Python backend with wandas for the narrow fixture: ${fixtureError}`);
+    test.setTimeout(180_000);
+    const stop = await openComparison(page);
+    await expect.poll(async () => (await seen(page)).lanes[0]?.lines.length ?? 0, { timeout: 30_000 }).toBe(2);
+    const first = await drawn(page);
+    const colours = first.lanes[0].lines.map(line => line.colour);
+    expect(colours.length).toBe(2);
+    // What the Figure's canvas is given while it paints again (a resize: everything is painted again).
+    await page.locator(PREVIEW).evaluate(target => {
+        const w = window as unknown as { __strokes: string[]; __images: number; __paintings: number };
+        w.__strokes = []; w.__images = 0; w.__paintings = 0;
+        const proto = CanvasRenderingContext2D.prototype as unknown as Record<string, (...rest: unknown[]) => unknown>;
+        const { stroke, drawImage, clearRect } = proto;
+        proto.stroke = function(this: CanvasRenderingContext2D, ...args: unknown[]) { if (this.canvas === target && !this.getLineDash().length) w.__strokes.push(typeof this.strokeStyle === 'string' ? this.strokeStyle : ''); return stroke.apply(this, args); };
+        proto.drawImage = function(this: CanvasRenderingContext2D, ...args: unknown[]) { if (this.canvas === target) w.__images += 1; return drawImage.apply(this, args); };
+        proto.clearRect = function(this: CanvasRenderingContext2D, ...args: unknown[]) { if (this.canvas === target && Number(args[0]) === 0 && Number(args[1]) === 0) w.__paintings += 1; return clearRect.apply(this, args); };
+    });
+    const size = page.viewportSize()!;
+    await page.setViewportSize({ width: size.width - 40, height: size.height });
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __paintings: number }).__paintings), { timeout: 15_000 }).toBeGreaterThanOrEqual(1);
+    await expect.poll(async () => !(await seen(page)).waiting, { timeout: 30_000 }).toBe(true);
+    await settled(page);
+    const given = await page.evaluate(() => { const w = window as unknown as { __strokes: string[]; __images: number }; return { strokes: w.__strokes, images: w.__images }; });
+    expect(given.images, 'the lines are put as an image').toBeGreaterThan(0);
+    expect(given.strokes.filter(colour => colours.includes(colour)), 'a dense time signal is not stroked: three took 130 ms and more to stroke a painting. Fix: the Figure paints a band lane\'s dense lines with paintDenseLines (src/webview/figure/denseLine.ts)').toEqual([]);
+    expect(await stop(), 'the backend answered every request').toEqual([]);
+});
+
 test('a trigger\'s events are lines of the one Figure of the new path: each event of each recording by its number, read and left out by a click on its line', async ({ page }) => {
     test.skip(!ready(), `no Python backend with wandas for the narrow fixture: ${fixtureError}`);
     test.setTimeout(180_000);

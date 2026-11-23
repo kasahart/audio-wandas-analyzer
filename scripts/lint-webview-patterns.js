@@ -149,6 +149,9 @@ const CANVAS_DRAWING_FILES = [
     'src/webview/figure/imageLane.ts',
     // The Figure's bins lane: a distribution's bars, dots and ticks, called by figure.ts only.
     'src/webview/figure/binsLane.ts',
+    // The Figure's dense lines: a band lane's lines thinned to several points a pixel, put as one image of the
+    // pixels their strokes cover, called by figure.ts only.
+    'src/webview/figure/denseLine.ts',
     // A figure's PNG with its lines named: a strip of names and colour strokes above the Figure's own canvas,
     // which it copies. It draws no picture and no value: the names and colours handed to it.
     'src/webview/figure/pngLegend.ts',

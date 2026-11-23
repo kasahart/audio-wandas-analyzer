@@ -32,6 +32,7 @@
  * - Web (spec 4): during a long computation the readout says so, nothing is read, and a click does nothing; after it
  *   the pointer's place is read once.
  */
+import { isDense, paintDenseLines, pixelOf, type DenseLine } from './denseLine';
 import type { ExportDropReason, FigureRequests } from '../answers/figureRequests';
 import { keysChange, unusableKeys } from '../answers/figureKeys';
 import type { FigureDrawResult, FigureExportResult, FigureMembers, FigurePoint, FigureReadPayload, FigureReadResult, FigureSpec, FigureView } from '../answers/protocol';
@@ -1156,6 +1157,9 @@ export function createFigure(options: FigureOptions): Figure {
         if (followed === null || followed < Math.min(...lane.range.x) || followed > Math.max(...lane.range.x)) return null;
         return xPx(lane, followed);
     };
+    /** The canvas a lane's dense lines are made on (denseLine.ts), kept. */
+    let denseCanvas: HTMLCanvasElement | null = null;
+    const denseScratch = (): HTMLCanvasElement => (denseCanvas ??= doc.createElement('canvas'));
     /**
      * The lanes as last painted (everything but the marks over them: the cross and dot read, the followed line, the
      * box), kept as pixels by the line read (it is drawn last, on top, and wider). `key` says what they were painted
@@ -1345,27 +1349,43 @@ export function createFigure(options: FigureOptions): Figure {
                 for (const tick of lane.yTicks) ctx.fillRect(frame.left, Math.round(tick.px), frame.width, 1);
             }
             if (lane.bins) paintBins(ctx, lane.bins, frame, markColour);
-            for (const line of lane.lines) {
-                ctx.strokeStyle = line.colour;
-                ctx.lineWidth = line.width;
-                // The line kept under (lineUnder), in the stretches this one leaves.
+            // Each line, after the points kept under it (lineUnder) in the stretches it leaves.
+            const painted = lane.lines.map(line => {
                 const own = viewed?.lane.lines.find(item => item.id === line.id);
                 const under = viewed && own ? lineUnderOf(viewed, own) : null;
-                for (const [left, right] of under?.spans ?? []) {
+                const unders = (under?.spans ?? []).map(([left, right]) => ({
+                    left, right,
+                    // (A point more than a plot's width off either side joins nothing in sight.)
+                    points: viewed && under ? under.xs.map((x, at): [number, number] | null => {
+                        const value = under.values[at], px = xPx(viewed, x);
+                        return value === null || value === undefined || px < left - frame.width || px > right + frame.width ? null : [px, viewed.y.yOf(value)];
+                    }) : [],
+                }));
+                return { line, unders };
+            });
+            // A time signal thinned to several points a pixel: its pixels are worked out and put as one image
+            // (denseLine.ts). Stroked, three took 130 ms and more a painting, over 600 ms zoomed to a second or so.
+            const dense = viewed?.lane.kind === 'band' && painted.every(({ line, unders }) => !line.bars && pixelOf(line.colour) !== null
+                && (isDense(line.points) || !line.points.some(Boolean)) && unders.every(part => isDense(part.points) || !part.points.some(Boolean)));
+            const paintedDense = dense && paintDenseLines(ctx, denseScratch(), painted.flatMap(({ line, unders }): DenseLine[] => [
+                ...unders.map(part => ({ points: part.points, colour: line.colour, width: line.width, from: part.left, to: part.right })),
+                { points: line.points, colour: line.colour, width: line.width, from: frame.left, to: frame.left + frame.width },
+            ]), frame, ratio);
+            if (!paintedDense) for (const { line, unders } of painted) {
+                ctx.strokeStyle = line.colour;
+                ctx.lineWidth = line.width;
+                for (const part of unders) {
                     ctx.save();
                     ctx.beginPath();
-                    ctx.rect(left, frame.top, right - left, frame.height);
+                    ctx.rect(part.left, frame.top, part.right - part.left, frame.height);
                     ctx.clip();
                     ctx.beginPath();
                     let joined = false;
-                    under?.xs.forEach((x, at) => {
-                        const value = under.values[at], px = viewed ? xPx(viewed, x) : 0;
-                        if (value === null || value === undefined || !viewed) { joined = false; return; }
-                        // (A point more than a plot's width off either side joins nothing in sight.)
-                        if (px < left - frame.width || px > right + frame.width) { joined = false; return; }
-                        if (joined) ctx.lineTo(px, viewed.y.yOf(value)); else ctx.moveTo(px, viewed.y.yOf(value));
+                    for (const point of part.points) {
+                        if (!point) { joined = false; continue; }
+                        if (joined) ctx.lineTo(point[0], point[1]); else ctx.moveTo(point[0], point[1]);
                         joined = true;
-                    });
+                    }
                     ctx.stroke();
                     ctx.restore();
                 }
