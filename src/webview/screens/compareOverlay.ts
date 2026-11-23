@@ -249,6 +249,10 @@ export function createCompareOverlayScreen(deps: CompareOverlayDeps): CompareOve
             lineStyle: styleOfLine,
             // An image lane is named by its recording (the lanes are not overlaid: each says whose it is).
             laneLabel: lane => { const line = imageLaneLine(lane); return line ? nameOfLine({ id: line }) : lane; },
+            // A zoom undone shows the whole recording's lines at once, as the widest picture drew them, while the
+            // picture of the whole range is on its way (it took 0.5 to 0.7 s, and the plot stood empty but for the
+            // zoomed part stretched).
+            lineUnder: true,
         });
         made.on('view', view => {
             const specified = view.x?.some(end => end !== null) || view.lanes?.some(lane => lane.y.some(end => end !== null) || lane.colour?.some(end => end !== null));
