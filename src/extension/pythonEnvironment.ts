@@ -171,12 +171,16 @@ class NoPythonRunsError extends Error {
     }
 }
 
-/** Why a candidate did not run, in a few words: not found, or the first line of what its check printed. */
+/**
+ * Why a candidate did not run, in a few words: not found, or one line of what its check printed. That is the first
+ * line, except for a Python traceback, whose cause (`ModuleNotFoundError: …`) is its last line.
+ */
 function probeFailureReason(error: unknown): string {
     const text = strings();
     if (error instanceof PythonNotFoundError) { return text.pyCandidateNotFound; }
-    const firstLine = (error instanceof Error ? error.message : String(error)).trim().split(/\r?\n/u)[0] ?? '';
-    return fillTemplate(text.pyCandidateFailed, { detail: firstLine.length > 160 ? `${firstLine.slice(0, 160)}…` : firstLine });
+    const lines = (error instanceof Error ? error.message : String(error)).trim().split(/\r?\n/u).map(line => line.trim()).filter(Boolean);
+    const line = (lines[0]?.startsWith('Traceback') ? lines.at(-1) : lines[0]) ?? '';
+    return fillTemplate(text.pyCandidateFailed, { detail: line.length > 160 ? `${line.slice(0, 160)}…` : line });
 }
 
 class PythonNotFoundError extends Error {

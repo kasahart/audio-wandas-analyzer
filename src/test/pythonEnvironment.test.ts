@@ -1315,6 +1315,8 @@ test('when no candidate runs, one message names every candidate with why it fail
     const cases = [
         { platform: 'win32', answers: { python: { exit: 9009, stderr: `${storeStub}\r\n` } }, tried: `py -3 (not found); python (did not run: ${storeStub})` },
         { platform: 'linux', answers: {}, tried: 'python3 (not found); python (not found)' },
+        // A check that raised: its cause is the traceback's last line, not "Traceback (most recent call last):".
+        { platform: 'linux', answers: { python: { exit: 1, stderr: 'Traceback (most recent call last):\n  File "<string>", line 2, in <module>\nImportError: No module named importlib.util\n' } }, tried: 'python3 (not found); python (did not run: ImportError: No module named importlib.util)' },
     ] as const;
     for (const { platform, answers, tried } of cases) {
         const { spawnImpl } = fakeSpawn(answers);
