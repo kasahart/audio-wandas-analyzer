@@ -712,6 +712,52 @@ test('an Alt+drag says which end it began at: a drag to the left begins at its h
     figure.dispose();
 });
 
+test('an Alt+drag where the screen listens to ranging is told at every move with no box, and ends in a range, or in null when it picks nothing, its release is lost or its Figure goes (R17)', () => {
+    const page = figurePage();
+    let figure = drawn(page);
+    const told: Array<{ from: number; to: number } | null | 'range'> = [];
+    const listen = (made: typeof figure): void => {
+        made.on('range', () => { told.push('range'); });
+        made.on('ranging', drag => { told.push(drag ? { from: drag.from, to: drag.to } : null); });
+    };
+    listen(figure);
+    const from = client('overlay', { x: 120, y: 50 }), mid = client('overlay', { x: 270, y: 80 }), to = client('overlay', { x: 420, y: 150 });
+    page.mouse(figure.canvas, 'mousedown', from.x, from.y, { altKey: true });
+    page.mouse(page.document, 'mousemove', mid.x, mid.y, { buttons: 1, altKey: true });
+    assert.equal(figure.inspect().box, null, 'R17: no zoom box for a stretch the screen shows itself');
+    page.mouse(page.document, 'mousemove', to.x, to.y, { buttons: 1, altKey: true });
+    page.mouse(page.document, 'mouseup', to.x, to.y, { altKey: true });
+    assert.equal(told.length, 3);
+    const [first, second] = told as Array<{ from: number; to: number }>;
+    near(first.from / (20 * 1000 ** (120 / 600)), 1, 'from the press', 1e-9);
+    near(first.to / (20 * 1000 ** (270 / 600)), 1, 'to the pointer', 1e-9);
+    near(second.to / (20 * 1000 ** (420 / 600)), 1, 'to the pointer, further on', 1e-9);
+    assert.equal(second.from, first.from, 'every move is from the same press');
+    assert.equal(told[2], 'range', 'the release picks the stretch');
+    // Let go back at the press: it picks nothing.
+    told.length = 0;
+    page.mouse(figure.canvas, 'mousedown', from.x, from.y, { altKey: true });
+    page.mouse(page.document, 'mousemove', to.x, to.y, { buttons: 1, altKey: true });
+    page.mouse(page.document, 'mousemove', from.x, from.y, { buttons: 1, altKey: true });
+    page.mouse(page.document, 'mouseup', from.x, from.y, { altKey: true });
+    assert.deepEqual(told.slice(2), [null]);
+    // The release lost.
+    told.length = 0;
+    page.mouse(figure.canvas, 'mousedown', from.x, from.y, { altKey: true });
+    page.mouse(page.document, 'mousemove', to.x, to.y, { buttons: 1, altKey: true });
+    const view = page.document.defaultView!;
+    view.dispatchEvent(new view.Event('blur'));
+    assert.deepEqual(told.slice(1), [null]);
+    // The Figure disposed mid-drag (its row scrolled away).
+    told.length = 0;
+    page.mouse(figure.canvas, 'mousedown', from.x, from.y, { altKey: true });
+    page.mouse(page.document, 'mousemove', to.x, to.y, { buttons: 1, altKey: true });
+    figure.dispose();
+    assert.deepEqual(told.slice(1), [null]);
+    figure = drawn(page);
+    figure.dispose();
+});
+
 for (const lost of ['blur', 'hidden', 'pointercancel'] as const) {
     test(`a drag whose release is lost (${lost}) is let go: no box stays, nothing is zoomed, and the page's keys are free again (R7)`, () => {
         const page = figurePage();

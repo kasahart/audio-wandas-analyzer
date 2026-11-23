@@ -2057,6 +2057,8 @@ export function createFigure(options: FigureOptions): Figure {
         inspect,
         dispose() {
             if (disposed) return;
+            // An Alt+drag shown as it went ends with its Figure (the row scrolled away): the screen puts back what it showed.
+            rangingDropped(press);
             disposed = true;
             press = null;
             imagePixels.clear();
