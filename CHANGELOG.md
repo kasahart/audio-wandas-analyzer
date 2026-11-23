@@ -4,7 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
-- Tracks: an Alt+drag on a row shows the loop region from its first move and while it is dragged, as before 0.0.16, instead of the zoom box; the loop is still set when the mouse is let go (#811).
+- Tracks: an Alt+drag on a row shows the loop region from its first move and while it is dragged, as before the figures were rebuilt (#805), instead of the zoom box; the loop is still set when the mouse is let go (#811).
 
 ## 0.0.16
 
