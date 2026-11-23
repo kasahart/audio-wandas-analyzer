@@ -4,6 +4,8 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+## 0.0.16
+
 - Windows: with no Python interpreter set, the extension now tries `py -3` and then `python` (instead of `python3`, which Windows often lacks). When no interpreter runs, one message lists each one tried, why it failed, and the `audioWandasAnalyzer.pythonCommand` setting (#800).
 - **Every figure is rebuilt in three layers (breaking).** wandas computes every value. A figure service in the Python backend makes each figure as one picture from those values, and answers what the pointer reads and what an export writes. The screen draws that picture and keeps no values of its own, so what is drawn, what is read and what is exported cannot differ. The design is in [docs/figure-design.md](docs/figure-design.md), the figures are listed in [docs/figure-list.md](docs/figure-list.md). What changes in use:
 - Entry: the entry is the list of recordings and no longer analyses them. The value columns (Leq, peak frequency, crest factor, band levels), the Δ columns and the fixed Δ, the Compute button and its progress, the overview strip, the Δ shown while a slot key is held, and the entry's own step bar are gone; differences are looked at in Compare. The table gains length [s], sample rate [Hz] and calibration, read from each file's header. The distribution shows a numeric column of the conditions CSV (with no CSV it says so in one line), a bin holds its lower edge and not its upper, and it has no median mark. The table's CSV has no value or Δ column. Results stored by earlier versions are not read, and a saved sort or value column that is gone falls back to the default.
@@ -63,6 +65,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 - Compare: after a cepstrum or a cepstrogram, ＋ now adds wandas' lifter (it was greyed out for lack of a cutoff field). A new lifter keeps the quefrencies below 2 ms (cutoff 0.002 s, low); its cutoff in seconds and its side (low: below the cutoff, high: above it) are set in ⚙, and the result is drawn as the cepstrum it came from (#587).
 - Compare: a cepstrum is drawn as each stretch's minimum and maximum, as a waveform is, instead of a jagged zigzag through alternate peaks (#583).
 - Tracks: after a cursor click or a stop, every track's analysis window band moves in the same frame once all their cursor spectra have arrived (at most 1 s later), instead of reappearing track by track from the top (#598).
+- Updated to wandas 0.13.2 (#805).
 
 ## 0.0.15
 
