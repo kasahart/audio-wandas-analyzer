@@ -1096,7 +1096,7 @@ export function createFigure(options: FigureOptions): Figure {
             if (lane.image || lane.bins) continue;
             for (const line of lane.lines) {
                 const name = `${lane.id} ${line.id}`, had = lineUnders.get(name);
-                if (!had || had.key !== line.key || lineAcross(line.xs) >= lineAcross(had.xs)) lineUnders.set(name, { key: line.key, xs: line.xs, values: line.values });
+                if (!had || had.key !== line.key || lineAcross(line.xs) >= lineAcross(had.xs)) { lineUnders.set(name, { key: line.key, xs: line.xs, values: line.values }); keptCount += 1; }
             }
         }
         if (!options.imageUnder) return;
@@ -1104,7 +1104,7 @@ export function createFigure(options: FigureOptions): Figure {
             const image = lane.image;
             if (!image || image.key !== options.imageUnder(lane.id)) continue;
             const had = unders.get(lane.id);
-            if (!had || had.key !== image.key || imageAcross(image) >= imageAcross(had)) unders.set(lane.id, image);
+            if (!had || had.key !== image.key || imageAcross(image) >= imageAcross(had)) { unders.set(lane.id, image); keptCount += 1; }
         }
     };
     /** The image kept under a lane's own now: of the answer the screen names now, or none. */
@@ -1156,6 +1156,57 @@ export function createFigure(options: FigureOptions): Figure {
         if (followed === null || followed < Math.min(...lane.range.x) || followed > Math.max(...lane.range.x)) return null;
         return xPx(lane, followed);
     };
+    /**
+     * The lanes as last painted (everything but the marks over them: the cross and dot read, the followed line, the
+     * box), kept as pixels by the line read (it is drawn last, on top, and wider). `key` says what they were painted
+     * of; another key drops them all.
+     */
+    const layers = { key: '', byRead: new Map<string, HTMLCanvasElement>() };
+    /** A number for each picture shown and each line or image kept under: what the points drawn are of. */
+    const pictureNumbers = new WeakMap<object, number>();
+    let pictureCount = 0, keptCount = 0;
+    const numberOf = (item: object | null): number => {
+        if (!item) return 0;
+        let number = pictureNumbers.get(item);
+        if (number === undefined) { number = ++pictureCount; pictureNumbers.set(item, number); }
+        return number;
+    };
+    const lastPoint = (points: ReadonlyArray<[number, number] | null>): [number, number] | null => {
+        for (let at = points.length - 1; at >= 0; at -= 1) if (points[at]) return points[at];
+        return null;
+    };
+    /** Where a scale puts two values: two scales that put them alike are the same scale (linear or log). */
+    const scaleKey = (lane: LaneView): number[] => [lane.x.fraction(1), lane.x.fraction(10), lane.up.fraction(1), lane.up.fraction(10), lane.y.yOf(0), lane.y.yOf(1)];
+    /**
+     * What the lanes are painted of, as text: the picture and what is kept under, the size, the scales, and what the
+     * Figure says of each lane but its lines' points (a line's points are of the picture and the scales; their count
+     * and ends are said too). Whatever the painting reads that may change between two paintings is in it.
+     */
+    const layerKeyOf = (seen: FigureInspection, views: readonly LaneView[], ratio: number): string => JSON.stringify([
+        numberOf(last), keptCount, size.width, size.height, ratio, seen.waiting, seen.mapped, seen.failure,
+        views.map(view => [view.id, scaleKey(view), paletteOf(view.lane), options.laneLabel?.(view.id) ?? null, options.imageUnder?.(view.id) ?? null, gridOf(view.frame), wholeOf(view, 'x')]),
+        // (Of the lines in their declared order and their own style: which is read, so drawn last and wider, is the
+        // layer's own name, not its key.)
+        seen.lanes.map(({ order: _order, ...lane }) => ({
+            ...lane,
+            guides: lane.guides.map(guide => ({ ...guide, label: options.guideLabel?.(lane.id, guide) ?? null })),
+            lines: [...lane.lines].sort((one, other) => (one.id < other.id ? -1 : one.id > other.id ? 1 : 0)).map(({ points, colour: _colour, width: _width, ...line }) => ({ ...line, count: points.length, first: points.find(Boolean) ?? null, last: lastPoint(points) })),
+            styles: views.find(view => view.id === lane.id)?.lane.lines.map(line => [line.id, styleOf(line, false)]) ?? [],
+            ...(lane.bins ? { colours: lane.bins.marks.map(mark => markColour(mark)) } : {}),
+        })),
+    ]);
+    /** Keeps what the canvas holds now (the lanes, before any mark is drawn over them) for the line read `read`. */
+    const keepLayer = (read: string): void => {
+        if (!canvas.width || !canvas.height) return;
+        const kept = layers.byRead.get(read) ?? doc.createElement('canvas');
+        kept.width = canvas.width;
+        kept.height = canvas.height;
+        kept.getContext('2d')?.drawImage(canvas, 0, 0);
+        layers.byRead.delete(read);
+        layers.byRead.set(read, kept);
+        // (A line read each, and none: a few at most; the oldest goes first.)
+        while (layers.byRead.size > 4) layers.byRead.delete(layers.byRead.keys().next().value as string);
+    };
     const paint = (): void => {
         if (disposed) return;
         const seen = inspect();
@@ -1187,7 +1238,18 @@ export function createFigure(options: FigureOptions): Figure {
         ctx.clearRect(0, 0, size.width, size.height);
         ctx.font = '10px sans-serif';
         const views = laneViews();
-        seen.lanes.forEach((lane, index) => {
+        // The lanes as painted last time, copied back when nothing of them is another (a pointer's move, a box being
+        // dragged): only the marks over them are drawn again. Stroking a dense signal again took 100 ms and more.
+        const layerKey = layerKeyOf(seen, views, ratio);
+        if (layerKey !== layers.key) { layers.key = layerKey; layers.byRead.clear(); }
+        const readKey = seen.mark ? `${seen.mark.lane} ${seen.mark.line}` : '';
+        const keptLayer = layers.byRead.get(readKey);
+        if (keptLayer) {
+            ctx.save();
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.drawImage(keptLayer, 0, 0);
+            ctx.restore();
+        } else seen.lanes.forEach((lane, index) => {
             const { frame } = lane;
             const viewed = views.find(item => item.id === lane.id);
             if (viewed?.lane.image && lane.image) {
@@ -1378,6 +1440,7 @@ export function createFigure(options: FigureOptions): Figure {
             }
             ctx.restore();
         });
+        if (!keptLayer) keepLayer(readKey);
         if (seen.mark) {
             // The cross through the point read (R7): down the lane at its x, across it at its value in the colour of the
             // line read, so where the point is on both axes is seen at once. The dot alone left both to be guessed.

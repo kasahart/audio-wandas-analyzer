@@ -335,6 +335,50 @@ test('a hover reads a real bin at its exact value, the mark on it, and the arrow
     expect(await stop(), 'the backend answered every request').toEqual([]);
 });
 
+test('a pointer moving over the overlay draws the marks again, not its lines: the lines are kept as drawn (a dense signal took 100 ms and more to stroke again)', async ({ page }) => {
+    test.skip(!ready(), `no Python backend with wandas for the narrow fixture: ${fixtureError}`);
+    test.setTimeout(180_000);
+    const stop = await openComparison(page);
+    const loudAt = await highest(page);
+    const box = (await page.locator(FIGURE).boundingBox())!;
+    /** The pointer at `at`, once the mark read there is drawn. */
+    const readAt = async (at: Point, before: number | null): Promise<{ px: number; line: string }> => {
+        await page.mouse.move(box.x + at[0], box.y + at[1]);
+        await expect.poll(async () => (await seen(page)).mark?.px ?? null, { timeout: 15_000 }).not.toBe(before);
+        await settled(page);
+        const mark = (await seen(page)).mark!;
+        return { px: mark.px, line: mark.line };
+    };
+    // Two places on the overlay, each read once: the first read of a line paints the lanes with that line on top,
+    // and keeps them (figure.ts keepLayer).
+    const there: Point = [loudAt[0] + 40, loudAt[1]];
+    const one = await readAt(loudAt, null);
+    const other = await readAt(there, one.px);
+    expect(other.px, 'the two places read two points').not.toBe(one.px);
+    await page.locator(FIGURE).evaluate(target => {
+        const w = window as unknown as { __lineStrokes: string[]; __otherStrokes: number };
+        w.__lineStrokes = [];
+        w.__otherStrokes = 0;
+        const proto = CanvasRenderingContext2D.prototype as unknown as { stroke: (...rest: unknown[]) => void };
+        const stroke = proto.stroke;
+        proto.stroke = function(this: CanvasRenderingContext2D, ...args: unknown[]): void {
+            if (this.canvas === target) {
+                // (The cross read is dashed, in the colour of the line read: a line is stroked solid.)
+                if ((this.strokeStyle === '#3b82f6' || this.strokeStyle === '#d4b20f') && !this.getLineDash().length) w.__lineStrokes.push(String(this.strokeStyle));
+                else w.__otherStrokes += 1;
+            }
+            stroke.apply(this, args);
+        };
+    });
+    // Back and forth: each move reads the other point again and draws its mark there.
+    let last = other.px;
+    for (let move = 0; move < 4; move += 1) last = (await readAt(move % 2 ? there : loudAt, last)).px;
+    const strokes = await page.evaluate(() => { const w = window as unknown as { __lineStrokes: string[]; __otherStrokes: number }; return { __lineStrokes: w.__lineStrokes, __otherStrokes: w.__otherStrokes }; });
+    expect(strokes.__otherStrokes, 'each move draws the mark again').toBeGreaterThan(0);
+    expect(strokes.__lineStrokes, 'a move draws no line again: the lanes are copied as they were painted. Fix: the Figure\'s paint must keep its lanes (src/webview/figure/figure.ts layerKeyOf / keepLayer) and draw only the marks over them').toEqual([]);
+    expect(await stop(), 'the backend answered every request').toEqual([]);
+});
+
 test('a range typed in the axis\'s popover is the confirmed range today\'s rule makes, taken by the figure service as given (R9)', async ({ page }) => {
     test.skip(!ready(), `no Python backend with wandas for the narrow fixture: ${fixtureError}`);
     test.setTimeout(120_000);
