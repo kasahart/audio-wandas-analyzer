@@ -878,7 +878,7 @@ function pythonProof(targets: readonly string[], proof: Proof): string | null {
     const ask = (items: ReadonlyArray<{ targets: readonly string[]; proof: Proof }>): Array<string | null> => {
         const python = pythonExecutable();
         const input = JSON.stringify(items.map(item => ({ targets: item.targets, file: item.proof.file, name: item.proof.name })));
-        const run = spawnSync(python, ['scripts/check_test_proofs.py'], { cwd: repoRoot, encoding: 'utf8', input });
+        const run = spawnSync(python.command, [...python.args, 'scripts/check_test_proofs.py'], { cwd: repoRoot, encoding: 'utf8', input });
         assert.equal(run.status, 0, `check_test_proofs.py: ${run.stderr}`);
         return JSON.parse(run.stdout) as Array<string | null>;
     };

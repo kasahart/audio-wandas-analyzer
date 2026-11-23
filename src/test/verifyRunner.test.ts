@@ -149,7 +149,7 @@ test('a step that exits while a process it started still runs fails verify, and 
         const { status, output } = await runDriver(`import { runLanes } from ${JSON.stringify(runner)};
 const failures = await runLanes([
     ['Helper', [['helper ends by itself', process.execPath, ['-e', ${JSON.stringify(helper)}]]]],
-    ['Leaves', [['leaves a process', ${JSON.stringify(python)}, ['-c', ${JSON.stringify(leaves)}]]]],
+    ['Leaves', [['leaves a process', ${JSON.stringify(python.command)}, [...${JSON.stringify(python.args)}, '-c', ${JSON.stringify(leaves)}]]]],
 ], { cwd: process.cwd(), env: process.env, serial: true });
 console.log('failures: ' + JSON.stringify(failures));
 process.exit(failures.length ? 1 : 0);`, dir);

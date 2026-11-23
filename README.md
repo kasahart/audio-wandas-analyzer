@@ -60,7 +60,7 @@ Files and folders can also be opened from the **Audio Analyzer** view in the Act
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `audioWandasAnalyzer.pythonCommand` | `python3` | Python environment folder or executable used for the backend |
+| `audioWandasAnalyzer.pythonCommand` | unset | Python environment folder or executable used for the backend. Unset: the Python extension's environment, else `VIRTUAL_ENV`, else the first of `py -3`, `python` (Windows) or `python3`, `python` (elsewhere) that runs |
 | `audioWandasAnalyzer.cacheMemoryMb` | `1024` | Maximum memory (MB) used to cache loaded audio |
 
 In a workspace you have not trusted, the extension runs in limited mode: analysis works, but `audioWandasAnalyzer.pythonCommand` and `audioWandasAnalyzer.debugFilePath` are read from your user settings only, so a folder's `.vscode/settings.json` cannot choose the program the extension starts. Virtual workspaces (such as a GitHub repository opened in the browser) are not supported, because audio is read from the local file system.
@@ -69,7 +69,7 @@ Folder listing skips hidden folders (such as `.git` or `.venv`), `node_modules` 
 
 ### Troubleshooting
 
-- **Python interpreter was not found:** select the environment where the packages are installed, or update `audioWandasAnalyzer.pythonCommand`.
+- **No Python interpreter could be run / was not found:** the message lists each interpreter tried and why it failed. Select the environment where the packages are installed, or set `audioWandasAnalyzer.pythonCommand`.
 - **Analysis failed:** open **Output: Audio Wandas Analyzer** and check the Python error.
 - **A file does not load:** check that its format is in the list above. M4A is not supported.
 - **Large files feel slow:** the waveform is fetched only for the visible range; for spectrograms, try a smaller FFT size or a lower overlap.

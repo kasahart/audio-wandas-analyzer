@@ -27,7 +27,7 @@ test('the report Recipe carries the region as its time slice and still loads in 
     assert.deepEqual(recipeSteps(reportRecipe(entry, null)).find(step => step.name === 'time_slice')!.params, { end: null, start: 0 });
     const python = testPython();
     if (!python) { t.skip('no Python'); return; }
-    const run = spawnSync(python, ['-c', 'import json,sys; from wandas.pipeline import RecipePlan; print(len(RecipePlan.from_dict(json.load(sys.stdin)).to_dict()["nodes"]))'], { input: JSON.stringify(withRegion), encoding: 'utf8' });
+    const run = spawnSync(python.command, [...python.args, '-c', 'import json,sys; from wandas.pipeline import RecipePlan; print(len(RecipePlan.from_dict(json.load(sys.stdin)).to_dict()["nodes"]))'], { input: JSON.stringify(withRegion), encoding: 'utf8' });
     if (/No module named 'wandas'/.test(run.stderr)) { t.skip('wandas is not installed'); return; }
     assert.equal(run.status, 0, run.stderr);
     assert.equal(run.stdout.trim(), '3');
@@ -40,7 +40,7 @@ test('a compared channel is a get_channel step in the exported Recipe, and wanda
     assert.deepEqual(steps[0].params, { channel_idx: 1 });
     const python = testPython();
     if (!python) { t.skip('no Python'); return; }
-    const run = spawnSync(python, ['-c', 'import json,sys; from wandas.pipeline import RecipePlan; print(len(RecipePlan.from_dict(json.load(sys.stdin)).to_dict()["nodes"]))'], { input: JSON.stringify(recipe), encoding: 'utf8' });
+    const run = spawnSync(python.command, [...python.args, '-c', 'import json,sys; from wandas.pipeline import RecipePlan; print(len(RecipePlan.from_dict(json.load(sys.stdin)).to_dict()["nodes"]))'], { input: JSON.stringify(recipe), encoding: 'utf8' });
     if (/No module named 'wandas'/.test(run.stderr)) { t.skip('wandas is not installed'); return; }
     assert.equal(run.status, 0, run.stderr);
     assert.equal(run.stdout.trim(), '4');

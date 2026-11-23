@@ -21,7 +21,7 @@ export async function installFigureStandIn(page: Page): Promise<() => void> {
     const start = (): ChildProcess => {
         const python = backendPython();
         if (!python) throw new Error('no Python found for the figure service');
-        const made = spawn(python, [path.join(repoRoot, 'python-backend', 'tests', 'figure_stand_in.py')], { cwd: repoRoot, stdio: ['pipe', 'pipe', 'pipe'] });
+        const made = spawn(python.command, [...python.args, path.join(repoRoot, 'python-backend', 'tests', 'figure_stand_in.py')], { cwd: repoRoot, stdio: ['pipe', 'pipe', 'pipe'] });
         made.stdout.setEncoding('utf8');
         made.stdout.on('data', (chunk: string) => {
             buffered += chunk;

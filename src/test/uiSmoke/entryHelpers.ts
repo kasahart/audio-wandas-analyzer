@@ -33,7 +33,7 @@ function scanEntry100(): ScannedFile[] | undefined {
     if (!python) { scanError = 'no Python found'; return undefined; }
     const out = mkdtempSync(path.join(tmpdir(), 'entry100-ui-'));
     try {
-        const run = spawnSync(python, [path.join(repoRoot, 'src', 'test', 'fixtures', 'entry100', 'scan.py'), out], {
+        const run = spawnSync(python.command, [...python.args, path.join(repoRoot, 'src', 'test', 'fixtures', 'entry100', 'scan.py'), out], {
             encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024,
         });
         if (run.status !== 0) { scanError = `exit ${run.status}${run.signal ? ` (${run.signal})` : ''}${run.error ? ` ${String(run.error)}` : ''}: ${(run.stderr ?? '').slice(-2000)}`; return undefined; }

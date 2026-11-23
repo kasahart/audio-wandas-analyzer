@@ -86,7 +86,7 @@ test('in CI a node:test or pytest test that skips in any form and is not on the 
         const pythonPath = [path.join(repoRoot, 'python-backend'), process.env['PYTHONPATH']].filter(Boolean).join(path.delimiter);
         const pytestRecords: Record<string, SkipRecord[]> = {};
         for (const [mode, recordArgs, parallel] of [['serial', args.pytestSerial, ['-p', 'no:xdist']], ['xdist', args.pytestXdist, ['-n', '2']]] as const) {
-            const run: SpawnSyncReturns<string> = spawnSync(python, ['-m', 'pytest', '-p', 'conftest', ...recordArgs, '-c', path.join(pytestDir, 'pytest.ini'), '--rootdir', pytestDir, '-p', 'no:cacheprovider', ...parallel, pytestDir], {
+            const run: SpawnSyncReturns<string> = spawnSync(python.command, [...python.args, '-m', 'pytest', '-p', 'conftest', ...recordArgs, '-c', path.join(pytestDir, 'pytest.ini'), '--rootdir', pytestDir, '-p', 'no:cacheprovider', ...parallel, pytestDir], {
                 cwd: pytestDir, encoding: 'utf8', env: { ...withoutCi(), PYTHONPATH: pythonPath },
             });
             assert.equal(run.status, 0, `a skip passes pytest itself (${mode})\n${run.stdout}${run.stderr}`);
@@ -177,7 +177,7 @@ test('the skip allowlist only shrinks, and verify and test:ui record and check t
     for (const entry of entries) assert.match(entry.reason, /#\d+/u, `${entry.test}: an entry names the issue that ends it`);
     const verify = readFileSync(path.join(repoRoot, 'scripts', 'verify.mjs'), 'utf8');
     assert.match(verify, /\['node:test', \.\.\.node\('--test', \.\.\.nodeTestSkipArgs\(nodeSkips\)/u);
-    assert.match(verify, /\['-m', 'pytest', 'python-backend', [^\]]*\.\.\.pytestSkipArgs\(pytestSkips\)\]/u);
+    assert.match(verify, /py\('-m', 'pytest', 'python-backend', [^)]*\.\.\.pytestSkipArgs\(pytestSkips\)\)/u);
     assert.match(verify, /node\('scripts\/test-skips\.mjs', 'check', `node:test=\$\{nodeSkips\}`, `pytest=\$\{pytestSkips\}`\)/u);
     assert.match(readFileSync(path.join(repoRoot, 'playwright.config.ts'), 'utf8'), /\['\.\/scripts\/playwright-skip-reporter\.mjs'\]/u);
 });
