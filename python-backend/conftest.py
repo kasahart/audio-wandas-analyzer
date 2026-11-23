@@ -176,3 +176,66 @@ def assert_not_drawn(answer: Any, drawn: Any) -> None:
         np.allclose(np.asarray(answer, dtype=float), np.asarray(drawn, dtype=float), equal_nan=True)
     )
     assert not same, "the answer is the one the drawn points give: it must come from the full data"
+
+
+def with_cursor_lines(reply: Any) -> dict[str, Any]:
+    """A cursor-answers reply with each kept line read back by its key, for the tests of the numbers: beside every
+    channel's key its ``values`` (every bin's or band's level, dB), and the axis they are on (``frequencyBins``,
+    ``maxFrequencyHz``; for bands also their centres ``bandCentersHz`` and ``minFrequencyHz``). The webview never
+    reads a line: the figure service draws it by its key."""
+    from services.answer_store import STORE
+
+    found = dict(reply)
+    lines = [STORE.get(channel["key"]) for channel in found["channels"]]
+    found["channels"] = [
+        {**channel, "values": line.values.tolist()} for channel, line in zip(found["channels"], lines, strict=True)
+    ]
+    first = lines[0]
+    found["frequencyBins"] = int(first.xs.size)
+    if first.x_kind == "band":
+        found["bandCentersHz"] = first.xs.tolist()
+        found["minFrequencyHz"], found["maxFrequencyHz"] = first.x_limits
+    else:
+        found["maxFrequencyHz"] = float(first.xs[-1])
+    return found
+
+
+def cursor_lines(service: Any, file_path: object, **asked: Any) -> dict[str, Any]:
+    """``service.cursor_answers`` with its kept lines read back (with_cursor_lines)."""
+    return with_cursor_lines(service.cursor_answers(file_path, **asked))
+
+
+def with_pair_lines(reply: Any) -> dict[str, Any]:
+    """A pair-answers reply with each response's three kept lines read back by their keys, for the tests of the
+    numbers: ``gainDb``, ``phaseDeg`` and ``coherence`` (every bin; None where a bin has no value), what the gain's
+    dB are in (``gainLevel``: unit, reference, label), and the axis (``frequencyBins``, ``maxFrequencyHz``). A
+    response that could not be averaged has no lines: its three lists are empty."""
+    from services.answer_store import STORE
+
+    def listed(values: np.ndarray) -> list[float | None]:
+        return [float(value) if np.isfinite(value) else None for value in values.tolist()]
+
+    found = dict(reply)
+    found["frequencyBins"] = found["nFft"] // 2 + 1
+    responses = []
+    for response in found["responses"]:
+        keys = response.get("keys")
+        lines = {part: STORE.get(keys[part]) for part in ("gain", "phase", "coherence")} if keys else None
+        if lines is not None:
+            found["maxFrequencyHz"] = float(lines["gain"].xs[-1])
+        responses.append(
+            {
+                **response,
+                "gainDb": listed(lines["gain"].values) if lines else [],
+                "phaseDeg": listed(lines["phase"].values) if lines else [],
+                "coherence": listed(lines["coherence"].values) if lines else [],
+                **({"gainLevel": tuple(lines["gain"].identity)} if lines else {}),
+            }
+        )
+    found["responses"] = responses
+    return found
+
+
+def pair_lines(service: Any, reference: Any, responses: Any, **asked: Any) -> dict[str, Any]:
+    """``service.pair_answers`` with its kept lines read back (with_pair_lines)."""
+    return with_pair_lines(service.pair_answers(reference, responses, **asked))

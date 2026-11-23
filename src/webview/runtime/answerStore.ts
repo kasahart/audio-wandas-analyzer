@@ -14,7 +14,7 @@
  *   its own for it (answerStoreBoundary.test.ts forbids any timer call in an answer source).
  * - A ready answer carries the identity it is of (AnswerIdentity, answerTypes.ts); the figure model reads it there.
  *
- * What a figure draws of the answers, and which files it counts, is the figure model's (figureModel.ts), never this.
+ * What a figure draws of the answers, and which files it counts, is the figure service's (python-backend/figures/members.py), never this.
  */
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import type { Answer, AnswerIdentity } from './answerTypes';
@@ -59,7 +59,7 @@ export interface AnswerKeyParts {
     recipe?: string;
     /** The measured region, in whole samples, or the part on screen as it is sent. */
     region?: string;
-    /** The analysis condition (the table's conditionId, the track's analysis and its settings signature). */
+    /** The analysis condition (the track's analysis and its settings signature, what a picture was asked under). */
     condition?: string;
 }
 
@@ -388,37 +388,6 @@ export function createLatestAnswers<T, K extends string | number = string>(): La
 }
 
 /**
- * When each request on its way was sent, for the requests whose answer may never come (a lane's range): one asked for
- * longer than UNANSWERED_RETRY_MS ago is asked again, and an answer asked for before one already landed is older.
- */
-export interface RequestClock {
-    sent(requestId: string): void;
-    /** Whether the request is still waited for (sent less than UNANSWERED_RETRY_MS ago). */
-    waiting(requestId: string | undefined): boolean;
-    /** When it was sent (-Infinity if never), and it is no longer waited for. */
-    landed(requestId: string): number;
-}
-
-export function createRequestClock(now: () => number, capacity = 256): RequestClock {
-    const sentAt = new Map<string, number>();
-    return {
-        sent(requestId) {
-            sentAt.set(requestId, now());
-            for (const oldest of sentAt.keys()) {
-                if (sentAt.size <= capacity) break;
-                sentAt.delete(oldest);
-            }
-        },
-        waiting: requestId => requestId !== undefined && now() - (sentAt.get(requestId) ?? -Infinity) < UNANSWERED_RETRY_MS,
-        landed(requestId) {
-            const at = sentAt.get(requestId) ?? -Infinity;
-            sentAt.delete(requestId);
-            return at;
-        },
-    };
-}
-
-/**
  * Failures by subject for answers held elsewhere in one slot (a lane's whole-file spectrogram, its zoom window): a
  * failed one is not asked again until FAILED_RETRY_MS have passed, under the same condition.
  */
@@ -452,8 +421,7 @@ export const UNREAD_LEVEL: AnswerIdentity['level'] = { unit: '', ref: 1, levelRe
 
 /**
  * A file's scan as an answer, with the identity the scan gives it: its file version (input.id), calibration status,
- * level, condition (conditionId: the backend's hash of the version, calibration, unit and reference) and, when known,
- * the recipe and region it was measured with. Whether a scan counts is decided here alone: no result yet is pending,
+ * level and, when known, the recipe and region it was measured with (a scan names no condition of its own). Whether a scan counts is decided here alone: no result yet is pending,
  * one that did not read its file is failed.
  */
 export function scanAnswer(path: string, result: ScanResult | undefined, under?: { recipeKey?: string; region?: string }): ScanAnswer {
@@ -464,7 +432,7 @@ export function scanAnswer(path: string, result: ScanResult | undefined, under?:
         level: result?.ok && result.input ? result.input : UNREAD_LEVEL,
         recipeKey: under?.recipeKey ?? '',
         region: under?.region ?? '',
-        conditionId: result?.conditionId ?? '',
+        conditionId: '',
     };
     if (!result) return { state: 'pending', identity };
     if (!result.ok) return { state: 'failed', identity };
@@ -479,126 +447,6 @@ export function scanAnswer(path: string, result: ScanResult | undefined, under?:
 export function pictureIdentity(path: string, result: ScanResult | undefined, under: { recipeKey: string; region: string; asked: string }): AnswerIdentity {
     const { identity } = scanAnswer(path, result, under);
     return { ...identity, conditionId: JSON.stringify([identity.conditionId, under.asked]) };
-}
-
-declare const currentBrand: unique symbol;
-declare const shownBrand: unique symbol;
-/**
- * The scans of the current chain and calibration (ready, and failed with why), as only the answer store makes them:
- * what a median, a Δ, an n, a level reference or an axis name is taken from. A map of every scan cannot pass for it.
- * It stands in for the answers until every figure takes Answers itself (figureModel's FigureSet).
- */
-export type CurrentAnswers = ReadonlyMap<string, ScanResult> & { readonly [currentBrand]: 'current' };
-/** Every file's latest scan, an earlier chain's too, for the table to show (greyed when stale): never counted. */
-export type ShownAnswers = ReadonlyMap<string, ScanResult> & { readonly [shownBrand]: 'shown' };
-
-/** What a scan is asked under: the recipe and the file's condition (its calibration epoch) when it is asked. */
-export interface ScanUnder {
-    recipeKey: string;
-    condition: string;
-}
-
-/**
- * The latest scan of each file, handed out only as answers with their state (scanAnswer): stale when measured under
- * another recipe or condition than the current one, pending only while asked, missing when never asked. No raw map of
- * the scans leaves the store: the current ones as CurrentAnswers, every one for showing as ShownAnswers.
- */
-export interface ScanAnswers {
-    /** A file's scan as an answer (stale: its value shown greyed, never counted). */
-    answer(path: string): ScanAnswer;
-    /** Several files' answers, against one reading of what is current. */
-    answers(paths: readonly string[]): ScanAnswer[];
-    /** Whether the file's result (read or failed) is of another recipe or condition than the current one. */
-    stale(path: string): boolean;
-    /** The scans of the current recipe and condition (a failed one too, with why): what is counted. */
-    current(): CurrentAnswers;
-    /** Every file's latest scan, for the table to show: an earlier chain's is there greyed. */
-    shown(): ShownAnswers;
-    /** Why a file's scan failed under the current chain and condition, and the step that cannot run on it if that is why; undefined otherwise. */
-    failure(path: string): { reason: string; failedStep?: string } | undefined;
-    /** These files are asked for now, each under what is current as it is asked: until it answers or the asking ends, it is pending. */
-    asking(paths: readonly string[]): void;
-    /**
-     * A scan asked for came in: kept under what it was asked under (a calibration changed meanwhile makes it stale).
-     * One not asked for (an asking already ended) is not kept, and false is said.
-     */
-    answered(path: string, result: ScanResult): boolean;
-    /** The asking ended (done or stopped): a file not answered is missing again. */
-    settled(): void;
-    /** A scan kept under `under` as it is (tests, stored sessions). */
-    set(path: string, result: ScanResult, under: ScanUnder): void;
-    delete(path: string): void;
-    clear(): void;
-    /** Bumped on every change to the scans kept: what is derived of them all (the chain's limits) is made again after one. */
-    readonly revision: number;
-}
-
-/** What a scan must be of now: the current recipe's key (asked once per question, it may be costly) and each file's condition. */
-export interface ScanCurrent {
-    recipeKey: string;
-    condition(path: string): string;
-    /** Changed whenever any file's condition does (a calibration changed): the current scans are taken again then. */
-    conditions?: number;
-}
-
-export function createScanAnswers(currentOf: () => ScanCurrent = () => ({ recipeKey: '', condition: () => '' })): ScanAnswers {
-    const latest = createLatestAnswers<ScanResult>();
-    /** Each file asked for now, with what it was asked under. */
-    const asked = new Map<string, ScanUnder>();
-    const staleUnder = (path: string, now: ScanCurrent): boolean => {
-        if (!latest.has(path)) return false;
-        const under = latest.under(path);
-        return under?.recipeKey !== now.recipeKey || (under?.condition ?? '') !== now.condition(path);
-    };
-    const answerUnder = (path: string, now: ScanCurrent): ScanAnswer => {
-        const result = latest.get(path);
-        const under = latest.under(path);
-        const found = scanAnswer(path, result, under);
-        const identity = { ...found.identity, calibrationSignature: `${found.identity.calibrationSignature}|${under?.condition ?? ''}` };
-        if (!result) return asked.has(path) ? { state: 'pending', identity } : { state: 'missing', identity };
-        // Measured, or failed, under another chain or condition than the current one: stale either way (its failure is
-        // of the earlier chain, not a reason about the file now).
-        if (staleUnder(path, now)) return found.state === 'ready' ? { state: 'stale', value: found.value, identity } : { state: 'stale', identity };
-        return { ...found, identity };
-    };
-    let revision = 0;
-    /** The current scans as last taken, and what they were taken under. */
-    let made: { revision: number; recipeKey: string; conditions?: number; answers: CurrentAnswers } | null = null;
-    const keep = (path: string, result: ScanResult, under: ScanUnder): void => { asked.delete(path); latest.set(path, result, under); revision++; };
-    return {
-        get revision() { return revision; },
-        answer: path => answerUnder(path, currentOf()),
-        answers(paths) { const now = currentOf(); return paths.map(path => answerUnder(path, now)); },
-        stale: path => staleUnder(path, currentOf()),
-        current() {
-            const now = currentOf();
-            if (made && made.revision === revision && made.recipeKey === now.recipeKey && now.conditions !== undefined && made.conditions === now.conditions) return made.answers;
-            const out = new Map<string, ScanResult>();
-            for (const [path, result] of latest.view) if (!staleUnder(path, now)) out.set(path, result);
-            made = { revision, recipeKey: now.recipeKey, conditions: now.conditions, answers: out as unknown as CurrentAnswers };
-            return made.answers;
-        },
-        shown: () => latest.view as unknown as ShownAnswers,
-        failure(path) {
-            const result = latest.get(path);
-            // A failure under an earlier chain or condition is stale, no failure of the file now.
-            return result && !result.ok && !staleUnder(path, currentOf()) ? { reason: result.reason ?? '', ...(result.failedStep ? { failedStep: result.failedStep } : {}) } : undefined;
-        },
-        asking(paths) {
-            const now = currentOf();
-            for (const path of paths) asked.set(path, { recipeKey: now.recipeKey, condition: now.condition(path) });
-        },
-        answered(path, result) {
-            const under = asked.get(path);
-            if (!under) return false;
-            keep(path, result, under);
-            return true;
-        },
-        settled() { asked.clear(); },
-        set: keep,
-        delete(path) { asked.delete(path); latest.delete(path); revision++; },
-        clear() { asked.clear(); latest.clear(); revision++; },
-    };
 }
 
 /**
@@ -631,75 +479,3 @@ export function createAnswerSlot<T>(now: () => number = () => Date.now(), retrie
     };
 }
 
-/**
- * A request on its way, as the answer layer waits on it: what a stand-in drawn until its answer comes is tied to (the
- * cursor spectrum's spectrogram column while its slice is asked for, fullRead.ts pendingSource).
- */
-export interface PendingRequest {
-    readonly requestId: string;
-    /** Whether it is still waited on: neither answered nor superseded. */
-    readonly waiting: boolean;
-    /** Calls `then` once the request is answered (one function given again is told once); never if it is superseded. */
-    whenAnswered(then: () => void): void;
-}
-
-/**
- * The requests on their way, one per slot (a track's cursor slice): a request asked in a slot supersedes the one there,
- * whose readers are let go untold (the picture they read is drawn again with the newer one). An answer to the slot's
- * current request tells its readers once.
- */
-export interface PendingRequests {
-    /** Asks `requestId` in `slot`: the request there before is superseded. */
-    ask(slot: string, requestId: string): PendingRequest;
-    /** The slot's request still waited on, if any. */
-    current(slot: string): PendingRequest | undefined;
-    /** The request was answered (a result or a failure): its readers are told, if it is still its slot's. */
-    answered(requestId: string): void;
-    /** The slot's request is no longer wanted: its readers are let go untold. */
-    drop(slot: string): void;
-    clear(): void;
-}
-
-export function createPendingRequests(): PendingRequests {
-    type Waited = { requestId: string; calls: Set<() => void>; done: boolean };
-    const bySlot = new Map<string, Waited>();
-    const handle = (waited: Waited): PendingRequest => ({
-        requestId: waited.requestId,
-        get waiting() { return !waited.done; },
-        whenAnswered(then) { if (!waited.done) waited.calls.add(then); },
-    });
-    const letGo = (slot: string): void => {
-        const waited = bySlot.get(slot);
-        if (!waited) return;
-        bySlot.delete(slot);
-        waited.done = true;
-        waited.calls.clear();
-    };
-    return {
-        ask(slot, requestId) {
-            const there = bySlot.get(slot);
-            if (there?.requestId === requestId) return handle(there);
-            letGo(slot);
-            const waited: Waited = { requestId, calls: new Set(), done: false };
-            bySlot.set(slot, waited);
-            return handle(waited);
-        },
-        current(slot) {
-            const waited = bySlot.get(slot);
-            return waited ? handle(waited) : undefined;
-        },
-        answered(requestId) {
-            for (const [slot, waited] of bySlot) {
-                if (waited.requestId !== requestId) continue;
-                bySlot.delete(slot);
-                waited.done = true;
-                const calls = [...waited.calls];
-                waited.calls.clear();
-                for (const call of calls) call();
-                return;
-            }
-        },
-        drop: letGo,
-        clear() { for (const slot of [...bySlot.keys()]) letGo(slot); },
-    };
-}

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, settled, test, type Locator, type Page } from './canvasAudit';
 import { getStrings } from '../../shared/i18n/strings';
-import { OVERVIEW_MARGINS } from '../../webview/runtime/entryPlots';
+
 import { FLAG_COLOR } from '../../shared/gui/roleColors';
 import { answerProbe, entry100Metadata, entry100Results, openEntry, openStepsView, pickCsv, type ScannedFile } from './entryHelpers';
 
@@ -32,123 +32,76 @@ async function filterBy(page: Page, column: string): Promise<void> {
     await expect(page.locator('[data-entry-fpop]')).toBeVisible();
 }
 
-test('a folder opens with only what is stored; nothing is computed until 計算, which takes the rows on screen and can be stopped', async ({ page }) => {
+test('a folder opens as a list of its recordings: no analysis is asked for at open, after a filter or after a slot, and nothing offers one', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('ja');
-    await openEntry(page, scanned!, { language: 'ja', answered: 0 });
-    // Opening asks only for stored results.
-    expect((await entryScans(page)).map(message => message.cachedOnly)).toEqual([true]);
-    expect((await snapshot(page))?.rows).toBe(100);
-    // The value is not computed: its column says so, with no ▾ to sort or filter by it.
-    await expect(page.locator('th[data-column="leq"] [data-action="entry-fhead"]')).toHaveCount(0);
-    await expect(page.locator('th[data-column="leq"] .entry-th-label')).toHaveAttribute('data-hint', STR.dsNotComputed);
-    await expect(rows(page).first().locator('.entry-col-value')).toHaveText('—');
-    const compute = page.locator('[data-action="entry-compute"]');
-    await expect(compute).toHaveText(new RegExp(`^${STR.dsCompute.replace('{n}', '100').replace(' · 約 {time}', '')}`));
-    // Narrowed to the file names with 1500rpm, 計算 takes only those.
+    await openEntry(page, scanned!, { language: 'ja' });
+    expect((await posted(page)).filter(message => message.type === 'entry-open').length).toBe(1);
+    expect((await snapshot(page))?.rows).toBe(197);
+    // The table shows no value computed from the sound: no value column without a CSV column of numbers.
+    await expect(page.locator('[data-entry-head] th.entry-col-value')).toHaveCount(0);
+    await expect(page.locator('[data-action="entry-value"] option:checked')).toHaveText(STR.dsValueNone);
+    // Narrowed to the file names with 1500rpm, and a row slotted: the entry itself still asks for no scan and no figure,
+    // and no button offers one. (The slotted recording becomes a track, analysed as a track is: analyze-selected-files.)
     await filterBy(page, 'name');
     await page.locator('[data-entry-fsearch]').fill('1500rpm');
     await page.locator('[data-action="entry-fok"]').click();
-    await expect(compute).toHaveText(new RegExp(`^${STR.dsCompute.replace('{n}', '22').replace(' · 約 {time}', '')}`));
-    await compute.click();
-    const scan = (await entryScans(page)).at(-1)!;
-    expect(scan.cachedOnly).toBeUndefined();
-    expect(scan.filePaths.length).toBe(22);
-    expect(scan.filePaths.every(file => base(file).includes('1500rpm'))).toBe(true);
-    await page.evaluate(({ requestId, files }) => {
-        for (const file of files) window.postMessage({ type: 'entry-scan-result', requestId, filePath: file.filePath, result: file.result }, '*');
-    }, { requestId: scan.requestId, files: scanned!.filter(file => scan.filePaths.slice(0, 3).includes(file.filePath)) });
-    await expect(page.locator('[data-entry-progress]')).toHaveText(STR.dsComputing.replace('{done}', '3').replace('{n}', '22'));
-    // 中止 keeps what was computed: those rows have values, the rest still none, and 計算 offers the rest.
-    await page.locator('[data-action="entry-compute-cancel"]').click();
-    expect((await posted(page)).filter(message => message.type === 'entry-scan-cancel').length).toBe(1);
-    await expect(compute).toHaveText(new RegExp(`^${STR.dsComputeRest.replace(' · 約 {time}', '')}`));
-    await expect(page.locator('[data-entry-uncomputed]')).toHaveText(STR.dsUncomputed.replace('{n}', '19'));
-    await expect(page.locator('[data-entry-rows] tr.entry-row .entry-col-value:not(:text("—"))')).toHaveCount(6);
-    // The distribution draws the 6 computed channels only and counts the rest (I14).
-    expect((await snapshot(page))?.dist).toMatchObject({ missing: 19, unit: 'ch' });
-    // Its heading says the recordings its set left out, with why (class sweep 3, aggregation V11).
-    const leftOut = [STR.dsBaseMissing, STR.dsBasePending].map(template => template.split('{n}')[0].replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')).join('|');
-    await expect(page.locator('[data-entry-dist-count]')).toHaveText(new RegExp(`^6 ch(?:${leftOut})\\d+`, 'u'));
+    await rows(page).nth(1).click();
+    await page.keyboard.press('1');
+    await settled(page);
+    await expect(page.locator('[data-action="entry-compute"], [data-action="entry-compute-cancel"], [data-entry-progress]')).toHaveCount(0);
+    const analysed = (await posted(page)).map(message => message.type).filter(type => /scan|figure|spectrum|track-detail/u.test(type));
+    expect(analysed, 'the entry asks for no scan and no figure: of its own it posts entry-open, entry-probe and its session only').toEqual([]);
 });
 
-/** Each row's box (by row key), each head cell's width and its ▾'s, as the table lays them out now. */
-const tableLayout = (page: Page) => page.evaluate(() => ({
-    rows: Object.fromEntries([...document.querySelectorAll<HTMLElement>('[data-entry-rows] tr.entry-row')].map(row => {
-        const box = row.getBoundingClientRect();
-        return [row.dataset.key!, { y: box.y, height: box.height }];
-    })),
-    columns: [...document.querySelectorAll<HTMLElement>('[data-entry-head] th')].map(cell => cell.getBoundingClientRect().width),
-    // The ▾ of each head, or the place it keeps while its value is not computed: one width either way.
-    filters: [...document.querySelectorAll<HTMLElement>('[data-entry-head] th')].map(cell => cell.querySelector('.entry-fbtn, .entry-fbtn-slot')?.getBoundingClientRect().width ?? null),
-}));
-
-type TableLayout = Awaited<ReturnType<typeof tableLayout>>;
-/**
- * Opens the folder with its headers read and no value yet, then answers half of its recordings and then the rest; the
- * table's layout at each of the three moments, and whether every cell drawn while pending is the one the value came
- * into (#781).
- */
-async function scanFolder(page: Page, docked: boolean, language: string): Promise<{ pending: TableLayout; half: TableLayout; ready: TableLayout; sameCells: boolean }> {
-    await page.setViewportSize({ width: 1280, height: 800 });
-    // The headers are read first, as a host does, so each file has its rows (one per channel) before its values come.
-    const headers = Object.fromEntries(scanned!.map(file => {
+test('the table shows each file\'s own information from its header (length, sample rate, calibration): it orders the table, a calibration set shows at once, and the table\'s CSV writes it with no analysis value', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    // What each header says: lengths of 2, 12 and 22 s, two sample rates, and the host has a calibration for one file in four.
+    const headers = Object.fromEntries(scanned!.map((file, index) => {
         const result = file.result as { ok?: boolean; input?: { channels: number[] } };
-        return [file.filePath, result.ok ? result.input!.channels.length : 'not a WAV header'];
+        return [file.filePath, result.ok ? { channels: result.input!.channels.length, durationS: 2 + (index % 3) * 10, sampleRate: index % 2 ? 48000 : 16000, calibrated: index % 4 === 0 } : 'not a WAV header'];
     }));
-    await openEntry(page, scanned!, { answered: 0, headers, docked, language });
-    await settled(page);
-    const pending = await tableLayout(page);
-    expect(Object.keys(pending.rows).length).toBeGreaterThan(10);
-    // The cells as they are drawn while their values are pending.
-    await page.evaluate(() => {
-        (window as unknown as { pendingCells: Element[] }).pendingCells = [...document.querySelectorAll('[data-entry-rows] tr.entry-row td')];
+    await openEntry(page, scanned!, { headers });
+    await expect(page.locator('[data-entry-head] th.entry-col-info .entry-th-label')).toHaveText([STR.entryColDuration, STR.entryColRate, STR.entryColCalibration]);
+    const info = (row: number): Promise<string[]> => rows(page).nth(row).locator('.entry-col-info').allTextContents();
+    // Each row says its own file's (a file of two channels: two rows of the same information).
+    const said = (row: number): Promise<string[]> => rows(page).nth(row).getAttribute('data-file-path').then(filePath => {
+        const header = headers[filePath ?? ''] as { durationS: number; sampleRate: number; calibrated: boolean };
+        return [header.durationS.toFixed(header.durationS < 10 ? 2 : 1), String(header.sampleRate), header.calibrated ? STR.entryCalibrated : STR.entryUncalibrated];
     });
-    if (!docked) await expect(page.locator('[data-entry-rows] tr.entry-row').first().locator('.entry-col-value')).toHaveText('—');
-    const requestId = (await entryScans(page)).at(-1)!.requestId;
-    const answer = (files: readonly ScannedFile[], done: boolean) => page.evaluate(({ requestId, files, done }) => {
-        for (const file of files) window.postMessage({ type: 'entry-scan-result', requestId, filePath: file.filePath, result: file.result }, '*');
-        if (done) window.postMessage({ type: 'entry-scan-done', requestId }, '*');
-    }, { requestId, files, done });
-    await answer(scanned!.slice(0, 50), false);
-    await settled(page);
-    const half = await tableLayout(page);
-    await answer(scanned!.slice(50), true);
-    await settled(page);
-    const ready = await tableLayout(page);
-    if (!docked) await expect(page.locator('[data-entry-rows] tr.entry-row').first().locator('.entry-col-value')).not.toHaveText('—');
-    await expect(page.locator('th[data-column="leq"] [data-action="entry-fhead"]')).toHaveCount(1);
-    const sameCells = await page.evaluate(() => {
-        const before = (window as unknown as { pendingCells: Element[] }).pendingCells;
-        const now = [...document.querySelectorAll('[data-entry-rows] tr.entry-row td')];
-        return now.length === before.length && now.every((cell, index) => cell === before[index]);
+    for (const row of [0, 1, 2, 3, 4]) await expect.poll(() => info(row)).toEqual(await said(row));
+    expect(new Set((await Promise.all([0, 2, 4, 6, 8, 10].map(info))).map(cells => cells.join(' '))).size, 'the rows differ: lengths, rates and calibrations of several files').toBeGreaterThan(2);
+    // The entry shows no value computed from the sound: no value column without a CSV.
+    await expect(page.locator('[data-entry-head] th.entry-col-value')).toHaveCount(0);
+    // The host says the second file is calibrated now: its rows say so at once, its header not read again.
+    const uncalibrated = (await Promise.all([0, 1, 2, 3, 4, 5, 6, 7].map(async row => ((await info(row))[2] === STR.entryUncalibrated ? row : -1)))).find(row => row >= 0)!;
+    const second = (await rows(page).nth(uncalibrated).getAttribute('data-file-path'))!;
+    const before = await info(uncalibrated);
+    const probes = (await posted(page)).filter(message => message.type === 'entry-probe').length;
+    await page.evaluate(filePath => window.postMessage({ type: 'entry-calibration-changed', filePath, calibrated: true }, '*'), second);
+    await expect.poll(() => info(uncalibrated)).toEqual([before[0], before[1], STR.entryCalibrated]);
+    expect((await posted(page)).filter(message => message.type === 'entry-probe').length).toBe(probes);
+    // Ordered by length, the longest first.
+    await filterBy(page, 'duration');
+    await page.locator('[data-action="entry-fsort"][data-descending="true"]').click();
+    await expect.poll(async () => (await info(0))[0]).toBe('22.0');
+    const lengths = await rows(page).evaluateAll(items => items.map(row => Number(row.querySelector('.entry-col-info')?.textContent)));
+    expect(lengths).toEqual([...lengths].sort((a, b) => b - a));
+    // The table's CSV: the file, its channel and information, then the slot, the memo and the exclusion.
+    await page.locator('#entry-export-menu > summary').click();
+    await page.locator('#entry-export-menu [data-action="entry-export-csv"]').click();
+    const text = await page.evaluate(async () => {
+        const downloads = (window as unknown as { __uiSmokeDownloads: Array<{ download: string; href: string }> }).__uiSmokeDownloads;
+        const last = downloads.at(-1)!;
+        return { name: last.download, text: await (await fetch(last.href)).text() };
     });
-    return { pending, half, ready, sameCells };
-}
-
-/**
- * Half of the folder answered, then the rest: the rows stand where they stood and the columns keep their widths, to the
- * subpixel. No rounding is allowed for: the same boxes laid out the same way give the same numbers, and a row that
- * moved by a fraction of a pixel moved. The values come into the cells drawn while pending: no cell is drawn anew.
- */
-function expectNothingMoved(seen: Awaited<ReturnType<typeof scanFolder>>): void {
-    expect(seen.half).toEqual(seen.pending);
-    expect(seen.ready).toEqual(seen.pending);
-    expect(seen.sameCells, 'every cell drawn while pending is the one that shows the value').toBe(true);
-}
-
-test('while a folder\'s recordings are scanned, no row moves and no column changes width as their values arrive (#781)', async ({ page }) => {
-    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
-    expectNothingMoved(await scanFolder(page, false, 'en'));
+    expect(text.name).toBe('entry-table.csv');
+    const lines = text.text.replace(/^\uFEFF/, '').trimEnd().split('\r\n');
+    expect(lines[0]).toBe([STR.entryColFile, STR.dsCh, STR.entryColDuration, STR.entryColRate, STR.entryColCalibration, STR.entryCsvSlot, STR.entryCsvMemo, STR.entryCsvExcluded].join(','));
+    expect(lines.length - 1).toBe((await snapshot(page)).rows);
+    expect(lines.find(line => line.startsWith(`${base(second)},1,`))).toBe(`${base(second)},1,${Number(before[0])},${before[1]},${STR.entryCalibrated},,,`);
 });
-
-// Beside the tracks the distribution is folded above the table: its head and its strip of groups must not grow
-// either. In Japanese its words are the widest.
-test('beside the tracks, no row moves while a folder\'s values arrive, though the distribution above the table fills in (#781)', async ({ page }) => {
-    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
-    expectNothingMoved(await scanFolder(page, true, 'ja'));
-});
-
 
 test('a row\'s ✎ under a resting pointer: the footer says its new hint, the memo, once it is written; the button is the same one (#781)', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
@@ -168,27 +121,6 @@ test('a row\'s ✎ under a resting pointer: the footer says its new hint, the me
     await expect(memo).toHaveAttribute('data-hint', 'bearing noise');
     expect(await memo.evaluate(button => button === (window as unknown as { memoButton: Element }).memoButton)).toBe(true);
     await expect(page.locator('#hint-footer')).toHaveText('bearing noise');
-});
-
-test('a file written over on disk while the folder is open is greyed until 計算 measures it again; the others keep their values (V1)', async ({ page }) => {
-    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
-    const STR = getStrings('en');
-    await openEntry(page, scanned!);
-    const changed = scanned!.find(file => file.result.ok)!.filePath;
-    const ofFile = page.locator(`[data-entry-rows] tr.entry-row[data-file-path="${changed}"]`);
-    await expect(ofFile.first()).toBeVisible();
-    await expect(page.locator('[data-entry-rows] tr.entry-row.is-stale')).toHaveCount(0);
-    // The host saw the file change in its folder.
-    await page.evaluate(filePath => window.postMessage({ type: 'entry-source-changed', filePath }, '*'), changed);
-    await expect(ofFile.first()).toHaveClass(/is-stale/);
-    expect(await page.locator('[data-entry-rows] tr.entry-row.is-stale').evaluateAll(items => [...new Set(items.map(row => row.getAttribute('data-file-path')))])).toEqual([changed]);
-    const compute = page.locator('[data-action="entry-compute"]');
-    await expect(compute).toHaveText(new RegExp(`^${STR.dsComputeRest.replace('{time}', '.+')}$`));
-    await compute.click();
-    // Only it is measured again (and a recording that could not be read, whose failure may have passed).
-    const asked = (await entryScans(page)).at(-1)!.filePaths;
-    expect(asked).toContain(changed);
-    expect(asked.filter(filePath => filePath !== changed && scanned!.find(file => file.filePath === filePath)?.result.ok)).toEqual([]);
 });
 
 test('a picked CSV attaches its attributes by asd-insight\'s rules and lists what did not match with why (I5)', async ({ page }) => {
@@ -219,10 +151,10 @@ test('a picked CSV attaches its attributes by asd-insight\'s rules and lists wha
     await expect(page.locator('#entry-screen')).toHaveAttribute('data-mode', 'all');
 });
 
-test('the files\' headers split rows by channel before anything is computed, so ch 2 alone needs no 計算; the reading can be stopped', async ({ page }) => {
+test('the files\' headers split rows by channel; the reading can be stopped', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('ja');
-    await openEntry(page, scanned!, { language: 'ja', answered: 0, headers: null });
+    await openEntry(page, scanned!, { language: 'ja', headers: null });
     // The headers are being read: said with a count, and it can be stopped.
     await expect(page.locator('[data-entry-probing]')).toHaveText(STR.dsProbing.replace('{done}', '0').replace('{n}', '100'));
     await page.locator('[data-action="entry-probe-cancel"]').click();
@@ -230,7 +162,7 @@ test('the files\' headers split rows by channel before anything is computed, so 
     await expect(page.locator('[data-entry-probing]')).toHaveCount(0);
     expect((await snapshot(page))?.rows).toBe(100);
 
-    await openEntry(page, scanned!, { language: 'ja', answered: 0, headers: null });
+    await openEntry(page, scanned!, { language: 'ja', headers: null });
     const headers = Object.fromEntries(scanned!.map(file => {
         const result = file.result as { ok?: boolean; input?: { channels: number[] } };
         return [file.filePath, result.ok ? result.input!.channels.length : 'not a WAV header'];
@@ -239,18 +171,16 @@ test('the files\' headers split rows by channel before anything is computed, so 
     await expect(page.locator('[data-entry-probing]')).toHaveCount(0);
     // 99 readable recordings, 98 of them with two channels; the one whose header is broken has no row.
     expect((await snapshot(page))?.rows).toBe(197);
-    expect((await entryScans(page)).every(message => message.cachedOnly)).toBe(true);
     await filterBy(page, 'ch');
     await expect(page.locator('[data-entry-flist] .entry-ck-n')).toHaveText(['99', '98']);
     await page.locator('[data-entry-fvalue="1"]').uncheck();
     await page.locator('[data-action="entry-fok"]').click();
     expect((await snapshot(page))?.visible).toBe(98);
-    await expect(page.locator('[data-action="entry-compute"]')).toHaveText(new RegExp(`^${STR.dsCompute.replace('{n}', '98').replace(' · 約 {time}', '')}`));
 });
 
 test('a file added while the headers are read asks again for every header not read yet', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
-    await openEntry(page, scanned!, { language: 'en', answered: 0, headers: null });
+    await openEntry(page, scanned!, { language: 'en', headers: null });
     const added = '/data/added.flac';
     await page.evaluate(({ added }) => window.postMessage({ type: 'directory-selection', rootPath: '', rootLabel: '', filePaths: [added] }, '*'), { added });
     const probes = async (): Promise<Array<{ filePaths: string[] }>> => (await posted(page)).filter(message => message.type === 'entry-probe');
@@ -262,7 +192,7 @@ test('a file added while the headers are read asks again for every header not re
 
 test('a row slotted before its channels are known follows its file to ch 1 once they are', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
-    await openEntry(page, scanned!, { language: 'en', answered: 0, headers: null });
+    await openEntry(page, scanned!, { language: 'en', headers: null });
     const row = rows(page).nth(1);
     const key = (await row.getAttribute('data-key'))!;
     expect(key).not.toContain('#ch');
@@ -404,14 +334,15 @@ test('the keyboard alone: ↓ moves, Space plays, 1 slots, Enter compares; keys 
     await expect(page.locator('.track-stage')).toBeVisible();
 });
 
-test('the entry table speaks Japanese with few words: value and group, the CSV, and the four columns', async ({ page }) => {
+test('the entry table speaks Japanese with few words: value and group, the CSV, and the columns of the file and its own information', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('ja');
     await openEntry(page, scanned!, { language: 'ja' });
     await expect(page.locator('.entry-pick:not([hidden])')).toHaveText([new RegExp(`^${STR.dsValue}`), new RegExp(`^${STR.dsGroup}`)]);
-    await expect(page.locator('[data-action="entry-value"] option:checked')).toHaveText(STR.dsLeq.replace('{uncal}', STR.axisUncalibrated).replace('{label}', 'dBFS'));
-    // ☑ (on a track), the file, ch, the value and the spare end, plus a group column when grouped.
-    await expect(page.locator('[data-entry-head] th')).toHaveCount(5 + (await page.locator('th.entry-col-group, th[data-column^="folder"], th[data-column^="csv"]').count()) );
+    await expect(page.locator('[data-action="entry-value"] option:checked')).toHaveText(STR.dsValueNone);
+    // ☑ (on a track), the file, ch, its length, sample rate and calibration, and the spare end, plus a group column when grouped.
+    await expect(page.locator('[data-entry-head] th')).toHaveCount(7 + (await page.locator('th.entry-col-group, th[data-column^="folder"], th[data-column^="csv"]').count()) );
+    await expect(page.locator('[data-entry-head] th.entry-col-info .entry-th-label')).toHaveText([STR.entryColDuration, STR.entryColRate, STR.entryColCalibration]);
     await expect(page.locator('[data-entry-head] th').nth(1)).toContainText(STR.entryColFile);
 });
 
@@ -431,7 +362,7 @@ test('a folder of 1000 recordings draws only the rows on screen, but its head an
     expect(counts.reduce((sum, n) => sum + n, 0)).toBe(1967);
 });
 
-test('the step bar (in 比較解析) shows every step of the scan Recipe; an invalid value keeps Apply off and a valid one rescans the table', async ({ page }) => {
+test('the step bar (in 比較解析) shows every step of the scan Recipe; an invalid value keeps Apply off and a valid one is applied; the folder is not scanned', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('en');
     const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
@@ -471,7 +402,8 @@ test('the step bar (in 比較解析) shows every step of the scan Recipe; an inv
     await expect(bar.locator('.step-op, .step-frame')).toHaveCount(0);
     await expect(bar).not.toContainText('Frame');
     expect(await bar.locator('[data-step-hold]:not([data-step-hold="node-input"])').evaluateAll(chips => chips.map(chip => /wandas (\w+)/.exec(chip.getAttribute('data-hint') ?? '')?.[1]))).toEqual(['highpass_filter', 'welch']);
-    await expect(bar.locator('.step-outside-row .awa-tag')).toHaveText([STR.entryColLeq, STR.outside192, STR.stepOctave, STR.outsideMedian, STR.outsideDelta]);
+    // Nothing is computed beside the chain any more (the table's fixed analysis is gone): no row of it.
+    await expect(bar.locator('.step-outside-row')).toHaveCount(0);
     await expect(bar.locator('.step-chip:not([data-step-input])').nth(0)).toContainText('HPF 20 Hz');
     // A parameter the Recipe leaves out shows wandas' default.
     await bar.locator('[data-action="step-settings"]').first().click();
@@ -495,31 +427,11 @@ test('the step bar (in 比較解析) shows every step of the scan Recipe; an inv
     await bar.locator('[data-action="step-apply"]').click();
     await expect(bar.locator('.step-chip:not([data-step-input])').nth(0)).toContainText('HPF 100 Hz');
     await expect(page.locator('#entry-screen')).toBeVisible();
-    // A new chain does not scan the folder by itself: the rows keep the previous chain's values, greyed and said so.
-    const scans = (): Promise<Array<{ type: string; requestId: string; filePaths: string[]; recipe?: { nodes: Array<{ operation: string }> } }>> => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; requestId: string; filePaths: string[]; recipe?: { nodes: Array<{ operation: string }> } }> })
-        .__uiSmokePostedMessages.filter(message => message.type === 'entry-scan'));
-    expect((await scans()).length).toBe(1);
-    // Every row is greyed (another chain's values), and nothing is measured by itself, not even the focused row.
+    // A new chain analyses nothing of the folder: the table is a list, and no button offers a computation.
+    expect(await entryScans(page)).toEqual([]);
     expect((await snapshot(page))?.rows).toBe(197);
-    await expect(page.locator('[data-entry-rows] tr.entry-row:not(.is-stale)')).toHaveCount(0);
-    // 計算 says how many files and about how long; it computes with the new chain and can be stopped.
-    const compute = page.locator('[data-action="entry-compute"]');
-    // The unreadable recording has no row, but its failure may pass (it is not a step that cannot run): 計算 asks it again, 100 files.
-    await expect(compute).toHaveText(new RegExp(`^${STR.dsCompute.replace('{n}', '100').replace('{time}', '.+')}$`));
-    await compute.click();
-    const scan = (await scans()).at(-1)!;
-    expect(scan.recipe!.nodes.map(node => node.operation)).toEqual(['wandas.audio.highpass_filter', 'wandas.frame.time_slice', 'wandas.audio.welch']);
-    expect(scan.filePaths.length).toBe(100);
-    await page.evaluate(({ requestId, files }) => {
-        for (const file of files.slice(0, 3)) window.postMessage({ type: 'entry-scan-result', requestId, filePath: file.filePath, result: file.result }, '*');
-    }, { requestId: scan.requestId, files: scanned!.filter(file => scan.filePaths.slice(0, 3).includes(file.filePath)) });
-    await expect(page.locator('[data-entry-progress]')).toHaveText(STR.dsComputing.replace('{done}', '3').replace('{n}', '100'));
-    await page.locator('[data-action="entry-compute-cancel"]').click();
-    const cancels = await page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string }> }).__uiSmokePostedMessages.filter(message => message.type === 'entry-scan-cancel').length);
-    expect(cancels).toBe(1);
-    // Stopped: the files it reached are the new chain's, the rest stay greyed and 「残りを計算」 offers them.
-    await expect(compute).toHaveText(new RegExp(`^${STR.dsComputeRest.replace('{time}', '.+')}$`));
-    await expect(page.locator('[data-entry-uncomputed]')).toHaveText(STR.dsUncomputed.replace('{n}', String(197 - 6)));
+    await expect(page.locator('[data-entry-rows] tr.entry-row.is-stale')).toHaveCount(0);
+    await expect(page.locator('[data-action="entry-compute"]')).toHaveCount(0);
 });
 
 test('Esc shrinks the maximized table into the side panel, which ⤢ widens again', async ({ page }) => {
@@ -561,7 +473,10 @@ test('? and F1 show the keys and symbols; the footer hints follow the next step 
     const help = page.locator('[data-screen-help]');
     await expect(help).toBeVisible();
     await expect(help.locator('[data-screen-help-keys]')).toContainText('Enter');
-    await expect(help.locator('[data-screen-help-symbols]')).toContainText('俯瞰帯');
+    await expect(help.locator('[data-screen-help-symbols]')).toContainText('分布');
+    // What the entry no longer has is not explained: the strip of levels, a fixed difference.
+    await expect(help.locator('[data-screen-help-symbols]')).not.toContainText('俯瞰帯');
+    await expect(help.locator('[data-screen-help-symbols]')).not.toContainText('固定');
     // While it is open the table takes no keys: 1 does not slot the row.
     await page.keyboard.press('1');
     await page.keyboard.press('Escape');
@@ -588,60 +503,9 @@ test('? and F1 show the keys and symbols; the footer hints follow the next step 
     await expect(page.locator('.track-stage')).toBeVisible();
     // The comparison has its own list.
     await page.keyboard.press('?');
-    await expect(help.locator('[data-screen-help-keys]')).toContainText('D');
+    await expect(help.locator('[data-screen-help-keys]')).toContainText('B');
     await page.keyboard.press('?');
     await expect(page.locator('.track-stage')).toBeVisible();
-});
-
-test('a step added between two chips measures every file again; one that fails on a file is marked and left out; a chain without a spectrum has Leq only', async ({ page }) => {
-    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
-    const STR = getStrings('en');
-    const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
-    await openEntry(page, scanned!, { recipe });
-    await openStepsView(page, scanned!, SPECTRUM_VIEW);
-    const bar = page.locator('.track-stage-bar');
-    type Scan = { type: string; requestId: string; recipe?: { nodes: Array<{ id: string; operation: string }> } };
-    const lastScan = (): Promise<Scan> => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Scan[] })
-        .__uiSmokePostedMessages.filter(message => message.type === 'entry-scan').at(-1)!);
-    await bar.locator('[data-action="step-expand"]').click();
-    // The ＋ on the link after the region adds there.
-    const link = bar.locator('[data-action="step-insert"][data-after="node-1"]');
-    await link.hover();
-    await link.click();
-    await expect(bar.locator('.step-menu-title')).toHaveText(STR.stepMenuTitle.replace('{frame}', 'ChannelFrame'));
-    await bar.locator('[data-step-menu-filter]').fill('a_weighting');
-    await bar.locator('.step-menu-item', { hasText: 'a_weighting' }).click();
-    expect(await bar.locator('[data-step-hold]:not([data-step-hold="node-input"])').evaluateAll(chips => chips.map(chip => /wandas (\w+)/.exec(chip.getAttribute('data-hint') ?? '')?.[1]))).toEqual(['highpass_filter', 'a_weighting', 'welch']);
-    // The table is not scanned until asked: it keeps the previous chain's values, greyed.
-    await expect(page.locator('[data-entry-rows] tr.entry-row.is-stale').first()).toBeVisible();
-    await page.locator('[data-action="entry-compute"]').click();
-    const scan = await lastScan();
-    const added = scan.recipe!.nodes.find(node => node.operation === 'wandas.audio.a_weighting')!;
-    expect(scan.recipe!.nodes.map(node => node.operation)).toEqual(['wandas.audio.highpass_filter', 'wandas.frame.time_slice', 'wandas.audio.a_weighting', 'wandas.audio.welch']);
-    await expect(page.locator('[data-entry-progress]')).toHaveText(STR.dsComputing.replace('{done}', '0').replace('{n}', '100'));
-    // The step fails on a file: the chain cannot run from there. It and every step after it are marked ⚠; the scan stops and nothing is computed without the step.
-    const scansBefore = await page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string }> }).__uiSmokePostedMessages.filter(message => message.type === 'entry-scan').length);
-    await page.evaluate(({ requestId, filePath, step }) => {
-        window.postMessage({ type: 'entry-scan-result', requestId, filePath, result: { ok: false, reason: 'boom', failedStep: step } }, '*');
-    }, { requestId: scan.requestId, filePath: scanned![0].filePath, step: added.id });
-    await expect(bar.locator('.step-chip.is-invalid')).toHaveText([/^a_weighting/, new RegExp(`^${STR.stepAverage}`)]);
-    await expect(page.locator('.entry-stale-tag')).toHaveText(STR.entryChainBroken);
-    await expect(page.locator('[data-action="entry-compute"]')).toHaveCount(0);
-    await expect(page.locator('[data-action="entry-compute-cancel"]')).toHaveCount(0);
-    await settled(page);
-    expect(await page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string }> }).__uiSmokePostedMessages.filter(message => message.type === 'entry-scan').length)).toBe(scansBefore);
-    await bar.locator('.step-chip.is-invalid [data-action="step-settings"]').first().click();
-    await expect(bar.locator('.step-form-why')).toHaveText(STR.stepFailedOn.replace('{reason}', 'boom'));
-    await bar.locator('[data-action="step-remove"]').click();
-    // Without the average spectrum the chain ends in a time signal: the values are Leq and the crest factor, no bands or peak.
-    const values = page.locator('[data-action="entry-value"] option');
-    await expect(values.filter({ hasText: STR.dsPeak })).toHaveCount(1);
-    await bar.locator('.step-chip', { hasText: STR.stepAverage }).locator('[data-action="step-settings"]').click();
-    await bar.locator('[data-action="step-remove"]').click();
-    await expect(values.filter({ hasText: STR.dsPeak })).toHaveCount(0);
-    // Under the new chain no recording has a fresh answer yet: the value names no reference rather than a guessed
-    // dBFS (class sweep 3, reference V9); once one is read again it names the folder's.
-    await expect(values).toHaveText([new RegExp(`^${STR.dsLeq.replace('{uncal}', '').replace(' [{label}]', '')}(?:${STR.axisUncalibrated.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')} \\[dBFS\\])?$`, 'u'), STR.dsCrest]);
 });
 
 test('a step\'s ⚙ offers every value wandas describes: sound_level\'s weighting and dB, welch\'s average under "more", written into the Recipe', async ({ page }) => {
@@ -654,7 +518,7 @@ test('a step\'s ⚙ offers every value wandas describes: sound_level\'s weightin
     type Node = { id: string; operation: string; params: { entries: Array<[string, unknown]> } };
     type Scan = { type: string; recipe?: { nodes: Node[] } };
     const lastScan = (): Promise<Scan> => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Scan[] })
-        .__uiSmokePostedMessages.filter(message => message.type === 'entry-scan').at(-1)!);
+        .__uiSmokePostedMessages.filter(message => message.type === 'compare-scan' && message.recipe).at(-1)!);
     await bar.locator('[data-action="step-expand"]').click();
     await bar.locator('[data-action="step-insert"][data-after="node-1"]').click();
     await bar.locator('[data-step-menu-filter]').fill('sound_level');
@@ -684,8 +548,7 @@ test('a step\'s ⚙ offers every value wandas describes: sound_level\'s weightin
     await more.locator('summary').click();
     await more.locator('[data-step-param="average"]').selectOption('median');
     await form.locator('[data-action="step-apply"]').click();
-    // The Recipe the table is computed with carries exactly the changed values, in wandas' encoding.
-    await page.locator('[data-action="entry-compute"]').click();
+    // The Recipe the comparison asks its pictures with carries exactly the changed values, in wandas' encoding.
     const nodes = (await lastScan()).recipe!.nodes;
     expect(nodes.find(node => node.operation === 'wandas.audio.sound_level')!.params.entries).toEqual([['dB', true], ['freq_weighting', 'A']]);
     expect(nodes.find(node => node.operation === 'wandas.audio.welch')!.params.entries).toContainEqual(['average', 'median']);
@@ -695,41 +558,8 @@ test('a step\'s ⚙ offers every value wandas describes: sound_level\'s weightin
     await expect(form.locator('[data-step-param="average"]')).toHaveValue('mean');
 });
 
-test('the overview strip answers the lanes\' gestures, and a press that stays put is still a click', async ({ page }) => {
+test('the step bar names the steps in Japanese', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
-    await openEntry(page, scanned!);
-    const focusedBefore = await page.locator('[data-entry-rows] tr.is-focused').getAttribute('data-file-path');
-    // Ctrl+wheel on the strip zooms its bands; a click on it still goes to a row.
-    const strip = page.locator('[data-entry-overview]');
-    const stripBox = (await strip.boundingBox())!;
-    await page.mouse.move(stripBox.x + stripBox.width / 2, stripBox.y + stripBox.height / 2);
-    await page.keyboard.down('Control');
-    await page.mouse.wheel(0, -100);
-    await page.keyboard.up('Control');
-    await expect(strip).not.toHaveAttribute('data-window', /^0\.000-1\.000\|/);
-    // Its plot sits inside the strip's margins.
-    await page.mouse.click(stripBox.x + stripBox.width / 2, stripBox.y + OVERVIEW_MARGINS.top + (stripBox.height - OVERVIEW_MARGINS.top - OVERVIEW_MARGINS.bottom) * 0.9);
-    // Gone to at once (plotInteraction.ts arbitrates every plot's click, R13).
-    await expect(page.locator('[data-entry-rows] tr.is-focused')).toHaveCount(1);
-    await expect.poll(() => page.locator('[data-entry-rows] tr.is-focused').getAttribute('data-file-path')).not.toBe(focusedBefore);
-});
-
-test('the overview strip has a row per channel, as the table does: its readout names the channel of a recording of several', async ({ page }) => {
-    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
-    await openEntry(page, scanned!);
-    const strip = page.locator('[data-entry-overview]');
-    await expect.poll(() => strip.getAttribute('data-plot-axes')).not.toBe(null);
-    const box = (await strip.boundingBox())!;
-    // Just under the colour bar: the bar is a value axis (R13), so a hover on it reads no row.
-    const [, barY, , barHeight] = ((await strip.getAttribute('data-plot-colour-bar')) ?? '0 0 0 0').split(' ').map(Number);
-    await page.mouse.move(box.x + box.width / 2, box.y + Math.max(OVERVIEW_MARGINS.top + 3, barY + barHeight + 2));
-    const readout = page.locator('.entry-overview-box [data-plot-readout]');
-    await expect(readout).toContainText(/\.wav ch[12]\b/);
-});
-
-test('the step bar names the steps in Japanese, and … lists the table\'s 1/3-octave values among what the app computes', async ({ page }) => {
-    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
-    const STR = getStrings('ja');
     const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
     await openEntry(page, scanned!, { language: 'ja', recipe });
     await openStepsView(page, scanned!, SPECTRUM_VIEW);
@@ -737,21 +567,6 @@ test('the step bar names the steps in Japanese, and … lists the table\'s 1/3-o
     await expect(bar.locator('.step-preset')).toHaveText('レシピ: 全体のスペクトル');
     await expect(bar.locator('[data-step-input]')).toHaveText('入力');
     await expect(bar.locator('.step-chip:not([data-step-input])')).toHaveText(['ハイパス 20 Hz', '平均スペクトル（FFT 1024 点）']);
-    await bar.locator('[data-action="step-expand"]').click();
-    await expect(bar.locator('.step-outside-row .awa-tag')).toContainText([STR.stepOctave]);
-});
-
-test('「計算」\'s estimate follows the recordings\' lengths from their headers, not only how many there are', async ({ page }) => {
-    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
-    const STR = getStrings('ja');
-    const ten = scanned!.slice(0, 10);
-    // Ten 2-second recordings: seconds.
-    await openEntry(page, ten, { language: 'ja', answered: 0, headers: Object.fromEntries(ten.map(file => [file.filePath, { channels: 2, durationS: 2 }])) });
-    const compute = page.locator('[data-action="entry-compute"]');
-    await expect(compute).toHaveText(STR.dsCompute.replace('{n}', '10').replace('{time}', STR.entrySeconds.replace('{n}', '2')));
-    // The same ten as 10-minute recordings: minutes.
-    await openEntry(page, ten, { language: 'ja', answered: 0, headers: Object.fromEntries(ten.map(file => [file.filePath, { channels: 2, durationS: 600 }])) });
-    await expect(compute).toHaveText(STR.dsCompute.replace('{n}', '10').replace('{time}', STR.entryMinutes.replace('{n}', '4')));
 });
 
 /** Whether a header's words stay whole ("A特性" on one line) and its text stays inside the cell. */
@@ -773,14 +588,13 @@ const headerFit = (page: Page, column: string) => page.locator(`th[data-column="
 });
 
 for (const language of ['ja', 'en'] as const) {
-    test(`the value header keeps "A特性" whole and stays inside its column maximized; docked, the value column is not shown (${language})`, async ({ page }) => {
+    test(`the headers of a file's information stay whole inside their columns maximized; docked, those columns are not shown (${language})`, async ({ page }) => {
         test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
         await openEntry(page, scanned!, { language, docked: true });
-        await expect(page.locator('th[data-column="leq"] .entry-th-label')).toHaveText(getStrings(language).dsLeq.replace('{uncal}', getStrings(language).axisUncalibrated).replace('{label}', 'dBFS'));
-        // Beside the tracks the table is for finding a file: no value column, so the names have the room.
+        // Beside the tracks the table is for finding a file: no column of its information, so the names have the room.
         await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
-        await expect(page.locator('th[data-column="leq"]')).toBeHidden();
-        await expect(page.locator('[data-entry-rows] tr.entry-row .entry-col-value').first()).toBeHidden();
+        await expect(page.locator('th[data-column="duration"]')).toBeHidden();
+        await expect(page.locator('[data-entry-rows] tr.entry-row .entry-col-info').first()).toBeHidden();
         // The ▾ takes only its glyph and padding, whatever the font: a ▾ of a fixed width took "ch"'s room in its 3.8em
         // column and broke it where the font's glyphs are wider (#781's first fix, seen in CI only).
         const chButton = await page.locator('th[data-column="ch"] [data-action="entry-fhead"]').evaluate(button => {
@@ -792,34 +606,14 @@ for (const language of ['ja', 'en'] as const) {
         expect((await headerFit(page, 'ch')).lines, 'ch docked').toBe(1);
         await page.locator('.entry-size').click();
         await expect(page.locator('#entry-screen')).toHaveClass(/is-max/);
-        await expect(page.locator('[data-entry-rows] tr.entry-row .entry-col-value').first()).toBeVisible();
-        const fit = await headerFit(page, 'leq');
-        expect(fit.wordLines).toBe(1);
-        expect(fit.inside).toBe(true);
+        await expect(page.locator('[data-entry-rows] tr.entry-row .entry-col-info').first()).toBeVisible();
+        for (const column of ['duration', 'fs', 'calibration']) {
+            const fit = await headerFit(page, column);
+            expect(fit.lines, `${column}: one line`).toBe(1);
+            expect(fit.inside, `${column}: inside its column`).toBe(true);
+        }
         // A word that fits is never broken: "ch" stays "ch", not "c / h".
         expect((await headerFit(page, 'ch')).lines, 'ch maximized').toBe(1);
-    });
-}
-
-const SPL_INPUT = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated' };
-const calibratedToPa = (file: ScannedFile): ScannedFile => ({ filePath: file.filePath, result: { ...file.result, input: { ...(file.result['input'] as Record<string, unknown>), ...SPL_INPUT } } });
-const leqHeader = (page: Page): Locator => page.locator('th[data-column="leq"] .entry-th-label');
-
-for (const [language, leq, band] of [['en', 'Leq A-weighted [dB SPL re 20 µPa]', / band \[dB SPL re 20 µPa\]$/], ['ja', 'Leq A特性 [dB SPL re 20 µPa]', /帯 \[dB SPL re 20 µPa\]$/]] as const) {
-    test(`the dataset table names the levels of audio calibrated to Pa in dB SPL, not dBFS (${language})`, async ({ page }) => {
-        test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
-        await openEntry(page, scanned!.map(calibratedToPa), { language });
-        await expect(leqHeader(page)).toHaveText(leq);
-        await expect(page.locator('[data-action="entry-value"] option').filter({ hasText: band }).first()).toHaveText(band);
-    });
-}
-
-for (const [mix, leq] of [['uncalibrated', 'Leq A-weighted, uncalibrated [dBFS]'], ['mostly calibrated', 'Leq A-weighted [dB SPL re 20 µPa]']] as const) {
-    test(`the dataset table names the levels of ${mix} recordings by their most common reference, never plain dB, and says uncalibrated (R4)`, async ({ page }) => {
-        test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
-        // Two in three calibrated to Pa: the table compares those (its most common shape), named dB SPL; the rest are ≠.
-        await openEntry(page, mix === 'uncalibrated' ? scanned! : scanned!.map((file, index) => (index % 3 ? calibratedToPa(file) : file)));
-        await expect(leqHeader(page)).toHaveText(leq);
     });
 }
 
@@ -850,18 +644,17 @@ test('a CSV value with a long name with no spaces still stays inside its column 
     }
 });
 
-test('「トラックのみ」 computes only the files on a track', async ({ page }) => {
+test('「トラックのみ」 lists only the files on a track', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
-    await openEntry(page, scanned!, { language: 'ja', answered: 0, docked: true });
+    await openEntry(page, scanned!, { language: 'ja', docked: true });
     const first = rows(page).first();
+    const filePath = await first.getAttribute('data-file-path');
     await first.locator('td.entry-mark').click();
     await expect(first).toHaveClass(/is-shown/);
     await page.locator('[data-action="entry-tracks-only"]').click();
-    await expect(rows(page)).toHaveCount(1);
-    await page.locator('[data-action="entry-compute"]').click();
-    const scan = (await entryScans(page)).at(-1)!;
-    expect(scan.cachedOnly).toBeUndefined();
-    expect(scan.filePaths).toEqual([await first.getAttribute('data-file-path')]);
+    // The file's rows (one per channel) and no other file's.
+    await expect.poll(() => rows(page).evaluateAll(items => [...new Set(items.map(row => row.getAttribute('data-file-path')))])).toEqual([filePath]);
+    expect(await entryScans(page)).toEqual([]);
 });
 
 /** Space on a focused ☑: off, then on again with no new focus — the redrawn mark keeps the focus. */
@@ -1124,10 +917,10 @@ test('widened, the name takes the free width and keeps its end in sight; in a na
         expect(base(filePath).endsWith((await tail.textContent())!)).toBe(true);
     }
     await page.locator('[data-entry-table]').evaluate(table => { (table as HTMLElement).style.width = ''; });
-    // At 800 px the value column is in sight, not behind the distribution, which sits under the table. The rows keep
+    // At 800 px the table's last column (the calibration) is in sight, not behind the distribution, which sits under the table. The rows keep
     // their cells when the resize draws them again (#781), so the cell is measured once the page has answered the resize.
     await settled(page);
-    const value = (await first.locator('.entry-col-value').boundingBox())!;
+    const value = (await first.locator('.entry-col-info').last().boundingBox())!;
     const side = (await page.locator('.entry-side').boundingBox())!;
     expect(value.x + value.width).toBeLessThanOrEqual(800);
     expect(side.y).toBeGreaterThanOrEqual(value.y + value.height);

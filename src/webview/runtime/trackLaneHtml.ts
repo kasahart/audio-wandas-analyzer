@@ -2,12 +2,9 @@ import type { ChannelSummary } from '../../shared/analysis/analysisTypes';
 import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { hintAttr } from './hintFooter';
-import { frequencyText } from '../plot/plotText';
+import { frequencyText } from '../shell/numberText';
 import { calibrationBadgeHtml, calibrationButtonHtml, channelMetricSummaryHtml, isClipped } from './calibrationDecorations';
-import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpecWrapId, trackSpectrogramOverlayCanvasId, trackWaveformOverlayCanvasId } from './trackCanvasIds';
-
-/** A lane is a plot from the start (R13): empty, with no axes named, until it is drawn, as an empty pane is. */
-const EMPTY_PLOT = ' data-plot data-plot-axes=""';
+import { trackRowFigureId } from './trackCanvasIds';
 
 export interface ChannelLaneSpec {
     trackId: string;
@@ -16,12 +13,6 @@ export interface ChannelLaneSpec {
     channelCount: number;
     channelLabel: string;
     metricSummaryHtml: string;
-    axisWidth: number;
-    /** The canvases' accessible names: the file, the channel and what the canvas shows. */
-    waveformLabel: string;
-    spectrogramLabel: string;
-    axisHint: string;
-    spectrogramAxisHint: string;
     splitHint: string;
     splitLabel: string;
     /** Set on multi-channel tracks, whose lanes each get a reference button. */
@@ -29,7 +20,7 @@ export interface ChannelLaneSpec {
 }
 
 export function channelLaneHtml(spec: ChannelLaneSpec): string {
-    const { trackId, trackIndex, channelIndex, channelLabel: label, axisWidth } = spec;
+    const { trackId, trackIndex, channelIndex, channelLabel: label } = spec;
     const dataAttrs = ' data-track-id="' + trackId + '" data-channel-index="' + channelIndex + '"';
     const header = spec.channelCount > 1
         ? '  <div class="track-channel-lane-header"><span class="track-channel-lane-label">' + escapeHtml(label) + '</span>' + spec.metricSummaryHtml + (spec.referenceButtonHtml ?? '') + '</div>'
@@ -37,19 +28,12 @@ export function channelLaneHtml(spec: ChannelLaneSpec): string {
     return '<div class="track-channel-lane"' + dataAttrs + '>'
         + header
         + '  <div class="track-channel-lane-body">'
-        // The waveform above the spectrogram on one time axis; the split between them is draggable.
+        // The channel's one Figure (screens/trackRows.ts: the waveform above the spectrogram on one time axis), the
+        // layer of the cursor's and the loop's lines over it, and what the row says while it draws nothing. The split
+        // between the Figure's two lanes is draggable, and lies over the room between them.
         + '    <div class="track-canvas-stack">'
-        + '    <div class="track-canvas-wrap" id="' + trackCanvasWrapId(trackIndex, channelIndex) + '">'
-        + '      <canvas class="track-axis-canvas" id="' + trackAxisCanvasId(trackIndex, channelIndex) + '" style="width:' + axisWidth + 'px"' + dataAttrs + hintAttr(spec.axisHint) + '></canvas>'
-        + '      <canvas class="track-canvas" id="' + trackCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + EMPTY_PLOT + ' tabindex="0" role="img" aria-label="' + escapeHtml(spec.waveformLabel) + '" style="flex:1"></canvas>'
-        + '      <canvas class="track-waveform-overlay" id="' + trackWaveformOverlayCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' aria-hidden="true" style="position:absolute;left:' + axisWidth + 'px;top:0;right:0;bottom:0;pointer-events:none"></canvas>'
-        + '    </div>'
         + '    <div class="track-split" data-action="track-split-drag"' + dataAttrs + hintAttr(spec.splitHint) + ' role="separator" tabindex="0" aria-orientation="horizontal" aria-label="' + escapeHtml(spec.splitLabel) + '"></div>'
-        + '    <div class="track-spec-wrap" id="' + trackSpecWrapId(trackIndex, channelIndex) + '">'
-        + '      <canvas class="track-axis-canvas track-spec-axis" id="' + trackSpecAxisCanvasId(trackIndex, channelIndex) + '" style="width:' + axisWidth + 'px"' + dataAttrs + hintAttr(spec.spectrogramAxisHint) + '></canvas>'
-        + '      <canvas class="track-canvas track-spec-canvas" id="' + trackSpecCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + EMPTY_PLOT + ' tabindex="-1" role="img" aria-label="' + escapeHtml(spec.spectrogramLabel) + '" style="flex:1"></canvas>'
-        + '      <canvas class="track-spectrogram-overlay" id="' + trackSpectrogramOverlayCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' aria-hidden="true" style="position:absolute;left:' + axisWidth + 'px;top:0;right:0;bottom:0;pointer-events:none"></canvas>'
-        + '    </div>'
+        + '    <div class="track-row-figure" id="' + trackRowFigureId(trackIndex, channelIndex) + '"><canvas class="track-row-layer" aria-hidden="true"></canvas><div class="track-row-says" hidden></div></div>'
         + '    </div>'
         + '  </div>'
         + '</div>';

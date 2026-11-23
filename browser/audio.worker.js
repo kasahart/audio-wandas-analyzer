@@ -70,7 +70,11 @@ async function initialize() {
     if (packageErrors.length) throw new Error(`Failed to load runtime packages: ${packageErrors.join('; ')}`);
     const purelib = pyodide.runPython('import sysconfig; sysconfig.get_path("purelib")');
     for (const wheel of await pureWheels) pyodide.unpackArchive(wheel, 'zip', { extractDir: purelib });
-    for (const [name, text] of await sources) pyodide.FS.writeFile(`/home/pyodide/${name}`, text);
+    for (const [name, text] of await sources) {
+        // A module of a package (figures/service.py) needs its folder first.
+        if (name.includes('/')) pyodide.FS.mkdirTree(`/home/pyodide/${name.slice(0, name.lastIndexOf('/'))}`);
+        pyodide.FS.writeFile(`/home/pyodide/${name}`, text);
+    }
     // perf.py logs by default; a Worker has no one reading stderr, so it is silenced before the import.
     pyodide.runPython('import os; os.environ.setdefault("AWA_PERF_LOG", "0")');
     pyodide.runPython('from browser_service import browser_limits_json, load_source, release_source, prepare_export_json, dispatch_json');
@@ -85,7 +89,7 @@ const initialization = initialize();
 // With `lacks`: the optional packages this runtime cannot import, so the host offers only what runs here.
 initialization.then(() => {
     let lacks = [];
-    try { lacks = JSON.parse(pyodide.runPython('import json, optional_packages; json.dumps(optional_packages.lacking())')); } catch { /* an older cached runtime: nothing reported */ }
+    try { lacks = JSON.parse(pyodide.runPython('import json; from services import optional_packages; json.dumps(optional_packages.lacking())')); } catch { /* an older cached runtime: nothing reported */ }
     self.postMessage({ ready: true, lacks });
 }, () => self.postMessage({ ready: false }));
 self.onmessage = ({ data }) => {

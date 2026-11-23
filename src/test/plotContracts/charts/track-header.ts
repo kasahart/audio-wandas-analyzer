@@ -10,12 +10,12 @@ export const trackHeader: ChartContract = {
     rows: [
         {
             id: 'track-header.peak', value: 'summary', what: 'チャンネルのピーク（振幅とレベル）',
-            computedIn: ['src/webview/runtime/calibrationDecorations.ts:channelMetricSummaryHtml', 'src/webview/runtime/calibrationDecorations.ts:levelText', 'src/webview/runtime/calibrationDecorations.ts:peakText', 'python-backend/analyzer.py:analyze_from_frame'],
+            computedIn: ['src/webview/runtime/calibrationDecorations.ts:channelMetricSummaryHtml', 'src/webview/runtime/calibrationDecorations.ts:levelText', 'src/webview/runtime/calibrationDecorations.ts:peakText', 'python-backend/services/analyzer.py:analyze_from_frame'],
             from: 'full', trace: 'バックエンドが全サンプルのピークと wandas のレベルを返し、webview は計算し直さない。',
             tests: [
-                tt('python-backend/test_analyzer.py', 'test_channel_peak_is_every_samples_largest_magnitude_not_the_envelope_drawn'),
+                tt('python-backend/test_analyzer.py', 'test_channel_peak_is_every_samples_largest_magnitude'),
                 t('src/test/renderScript.integration.test.ts', 'renderScript: channel peak metrics use backend-provided levels without recalculating dB'),
-                t('src/test/calibrationContracts.test.ts', 'calibration row helpers draw badges, peak text, requests and the overlay guard'),
+                t('src/test/calibrationContracts.test.ts', 'calibration row helpers draw badges, peak text and requests'),
             ],
         },
         {
@@ -28,8 +28,8 @@ export const trackHeader: ChartContract = {
         },
         {
             id: 'track-header.cursor', value: 'label', what: 'カーソルの時刻、再生の時刻、ループの範囲',
-            computedIn: [`${RT}:updateCursorDisplay`, `${RT}:refreshSpectrumViews`, 'src/webview/runtime/playbackDisplay.ts:update', 'src/webview/runtime/waveformInteraction.ts:loopRegionClockText'],
-            from: 'input', trace: 'カーソル・再生・ループの位置（利用者の操作）を m:ss.ss で書く。',
+            computedIn: [`${RT}:updateCursorDisplay`, `${RT}:writeSpectrumCursorTime`, `${RT}:writeCsvWhenAnswered`, 'src/webview/runtime/playbackDisplay.ts:update', 'src/webview/runtime/waveformInteraction.ts:loopRegionClockText'],
+            from: 'input', trace: 'カーソル・再生・ループの位置（利用者の操作）を m:ss.ss で書く。カーソル位置のスペクトルの CSV は、ファイルの名前に同じ時刻を書く（値はすべて図の処理部の答え）。',
             tests: [
                 t('src/test/uiSmoke/toolbar.spec.ts', 'the cursor readout is labelled and follows a loop drag to where it was released'),
                 t('src/test/playbackDisplay.test.ts', 'createPlaybackDisplay shows the prefixed clock time while playing and hides it when stopped'),

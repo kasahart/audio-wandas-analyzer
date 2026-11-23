@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test, { mock } from 'node:test';
-import { answerKey, createAnswerStore, createFailureHold, createLatestAnswers, createRequestClock, FAILED_RETRY_MS, UNANSWERED_RETRY_MS, type AnswerKeyParts } from '../webview/runtime/answerStore';
+import { answerKey, createAnswerStore, createLatestAnswers, FAILED_RETRY_MS, UNANSWERED_RETRY_MS, type AnswerKeyParts } from '../webview/runtime/answerStore';
 import type { AnswerIdentity } from '../webview/runtime/answerTypes';
 
 const parts: AnswerKeyParts = { ask: ['stage', 'welch'], file: 'a.wav', version: { fileVersion: '[100,1,2,3]', calibration: 'cal-1' }, recipe: 'recipe-1', region: '[0,48000]', condition: 'cond-1' };
@@ -129,23 +129,6 @@ test('the latest answers per subject keep what each was asked under, and failure
     assert.equal(latest.failure('b.wav'), undefined, 'an answer clears the failure');
     latest.clear();
     assert.equal(latest.view.size, 0);
-});
-
-test('a failure hold stands for FAILED_RETRY_MS under its condition; the request clock waits UNANSWERED_RETRY_MS', () => {
-    let now = 0;
-    const hold = createFailureHold(() => now);
-    hold.fail('track-1', 'settings-a');
-    assert.equal(hold.holds('track-1', 'settings-a'), true);
-    assert.equal(hold.holds('track-1', 'settings-b'), false, 'other settings are another answer');
-    now += FAILED_RETRY_MS;
-    assert.equal(hold.holds('track-1', 'settings-a'), false);
-    const clock = createRequestClock(() => now);
-    clock.sent('r1');
-    assert.equal(clock.waiting('r1'), true);
-    now += UNANSWERED_RETRY_MS;
-    assert.equal(clock.waiting('r1'), false);
-    assert.equal(clock.landed('r1'), FAILED_RETRY_MS);
-    assert.equal(clock.landed('r1'), -Infinity);
 });
 
 test('a failed answer\'s readers are told exactly when its hold ends, together and once; a dropped one never is (whenFailureEnds)', () => {

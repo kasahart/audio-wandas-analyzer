@@ -5,7 +5,6 @@ import test from 'node:test';
 import { recipeSteps, withBypass, withParam } from '../shared/recipe/recipeSteps';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 import { INPUT_FRAME } from '../shared/recipe/recipeCatalog';
-import { wholeValue } from './helpers/whole';
 import { currentStepId, earlierPlaces, frameAfter, lastRunningStep, orderedSteps, removable, shownStep, startValues, stepFlow, type StepBarState } from '../webview/runtime/stepBarModel';
 
 const entry = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as RecipeDocument;
@@ -56,7 +55,7 @@ test('chips: the region chip shows only with a region and is not removable; a le
 });
 
 test('a new trigger starts at half the tracks\' peak, to two figures; fix_length at the files\' length', () => {
-    const read = (value: number) => ({ peak: { state: 'ready' as const, value: wholeValue(value) } });
+    const read = (value: number) => ({ peak: { state: 'ready' as const, value } });
     assert.deepEqual(startValues('wandas.audio.trigger', read(0.734)), { threshold: 0.37 });
     assert.deepEqual(startValues('wandas.audio.trigger', read(12.5), 3), { threshold: 6.3 });
     // No peak known (the entry table): the step's own initial value.

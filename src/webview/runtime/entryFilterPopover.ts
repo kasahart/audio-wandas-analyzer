@@ -3,9 +3,7 @@
  * of text) or a range (a column of numbers), then OK / Cancel. It keeps the draft while it is open; the screen
  * owns the one popover box it is drawn in, and what the user chose (the filters and the order).
  */
-import type { ScanResult } from '../../shared/protocol/backendProtocol';
-import { finiteNumber } from '../../shared/dataset/asdData';
-import { columnValues, valueOf, type ColumnId, type DatasetCsv, type DatasetFilter, type DatasetRow, type GroupId, type ValueId } from '../../shared/dataset/datasetTable';
+import { columnValues, isInfo, valueOf, type ColumnId, type DatasetCsv, type DatasetFilter, type DatasetRow, type GroupId, type InfoId, type ValueId } from '../../shared/dataset/datasetTable';
 import { checkListHtml, filterPopHtml, type DatasetColumn, type DatasetScreenView, type EntryStrings } from './entryTableHtml';
 
 type SortColumn = DatasetScreenView['sort']['column'];
@@ -25,13 +23,13 @@ export interface FilterPopoverDeps {
     head: HTMLElement;
     chipsBox: HTMLElement;
     text: EntryStrings;
-    /** Every row of the table, and the results its computed values come from. */
+    /** Every row of the table. */
     rows(): readonly DatasetRow[];
     excluded: ReadonlySet<string>;
-    results: ReadonlyMap<string, ScanResult>;
+    /** The columns of a file's own information (length, sample rate, calibration), as the table names them. */
+    infoColumns(): DatasetColumn[];
     csv(): DatasetCsv | null;
     groupOptions(): Array<{ id: GroupId; label: string }>;
-    valueOptions(): Array<{ id: ValueId; label: string; computed: boolean }>;
     /** What the user chose: the filters, the order, and the columns the table groups by and shows as the value. */
     filters(): readonly DatasetFilter[];
     sort(): DatasetScreenView['sort'];
@@ -79,17 +77,15 @@ export function createFilterPopover(deps: FilterPopoverDeps): FilterPopover {
     let draft: FilterDraft | null = null;
     /** The rows the check list counts and offers: every row not excluded. */
     const pool = (): DatasetRow[] => deps.rows().filter(row => !deps.excluded.has(row.key));
-    const valuesOf = (column: ColumnId): Array<[string, number]> => columnValues(pool(), column, deps.results);
+    const valuesOf = (column: ColumnId): Array<[string, number]> => columnValues(pool(), column);
     const needleOf = (search: string): string => search.trim().toLowerCase();
-    const sortKeyOf = (column: ColumnId): SortColumn | undefined => (column === 'name' ? 'name' : column === 'ch' ? 'ch' : column === deps.group() ? 'group' : column === deps.value() ? 'value' : undefined);
+    const sortKeyOf = (column: ColumnId): SortColumn | undefined => (column === 'name' ? 'name' : column === 'ch' ? 'ch' : isInfo(column) ? column : column === deps.group() ? 'group' : column === deps.value() ? 'value' : undefined);
 
     function columns(): DatasetColumn[] {
         const csv = deps.csv();
         const own = (csv?.attributes ?? []).map(column => ({ id: `csv:${column}` as ColumnId, label: column, numeric: !!csv?.numeric[column] }));
         const folders = deps.groupOptions().filter(option => option.id.startsWith('folder:')).map(option => ({ id: option.id, label: option.label, numeric: false }));
-        const rows = deps.rows();
-        const computed = deps.valueOptions().filter(option => option.computed && rows.some(row => valueOf(row, option.id, deps.results) !== null)).map(option => ({ id: option.id, label: option.label, numeric: true }));
-        return [{ id: 'name', label: text.entryColFile, numeric: false }, { id: 'ch', label: text.dsCh, numeric: false }, ...own, ...folders, ...computed];
+        return [{ id: 'name', label: text.entryColFile, numeric: false }, { id: 'ch', label: text.dsCh, numeric: false }, ...own, ...folders, ...deps.infoColumns()];
     }
     function open(column: ColumnId, anchored: boolean): void {
         const existing = deps.filters().find(filter => filter.column === column);
@@ -125,7 +121,7 @@ export function createFilterPopover(deps: FilterPopoverDeps): FilterPopover {
             const existing = deps.filters().find(item => item.column === id);
             const common = { column, anchored: draft.anchored, columns: columns(), sortKey: sortKeyOf(id), sort: deps.sort(), filter: existing };
             if (column.numeric) {
-                const numbers = pool().map(row => (id.startsWith('csv:') ? finiteNumber(row.attributes?.[id.slice(4)] ?? '') : valueOf(row, id as ValueId, deps.results))).filter((item): item is number => item !== null);
+                const numbers = pool().map(row => valueOf(row, id as ValueId | InfoId)).filter((item): item is number => item !== null);
                 const min = numbers.length ? deps.formatColumn(id, numbers.reduce((least, item) => Math.min(least, item))) : '', max = numbers.length ? deps.formatColumn(id, numbers.reduce((most, item) => Math.max(most, item))) : '';
                 return filterPopHtml({ ...common, search: '',
                     range: { low: existing?.kind === 'range' ? deps.formatColumn(id, existing.low) : '', high: existing?.kind === 'range' ? deps.formatColumn(id, existing.high) : '', min, max } }, text);
@@ -147,6 +143,10 @@ export function createFilterPopover(deps: FilterPopoverDeps): FilterPopover {
                 if (!(Number.isNaN(low) && Number.isNaN(high))) {
                     next = { column, kind: 'range', low: Number.isNaN(low) ? -Infinity : low, high: Number.isNaN(high) ? Infinity : high };
                     if (next.low > next.high) next = { ...next, low: next.high, high: next.low };
+                    // A range typed up to the column's largest value takes it, as one picked up to the top of the
+                    // distribution's axis does (datasetTable.ts inValueRange).
+                    const numbers = pool().map(row => valueOf(row, column as ValueId | InfoId)).filter((item): item is number => item !== null);
+                    if (numbers.length && next.high >= numbers.reduce((most, item) => Math.max(most, item))) next = { ...next, closed: true };
                 }
             } else {
                 const all = valuesOf(column).map(([item]) => item);

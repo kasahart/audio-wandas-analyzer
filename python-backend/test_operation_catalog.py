@@ -4,15 +4,14 @@ import re
 import struct
 from pathlib import Path
 
-import dask.array as da
 import numpy as np
 import pytest
 import wandas as wd
 from wandas.pipeline import default_recipe_registry
 
-from operation_catalog import TS_TARGET, catalog, frames, typescript, with_refusals
-from operation_probe import _direct, _flat, metric_series, needs, probe, refusals, verdicts
-from stage_view import HEATMAP_TIMES, stage_view
+from frames.stage_view import stage_view
+from services.operation_catalog import TS_TARGET, catalog, frames, typescript, with_refusals
+from services.operation_probe import _direct, _flat, metric_series, needs, probe, refusals, verdicts
 
 # The probe runs every operation on every Frame (1-2 min): CI runs these with AWA_SLOW=1.
 slow = pytest.mark.slow
@@ -34,13 +33,13 @@ def needed(runs: list) -> dict:
 
 @slow
 def test_the_generated_typescript_is_current(runs: list, needed: dict) -> None:
-    # Regenerate with `python python-backend/operation_catalog.py --write` after a wandas upgrade: it runs
-    # every operation again, so what a new wandas can or cannot do shows here.
+    # Regenerate with `python -m services.operation_catalog --write` (in python-backend/) after a wandas upgrade:
+    # it runs every operation again, so what a new wandas can or cannot do shows here.
     assert TS_TARGET.read_text(encoding="utf-8") == typescript(
         with_refusals(catalog(), refusals(runs), needed), frames()
     ), (
         f"{TS_TARGET.name} is not what the catalogue gives now (a wandas upgrade, or a Frame kind added to "
-        "stage_view.STAGE_FRAME_TYPES). Fix: run `python python-backend/operation_catalog.py --write` and commit it."
+        "stage_view.STAGE_FRAME_TYPES). Fix: in python-backend/, run `python -m services.operation_catalog --write`."
     )
 
 
@@ -209,20 +208,6 @@ def test_a_steady_tone_is_not_flat_and_a_silent_difference_is() -> None:
     assert not _flat(tone, stage_view(tone))
     difference = tone.channel_difference()
     assert _flat(difference, stage_view(difference))
-
-
-def test_an_image_that_draws_flat_from_block_averages_is_not_flat_when_its_cells_are_not() -> None:
-    # Columns alternating between two levels in every bin: each time block (two columns, HEATMAP_TIMES blocks) has
-    # the same power mean, so the drawn picture is one value, but the STFT's own cells are not (display rules R8).
-    rate, n_fft, columns = 48000, 256, 2 * HEATMAP_TIMES
-    magnitudes = np.where(np.arange(columns) % 2 == 0, 1.0, 4.0)
-    cells = np.broadcast_to(magnitudes, (1, n_fft // 2 + 1, columns)).astype(np.complex128)
-    frame = wd.SpectrogramFrame(da.from_array(cells), sampling_rate=rate, n_fft=n_fft, hop_length=n_fft // 2)
-    view = stage_view(frame)
-    drawn = np.array([[value for value in row if value is not None] for row in view["matrix"]], dtype=np.float64)
-    # The hard case itself: judged from the drawn points (the old rule), this picture is flat.
-    assert drawn.size and drawn.max() == drawn.min()
-    assert not _flat(frame, view)
 
 
 def test_a_parameters_field_kind_is_read_from_its_wandas_annotation() -> None:

@@ -32,7 +32,9 @@ test('results pane renders the spectrum section controls', () => {
     for (const action of ['spec-zoom-out', 'spec-zoom-in', 'spec-zoom-reset', 'spectrum-settings', 'spectrum-height-drag']) {
         assert.ok(html.includes('data-action="' + action + '"'), action);
     }
-    assert.ok(html.includes('<canvas id="spectrum-overlay-canvas" data-plot-names="spectrum-axis-legend" tabindex="0"'));
+    // The box the cursor spectrum's Figure is made in (the Figure makes its own canvas), and the words shown with no line.
+    assert.ok(html.includes('<div id="spectrum-overlay-plot" class="tracks-figure"></div>'));
+    assert.ok(html.includes('<div id="spectrum-overlay-empty" class="tracks-figure-empty" hidden>'));
 });
 
 test('results pane marks the selected spectrum kind as pressed', () => {
@@ -71,8 +73,7 @@ test('results pane holds the hidden pair view beside the power spectrum', () => 
     assert.ok(split > 0);
     assert.ok(html.indexOf('id="spectrum-overlay-wrap"') > split);
     assert.ok(html.indexOf('data-action="pair-divider-drag"') > html.indexOf('id="spectrum-overlay-wrap"'));
-    // Three plots on one frequency axis (gain, phase, γ²), each drawn by the plot component, under one readout row.
-    // Gain and phase are stacked on the γ² plot's frequency axis, drawn at the bottom of the stack (R13).
-    for (const lane of ['gain', 'phase', 'coherence']) assert.ok(html.includes('<canvas class="pair-lane-canvas" id="pair-lane-' + lane + '" data-pair-lane="' + lane + '"' + ' aria-label="' + strings.pairSectionTitle + '"'));
+    // One Figure of three lanes on one frequency axis (gain, phase, γ²), made in its box, under one readout row.
+    assert.ok(html.includes('<div id="pair-spectrum-figure" class="tracks-figure"></div>'));
     assert.ok(html.indexOf('id="pair-spectrum-readout"') < html.indexOf('id="pair-spectrum-plot"'));
 });

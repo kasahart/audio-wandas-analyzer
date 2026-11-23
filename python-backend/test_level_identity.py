@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from level_identity import level_identity
+from frames.level_identity import level_identity
 
 CASES = json.loads(
     (Path(__file__).resolve().parent.parent / "src" / "test" / "fixtures" / "levelIdentityCases.json").read_text(

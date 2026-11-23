@@ -1,31 +1,35 @@
-import { t, type ChartContract } from '../model';
+import { t, tt, type ChartContract } from '../model';
 
-/** レポートの 要約.png の頭書き・報告.csv・定義.json */
+/**
+ * レポートのフォルダ。報告.csv・定義.json は言葉だけを書く（どの録音を、どの基準と、どの区間で比べたか）。図（図.png、
+ * 図.csv）は、比較台に出ている図を図のサービスが書き出したもので、このモジュールは数を作らない
+ *。
+ */
 export const reportFiles: ChartContract = {
     chart: {
-        id: 'report-files', name: 'レポートの 要約.png の頭書き・報告.csv・定義.json',
-        paintedBy: ['src/webview/runtime/compareReport.ts:summaryPng', 'src/webview/runtime/compareReport.ts:reportCsv'],
-        requires: ['export', 'label'],
+        id: 'report-files', name: 'レポートのフォルダ（報告.csv・定義.json は言葉だけ。図は比較台の図の書き出し）',
+        paintedBy: ['src/webview/runtime/compareReport.ts:reportCsv'],
+        requires: ['export'],
     },
     rows: [
         {
-            id: 'report-files.csv', value: 'export', what: '報告.csv（最大の帯、Leq、基準の Leq、帯ごとの Δ、群の数、D の行）',
-            computedIn: ['src/webview/runtime/compareReport.ts:reportCsv', 'src/webview/runtime/compareReport.ts:maxBandCells', 'src/webview/runtime/compareReport.ts:dB', 'src/webview/runtime/compareReport.ts:bandLevel', 'src/webview/runtime/compareReport.ts:sideReferenceCell', 'src/webview/runtime/figureModel.ts:levelColumns', 'src/webview/runtime/figureModel.ts:baseLevelColumns', 'src/webview/runtime/entryTable.ts:levelReferenceCell', 'src/webview/runtime/figureModel.ts:figureUsed'],
-            from: 'whole', trace: 'スキャンの全データの帯と Leq（群は中央値）、dB は 0.1 まで。（描くために間引いた形はない）',
+            id: 'report-files.csv', value: 'export', what: '報告.csv（録音、条件、区間、基準の録音、チャンネル、表に出している値、メモ、基準の定義）',
+            computedIn: ['src/webview/runtime/compareReport.ts:reportCsv', 'src/webview/runtime/entryBase.ts:regionCells'],
+            from: 'input', trace: '入口の表の言葉（録音の名前、CSV のセル、メモ、基準の定義）と利用者の区間。区間は秒で、端が同じ字にならない桁まで書く。解析の値は書かない。',
             tests: [
-                t('src/test/benchReport.test.ts', '報告.csv has one row per slot in the agreed columns: dB to one decimal, Hz whole, missing values empty'),
-                t('src/test/benchReport.test.ts', 'the report says what the comparison was taken from: the value, the filters, each base with its channel, the memo, and the D rows'),
-                t('src/test/benchReport.test.ts', 'the CSVs say each row\'s level reference beside its levels: never one calibration word for the whole table (R1, R4)'),
-                t('src/test/entryBase.test.ts', 'a base group counts, names and measures only the recordings its median is of: never a failed or still-computing one'),
+                t('src/test/benchReport.test.ts', '報告.csv has one row per compared slot, in words only: the recording, its conditions, the region, its base and its memo'),
+                t('src/test/benchReport.test.ts', 'with no figure on show a report is of words only: its files are 報告.csv, the Recipe and 定義.json'),
+                t('src/test/entryBase.test.ts', 'a region is written as two cells in seconds, finer where its ends would read alike; the whole file as two empty cells'),
             ],
         },
         {
-            id: 'report-files.region', value: 'label', what: '要約.png の頭書きと図の題の区間',
-            computedIn: ['src/webview/runtime/compareReport.ts:summaryPng', 'src/webview/runtime/compareReport.ts:summaryRegionText', 'src/webview/runtime/compareReport.ts:slotRegions', 'src/webview/runtime/compareReport.ts:regionSeconds', 'src/webview/plot/plotText.ts:secondsSpanText'],
-            from: 'input', trace: '利用者の区間。要約.png の頭書きは各ファイルを測った区間（そのファイル自身の長さの中で端の 0.15 s を除く）で、ファイルどうしで違えばスロットごとに書く。図の題は利用者の区間。',
+            id: 'report-files.figure', value: 'export', what: '図.png と 図.csv（比較台に出ている図。線の段のすべての答え）と、定義.json のデータの id',
+            computedIn: ['src/webview/runtime/compareReport.ts:reportFiles', 'python-backend/figures/service.py:export'],
+            from: 'full', trace: '図のサービスが、画面の絵と同じデータの id の答えから、間引かない表を返す。PNG は同じ図の宣言を決まった大きさで描いたもの。webview は受け取った字とバイトをファイルにするだけ。',
             tests: [
-                t('src/test/benchReport.test.ts', 'the report Recipe carries the region as its time slice and still loads in wandas'),
-                t('src/test/benchReport.test.ts', 'each compared file\'s row, Recipe and heading give the region that file was measured over, cut within its own length'),
+                t('src/test/benchReport.test.ts', 'the figure on show goes into the report as it was handed over: its PNG, the table of its lines, and its data id in 定義.json'),
+                t('src/test/benchReport.test.ts', 'the module that writes a report makes no number: it reaches no answer, no figure and no canvas'),
+                tt('python-backend/test_figures_service.py', 'test_export_has_the_draws_data_id_and_every_point_unthinned_and_refuses_another_id'),
             ],
         },
     ],

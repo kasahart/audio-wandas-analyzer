@@ -5,19 +5,19 @@ import path from 'node:path';
 import test from 'node:test';
 import { createFolderStore, isFolderKey } from '../extension/folderStore';
 
-test('a folder\'s index and session are JSON files in the extension\'s storage, read back by a new store; null removes one', async () => {
+test('a folder\'s session and CSV are JSON files in the extension\'s storage, read back by a new store; null removes one', async () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'awa-store-'));
     try {
         const store = createFolderStore(path.join(directory, 'entry'));
         await store.write('awa.session.v1:/data/motor', { version: 1, value: 'leq' });
-        await store.write('awa.scanIndex.v3:/data/motor', { '/data/motor/a.wav': [] });
+        await store.write('awa.sessionCsv.v1:/data/motor', { name: 'motor.csv', text: 'a,b' });
         assert.equal(readdirSync(path.join(directory, 'entry')).filter(name => name.endsWith('.json')).length, 2);
         const again = createFolderStore(path.join(directory, 'entry'));
         assert.deepEqual(await again.read('awa.session.v1:/data/motor'), { version: 1, value: 'leq' });
         assert.equal(await again.read('awa.session.v1:/data/other'), undefined);
         await again.write('awa.session.v1:/data/motor', null);
         assert.equal(await createFolderStore(path.join(directory, 'entry')).read('awa.session.v1:/data/motor'), undefined);
-        assert.ok(isFolderKey('awa.sessionCsv.v1:/x') && isFolderKey('awa.scanIndex.v3:') && !isFolderKey('awa.conditions.v1'));
+        assert.ok(isFolderKey('awa.sessionCsv.v1:/x') && !isFolderKey('awa.scanIndex.v3:') && !isFolderKey('awa.conditions.v1'));
     } finally {
         rmSync(directory, { recursive: true, force: true });
     }

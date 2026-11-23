@@ -78,3 +78,18 @@ export function trackChanges(before: readonly (string | null)[], after: readonly
 export function channelRowKey(key: string, keys: ReadonlySet<string>): string | null {
     return !keys.has(key) && fileOfKey(key) === key && keys.has(rowKey(key, 1, 2)) ? rowKey(key, 1, 2) : null;
 }
+
+/**
+ * Where a key taken of a file goes once the file's channel count is known (`channels`: by file, absent until its
+ * header is read): itself while it is a row, or while the file has no rows to go to; the file's ch 1 row under its
+ * other spelling (a file of one channel is keyed by its path, of more by `#ch1`); null when the file is read and
+ * no longer has that channel (rewritten with fewer): the channel is gone, and no other stands for it.
+ */
+export function settledKey(key: string, keys: ReadonlySet<string>, channels: ReadonlyMap<string, number>): string | null {
+    if (keys.has(key)) return key;
+    const file = fileOfKey(key);
+    if (!channels.has(file)) return key;
+    const first = keys.has(file) ? file : keys.has(rowKey(file, 1, 2)) ? rowKey(file, 1, 2) : null;
+    if (first === null) return key;
+    return key === file || key === rowKey(file, 1, 2) ? first : null;
+}

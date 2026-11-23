@@ -9,7 +9,10 @@ import soundfile as sf
 import wandas as wd
 
 from browser_service import BrowserService, create_service
-from protocol_schema import DEFINITIONS, first_violation
+from conftest import cursor_lines
+from services.answer_store import STORE
+from services.tracks_answers import ImageData
+from transport.protocol_schema import DEFINITIONS, first_violation
 
 FIXTURE = Path(__file__).resolve().parents[1] / "src/test/fixtures/short-stereo.wav"
 
@@ -32,7 +35,7 @@ def test_browser_source_bounds_release_and_stale_identity(monkeypatch) -> None:
     service.engine.load("selected.wav", FIXTURE.read_bytes())
     source = service.engine.get_file("/sources/selected.wav")
     assert service.engine.get_file(source.path.as_posix()) is source
-    service.track_detail(source.path, stft_options={"nFft": 256, "overlapPercent": 75, "window": "hann"})
+    service.track_answers(source.path, stft_options={"nFft": 256, "overlapPercent": 75, "window": "hann"})
     assert source.spectrograms
     service.release_track_detail(source.path)
     assert not source.spectrograms
@@ -59,8 +62,8 @@ def test_cursor_spectrum_transforms_the_stft_frame_nearest_the_cursor() -> None:
     # 75 % overlap of 256 points: frames sit every 64 samples.
     start = int(round(cursor * frame.n_samples / 64)) * 64 - 128
     expected = np.asarray(frame[:, start : start + 256].fft(n_fft=256, window="hann").dB)
-    result = service.spectrum_slice(
-        path, cursor_norm=cursor, stft_options={"nFft": 256, "overlapPercent": 75, "window": "hann"}
+    result = cursor_lines(
+        service, path, cursor_norm=cursor, stft_options={"nFft": 256, "overlapPercent": 75, "window": "hann"}
     )
     assert result["windowStartNorm"] * frame.n_samples == pytest.approx(start)
     np.testing.assert_allclose(result["channels"][0]["values"], expected[0], atol=1e-4)
@@ -165,9 +168,9 @@ def test_export_plan_is_bounded_and_releases_only_recomputable_detail(monkeypatc
 def test_auto_stft_valid_high_rate_wav_matches_native(tmp_path) -> None:
     import soundfile as sf
 
-    from analysis_engine import AnalysisEngine
-    from analysis_service import AnalysisService
-    from analyzer import resolve_stft_params
+    from services.analysis_engine import AnalysisEngine
+    from services.analysis_service import AnalysisService
+    from services.analyzer import resolve_stft_params
 
     rate = 96000
     samples = np.sin(2 * np.pi * 500 * np.arange(16 * rate) / rate) * 0.4
@@ -177,13 +180,14 @@ def test_auto_stft_valid_high_rate_wav_matches_native(tmp_path) -> None:
     browser.engine.load("auto-96k.wav", file_path.read_bytes())
     native = AnalysisService(AnalysisEngine())
     assert resolve_stft_params(len(samples), None) == (2048, 2134, "hann")
-    browser_result = browser.track_detail("/sources/auto-96k.wav")
-    native_result = native.track_detail(file_path)
-    browser_spec = browser_result["channels"][0]["spectrogram"]
-    native_spec = native_result["channels"][0]["spectrogram"]
-    assert browser_spec["hopSize"] == native_spec["hopSize"] == 2134
-    assert browser_spec["timeBins"] <= 720
-    assert browser_spec == native_spec
+    browser_result = browser.track_answers("/sources/auto-96k.wav")
+    native_result = native.track_answers(file_path)
+    assert browser_result["hopSize"] == native_result["hopSize"] == 2134
+    browser_image = STORE.get(browser_result["channels"][0]["image"])
+    native_image = STORE.get(native_result["channels"][0]["image"])
+    assert isinstance(browser_image, ImageData) and isinstance(native_image, ImageData)
+    np.testing.assert_array_equal(browser_image.values, native_image.values)
+    np.testing.assert_array_equal(browser_image.xs, native_image.xs)
 
 
 @pytest.mark.parametrize("payload", [b"", b"not a WAV", b"RIFF" + b"\0" * 4 + b"WAVE"])
@@ -272,7 +276,7 @@ def test_browser_limits_are_published_from_the_python_constants() -> None:
 @pytest.mark.parametrize("channels", [1, 2])
 def test_the_largest_pcm16_file_loads_and_shows_its_spectrogram_on_its_own(channels: int) -> None:
     import browser_service as browser
-    from analyzer import resolve_stft_params
+    from services.analyzer import resolve_stft_params
 
     # A 16-bit file decodes to float32 at twice its size; the published per-file limit must load and draw alone.
     engine = create_service().engine

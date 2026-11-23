@@ -27,7 +27,7 @@ export interface StepBarState {
     lengthS?: number;
     /**
      * Reads the largest peak of the compared channels over the region, in their unit, from every sample
-     * (regionPeak.ts): a new trigger fires at half of it. Absent where nothing is compared (the entry table).
+     * (one answer of the backend's, regionPeak.ts): a new trigger fires at half of it. Absent where nothing is compared (the entry table).
      *
      * It is a function, not a value, because calling it asks the backend for the samples. The bar calls it only when
      * a trigger can be added (the ＋ menu opens offering one, or one is added): never on a repaint.

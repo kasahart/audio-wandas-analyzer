@@ -41,5 +41,5 @@ export function createFolderStore(directory: string): KeyValueStore {
     };
 }
 
-/** Keys kept as files: a folder's scan index, its session and its CSV (they grow with the folder). */
-export const isFolderKey = (key: string): boolean => /^awa\.(scanIndex|session|sessionCsv)\./.test(key);
+/** Keys kept as files: a folder's session and its CSV (they grow with the folder). */
+export const isFolderKey = (key: string): boolean => /^awa\.(session|sessionCsv)\./.test(key);

@@ -151,12 +151,16 @@ class Backend:
         self.modules: set[str] = set()
         #: Each module's names bound by ``from mod import f``: what a name re-exported from it really is.
         self.exports: dict[str, dict[str, str]] = {}
-        for path in sorted(BACKEND.glob("*.py")):
-            if path.name.startswith("test_") or path.name == "conftest.py":
+        # A module by its dotted name: an entry of python-backend/ itself, or one of its folders' (services.analyzer).
+        files: dict[str, Path] = {}
+        for path in sorted(BACKEND.rglob("*.py")):
+            inside = path.relative_to(BACKEND).parts
+            if path.name.startswith("test_") or path.name == "conftest.py" or inside[0] in ("tests", "__pycache__"):
                 continue
-            self.modules.add(path.stem)
+            files[".".join(inside)[: -len(".py")]] = path
+        self.modules = set(files)
         for module in sorted(self.modules):
-            self.index(module, ast.parse((BACKEND / f"{module}.py").read_text(encoding="utf-8")))
+            self.index(module, ast.parse(files[module].read_text(encoding="utf-8")))
 
     def imports(self, tree: ast.Module) -> tuple[dict[str, str], dict[str, str]]:
         """The names a module binds to backend functions (``from mod import f``) and to backend modules."""
@@ -166,6 +170,11 @@ class Backend:
             if isinstance(node, ast.ImportFrom) and node.module in self.modules:
                 for alias in node.names:
                     names[alias.asname or alias.name] = f"{node.module}:{alias.name}"
+            elif isinstance(node, ast.ImportFrom):
+                # ``from services import analyzer``: a module of a folder, by its dotted name.
+                for alias in node.names:
+                    if f"{node.module}.{alias.name}" in self.modules:
+                        aliases[alias.asname or alias.name] = f"{node.module}.{alias.name}"
             elif isinstance(node, ast.Import):
                 for alias in node.names:
                     if alias.name in self.modules:
@@ -421,7 +430,7 @@ def check(items: list[dict[str, object]]) -> list[str | None]:
     out: list[str | None] = []
     for item in items:
         targets = {
-            str(target).removeprefix("python-backend/").replace(".py:", ":", 1)
+            str(target).removeprefix("python-backend/").replace(".py:", ":", 1).replace("/", ".")
             for target in item["targets"]  # type: ignore[union-attr]
             if ".py:" in str(target)
         }

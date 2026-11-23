@@ -27,10 +27,20 @@ test('a stored session keeps what still fits the folder\'s files and drops the r
     assert.deepEqual(kept.slots, ['/d/a.wav#ch2', null, null, '/d/b.wav']);
     assert.deepEqual(kept.memo, [['/d/a.wav', 'loud']]);
     assert.deepEqual(kept.excluded, ['/d/b.wav']);
-    assert.equal(kept.derived?.length, 1);
     assert.equal(kept.recipe, recipe);
     const bare = readStoredSession({ version: 1, sort: { column: 'size' }, recipe: { schema: 'x' } }, files);
     assert.deepEqual(bare, { baseGroup: null, memo: [], excluded: [] }, 'nothing stored is nothing kept');
+});
+
+test('a range open at one end and a sort by a file\'s information come back after the store wrote them as JSON', () => {
+    const files = new Set(['/d/a.wav']);
+    const session = { version: 1, filters: [{ column: 'duration', kind: 'range', low: 2, high: Infinity, closed: true }, { column: 'fs', kind: 'range', low: -Infinity, high: 48000 }], sort: { column: 'duration', descending: true } };
+    // The host's store keeps JSON: an infinite end is written as null.
+    const kept = readStoredSession(JSON.parse(JSON.stringify(session)) as Record<string, unknown>, files);
+    assert.deepEqual(kept?.filters, session.filters);
+    assert.deepEqual(kept?.sort, { column: 'duration', descending: true });
+    for (const column of ['fs', 'calibration']) assert.equal(readStoredSession({ version: 1, sort: { column } }, files)?.sort?.column, column);
+    assert.deepEqual(readStoredSession({ version: 1, filters: [{ column: 'fs', kind: 'range', low: null, high: null }] }, files)?.filters, [], 'a range open at both ends is no filter');
 });
 
 test('a change is saved once, a moment after it, and only after the stored session came back', () => {

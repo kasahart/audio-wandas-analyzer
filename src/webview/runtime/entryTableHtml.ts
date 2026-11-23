@@ -1,6 +1,7 @@
 /**
- * Markup for the entry screen: one row per recording and channel with four columns (the file, its channel, the
- * group it belongs to and the value on show), each header with a spreadsheet-like ▾ (sort, search, a check list
+ * Markup for the entry screen: one row per recording and channel with its columns (the file, its channel, what its
+ * header says of it (length, sample rate) and whether it is calibrated, the group it belongs to and the CSV value
+ * on show), each header with a spreadsheet-like ▾ (sort, search, a check list
  * or a range); the row's tools (▶, its slot, a memo, take it out) right after its name; the filters as chips;
  * the CSV rows and recordings that did not match, with why. Text is limited to names, numbers and short labels;
  * actions are `data-action` attributes handled by entryRuntime.ts.
@@ -9,9 +10,9 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import { uiNumber } from '../../shared/utils/format';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { titledHintAttr as hintAttr } from './hintFooter';
-import { amountText, frequencyText, withMinus } from '../plot/plotText';
+import { withMinus } from '../shell/numberText';
 import { summarizeAudioCandidates } from '../../shared/dataset/asdData';
-import { groupOf, middleEllipsis, valueOf, type ColumnId, type DatasetFilter, type DatasetRow, type GroupId, type Results, type Unmatched, type ValueId } from '../../shared/dataset/datasetTable';
+import { groupOf, infoNumber, middleEllipsis, valueOf, type ColumnId, type DatasetFilter, type DatasetRow, type GroupId, type InfoId, type SortColumn, type Unmatched, type ValueId } from '../../shared/dataset/datasetTable';
 
 export type EntryStrings = UiStrings;
 
@@ -21,23 +22,17 @@ export interface DatasetColumn { id: ColumnId; label: string; numeric: boolean; 
 export interface DatasetScreenView {
     /** The rows on screen (filtered, sorted) and how many rows there are in all. */
     rows: readonly DatasetRow[];
-    results: Results;
-    /** A row's own calibration word for a level value, where the value's axis mixes calibration statuses (R4). */
-    levelWord?: (filePath: string) => string;
     group: GroupId;
     value: ValueId;
-    columns: { name: DatasetColumn; ch: DatasetColumn; group?: DatasetColumn; value: DatasetColumn };
+    /** `info`: the file's own information (length, sample rate, calibration); `value`: the CSV column on show, when there is one. */
+    columns: { name: DatasetColumn; ch: DatasetColumn; info: ReadonlyArray<DatasetColumn & { id: InfoId }>; group?: DatasetColumn; value?: DatasetColumn };
     filters: readonly DatasetFilter[];
-    sort: { column: 'name' | 'ch' | 'group' | 'value'; descending: boolean };
+    sort: { column: SortColumn; descending: boolean };
     /** Row keys in slots 0–3. */
     slots: readonly (string | null)[];
     focused: string | null;
     playing: string | null;
     memo: ReadonlyMap<string, string>;
-    /** Whether the value on show is computed for every row on screen. */
-    valueReady: boolean;
-    /** Files whose results are of an earlier chain: greyed. */
-    stale?: ReadonlySet<string>;
     /** Files shown as tracks in the track view: ☑ in the first column and a bold name. */
     shown?: ReadonlySet<string>;
     /** The head's ⊟ takes the listed files off: showing the rest was just tried and they did not all come (the browser's limit). */
@@ -46,12 +41,8 @@ export interface DatasetScreenView {
     unmatched: readonly Unmatched[];
     /** A filter of a column shows ▼ (on) in its header. */
     filtered: ReadonlySet<ColumnId>;
-    /** Differences fixed with D, under the row they were fixed on (muted, not counted anywhere). */
-    derived?: (row: DatasetRow) => readonly DerivedItem[];
 }
 
-/** A difference fixed on the comparison (D), as its row under its parent shows it. */
-export interface DerivedItem { key: string; label: string; value: string; stale: boolean; title: string; parentPath: string; region: string; baseLabel: string }
 
 /**
  * Every row of the table is exactly this tall, whatever it holds (#781): a value that arrives, a tool that shows on
@@ -78,19 +69,8 @@ export function rowWindow(scrollTop: number, clientHeight: number, lines: number
     return { first, last: Math.min(lines, first + Math.ceil((clientHeight || 600) / rowHeight) + 20) };
 }
 
-/** The table's lines: each row, then the differences fixed on it. */
-/** Each view's lines, made once: scrolling 100,000 rows asks for them on every frame. */
-const linesOf = new WeakMap<object, Array<DatasetRow | DerivedItem>>();
-export function tableLines(view: Pick<DatasetScreenView, 'rows' | 'derived' | 'mode'>): Array<DatasetRow | DerivedItem> {
-    let lines = linesOf.get(view);
-    if (!lines) {
-        const derived = view.derived;
-        lines = !derived || view.mode !== 'all' ? [...view.rows] : view.rows.flatMap(row => [row, ...derived(row)]);
-        linesOf.set(view, lines);
-    }
-    return lines;
-}
-const isDerived = (line: DatasetRow | DerivedItem): line is DerivedItem => 'baseLabel' in line;
+/** The table's lines: its rows. */
+export const tableLines = (view: Pick<DatasetScreenView, 'rows'>): readonly DatasetRow[] => view.rows;
 
 export function entryScreenHtml(strings: EntryStrings): string {
     return `<section id="entry-screen" class="entry-screen" data-entry-screen hidden aria-label="${escapeHtml(strings.entryColFile)}">
@@ -114,18 +94,6 @@ export function entryScreenHtml(strings: EntryStrings): string {
         <aside class="entry-side">
             <div class="entry-dist-area" data-entry-dist-area>
                 ${distributionHtml(strings)}
-                <div class="entry-held" data-entry-held hidden>
-                    <div class="entry-held-head"><span data-entry-held-title></span><span class="plot-readout" data-plot-readout hidden><span class="plot-readout-name"></span><span class="plot-readout-values"></span></span></div>
-                    <canvas data-entry-held-canvas></canvas>
-                </div>
-            </div>
-            <div class="entry-overview-box">
-                <div class="entry-overview-head"><span class="plot-readout" data-plot-readout hidden><span class="plot-readout-name"></span><span class="plot-readout-values"></span></span></div>
-                <div class="entry-overview-plot">
-                    <canvas class="entry-overview" data-entry-overview aria-label="${escapeHtml(strings.ariaEntryOverview)}"${hintAttr(strings.hintOverview)}></canvas>
-                    <div class="entry-overview-frame" data-entry-overview-frame hidden></div>
-                    <div class="entry-overview-focus" data-entry-overview-focus hidden></div>
-                </div>
             </div>
         </aside>
     </div>
@@ -148,19 +116,32 @@ function distributionHtml(strings: EntryStrings): string {
                         <span class="entry-dist-legend" data-entry-dist-legend></span>
                     </div>
                     <div class="entry-dist-note"><span data-entry-dist-note></span><span class="plot-readout" data-plot-readout hidden><span class="plot-readout-name"></span><span class="plot-readout-values"></span></span></div>
-                    <div class="entry-dist-groups" data-entry-dist-groups data-plot-stack></div>
-                    <div class="entry-dist-axis" data-entry-dist-axis><canvas class="entry-dist-axis-canvas" id="entry-dist-axis-canvas" data-plot-names="entry-dist-count-axis" data-entry-dist-axis-canvas hidden></canvas><span class="entry-dist-count-axis" id="entry-dist-count-axis" data-entry-dist-count-axis></span></div>
+                    <div class="entry-dist-figure" data-entry-dist-figure hidden></div>
                     <div class="entry-dist-empty" data-entry-dist-empty hidden></div>
                 </div>`;
 }
 
-/** The value and group selects' options: the CSV's numeric columns, then what is computed from the sound. */
-export function valueOptionsHtml(options: ReadonlyArray<{ id: ValueId; label: string; computed: boolean; ready: boolean }>, chosen: ValueId, strings: EntryStrings): string {
-    const group = (computed: boolean, title: string): string => {
-        const items = options.filter(option => option.computed === computed);
-        return items.length ? `<optgroup label="${escapeHtml(title)}">${items.map(option => `<option value="${escapeHtml(option.id)}"${option.id === chosen ? ' selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}</optgroup>` : '';
-    };
-    return group(false, strings.dsFromCsv) + group(true, strings.dsFromSound);
+/** The value select's options: the CSV's columns of numbers (the entry computes no value); with none, one option that says so. */
+export function valueOptionsHtml(options: ReadonlyArray<{ id: ValueId; label: string }>, chosen: ValueId, strings: EntryStrings): string {
+    if (!options.length) return `<option value="none" selected>${escapeHtml(strings.dsValueNone)}</option>`;
+    return options.map(option => `<option value="${escapeHtml(option.id)}"${option.id === chosen ? ' selected' : ''}>${escapeHtml(option.label)}</option>`).join('');
+}
+
+/** The distribution's legend: the slots holding a recording, each a line in its role's colour. */
+export function distributionLegendHtml(slots: readonly (string | null)[], strings: Pick<UiStrings, 'entryBase' | 'dsSlotCompare'>): string {
+    const swatch = (slot: number): string => `<span class="entry-dist-swatch slot-${slot}"></span>`;
+    return [
+        slots[0] ? `${swatch(0)}${escapeHtml(strings.entryBase)}` : '',
+        ...[1, 2, 3].filter(slot => slots[slot]).map(slot => `${swatch(slot)}${escapeHtml(strings.dsSlotCompare.replace('{n}', String(slot)))}`),
+    ].filter(Boolean).map(item => `<span class="entry-dist-key">${item}</span>`).join('');
+}
+
+/** A file's information as its cell writes it: its length in seconds, its sample rate in Hz, whether it is calibrated; — where not known. */
+export function infoCell(row: DatasetRow, column: InfoId): string {
+    if (column === 'calibration') return row.info?.calibration || '—';
+    const number = infoNumber(row, column);
+    if (number === null) return '—';
+    return column === 'duration' ? number.toFixed(number < 10 ? 2 : 1) : String(Math.round(number));
 }
 
 export function groupOptionsHtml(options: ReadonlyArray<{ id: GroupId; label: string }>, chosen: GroupId): string {
@@ -199,26 +180,26 @@ export function filterChipsHtml(filters: readonly DatasetFilter[], label: (colum
 export function datasetColsHtml(view: Pick<DatasetScreenView, 'columns' | 'mode'>): string {
     // The name and its four tools, then the channel, group and value right after them; spare width stays at the right end.
     const group = view.mode === 'all' && view.columns.group ? '<col class="entry-col-group-w">' : '';
+    const info = view.columns.info.map(column => `<col class="entry-col-info-w entry-col-${column.id}-w">`).join('');
     return view.mode === 'unmatched'
         ? '<col class="entry-col-name-w"><col class="entry-col-reason-w"><col>'
-        : `<col class="entry-col-mark-w"><col class="entry-col-name-w"><col class="entry-col-ch-w">${group}<col class="entry-col-value-w"><col class="entry-col-fill-w">`;
+        : `<col class="entry-col-mark-w"><col class="entry-col-name-w"><col class="entry-col-ch-w">${info}${group}${view.columns.value ? '<col class="entry-col-value-w">' : ''}<col class="entry-col-fill-w">`;
 }
 
 export function datasetHeadHtml(view: DatasetScreenView, strings: EntryStrings): string {
     if (view.mode === 'unmatched') return `<tr><th>${escapeHtml(strings.entryColFile)}</th><th>${escapeHtml(strings.dsReason)}</th><th></th></tr>`;
-    const head = (sortKey: DatasetScreenView['sort']['column'], column: DatasetColumn, extra = '', disabled = false): string => {
+    const head = (sortKey: DatasetScreenView['sort']['column'], column: DatasetColumn, extra = ''): string => {
         const sorted = view.sort.column === sortKey;
         const on = view.filtered.has(column.id);
         const arrow = sorted ? (view.sort.descending ? ' ↓' : ' ↑') : '';
-        const hint = disabled ? strings.dsNotComputed : on ? strings.dsFilterOn : strings.dsFilterHead;
-        return `<th class="${column.numeric ? 'entry-num ' : ''}${sortKey === 'value' ? 'entry-col-value ' : sortKey === 'group' ? 'entry-col-group ' : ''}${sorted ? 'is-sorted' : ''}" data-column="${escapeHtml(column.id)}"><span class="entry-th">`
-            + `<span class="entry-th-label"${disabled ? hintAttr(strings.dsNotComputed) : column.title ? hintAttr(column.title) : sortKey === 'value' ? hintAttr(column.label) : ''}>${escapeHtml(column.label)}${extra}${arrow}</span>`
-            // A value not computed yet has nothing to sort or filter by: no ▾, and its header says why. The ▾'s place
-            // is kept (as wide as the ▾), so the name wraps the same way once it comes (#781).
-            + (disabled ? '<span class="entry-fbtn-slot" aria-hidden="true"></span>' : `<button type="button" class="entry-fbtn${on ? ' is-on' : ''}" data-action="entry-fhead" data-column="${escapeHtml(column.id)}" data-sort="${sortKey}" aria-label="${escapeHtml(`${column.label} ${strings.dsFilterHead}`)}"${hintAttr(hint)}>${on ? '▼' : '▾'}</button>`) + '</span></th>';
+        const hint = on ? strings.dsFilterOn : strings.dsFilterHead;
+        const kind = sortKey === 'value' ? 'entry-col-value ' : sortKey === 'group' ? 'entry-col-group ' : sortKey === 'name' || sortKey === 'ch' ? '' : 'entry-col-info ';
+        return `<th class="${column.numeric ? 'entry-num ' : ''}${kind}${sorted ? 'is-sorted' : ''}" data-column="${escapeHtml(column.id)}"><span class="entry-th">`
+            + `<span class="entry-th-label"${column.title ? hintAttr(column.title) : sortKey === 'value' ? hintAttr(column.label) : ''}>${escapeHtml(column.label)}${extra}${arrow}</span>`
+            + `<button type="button" class="entry-fbtn${on ? ' is-on' : ''}" data-action="entry-fhead" data-column="${escapeHtml(column.id)}" data-sort="${sortKey}" aria-label="${escapeHtml(`${column.label} ${strings.dsFilterHead}`)}"${hintAttr(hint)}>${on ? '▼' : '▾'}</button></span></th>`;
     };
     const count = ` <span class="entry-th-count">${escapeHtml(strings.dsRows.replace('{n}', uiNumber(view.rows.length, strings.uiLocale)))}</span>`;
-    return `<tr>${trackHeadHtml(view, strings)}${head('name', view.columns.name, count)}${head('ch', view.columns.ch)}${view.columns.group ? head('group', view.columns.group) : ''}${head('value', view.columns.value, '', !view.valueReady)}<th></th></tr>`;
+    return `<tr>${trackHeadHtml(view, strings)}${head('name', view.columns.name, count)}${head('ch', view.columns.ch)}${view.columns.info.map(column => head(column.id, column)).join('')}${view.columns.group ? head('group', view.columns.group) : ''}${view.columns.value ? head('value', view.columns.value) : ''}<th></th></tr>`;
 }
 
 /** The ☐/⊟/☑ over the marks: none, some or all of the listed files on a track; a click shows them all, or takes them all off. */
@@ -233,28 +214,9 @@ function trackHeadHtml(view: DatasetScreenView, strings: EntryStrings): string {
     return `<th class="entry-mark is-${state}"><button type="button" class="entry-mark-all" data-action="entry-tracks-all" aria-pressed="${state === 'all' ? 'true' : state === 'some' ? 'mixed' : 'false'}" aria-label="${escapeHtml(label)}"${hintAttr(label)}>${state === 'all' ? '☑' : state === 'some' ? '⊟' : '☐'}</button></th>`;
 }
 
-/** The value as the table shows it: one decimal for levels, whole hertz, two decimals for a ratio or a CSV number as written. */
-export function formatValue(value: ValueId, number: number | null): string {
-    if (number === null) return '—';
-    const text = value === 'peak' ? String(Math.round(number)) : value === 'crest' ? number.toFixed(2) : value.startsWith('csv:') ? String(+number.toPrecision(6)) : number.toFixed(1);
-    return withMinus(text);
-}
-
-/**
- * A value as a plot reads it out (R7, plotText.ts), not as the table's column writes it: a peak frequency in Hz or
- * kHz ("3.15 kHz"), a level to 0.1 dB (its unit is in the value's name), any other value to three significant figures.
- * `step`, the spacing of what it is read among (the distribution's bins), adds the digits that spacing needs, so two
- * neighbouring bins never read the same (bins 1 apart at 3000: "3001–3002", not "3000–3000").
- */
-export function plotValueText(value: ValueId, number: number, step: number | undefined, reference: string): string {
-    const decimals = step !== undefined && step > 0 && Number.isFinite(step) ? Math.max(0, Math.ceil(-Math.log10(step) - 1e-9)) : undefined;
-    if (value === 'peak') return frequencyText(number, step);
-    // A level is written with its reference, as its axis names it (R7: "−32.1 dBFS", "48.3 dB SPL re 20 µPa").
-    if (value === 'leq' || value.startsWith('band:')) { const text = withMinus(number.toFixed(Math.max(1, decimals ?? 0))); return reference ? `${text} ${reference}` : text; }
-    // Three significant figures resolve 10^(e − 2) at 10^e: a finer step needs its own decimals.
-    const resolution = number === 0 ? 0 : 10 ** (Math.floor(Math.log10(Math.abs(number))) - 2);
-    if (decimals !== undefined && step !== undefined && step < resolution) return withMinus(number.toFixed(decimals));
-    return amountText(number);
+/** A CSV number as the table shows it: as written, to six significant figures; — for a blank. */
+export function formatValue(number: number | null): string {
+    return number === null ? '—' : withMinus(String(+number.toPrecision(6)));
 }
 
 /** How many of a name's last characters stay in sight however narrow its column: the run number and the extension. */
@@ -289,29 +251,21 @@ export function datasetRowsHtml(view: DatasetScreenView, first: number, last: nu
     const spacer = (rows: number): string => (rows > 0 ? `<tr class="entry-spacer-row" aria-hidden="true" style="height:${rows * rowHeight}px"></tr>` : '');
     const lines = tableLines(view);
     const rows = lines.slice(first, last).map(line => {
-        if (isDerived(line)) {
-            return `<tr class="entry-row is-derived${line.stale ? ' is-stale' : ''}" data-derived="${escapeHtml(line.key)}"><td class="entry-mark"></td>`
-                + `<td class="entry-name"><span class="entry-ncell"><span class="entry-nm" title="${escapeHtml(line.title)}">${escapeHtml(line.label)}</span><span class="entry-rowtools"><button type="button" class="entry-rbtn" data-action="entry-derived-remove" data-parent="${escapeHtml(line.parentPath)}" data-region="${escapeHtml(line.region)}" data-base="${escapeHtml(line.baseLabel)}" aria-label="${escapeHtml(strings.dsDerivedRemove)}"${hintAttr(strings.dsDerivedRemove)}>×</button></span></span></td>`
-                + `<td class="entry-num entry-col-ch is-single"></td>${view.columns.group ? '<td class="entry-col-group"></td>' : ''}<td class="entry-num entry-col-value">${escapeHtml(line.value)}</td><td></td></tr>`;
-        }
         const row = line;
         const classes = ['entry-row'];
         if (row.key === view.focused) classes.push('is-focused');
-        if (view.stale?.has(row.filePath)) classes.push('is-stale');
         const shown = !!view.shown?.has(row.filePath);
         if (shown) classes.push('is-shown');
         if (view.mode === 'excluded') classes.push('is-excluded');
-        const value = view.valueReady || valueOf(row, view.value, view.results) !== null ? formatValue(view.value, valueOf(row, view.value, view.results)) : '—';
-        const levelWord = value !== '—' && (view.value === 'leq' || view.value.startsWith('band:')) ? view.levelWord?.(row.filePath) ?? '' : '';
+        const info = view.columns.info.map(column => `<td class="${column.numeric ? 'entry-num ' : ''}entry-col-info">${escapeHtml(infoCell(row, column.id))}</td>`).join('');
         const group = view.columns.group ? `<td class="entry-col-group" title="${escapeHtml(groupOf(row, view.group))}">${escapeHtml(middleEllipsis(groupOf(row, view.group), 16) || '—')}</td>` : '';
         return `<tr class="${classes.join(' ')}" data-key="${escapeHtml(row.key)}" data-file-path="${escapeHtml(row.filePath)}" aria-selected="${row.key === view.focused}">`
             // ☑ on a track, ☐ not (not ●, a step's output): a click, T, or Enter / Space on it shows or takes off its track.
             // The focused row's is the one Tab reaches.
             + (view.mode === 'excluded' ? '<td class="entry-mark"></td>' : `<td class="entry-mark" data-action="entry-row-track" data-key="${escapeHtml(row.key)}" role="checkbox" tabindex="${row.key === view.focused ? 0 : -1}" aria-checked="${shown}" aria-label="${escapeHtml(`${strings.dsTrackMark}: ${row.name}`)}">${shown ? '☑' : '☐'}</td>`)
             + `<td class="entry-name"><span class="entry-ncell">${nameHtml(row.name, `${row.filePath}${(row.channels ?? 1) > 1 ? ` · ch ${row.ch} / ${row.channels}` : ''}`)}<span class="entry-rowtools">${toolsHtml(row, view, strings)}</span></span></td>`
-            + `<td class="entry-num entry-col-ch${(row.channels ?? 1) > 1 ? '' : ' is-single'}">${row.channels === undefined ? '—' : row.ch}</td>${group}`
-            // A level read on an axis that mixes calibration statuses says its own (R4): the column's name cannot.
-            + `<td class="entry-num entry-col-value">${value}${levelWord ? `<span class="entry-uncal">${escapeHtml(levelWord)}</span>` : ''}</td><td></td></tr>`;
+            + `<td class="entry-num entry-col-ch${(row.channels ?? 1) > 1 ? '' : ' is-single'}">${row.channels === undefined ? '—' : row.ch}</td>${info}${group}`
+            + `${view.columns.value ? `<td class="entry-num entry-col-value">${formatValue(valueOf(row, view.value))}</td>` : ''}<td></td></tr>`;
     }).join('');
     return spacer(first) + rows + spacer(lines.length - last);
 }

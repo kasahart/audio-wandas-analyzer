@@ -39,6 +39,3 @@ export function inputsMatching(root: { querySelectorAll(selectors: string): Arra
     return Array.from(root.querySelectorAll(selectors)) as HTMLInputElement[];
 }
 
-export function canvasesMatching(root: { querySelectorAll(selectors: string): ArrayLike<unknown> }, selectors: string): HTMLCanvasElement[] {
-    return Array.from(root.querySelectorAll(selectors)) as HTMLCanvasElement[];
-}

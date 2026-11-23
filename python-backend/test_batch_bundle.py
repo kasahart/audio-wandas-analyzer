@@ -24,7 +24,7 @@ const { batchBundle } = require(process.argv[1]);
 const { datasetRows } = require(process.argv[2]);
 const input = JSON.parse(require('fs').readFileSync(0, 'utf8'));
 const attributes = new Map(Object.entries(input.attributes));
-const all = datasetRows(input.files, input.root, attributes, new Map(), new Map(Object.entries(input.channels)));
+const all = datasetRows(input.files, input.root, attributes, new Map(Object.entries(input.channels)));
 const rows = all.filter(row => input.keep.includes(row.key));
 const bundle = batchBundle({
     recipe: input.recipe, recipeName: 'Standard', rows, allRows: all, rootPath: input.root,

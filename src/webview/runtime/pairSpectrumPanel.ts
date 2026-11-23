@@ -1,17 +1,11 @@
 import { answerKey, createAnswerStore, type AnswerKey } from './answerStore';
 import type { PairSpectrumRequest } from '../../shared/utils/audioTarget';
-import type { DrawTheme, FrequencyScale } from '../draw/canvasDrawers';
 import type { HostInboundMessage } from './hostMessaging';
-import {
-    gainSpan, pairHeader, pairLanes, pairLegendHtml, PAIR_LANES, syncReferenceButtons,
-    type PairCurve, type PairLaneKey, type PairReference, type PairSpectrumResultMessage, type PairStrings,
-} from './pairSpectrum';
-import { attachPlotInteraction, FULL_PLOT_WINDOW, plotPointIn, type PlotMargins, type PlotWindow } from './plotInteraction';
-import { createPlotHoverLayer, type PlotHoverLayer } from './plotHoverLayer';
-import { paintOverlay, STAGE_MARGINS, type StagePlot, type StageRead } from './stagePanes';
-import { dataRange, emptyFigure, plainRange, windowEnds, type FigureRange } from './figureModel';
-import type { NormalizedRange } from './waveformInteraction';
-import { frequencyWindowHz } from './spectrumRuntime';
+import { pairHeader, pairLegendHtml, syncReferenceButtons, type PairAnswersMessage, type PairCurve, type PairReference, type PairStrings } from './pairSpectrum';
+import { cursorLineId } from '../charts/cursorSpectrum';
+import { pairLineId, pairLineOf, pairSpectrum, type PairSpectrumLine } from '../charts/pairSpectrum';
+import type { AcrossRange, SettingsRange, TracksFigureDeps, TracksFigurePaint, TracksFigureScreen } from '../screens/tracksFigure';
+import type { FigureInspection } from '../figure/index';
 import type { TrackId } from './types';
 import { HostRequests } from './hostRequests';
 
@@ -34,7 +28,6 @@ export type PairPanelStrings = PairStrings & {
     pairNoResponses: string;
     pairFailed: string;
     pairFewAveragesHint: string;
-    plotNoValue: string;
 };
 
 export interface PairPanelHost {
@@ -45,22 +38,18 @@ export interface PairPanelHost {
     settingsSignature(): string;
     nextRequestId(): string;
     post(request: PairSpectrumRequest): void;
-    /** The power spectrum's linear frequency axis (0 to its top, which may pass the reference's Nyquist) and the
-     *  part of it on screen; null on a log axis or before it painted, when the pair view zooms on its own. */
-    frequencyAxisHz(): { maxFrequencyHz: number; window: NormalizedRange } | null;
-    /** A zoom on the pair view moves the frequency axis it shares with the power spectrum (null: the whole axis). */
-    setFrequencyWindowHz(range: { min: number; max: number } | null): void;
-    /** A double-click on the pair view's frequency axis opens the power spectrum's frequency range. */
-    openFrequencyRange(clientX: number, clientY: number): void;
-    /** A double-click on a pair plot's level axis opens its range (the shared range popover). */
-    openLevelRange(request: { label: string; min: number; max: number; current: NormalizedRange; shown: { min: number; max: number }; clientX: number; clientY: number; set(part: NormalizedRange | null): void }): void;
+    /** Makes the pair figure's screen in `host` (screens/tracksFigure.ts): the Figure's answers and words are the page's. */
+    figure(deps: Pick<TracksFigureDeps, 'host' | 'readout' | 'empty' | 'ranged' | 'read' | 'drawn' | 'letGo'>): TracksFigureScreen;
+    /** The range the display settings give across (the top frequency, shared with the power spectrum). */
+    settingsRange(): SettingsRange;
+    /** The range across was set on the pair figure, or taken back (null ends): the power spectrum shares it (R8). */
+    onRanged(x: AcrossRange): void;
+    /** The frequency the pair figure's pointer or keys read, or none: the power spectrum marks it (R7). */
+    onRead(frequencyHz: number | null): void;
+    /** The pair figure drew a picture, or could draw none. */
+    onDrawn(): void;
     /** The plot height the power spectrum next to it has. */
     plotHeight(): number;
-    /** The frequency under the cursor on the power spectrum, or null when the cursor is elsewhere. */
-    hoverFrequencyHz(): number | null;
-    /** The cursor on the pair plot moved to this frequency, or left it with null, so the power spectrum can follow. */
-    onHoverFrequency(frequencyHz: number | null): void;
-    theme(): DrawTheme;
     onReferenceChange(reference: PairReference | null): void;
     /** The split moved, so the power spectrum next to it needs repainting. */
     onLayoutChange(): void;
@@ -71,43 +60,31 @@ export const PAIR_REQUEST_DELAY_MS = 150;
 /** A pair request's answer key: the request as it is sent (its analysis, settings, sources, offsets and range). */
 const pairKey = (request: string): AnswerKey => answerKey({ ask: request, version: { by: 'request' } });
 
-/** The plots share one frequency axis: only the bottom one has room under it for the axis's numbers and name. */
-export function pairMargins(key: PairLaneKey): PlotMargins {
-    return key === PAIR_LANES[PAIR_LANES.length - 1] ? STAGE_MARGINS : { ...STAGE_MARGINS, bottom: 4 };
-}
+/** How the pair figure's frequency axis is drawn: linear from 0 Hz, as the power spectrum's FFT lines are. */
+const PAIR_AXIS = 'linear' as const;
 export const PAIR_SPLIT_MIN = 0.25;
 export const PAIR_SPLIT_MAX = 0.75;
 
 /**
- * The pair view next to the power spectrum: which lane is the reference, the request for its
- * response spectra, and their drawing. A request goes out only when the sources or the range
- * change, so moving the cursor never recomputes.
+ * The pair view next to the power spectrum: which lane is the reference, the request for its responses' kept lines,
+ * and what is said beside the figure (the summary, the legend, why there is no figure). The figure itself is a Figure
+ * (screens/tracksFigure.ts) of the spec charts/pairSpectrum.ts makes of the answers' keys: this panel draws, counts
+ * and reads nothing. A request goes out only when the sources or the range change, so moving the cursor never
+ * recomputes.
  */
 export class PairSpectrumPanel {
     private referenceState: PairReference | null = null;
     private observedKey: string | null = null;
-    /** The response spectra asked for ('pair'), as every on-demand request is kept. */
+    /** The responses' kept lines asked for ('pair'), as every on-demand request is kept. */
     private readonly requests = new HostRequests<undefined>();
     /** The answers, by the request (its sources, offsets, range, settings) each answered; a failed one is asked again after the store's pause. */
-    private readonly answers = createAnswerStore<PairSpectrumResultMessage>({ capacity: 4, retried: () => this.schedule(0) });
+    private readonly answers = createAnswerStore<PairAnswersMessage>({ capacity: 4, retried: () => this.schedule(0) });
     private timer: ReturnType<typeof setTimeout> | null = null;
-    /** Takes off the plots' gestures attached last (attachPlotInteraction's clean-up promise): before they are attached again, and on dispose. */
-    private detachGestures: () => void = () => undefined;
-    /** The pointer over one of the pair plots, while it is. */
-    private pointer: { lane: PairLaneKey; clientX: number; clientY: number } | null = null;
-    /** The frequency the pair cursor last read under the pointer. */
-    private readHz: number | null = null;
-    /** The frequency last told to the power spectrum (undefined: none yet), so a show and its handler tell it once. */
-    private toldHz: number | null | undefined = undefined;
-    /** What each plot last drew, for the pointer and the gestures. */
-    private readonly drawn = new Map<PairLaneKey, { canvas: HTMLCanvasElement; plot: StagePlot | null; range: { min: number; max: number }; label: string }>();
-    /** Each plot's part of its level axis on screen (the frequency axis is the power spectrum's). */
-    /** Each plot's level zoom in its own values (dB, °, γ²): the whole range is refitted to the bins on screen, so a
-     *  fraction of it would show other values after the next pan. */
-    /** The frequency part on screen while the power spectrum has no linear axis to share (of 0 to the reference's Nyquist). */
-    private ownWindow: NormalizedRange = FULL_PLOT_WINDOW.x;
-    private readonly levelWindow = new Map<PairLaneKey, { min: number; max: number }>();
-    private marks: Map<PairLaneKey, PlotHoverLayer> | null = null;
+    /** The figure, in the element it was made for (the results pane may be built again). */
+    private made: { host: HTMLElement; screen: TracksFigureScreen } | null = null;
+    /** The range across the power spectrum shares with this figure, and the frequency it reads: kept for a figure made later. */
+    private acrossNow: AcrossRange = [null, null];
+    private followed: number | null = null;
     private splitFraction = 0.5;
 
     constructor(private readonly doc: Document, private readonly host: PairPanelHost, private readonly strings: PairPanelStrings) { }
@@ -126,24 +103,16 @@ export class PairSpectrumPanel {
     }
 
     setReference(next: PairReference | null): void {
-        const hadHover = this.pointer !== null;
         this.referenceState = next;
         this.observedKey = null;
         this.requests.drop('pair');
         this.answers.clear();
-        this.pointer = null;
-        this.levelWindow.clear();
-        this.ownWindow = FULL_PLOT_WINDOW.x;
-        // The marks are laid over the page, not inside the pane: closing the pane takes them away too.
-        this.marks?.forEach(layer => layer.hide());
+        // A closed pane's figure is taken away (it tells the power spectrum it reads nothing: screens/tracksFigure.ts).
+        if (!next) this.made?.screen.hide();
         this.doc.getElementById('spectrum-section')?.classList.toggle('has-pair', next !== null);
         this.applySplit();
         syncReferenceButtons(this.doc, next, this.strings);
         this.host.onReferenceChange(next);
-        if (hadHover) {
-            // The pointer may still be over a pane that is closing, so no mouseleave will clear the power spectrum cursor.
-            this.tellHostNone();
-        }
         this.schedule(0);
     }
 
@@ -208,6 +177,14 @@ export class PairSpectrumPanel {
         return { reference: ref, responses: channels.filter(channel => channel !== ref) };
     }
 
+    /** The reply shown names kept lines the backend holds no more: it is forgotten and the pair is asked again. */
+    private askAgain(): void {
+        const asked = this.requestNow();
+        if (!asked || this.answers.value(pairKey(asked.key)) === undefined) return;
+        this.answers.forget(pairKey(asked.key));
+        this.requestIfChanged();
+    }
+
     requestIfChanged(): void {
         if (!this.referenceState) {
             return;
@@ -255,6 +232,7 @@ export class PairSpectrumPanel {
             reference: ref(sources.reference),
             responses: sources.responses.map(ref),
             ...(range ? { startSeconds: range.startSeconds, endSeconds: range.endSeconds } : {}),
+            answers: PAIR_AXIS,
         };
         // The key holds each source's file version (in the request) and calibration: an answer of either before is not this one.
         return { request, key: JSON.stringify({ request, calibration: [sources.reference, ...sources.responses].map(source => source.calibrationSignature ?? '') }) };
@@ -264,7 +242,7 @@ export class PairSpectrumPanel {
      * The answer to what is asked now: one computed for other sources, offsets, a range or settings since changed is
      * not drawn or read under today's names (R7: no numbers until they arrive), while its successor is waited for.
      */
-    private current(): { result: PairSpectrumResultMessage | null; error: string | null } | null {
+    private current(): { result: PairAnswersMessage | null; error: string | null } | null {
         const asked = this.requestNow();
         if (!asked) return null;
         const key = pairKey(asked.key);
@@ -274,7 +252,7 @@ export class PairSpectrumPanel {
         return error !== undefined ? { result: null, error } : null;
     }
 
-    private get result(): PairSpectrumResultMessage | null {
+    private get result(): PairAnswersMessage | null {
         return this.current()?.result ?? null;
     }
 
@@ -284,7 +262,7 @@ export class PairSpectrumPanel {
 
     /** Returns whether the message belonged to the pair view. */
     handleMessage(message: HostInboundMessage): boolean {
-        if (message.type !== 'pair-spectrum-result' && message.type !== 'pair-spectrum-error') {
+        if (message.type !== 'pair-answers-result' && message.type !== 'pair-spectrum-error') {
             return false;
         }
         const request = this.requests.answering('pair', message.requestId);
@@ -301,9 +279,6 @@ export class PairSpectrumPanel {
             this.answers.ready(pairKey(request.key), message);
         }
         this.render();
-        if (this.pointer) {
-            this.syncHostHover();
-        }
         return true;
     }
 
@@ -311,7 +286,7 @@ export class PairSpectrumPanel {
         return this.requests.pending('pair') !== undefined;
     }
 
-    get lastResult(): PairSpectrumResultMessage | null {
+    get lastResult(): PairAnswersMessage | null {
         return this.result;
     }
 
@@ -321,39 +296,77 @@ export class PairSpectrumPanel {
         if (!result || !sources) {
             return [];
         }
+        // The gain lines the Figure drew: one the figure service left off the gain axis is not among them.
+        const gain = this.made?.screen.inspect()?.lanes.find(lane => lane.id === 'gain')?.lines.map(line => line.id);
         // Hosts give every listed source its own path, so a path and channel name one lane.
-        const seenTracks = new Set<TrackId>();
         return result.responses.flatMap(response => {
             const source = sources.responses.find(channel => channel.filePath === response.filePath && channel.channelIndex === response.channelIndex);
             if (!source) {
                 return [];
             }
-            const dashed = seenTracks.has(source.trackId);
-            seenTracks.add(source.trackId);
-            return [{ label: source.label, color: source.color, dashed, response }];
+            const id = cursorLineId(source.trackId, source.channelIndex);
+            const drawn = !!response.keys && (!gain?.length || gain.includes(pairLineId('gain', id)));
+            return [{ id, label: source.label, color: source.color, response, drawn }];
         });
     }
 
-    private canvases(): Array<{ key: PairLaneKey; canvas: HTMLCanvasElement }> {
-        return PAIR_LANES.flatMap(key => {
-            const canvas = this.doc.querySelector<HTMLCanvasElement>(`[data-pair-lane="${key}"]`);
-            return canvas ? [{ key, canvas }] : [];
-        });
-    }
-
-    render(): void {
-        syncReferenceButtons(this.doc, this.referenceState, this.strings);
-        if (!this.referenceState) {
-            return;
+    /** The figure's screen in the pane's element now; none while the pane is not built. */
+    private screen(): TracksFigureScreen | null {
+        const host = this.doc.getElementById('pair-spectrum-figure');
+        if (!host) {
+            this.made?.screen.hide();
+            this.made = null;
+            return null;
         }
+        if (this.made?.host !== host) {
+            this.made?.screen.hide();
+            const readout = this.doc.getElementById('pair-spectrum-readout');
+            const screen = this.host.figure({
+                host,
+                ...(readout ? { readout } : {}),
+                // Why there is no figure is said by the pane's message (waiting, failed, no other channel).
+                empty: () => undefined,
+                ranged: x => { this.acrossNow = x; this.host.onRanged(x); },
+                read: hz => this.host.onRead(hz),
+                drawn: () => { this.writeHeader(this.curves()); this.host.onDrawn(); },
+                // The backend let a kept line go (its store made room): the reply naming it is of nothing, so it is
+                // forgotten and the pair is asked again.
+                letGo: () => this.askAgain(),
+            });
+            screen.across(this.acrossNow);
+            screen.follow(this.followed);
+            this.made = { host, screen };
+        }
+        return this.made.screen;
+    }
+
+    /** The power spectrum's range across changed: this figure shares it (R8). */
+    across(x: AcrossRange): void {
+        this.acrossNow = x;
+        this.made?.screen.across(x);
+    }
+
+    /** The frequency the power spectrum reads, or none: this figure marks it on every lane (R7). */
+    follow(frequencyHz: number | null): void {
+        this.followed = frequencyHz;
+        this.made?.screen.follow(frequencyHz);
+    }
+
+    /** What the pair figure drew and reads now, for tests. */
+    inspect(): FigureInspection | null {
+        return this.made?.screen.inspect() ?? null;
+    }
+
+    /** What the lines are called and coloured: their channel's lane's name and its track's colour. */
+    private paint(curves: readonly PairCurve[]): TracksFigurePaint {
+        const of = (line: string): PairCurve | undefined => { const named = pairLineOf(line); return named ? curves.find(curve => curve.id === named.channel) : undefined; };
+        return { name: line => of(line)?.label ?? line, colour: line => of(line)?.color ?? '#7f7f7f' };
+    }
+
+    /** The summary (how many averages, over which seconds) and the legend, of the responses on the gain axis. */
+    private writeHeader(curves: readonly PairCurve[]): void {
         const summary = this.doc.getElementById('pair-spectrum-summary');
         const legend = this.doc.getElementById('pair-spectrum-legend');
-        const message = this.doc.getElementById('pair-spectrum-message');
-        const plot = this.doc.getElementById('pair-spectrum-plot');
-        if (!plot) {
-            return;
-        }
-        const curves = this.curves();
         const header = pairHeader(curves, this.strings);
         if (summary) {
             summary.textContent = header ? header.text : '';
@@ -366,8 +379,26 @@ export class PairSpectrumPanel {
             }
         }
         if (legend) {
-            legend.innerHTML = pairLegendHtml(curves, this.strings);
+            const html = pairLegendHtml(curves, this.strings);
+            if (legend.getAttribute('data-legend-key') !== html) {
+                legend.setAttribute('data-legend-key', html);
+                legend.innerHTML = html;
+            }
         }
+    }
+
+    render(): void {
+        syncReferenceButtons(this.doc, this.referenceState, this.strings);
+        if (!this.referenceState) {
+            return;
+        }
+        const message = this.doc.getElementById('pair-spectrum-message');
+        const plot = this.doc.getElementById('pair-spectrum-plot');
+        if (!plot) {
+            return;
+        }
+        const curves = this.curves();
+        this.writeHeader(curves);
         const sources = this.sources();
         const text = this.error !== null ? this.strings.pairFailed.replace('{error}', this.error)
             : sources && sources.responses.length === 0 ? this.strings.pairNoResponses
@@ -377,235 +408,20 @@ export class PairSpectrumPanel {
             message.textContent = text;
             message.style.display = text ? '' : 'none';
         }
-        // The plots together take the power spectrum's height beside them.
+        // The figure takes the power spectrum's height beside it.
         plot.style.height = `${this.host.plotHeight()}px`;
-        const result = this.result;
-        const axis = result ? this.frequencyAxis(result) : null;
-        const lanes = result && axis && !text ? pairLanes({ frequencyBins: result.frequencyBins, maxFrequencyHz: result.maxFrequencyHz, curves }, axis.visible, this.strings) : [];
-        this.drawn.clear();
-        const bottom = PAIR_LANES[PAIR_LANES.length - 1];
-        const canvases = this.canvases();
-        // The plots above share the bottom one's frequency axis, which it numbers and names.
-        const bottomCanvas = canvases.find(item => item.key === bottom)?.canvas ?? null;
-        for (const { key, canvas } of canvases) {
-            const lane = lanes.find(item => item.key === key);
-            // Each plot is drawn by the plot component (R13): its axes, its zoom, its cursor and readout. They are laid
-            // on the power spectrum's frequency axis, so the same x is the same frequency on both sides, and only the
-            // bottom one labels it.
-            const none = emptyFigure();
-            const range = lane ? this.levelRange(key, lane.range) : none.range;
-            const axisView = lane?.layers[0] && axis ? { ...lane.layers[0].view, xs: [0, axis.maxFrequencyHz], values: [0, 0] } : null;
-            const drawn = paintOverlay(canvas, { layers: lane?.layers ?? [] }, range, lane?.axes ?? none.names,
-                { window: { x: axis?.window ?? FULL_PLOT_WINDOW.x }, axisView, margins: pairMargins(key), xAxisLabels: key === bottom, ...(key === bottom ? {} : { xAxisCanvas: bottomCanvas }) });
-            this.drawn.set(key, { canvas, plot: drawn, range: lane ? this.wholeHolding(key, lane.range) : range, label: lane?.axes.y ?? '' });
-        }
-        this.showMarks();
+        const screen = this.screen();
+        if (!screen) return;
+        // A response with lines is a line on each lane, in the order of the rows; with none the figure is taken away
+        // (R7: no numbers of other sources, offsets, a range or settings while their successor is waited for).
+        const lines: PairSpectrumLine[] = text ? [] : curves.flatMap(curve => (curve.response.keys ? [{ id: curve.id, keys: curve.response.keys, calibrated: curve.response.calibrationStatus === 'calibrated' }] : []));
+        const spec = pairSpectrum(lines);
+        if (!spec) screen.hide();
+        else screen.show(spec, this.paint(curves), this.host.settingsRange());
     }
 
-    /**
-     * The whole range the gestures and the range popover take the zoom as a part of: the one refitted to the bins on
-     * screen, widened by the same dB rule (R9) to hold the values zoomed to, so a box below the bins on screen is
-     * still a part of it.
-     */
-    private wholeHolding(key: PairLaneKey, whole: FigureRange): FigureRange {
-        const zoom = this.levelWindow.get(key);
-        if (!zoom || (zoom.min >= whole.min && zoom.max <= whole.max)) return whole;
-        return key === 'gain' ? dataRange([gainSpan(Math.min(whole.min, zoom.min), Math.max(whole.max, zoom.max))]) : plainRange(Math.min(whole.min, zoom.min), Math.max(whole.max, zoom.max));
-    }
-
-    /** The plot's level range on screen: its whole range, or the part of it zoomed to. */
-    private levelRange(key: PairLaneKey, whole: FigureRange): FigureRange {
-        const zoom = this.levelWindow.get(key);
-        return zoom ? plainRange(zoom.min, zoom.max) : whole;
-    }
-
-    /** The plot's level zoom as the part of its whole range now drawn (what the gestures and the range popover take). */
-    private levelPart(key: PairLaneKey): NormalizedRange {
-        const zoom = this.levelWindow.get(key), whole = this.drawn.get(key)?.range;
-        if (!zoom || !whole) return FULL_PLOT_WINDOW.y;
-        const span = whole.max - whole.min || 1;
-        return { start: (zoom.min - whole.min) / span, end: (zoom.max - whole.min) / span };
-    }
-
-    /** Keeps `part` of the plot's whole range now drawn as its level zoom, in its values (null: the whole range). */
-    private setLevelPart(key: PairLaneKey, part: NormalizedRange | null): void {
-        const whole = this.drawn.get(key)?.range;
-        if (!part || !whole || (part.start <= 0 && part.end >= 1)) { this.levelWindow.delete(key); return; }
-        // At the numbers the range popover writes for it (figureModel.windowEnds, R9).
-        this.levelWindow.set(key, windowEnds(whole, part));
-    }
-
-    /** The frequency axis the plots are laid on: the power spectrum's (which may pass the reference's Nyquist) and
-     *  the part of it on screen, or, while it has no linear axis to share, 0 to the reference's Nyquist and the pair
-     *  view's own part. `visible` is that part in Hz, which the gain's range fits. */
-    private frequencyAxis(result: PairSpectrumResultMessage): { maxFrequencyHz: number; window: NormalizedRange; shared: boolean; visible: FrequencyScale } {
-        const host = this.host.frequencyAxisHz();
-        const maxFrequencyHz = host?.maxFrequencyHz ?? (result.maxFrequencyHz || 1);
-        const window = host?.window ?? this.ownWindow;
-        // Between the numbers the plots' axis is painted from (the power spectrum's, frequencyWindowHz, R8, R9).
-        return { maxFrequencyHz, window, shared: !!host, visible: frequencyWindowHz(window, maxFrequencyHz) };
-    }
-
-    /** The frequency at a point across a plot (CSS pixels from its left), on the frequency axis now on screen. */
-    private frequencyAtX(key: PairLaneKey, x: number): number | null {
-        const drawn = this.drawn.get(key), result = this.result;
-        if (!drawn?.plot || !result) return null;
-        const { window, maxFrequencyHz } = this.frequencyAxis(result);
-        const fraction = (x - drawn.plot.frame.left) / Math.max(1, drawn.plot.frame.width);
-        return (window.start + fraction * (window.end - window.start)) * maxFrequencyHz;
-    }
-
-    /** The cursor: the plot under the pointer reads its point and the others follow its frequency; with the pointer
-     *  on the power spectrum, every plot follows the frequency read there (R7, R8). */
-    private showMarks(): void {
-        const marks = this.marks, result = this.result;
-        if (!marks) return;
-        const lineAt = (hz: number | null, except?: PairLaneKey): void => {
-            for (const key of PAIR_LANES) {
-                if (key === except) continue;
-                const drawn = this.drawn.get(key);
-                const x = hz === null || !result || !drawn?.plot ? null : this.xOfFrequency(key, hz);
-                if (drawn) noteCursorHz(drawn.canvas, x === null ? null : hz);
-                if (x === null || !drawn) marks.get(key)?.hide();
-                else marks.get(key)?.line(drawn.canvas, drawn.plot, drawn.canvas.getBoundingClientRect().left + x);
-            }
-        };
-        const pointer = this.pointer;
-        const drawn = pointer ? this.drawn.get(pointer.lane) : undefined;
-        if (pointer && drawn && result) {
-            const slot = this.doc.getElementById('pair-spectrum-readout');
-            // The others first: the plot under the pointer then fills the readout row.
-            lineAt(null, pointer.lane);
-            const before = this.readHz;
-            let showing = true;
-            // The frequency of the point read, from the readout's own state (R7): on this show, and again when its
-            // full data comes in later under a still pointer, never the pointer's column beside it.
-            const follow = (read: StageRead | null): void => {
-                if (this.pointer !== pointer) return;
-                const hz = !read || read.pending || read.failed ? null : read.full && read.at !== undefined ? read.at : this.frequencyAtX(pointer.lane, read.x);
-                const changed = hz !== this.readHz;
-                this.readHz = hz;
-                noteCursorHz(drawn.canvas, hz);
-                if (showing || !changed) return;
-                const followed = hz ?? this.frequencyAtX(pointer.lane, pointer.clientX - drawn.canvas.getBoundingClientRect().left);
-                lineAt(followed, pointer.lane);
-                this.syncHostHover();
-            };
-            marks.get(pointer.lane)?.show(drawn.canvas, drawn.plot, pointer.clientX, pointer.clientY, slot, { read: follow });
-            showing = false;
-            // With no line read there, the others follow the frequency under the pointer, as the power spectrum does.
-            const followed = this.readHz ?? this.frequencyAtX(pointer.lane, pointer.clientX - drawn.canvas.getBoundingClientRect().left);
-            if (followed !== null) lineAt(followed, pointer.lane);
-            // A redraw under a still pointer (a zoom, a result come in) that reads another point: the power spectrum's
-            // line follows it too (R7, R8).
-            if (this.readHz !== before) this.syncHostHover();
-            return;
-        }
-        this.readHz = null;
-        // A cursor that only follows the power spectrum is dropped past the reference's Nyquist rather than pinned to the last bin.
-        const synced = result ? this.host.hoverFrequencyHz() : null;
-        const halfBin = result ? result.maxFrequencyHz / Math.max(result.frequencyBins - 1, 1) / 2 : 0;
-        lineAt(synced !== null && result && synced <= result.maxFrequencyHz + halfBin ? synced : null);
-    }
-
-    /** The power spectrum's point read changed (its points came in under a still pointer): the cursors here follow it (R7). */
-    followHost(): void {
-        if (!this.pointer) this.showMarks();
-    }
-
-    private xOfFrequency(key: PairLaneKey, hz: number): number | null {
-        const drawn = this.drawn.get(key), result = this.result;
-        if (!drawn?.plot || !result) return null;
-        const { window, maxFrequencyHz } = this.frequencyAxis(result);
-        const fraction = (hz / maxFrequencyHz - window.start) / Math.max(1e-9, window.end - window.start);
-        if (fraction < 0 || fraction > 1) return null;
-        return drawn.plot.frame.left + fraction * drawn.plot.frame.width;
-    }
-
-    /** The pointer off the pair plots: the power spectrum's line follows nothing of theirs. */
-    private tellHostNone(): void {
-        this.toldHz = null;
-        this.host.onHoverFrequency(null);
-    }
-
-    private syncHostHover(): void {
-        const result = this.result;
-        // The power spectrum follows the point the pair cursor reads (R7), not the pointer beside it.
-        const frequencyHz = result && this.pointer
-            ? this.readHz ?? this.frequencyAtX(this.pointer.lane, this.pointer.clientX - (this.drawn.get(this.pointer.lane)?.canvas.getBoundingClientRect().left ?? 0)) : null;
-        // The power spectrum may reach past the reference's Nyquist, where the pair cursor stops at its last bin.
-        const told = frequencyHz === null || !result ? null : Math.min(frequencyHz, result.maxFrequencyHz);
-        if (told === this.toldHz) return;
-        this.toldHz = told;
-        this.host.onHoverFrequency(told);
-    }
-
-    /** The plots' gestures (the plot component's, R9) and the divider drag; call again after the spectrum section is rebuilt. */
+    /** The divider drag; call again after the spectrum section is rebuilt. (The figure's gestures are the Figure's own.) */
     attach(): void {
-        // One set of gestures at a time: those of the section before it was rebuilt go first.
-        this.detachGestures();
-        this.detachGestures = () => undefined;
-        const plotsEl = this.doc.getElementById('pair-spectrum-plot');
-        if (plotsEl) {
-            this.marks = new Map(PAIR_LANES.map(key => [key, createPlotHoverLayer(this.doc, { noValue: this.strings.plotNoValue }, 'pair-cursor')]));
-            const laneOf = (element: Element): PairLaneKey => (element.getAttribute('data-pair-lane') ?? 'gain') as PairLaneKey;
-            this.detachGestures = attachPlotInteraction(plotsEl, this.doc, '[data-pair-lane]', {
-                locate: (target, clientX, clientY) => {
-                    const plot = (target as Element | null)?.closest?.<HTMLElement>('[data-pair-lane]');
-                    // A plot still waiting for its result takes the pointer too, so it reads once the result arrives.
-                    if (!plot || (this.result && !this.drawn.get(laneOf(plot))?.plot)) return null;
-                    const { fx, fy, axis } = plotPointIn(plot, pairMargins(laneOf(plot)), clientX, clientY);
-                    return { plot, point: { fx, fy }, axis };
-                },
-                pointOn: (plot, clientX, clientY) => { const { fx, fy } = plotPointIn(plot, pairMargins(laneOf(plot)), clientX, clientY); return { fx, fy }; },
-                window: plot => ({ x: this.result ? this.frequencyAxis(this.result).window : FULL_PLOT_WINDOW.x, y: this.levelPart(laneOf(plot)) }),
-                setWindow: (plot, next: PlotWindow | null) => {
-                    if (!this.result) return;
-                    const axis = this.frequencyAxis(this.result);
-                    if (!next) this.levelWindow.clear();
-                    else this.setLevelPart(laneOf(plot), next.y);
-                    // On the power spectrum's axis, the zoom moves both (R8); with none to share, the pair view's own.
-                    if (!axis.shared) this.ownWindow = next?.x ?? FULL_PLOT_WINDOW.x;
-                    else this.host.setFrequencyWindowHz(next ? { min: next.x.start * axis.maxFrequencyHz, max: next.x.end * axis.maxFrequencyHz } : null);
-                    this.render();
-                },
-                hover: (event, hit) => {
-                    this.pointer = hit && !hit.axis ? { lane: laneOf(hit.plot), clientX: event.clientX, clientY: event.clientY } : null;
-                    this.showMarks();
-                    if (this.pointer) this.syncHostHover();
-                    else this.tellHostNone();
-                },
-                clearHover: () => {
-                    this.pointer = null;
-                    this.showMarks();
-                    this.tellHostNone();
-                },
-                stepFrom: (plot, delta, arrived) => {
-                    const drawn = this.result ? this.drawn.get(laneOf(plot)) : undefined;
-                    return drawn ? this.marks?.get(laneOf(plot))?.stepFrom(plot, drawn.plot ?? null, delta, arrived) ?? null : null;
-                },
-                showBox: (plot, from, to) => {
-                    const box = this.zoomBox();
-                    const rect = plot.getBoundingClientRect(), frame = this.drawn.get(laneOf(plot))?.plot?.frame;
-                    if (!frame) return;
-                    const [x0, x1] = [Math.min(from.fx, to.fx), Math.max(from.fx, to.fx)], [y0, y1] = [Math.min(from.fy, to.fy), Math.max(from.fy, to.fy)];
-                    Object.assign(box.style, { left: `${rect.left + frame.left + x0 * frame.width}px`, top: `${rect.top + frame.top + (1 - y1) * frame.height}px`, width: `${(x1 - x0) * frame.width}px`, height: `${(y1 - y0) * frame.height}px` });
-                    box.hidden = false;
-                },
-                hideBox: () => { this.zoomBox().hidden = true; },
-                openAxisRange: (hit, clientX, clientY) => {
-                    if (hit.axis === 'x') { this.host.openFrequencyRange(clientX, clientY); return true; }
-                    const key = laneOf(hit.plot), drawn = this.drawn.get(key), shown = drawn?.plot?.valueRange;
-                    // The level axis's ends as painted, written exactly (R9): a plot not painted has no range to type.
-                    if (!drawn || !shown) return false;
-                    this.host.openLevelRange({
-                        label: drawn.label, min: drawn.range.min, max: drawn.range.max, current: this.levelPart(key), shown, clientX, clientY,
-                        set: part => { this.setLevelPart(key, part); this.render(); },
-                    });
-                    return true;
-                },
-            });
-        }
         const divider = this.doc.getElementById('pair-divider');
         const split = this.doc.getElementById('spectrum-split');
         divider?.addEventListener('pointerdown', event => {
@@ -633,30 +449,12 @@ export class PairSpectrumPanel {
         });
     }
 
-    /** The box being dragged on a pair plot, as Compare's plots draw theirs. */
-    private zoomBox(): HTMLElement {
-        let box = this.doc.getElementById('pair-zoom-box');
-        if (!box) {
-            box = this.doc.createElement('div');
-            box.id = 'pair-zoom-box';
-            box.className = 'compare-zoom-box';
-            box.hidden = true;
-            this.doc.body.append(box);
-        }
-        return box;
-    }
-
     dispose(): void {
-        this.detachGestures();
-        this.detachGestures = () => undefined;
+        this.made?.screen.hide();
+        this.made = null;
         if (this.timer !== null) {
             clearTimeout(this.timer);
             this.timer = null;
         }
     }
-}
-
-/** The frequency a plot's cursor is drawn at (`data-cursor-hz`, '' with none), for the tests of the linked cursors (R7, R8). */
-export function noteCursorHz(plot: HTMLElement, hz: number | null): void {
-    if (plot.dataset) plot.dataset.cursorHz = hz === null ? '' : String(hz);
 }

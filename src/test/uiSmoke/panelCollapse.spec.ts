@@ -101,7 +101,7 @@ test('maximizing the spectrum gives its plot the tracks\' room and Esc restores 
     await page.setViewportSize({ width: 1200, height: 900 });
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
     const maximize = page.locator('#spectrum-section-header [data-action="toggle-spectrum-maximize"]');
-    const canvas = page.locator('#spectrum-overlay-canvas');
+    const canvas = page.locator('#spectrum-overlay-plot');
     const tracks = page.locator('#tracks-wrapper');
     const before = (await canvas.boundingBox())!.height;
 
@@ -163,7 +163,7 @@ test('dragging the spectrum edge can go past the old 320 px cap but keeps a stri
     await page.mouse.down();
     await page.mouse.move(x, 20, { steps: 8 });
     await page.mouse.up();
-    await expect.poll(async () => (await page.locator('#spectrum-overlay-canvas').boundingBox())!.height).toBeGreaterThan(320);
+    await expect.poll(async () => (await page.locator('#spectrum-overlay-plot').boundingBox())!.height).toBeGreaterThan(320);
     expect((await page.locator('#tracks-wrapper').boundingBox())!.height).toBeGreaterThanOrEqual(119);
 
     // A smaller window shrinks the tall spectrum again instead of squeezing the tracks out.

@@ -1,5 +1,6 @@
-import { expect, settled, test, type Page } from './canvasAudit';
+import { expect, test, type Page } from './canvasAudit';
 import { buildUiSmokeCalibrationHtml } from './buildHtml';
+import { CURSOR_FIGURE, drawnFigure } from './tracksFigures';
 
 type PostedMessage = Record<string, unknown>;
 
@@ -33,62 +34,35 @@ test('calibrated channels show physical metrics and reference badges', async ({ 
     await expect(page.locator('#track-row-1 .clip-badge')).toHaveCount(0);
 });
 
-test('two level references: the overlay reads the second on its own axis at the right, dashed, with a legend for each side', async ({ page }) => {
+test('two level references: the cursor spectrum draws each on a lane of its own, one above another, named by its own level', async ({ page }) => {
     await loadCalibrationUi(page);
     await openSpectrumPanel(page);
 
     await expect(page.locator('.calibration-overlay-warning')).toHaveCount(0);
-    await expect(page.locator('#spectrum-overlay-canvas')).toHaveCSS('visibility', 'visible');
+    await expect.poll(async () => (await drawnFigure(page)).lanes.length).toBe(2);
+    const seen = await drawnFigure(page);
+    // A lane a unit and reference, in the order of the rows: no right-hand axis, no dashed line.
+    expect(seen.lanes.map(lane => lane.lines.length)).toEqual([1, 1]);
+    expect(seen.lanes[0].axisNames.y).toContain('[dB SPL re 20 µPa]');
+    expect(seen.lanes[1].axisNames.y).toContain('[dB re 1 m/s^2]');
+    expect(seen.lanes[0].frame.top + seen.lanes[0].frame.height).toBeLessThanOrEqual(seen.lanes[1].frame.top);
+    // The legend names each line by its track's colour.
     const legend = page.locator('#spectrum-axis-legend');
     await expect(legend).toBeVisible();
-    // Each side names its lines and its level.
-    await expect(legend.locator('[data-axis="left"]')).toHaveText(/^◀.*\[dB SPL re 20 µPa\].+$/);
-    await expect(legend.locator('[data-axis="right"]')).toHaveText(/^.*\[dB re 1 m\/s\^2\].+▶$/);
     await expect(legend.locator('.spectrum-axis-legend-label')).toHaveCount(2);
     await expect(legend.locator('.spectrum-axis-legend-swatch')).toHaveCount(2);
-    // The right axis' swatch is dashed, as its line, so the sides stay apart whatever the colours.
-    await expect(legend.locator('[data-axis="left"] .spectrum-axis-legend-swatch')).not.toHaveCSS('background-image', /gradient/);
-    await expect(legend.locator('[data-axis="right"] .spectrum-axis-legend-swatch')).toHaveCSS('background-image', /repeating-linear-gradient/);
 });
 
-test('three level references disable only the shared spectrum overlay', async ({ page }) => {
+test('three level references: a lane each, and nothing is hidden', async ({ page }) => {
     await loadCalibrationUi(page, true);
+    await openSpectrumPanel(page);
 
-    const warning = page.locator('.calibration-overlay-warning');
-    await expect(warning).toBeVisible();
-    await expect(warning).toContainText('more than two level references');
-    await expect(page.locator('#spectrum-overlay-canvas')).toHaveCSS('visibility', 'hidden');
-    await expect(page.locator('#spectrum-overlay-canvas')).toHaveAttribute('data-calibration-hidden', 'true');
-    // Its marks go with it: no cursor is drawn over a plot that is not shown.
-    const overlay = (await page.locator('#spectrum-overlay-canvas').boundingBox())!;
-    await page.mouse.move(overlay.x + overlay.width / 2, overlay.y + overlay.height / 2);
-    await expect(page.locator('.spectrum-cursor')).toBeHidden();
-    await expect(page.locator('#spectrum-freq-readout')).toBeHidden();
-
-    // Every canvas the export copies in, until the page has done exporting.
-    await page.evaluate(() => {
-        const prototype = CanvasRenderingContext2D.prototype as unknown as {
-            drawImage: (...args: unknown[]) => void;
-        };
-        const original = prototype.drawImage;
-        const ids: string[] = [];
-        const w = window as unknown as { __exportedIds: string[]; __restoreDrawImage: () => void };
-        w.__exportedIds = ids;
-        w.__restoreDrawImage = () => { prototype.drawImage = original; };
-        prototype.drawImage = function(...args: unknown[]): void {
-            const source = args[0];
-            if (source instanceof HTMLCanvasElement) { ids.push(source.id); }
-            Reflect.apply(original, this, args);
-        };
-        document.querySelector<HTMLElement>('[data-action="export-png"]')?.click();
-    });
-    await settled(page);
-    const exportedCanvasIds = await page.evaluate(() => {
-        const w = window as unknown as { __exportedIds: string[]; __restoreDrawImage: () => void };
-        w.__restoreDrawImage();
-        return w.__exportedIds;
-    });
-    expect(exportedCanvasIds).not.toContain('spectrum-overlay-canvas');
+    await expect(page.locator('.calibration-overlay-warning')).toHaveCount(0);
+    await expect.poll(async () => (await drawnFigure(page)).lanes.length).toBe(3);
+    const seen = await drawnFigure(page);
+    expect(seen.lanes.map(lane => lane.lines.length)).toEqual([1, 1, 1]);
+    expect(seen.lanes[2].axisNames.y).toContain('[dB re 1 V]');
+    await expect(page.locator(CURSOR_FIGURE)).toBeVisible();
 });
 
 test('calibration controls post exact configuration messages', async ({ page }) => {

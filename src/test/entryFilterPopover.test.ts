@@ -32,9 +32,9 @@ function setup(filters: DatasetFilter[] = []) {
     const later: Array<() => void> = [];
     const deps: FilterPopoverDeps = {
         screen, head: query('[data-entry-head]'), chipsBox: query('[data-entry-chips]'), text: strings,
-        rows: () => rows, excluded: new Set(['/d/x.wav']), results: new Map(), csv: () => csv,
+        rows: () => rows, excluded: new Set(['/d/x.wav']), csv: () => csv,
+        infoColumns: () => [{ id: 'duration', label: strings.entryColDuration, numeric: true }, { id: 'calibration', label: strings.entryColCalibration, numeric: false }],
         groupOptions: () => [{ id: 'csv:rpm', label: 'rpm' }, { id: 'none', label: strings.dsGroupNone }],
-        valueOptions: () => [{ id: 'csv:score', label: 'score', computed: false }, { id: 'leq', label: strings.dsLeq, computed: true }],
         filters: () => state.filters, sort: () => state.sort, group: () => 'csv:rpm', value: () => 'csv:score',
         columnLabel: column => column, numericColumn: column => column === 'csv:score', formatColumn: (_, number) => String(number),
         choose(patch, toTop) {
@@ -159,7 +159,7 @@ test('clear, sort, the column picker, ＋\'s next column and the anchor', () => 
     draw();
     const picker = screen.querySelector<HTMLSelectElement>('[data-action="entry-fcol"]');
     assert.ok(picker);
-    assert.deepEqual([...picker.options].map(option => option.value), ['name', 'ch', 'csv:rpm', 'csv:score'], 'no computed column without values');
+    assert.deepEqual([...picker.options].map(option => option.value), ['name', 'ch', 'csv:rpm', 'csv:score', 'duration', 'calibration'], 'the CSV\'s columns, then the file\'s own information: no value computed from the sound');
     picker.value = 'ch';
     assert.equal(pop.change(picker), true);
     assert.deepEqual(pop.draft(), { column: 'ch', anchored: false, search: '', checked: new Set(['1']) });

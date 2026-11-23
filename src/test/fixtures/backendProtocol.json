@@ -9,63 +9,11 @@
       }
     },
     {
-      "command": "range",
-      "request": {
-        "cmd": "range",
-        "requestId": "r1",
-        "filePath": "tone.wav",
-        "startNorm": 0,
-        "endNorm": 1,
-        "points": 2000
-      }
-    },
-    {
-      "command": "range",
-      "request": {
-        "cmd": "range",
-        "requestId": "r1",
-        "filePath": "tone.wav",
-        "startNorm": 0,
-        "endNorm": 1,
-        "points": 2000.0,
-        "calibrationProfile": null,
-        "analysisRevision": 0
-      }
-    },
-    {
-      "command": "track-detail",
-      "request": {
-        "cmd": "track-detail",
-        "requestId": "r1",
-        "filePath": "tone.wav",
-        "trackIndex": 0,
-        "analysisId": "analysis-1",
-        "settingsSignature": "settings-1",
-        "stftOptions": {
-          "nFft": 1024,
-          "overlapPercent": 75,
-          "window": "hann"
-        }
-      }
-    },
-    {
       "command": "release-track-detail",
       "request": {
         "cmd": "release-track-detail",
         "requestId": "r1",
         "filePath": "tone.wav"
-      }
-    },
-    {
-      "command": "spectrum-slice",
-      "request": {
-        "cmd": "spectrum-slice",
-        "requestId": "r1",
-        "filePath": "tone.wav",
-        "trackIndex": 0,
-        "analysisId": "analysis-1",
-        "settingsSignature": "settings-1",
-        "cursorNorm": 0.5
       }
     },
     {
@@ -76,25 +24,6 @@
         "filePath": "tone.wav",
         "startNorm": 0.25,
         "endNorm": 0.75
-      }
-    },
-    {
-      "command": "spectrum-slice",
-      "request": {
-        "cmd": "spectrum-slice",
-        "requestId": "r1",
-        "filePath": "tone.wav",
-        "trackIndex": 0,
-        "analysisId": "analysis-1",
-        "settingsSignature": "settings-1",
-        "cursorNorm": 0.5,
-        "stftOptions": {
-          "nFft": 1024,
-          "overlapPercent": 75,
-          "window": "blackman"
-        },
-        "calibrationProfile": null,
-        "analysisRevision": 3
       }
     },
     {
@@ -113,12 +42,22 @@
       }
     },
     {
-      "command": "pair-spectrum",
+      "command": "cursor-answers",
       "request": {
-        "cmd": "pair-spectrum",
+        "cmd": "cursor-answers",
         "requestId": "r1",
-        "analysisId": "analysis-1",
-        "settingsSignature": "settings-1",
+        "filePath": "tone.wav",
+        "cursorNorm": 0.5,
+        "bandsPerOctave": 3,
+        "scale": "linear",
+        "analysisRevision": 2
+      }
+    },
+    {
+      "command": "pair-answers",
+      "request": {
+        "cmd": "pair-answers",
+        "requestId": "r1",
         "reference": {
           "filePath": "tone.wav",
           "channelIndex": 0,
@@ -132,7 +71,8 @@
           }
         ],
         "startSeconds": 1,
-        "endSeconds": 3
+        "endSeconds": 3,
+        "scale": "log"
       }
     },
     {
@@ -167,7 +107,8 @@
           "inputs": [],
           "nodes": [],
           "output": "input-0"
-        }
+        },
+        "stage": "input-0"
       }
     },
     {
@@ -183,6 +124,7 @@
           "nodes": [],
           "output": "input-0"
         },
+        "stage": "input-0",
         "region": {
           "start": 0.5,
           "end": 1.5
@@ -191,13 +133,6 @@
           0
         ],
         "calibration": null
-      }
-    },
-    {
-      "command": "scan-spec",
-      "request": {
-        "cmd": "scan-spec",
-        "requestId": "r1"
       }
     }
   ],
@@ -229,88 +164,11 @@
       "errorField": "filePath"
     },
     {
-      "command": "track-detail",
-      "request": {
-        "cmd": "track-detail",
-        "requestId": "r1",
-        "filePath": "tone.wav",
-        "trackIndex": 0,
-        "analysisId": "analysis-1",
-        "settingsSignature": "settings-1",
-        "stftOptions": {
-          "nFft": 1024,
-          "overlapPercent": "75",
-          "window": "hann"
-        }
-      },
-      "errorField": "stftOptions.overlapPercent"
-    },
-    {
       "request": {
         "cmd": "unknown",
         "requestId": "r1"
       },
       "errorField": "unknown cmd"
-    },
-    {
-      "command": "range",
-      "request": {
-        "cmd": "range",
-        "requestId": "r1",
-        "filePath": "tone.wav",
-        "startNorm": 0,
-        "endNorm": 1,
-        "points": 32769
-      },
-      "errorField": "points"
-    },
-    {
-      "command": "range",
-      "request": {
-        "cmd": "range",
-        "requestId": "r1",
-        "startNorm": 0,
-        "endNorm": 1,
-        "points": 2000
-      },
-      "errorField": "filePath"
-    },
-    {
-      "command": "range",
-      "request": {
-        "cmd": "range",
-        "requestId": "r1",
-        "filePath": "tone.wav",
-        "startNorm": "0",
-        "endNorm": 1,
-        "points": 2000
-      },
-      "errorField": "startNorm"
-    },
-    {
-      "command": "range",
-      "request": {
-        "cmd": "range",
-        "requestId": "r1",
-        "filePath": "tone.wav",
-        "startNorm": 0,
-        "endNorm": 1,
-        "points": 2000,
-        "analysisRevision": 1.5
-      },
-      "errorField": "analysisRevision"
-    },
-    {
-      "command": "range",
-      "request": {
-        "cmd": "range",
-        "requestId": "r1",
-        "filePath": "tone.wav",
-        "startNorm": 0,
-        "endNorm": 1,
-        "points": 0
-      },
-      "errorField": "points"
     },
     {
       "command": "export-wav-loop",
@@ -343,14 +201,11 @@
       "errorField": "filePath"
     },
     {
-      "command": "spectrum-slice",
+      "command": "cursor-answers",
       "request": {
-        "cmd": "spectrum-slice",
+        "cmd": "cursor-answers",
         "requestId": "r1",
         "filePath": "tone.wav",
-        "trackIndex": 0,
-        "analysisId": "analysis-1",
-        "settingsSignature": "settings-1",
         "cursorNorm": 0.5,
         "stftOptions": {
           "nFft": 1024,
@@ -361,29 +216,13 @@
       "errorField": "stftOptions.window"
     },
     {
-      "command": "spectrum-slice",
+      "command": "cursor-answers",
       "request": {
-        "cmd": "spectrum-slice",
+        "cmd": "cursor-answers",
         "requestId": "r1",
-        "filePath": "tone.wav",
-        "trackIndex": 0,
-        "analysisId": "analysis-1",
-        "settingsSignature": "settings-1"
+        "filePath": "tone.wav"
       },
       "errorField": "cursorNorm"
-    },
-    {
-      "command": "spectrum-slice",
-      "request": {
-        "cmd": "spectrum-slice",
-        "requestId": "r1",
-        "filePath": "tone.wav",
-        "trackIndex": 0.5,
-        "analysisId": "analysis-1",
-        "settingsSignature": "settings-1",
-        "cursorNorm": 0.5
-      },
-      "errorField": "trackIndex"
     },
     {
       "command": "analyze",
@@ -396,54 +235,10 @@
       "errorField": "stftOptions"
     },
     {
-      "command": "track-detail",
+      "command": "pair-answers",
       "request": {
-        "cmd": "track-detail",
+        "cmd": "pair-answers",
         "requestId": "r1",
-        "filePath": "tone.wav",
-        "trackIndex": 0,
-        "analysisId": "analysis-1"
-      },
-      "errorField": "settingsSignature"
-    },
-    {
-      "command": "range",
-      "request": {
-        "cmd": "range",
-        "requestId": "r1",
-        "filePath": "tone.wav",
-        "startNorm": 0,
-        "endNorm": 1,
-        "points": 100,
-        "pointCount": 100
-      },
-      "errorField": "pointCount"
-    },
-    {
-      "command": "track-detail",
-      "request": {
-        "cmd": "track-detail",
-        "requestId": "r1",
-        "filePath": "tone.wav",
-        "trackIndex": 0,
-        "analysisId": "analysis-1",
-        "settingsSignature": "settings-1",
-        "stftOptions": {
-          "nFft": 256,
-          "overlapPercent": 75,
-          "window": "hann",
-          "overlap": 0.5
-        }
-      },
-      "errorField": "stftOptions.overlap"
-    },
-    {
-      "command": "pair-spectrum",
-      "request": {
-        "cmd": "pair-spectrum",
-        "requestId": "r1",
-        "analysisId": "analysis-1",
-        "settingsSignature": "settings-1",
         "reference": {
           "filePath": "tone.wav",
           "channelIndex": -1,
@@ -487,53 +282,24 @@
       }
     },
     {
-      "command": "range",
-      "response": {
-        "requestId": "range",
-        "startNorm": 0,
-        "endNorm": 1,
-        "channels": []
-      }
-    },
-    {
-      "command": "track-detail",
-      "response": {
-        "requestId": "track-detail",
-        "trackIndex": 0,
-        "analysisId": "analysis-1",
-        "settingsSignature": "settings-1",
-        "filePath": "tone.wav",
-        "channels": []
-      }
-    },
-    {
       "command": "release-track-detail",
       "response": {
         "requestId": "release-track-detail"
       }
     },
     {
-      "command": "spectrum-slice",
+      "command": "cursor-answers",
       "response": {
-        "requestId": "spectrum-slice",
-        "trackIndex": 0,
-        "analysisId": "analysis-1",
-        "settingsSignature": "settings-1",
+        "requestId": "cursor-answers",
         "filePath": "tone.wav",
-        "channels": [
-          {
-            "channelIndex": 0,
-            "values": [],
-            "minDb": 0,
-            "maxDb": 0
-          }
-        ],
-        "frequencyBins": 0,
-        "maxFrequencyHz": 8000,
+        "channels": [],
         "windowStartNorm": 0.4,
         "windowEndNorm": 0.6,
         "window": "hann",
-        "computeMs": 0.1
+        "calibrationSignature": "identity",
+        "analysisRevision": 0,
+        "sourceVersion": "v1",
+        "stftSignature": "256/64/hann"
       }
     },
     {
@@ -562,33 +328,6 @@
             "fullScale": true,
             "sourceUnit": "FS",
             "sourceLevelReferenceLabel": "dBFS",
-            "waveform": {
-              "min": [
-                0
-              ],
-              "max": [
-                1
-              ],
-              "samples": [
-                0.5
-              ],
-              "absolutePeak": 1
-            },
-            "spectrogram": {
-              "values": [
-                [
-                  -10,
-                  -20
-                ]
-              ],
-              "timeBins": 1,
-              "frequencyBins": 2,
-              "windowSize": 64,
-              "hopSize": 32,
-              "maxFrequencyHz": 8000,
-              "minDb": -20,
-              "maxDb": -10
-            },
             "measurement": {
               "calibrationStatus": "calibrated",
               "calibrationSource": "manual",
@@ -620,61 +359,6 @@
       }
     },
     {
-      "command": "pair-spectrum",
-      "response": {
-        "requestId": "pair-spectrum",
-        "analysisId": "analysis-1",
-        "settingsSignature": "settings-1",
-        "filePath": "tone.wav",
-        "channelIndex": 0,
-        "frequencyBins": 2,
-        "maxFrequencyHz": 8000,
-        "nFft": 4096,
-        "hopLength": 2048,
-        "window": "hann",
-        "computeMs": 1,
-        "responses": [
-          {
-            "filePath": "tone.wav",
-            "channelIndex": 1,
-            "status": "ok",
-            "startSeconds": 1,
-            "endSeconds": 3,
-            "averages": 14,
-            "resampled": false,
-            "gainDb": [
-              0,
-              null
-            ],
-            "phaseRad": [
-              0,
-              0.5
-            ],
-            "coherence": [
-              1,
-              0.9
-            ],
-            "unit": "dB",
-            "axisLabel": "Gain [dB]"
-          },
-          {
-            "filePath": "tone.wav",
-            "channelIndex": 0,
-            "status": "no-overlap",
-            "startSeconds": 4,
-            "endSeconds": 4,
-            "averages": 0,
-            "resampled": false,
-            "gainDb": [],
-            "phaseRad": [],
-            "coherence": [],
-            "unit": "dB",
-            "axisLabel": "Gain [dB]"
-          }
-        ]
-      }
-    },
-    {
       "command": "build-recipe",
       "response": {
         "requestId": "build-recipe",
@@ -693,7 +377,6 @@
       "response": {
         "requestId": "scan",
         "ok": true,
-        "conditionId": "c0",
         "input": {
           "id": "sha256:00",
           "fs": 16000,
@@ -707,26 +390,14 @@
           "calibrationStatus": "uncalibrated",
           "fullScale": true
         },
-        "leqDbA": [
-          -9.03
-        ],
-        "peakHz": [
-          1000
-        ],
-        "spectrumDb": [
-          [
-            -9.03
-          ]
-        ],
-        "thirdOctDb": [
-          [
-            null,
-            -55.0
-          ]
-        ],
-        "crest": [
-          1.414
-        ],
+        "stage": {
+          "frame": "NOctFrame",
+          "kind": "bar",
+          "x": "band",
+          "quantity": "level",
+          "unit": "Pa",
+          "data": "k1"
+        },
         "specVersion": 1,
         "wandasVersion": "0.9.0",
         "elapsedMs": 80.5
@@ -738,14 +409,6 @@
         "requestId": "scan",
         "ok": false,
         "reason": "Unable to read audio: Error in WAV file. No 'data' chunk marker."
-      }
-    },
-    {
-      "command": "scan-spec",
-      "response": {
-        "requestId": "scan-spec",
-        "specVersion": 1,
-        "wandasVersion": "0.9.0"
       }
     }
   ],
@@ -773,56 +436,6 @@
       "violation": ""
     },
     {
-      "command": "spectrum-slice",
-      "response": {
-        "requestId": "spectrum-slice",
-        "trackIndex": 0,
-        "analysisId": "analysis-1",
-        "settingsSignature": "settings-1",
-        "filePath": "tone.wav",
-        "channels": [
-          {
-            "channelIndex": 0,
-            "values": [],
-            "minDb": 0,
-            "maxDb": 0,
-            "referenceValue": 0
-          }
-        ],
-        "frequencyBins": 0,
-        "maxFrequencyHz": 8000,
-        "windowStartNorm": 0.4,
-        "windowEndNorm": 0.6,
-        "window": "hann",
-        "computeMs": 1
-      },
-      "violation": "channels[0].referenceValue"
-    },
-    {
-      "command": "spectrum-slice",
-      "response": {
-        "requestId": "spectrum-slice",
-        "trackIndex": 0,
-        "analysisId": "analysis-1",
-        "settingsSignature": "settings-1",
-        "filePath": "tone.wav",
-        "channels": [
-          {
-            "channelIndex": 0,
-            "values": [],
-            "minDb": 0,
-            "maxDb": 0
-          }
-        ],
-        "frequencyBins": 0,
-        "maxFrequencyHz": 8000,
-        "windowStartNorm": 0.4,
-        "windowEndNorm": 0.6,
-        "window": "hann"
-      },
-      "violation": "computeMs"
-    },
-    {
       "command": "analyze",
       "response": {
         "requestId": "analyze",
@@ -839,20 +452,7 @@
             "peakAbsolute": 1,
             "fullScale": true,
             "sourceUnit": "FS",
-            "sourceLevelReferenceLabel": "dBFS",
-            "waveform": {
-              "min": [
-                0
-              ],
-              "max": [
-                1
-              ],
-              "samples": [
-                0.5
-              ],
-              "absolutePeak": 1
-            },
-            "spectrogram": null
+            "sourceLevelReferenceLabel": "dBFS"
           }
         ],
         "schemaVersion": 1
@@ -876,20 +476,7 @@
             "peakAbsolute": 1,
             "fullScale": true,
             "sourceUnit": "FS",
-            "sourceLevelReferenceLabel": "dBFS",
-            "waveform": {
-              "min": [
-                0
-              ],
-              "max": [
-                1
-              ],
-              "samples": [
-                0.5
-              ],
-              "absolutePeak": 1
-            },
-            "spectrogram": null
+            "sourceLevelReferenceLabel": "dBFS"
           }
         ]
       },
@@ -913,63 +500,6 @@
             "fullScale": true,
             "sourceUnit": "FS",
             "sourceLevelReferenceLabel": "dBFS",
-            "waveform": {
-              "min": [
-                0
-              ],
-              "max": [
-                1
-              ],
-              "samples": [
-                0.5
-              ],
-              "absolutePeak": 1
-            },
-            "spectrogram": {
-              "values": [],
-              "timeBins": 0,
-              "frequencyBins": 0,
-              "windowSize": 64,
-              "hopSize": 32,
-              "maxFrequencyHz": 8000,
-              "minDb": 0
-            }
-          }
-        ]
-      },
-      "violation": "channels[0].spectrogram.maxDb"
-    },
-    {
-      "command": "analyze",
-      "response": {
-        "requestId": "analyze",
-        "filePath": "tone.wav",
-        "fileName": "tone.wav",
-        "sampleRateHz": 16000,
-        "durationSeconds": 1,
-        "channelCount": 1,
-        "sampleCount": 16000,
-        "channels": [
-          {
-            "label": "ch0",
-            "unit": null,
-            "peakAbsolute": 1,
-            "fullScale": true,
-            "sourceUnit": "FS",
-            "sourceLevelReferenceLabel": "dBFS",
-            "waveform": {
-              "min": [
-                0
-              ],
-              "max": [
-                1
-              ],
-              "samples": [
-                0.5
-              ],
-              "absolutePeak": 1
-            },
-            "spectrogram": null,
             "measurement": {
               "calibrationStatus": "unknown",
               "calibrationSource": "manual",
@@ -986,39 +516,6 @@
       "violation": "channels[0].measurement.calibrationStatus"
     },
     {
-      "command": "track-detail",
-      "response": {
-        "requestId": "track-detail",
-        "trackIndex": 0,
-        "analysisId": "a",
-        "settingsSignature": "s",
-        "filePath": "tone.wav",
-        "channels": [
-          {
-            "label": "ch0",
-            "unit": null,
-            "peakAbsolute": 1,
-            "fullScale": true,
-            "sourceUnit": "FS",
-            "sourceLevelReferenceLabel": "dBFS",
-            "waveform": {
-              "min": [
-                0
-              ],
-              "max": [
-                1
-              ],
-              "samples": [
-                0.5
-              ],
-              "absolutePeak": 1
-            }
-          }
-        ]
-      },
-      "violation": "channels[0].spectrogram"
-    },
-    {
       "command": "export-wav-loop",
       "response": {
         "requestId": "export-wav-loop",
@@ -1029,71 +526,13 @@
       "violation": "channels"
     },
     {
-      "command": "pair-spectrum",
-      "response": {
-        "requestId": "pair-spectrum",
-        "analysisId": "analysis-1",
-        "settingsSignature": "settings-1",
-        "filePath": "tone.wav",
-        "channelIndex": 0,
-        "frequencyBins": 2,
-        "maxFrequencyHz": 8000,
-        "nFft": 4096,
-        "hopLength": 2048,
-        "window": "hann",
-        "computeMs": 1,
-        "responses": [
-          {
-            "filePath": "tone.wav",
-            "channelIndex": 1,
-            "status": "partial",
-            "startSeconds": 1,
-            "endSeconds": 3,
-            "averages": 14,
-            "resampled": false,
-            "gainDb": [
-              0,
-              null
-            ],
-            "phaseRad": [
-              0,
-              0.5
-            ],
-            "coherence": [
-              1,
-              0.9
-            ],
-            "unit": "dB",
-            "axisLabel": "Gain [dB]"
-          },
-          {
-            "filePath": "tone.wav",
-            "channelIndex": 0,
-            "status": "no-overlap",
-            "startSeconds": 4,
-            "endSeconds": 4,
-            "averages": 0,
-            "resampled": false,
-            "gainDb": [],
-            "phaseRad": [],
-            "coherence": [],
-            "unit": "dB",
-            "axisLabel": "Gain [dB]"
-          }
-        ]
-      },
-      "violation": "responses[0].status"
-    },
-    {
       "command": "scan",
       "response": {
         "requestId": "scan",
         "ok": true,
-        "peakHz": [
-          "1000.5"
-        ]
+        "elapsedMs": "80.5"
       },
-      "violation": "peakHz[0]"
+      "violation": "elapsedMs"
     }
   ],
   "errorCodes": [
@@ -1317,24 +756,38 @@
     },
     {
       "schema": {
-        "$ref": "#/$defs/RangePayload"
+        "type": "object",
+        "required": [
+          "points"
+        ],
+        "properties": {
+          "points": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 32768
+          }
+        }
       },
       "value": {
-        "filePath": "a.wav",
-        "startNorm": 0,
-        "endNorm": 1,
         "points": 32768
       },
       "violation": null
     },
     {
       "schema": {
-        "$ref": "#/$defs/RangePayload"
+        "type": "object",
+        "required": [
+          "points"
+        ],
+        "properties": {
+          "points": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 32768
+          }
+        }
       },
       "value": {
-        "filePath": "a.wav",
-        "startNorm": 0,
-        "endNorm": 1,
         "points": 1.5
       },
       "violation": "points"

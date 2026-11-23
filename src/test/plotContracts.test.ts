@@ -5,19 +5,16 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import ts from 'typescript';
-import { pythonDefBodies, pythonDiscovery, pythonExecutable, testProblem } from './namedTest';
+import { isNewPath } from './helpers/newPath';
+import { pythonDefBodies, pythonExecutable, testProblem } from './namedTest';
 import { CHARTS, CONTRACTS, GAP_CEILING, KNOWN_GAPS, ROWS } from './plotContracts/index';
-import { CLICK_READ, CLICK_TEST, TICK_PLACES, type ContractRow } from './plotContracts/model';
+import { TICK_PLACES, type ContractRow } from './plotContracts/model';
 import { CONTRACT_DOC, renderContractDoc } from './plotContracts/render';
 import { NOT_SHOWN, SCHEMA_FIELDS } from './plotContracts/schema';
-import { BACKEND_READERS, NOT_CHART_VALUES, PY_DECIMATORS, VALUE_HELPERS } from './plotContracts/values';
+import { NOT_CHART_VALUES, VALUE_HELPERS } from './plotContracts/values';
 import { SURFACES } from './plotContracts/surfaces';
-import { PLOTS_PENDING } from './uiSmoke/plotRegistry';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
-const STAGE_PANES = 'src/webview/runtime/stagePanes.ts';
-/** The plot component's entry points: every call of one outside stagePanes.ts draws a chart. */
-const PLOT_COMPONENT = new Set(['paintOverlay', 'paintStage', 'paintSideAxis', 'paintTimeAxis']);
 /** Number primitives: a call of one turns a number into the text a user reads. */
 const NUMBER_TEXT = new Set(['toFixed', 'toPrecision', 'toExponential', 'toLocaleString']);
 /** Math's integer roundings: one applied to a value scaled by a power of ten rounds it to decimals, as text does. */
@@ -61,7 +58,8 @@ function sourceFiles(): string[] {
         for (const name of readdirSync(path.join(repoRoot, dir)).sort()) {
             const rel = `${dir}/${name}`;
             if (statSync(path.join(repoRoot, rel)).isDirectory()) walk(rel);
-            else if (rel.endsWith('.ts') && !rel.endsWith('.d.ts')) found.push(rel);
+            // The new figure path's own code is held by its own rules (helpers/newPath.ts), not the old table.
+            else if (rel.endsWith('.ts') && !rel.endsWith('.d.ts') && !isNewPath(rel)) found.push(rel);
         }
     };
     walk('src/webview');
@@ -130,6 +128,21 @@ function exists(entry: string): boolean {
 }
 
 /** The helpers a file can call, by the local name it calls them: its own, and those it imports from a relative path. */
+/**
+ * Where `name` imported from `file` is defined: `file:name`, or, where the file only names it on (`export * from` or
+ * `export { name } from`: a rule moved to be shared), the file it comes from.
+ */
+function reexportedFrom(file: string, name: string): string {
+    if (!existsSync(path.join(repoRoot, file))) return `${file}:${name}`;
+    for (const statement of parse(file).statements) {
+        if (!ts.isExportDeclaration(statement) || !statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier) || statement.isTypeOnly) continue;
+        const clause = statement.exportClause;
+        const named = !clause || (ts.isNamedExports(clause) && clause.elements.some(element => element.name.text === name && !element.propertyName));
+        if (named && statement.moduleSpecifier.text.startsWith('.')) return reexportedFrom(path.posix.join(path.posix.dirname(file), `${statement.moduleSpecifier.text}.ts`), name);
+    }
+    return `${file}:${name}`;
+}
+
 function helpersIn(file: string, helpers: ReadonlySet<string>): Map<string, string> {
     const local = new Map<string, string>();
     for (const helper of helpers) {
@@ -143,7 +156,7 @@ function helpersIn(file: string, helpers: ReadonlySet<string>): Map<string, stri
         if (!bindings || !ts.isNamedImports(bindings) || !specifier.startsWith('.')) continue;
         const target = path.posix.join(path.posix.dirname(file), `${specifier}.ts`);
         for (const element of bindings.elements) {
-            const helper = `${target}:${(element.propertyName ?? element.name).text}`;
+            const helper = reexportedFrom(target, (element.propertyName ?? element.name).text);
             if (helpers.has(helper)) local.set(element.name.text, helper);
         }
     }
@@ -214,8 +227,9 @@ const TEXT_CALLS: Readonly<Record<string, readonly number[]>> = {
  * What this is for, and what it is not: it keeps the table's list of number-writing functions complete for these
  * direct forms, so a reviewer knows where to look. It does not follow text kept in a property or a field and
  * written later (`row.label = n.toFixed(1)` … `el.textContent = row.label`), nor a number that leaves through
- * `any`. It is not what keeps a chart's value from being a thinned point: that is the types (a readout, a headline
- * and an export take `Whole`; a thinned point is `Drawn` and cannot be formatted; provenanceBoundary.test.ts).
+ * `any`. It is not what keeps a chart's value from being a thinned point: that is the figure service (a readout, a headline
+ * and an export are answered by the backend from the full data; a thinned point is `FigureDrawn`, which cannot be
+ * formatted and only src/webview/figure/ may import; figureImportRules.test.ts).
  */
 function numericTextWriters(program: ts.Program, files: readonly string[]): Map<string, Set<string>> {
     const checker = program.getTypeChecker();
@@ -331,29 +345,6 @@ function enclosingFunction(node: ts.Node): ts.Node | undefined {
     return undefined;
 }
 
-/**
- * Every use of the plot component outside it, by the function that makes it. Found by symbol: any name that resolves
- * to one of stagePanes.ts's painters, whatever it is imported as (`paintOverlay as draw`, `panes.paintOverlay`) and
- * whether it is called there or handed on as a value.
- */
-function plotCallers(program: ts.Program = typed(), files: readonly string[] = sourceFiles()): Set<string> {
-    const checker = program.getTypeChecker();
-    const callers = new Set<string>();
-    for (const file of files) {
-        if (file === STAGE_PANES) continue;
-        const source = program.getSourceFile(path.join(repoRoot, file));
-        if (!source) continue;
-        each(source, node => {
-            if (!ts.isIdentifier(node) || ts.isImportSpecifier(node.parent) || ts.isExportSpecifier(node.parent)) return;
-            const found = checker.getSymbolAtLocation(node);
-            const target = found && found.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(found) : found;
-            const painter = target?.declarations?.some(declaration => path.relative(repoRoot, declaration.getSourceFile().fileName).split(path.sep).join('/') === STAGE_PANES && PLOT_COMPONENT.has(target.name));
-            if (painter) callers.add(`${file}:${enclosing(node)}`);
-        });
-    }
-    return callers;
-}
-
 test('every row has its own id, on a chart the table lists, and every chart has a row of each kind it shows', () => {
     const ids = ROWS.map(row => row.id);
     assert.deepEqual(ids.filter((id, index) => ids.indexOf(id) !== index), [], 'row ids repeat');
@@ -380,13 +371,9 @@ test('no row says a difference or a median is taken of rounded values: rounding 
     assert.ok(!/Rounded so that base \+ delta/u.test(source), 'comparePanes.ts says the Δ is of rounded levels');
 });
 
-test('every call of the plot component, and every plot plotRegistry.ts lists, is a chart of the table', () => {
+test('every function a chart is drawn by exists', () => {
     const painted = new Set(CHARTS.flatMap(chart => chart.paintedBy));
-    assert.deepEqual([...plotCallers()].filter(caller => !painted.has(caller)).sort(), [], 'Rule: every call of the plot component (paintOverlay, paintStage, paintSideAxis, paintTimeAxis) belongs to a chart of the contract table. These functions call it but no chart lists them. Fix: add each to the paintedBy of its chart in src/test/plotContracts/charts/<chart>.ts, or add a new chart file there (and to index.ts) with a row for every value a user reads off it. See docs/plot-contracts-guide.md.');
     assert.deepEqual([...painted].filter(entry => !exists(entry)).sort(), [], 'a chart is drawn by a function that does not exist');
-    const registered = CHARTS.flatMap(chart => chart.registry ?? []);
-    assert.deepEqual(PLOTS_PENDING.map(plot => plot.selector).filter(selector => !registered.includes(selector)), [], 'a plot plotRegistry.ts lists is in no chart');
-    assert.deepEqual(registered.filter(selector => !PLOTS_PENDING.some(plot => plot.selector === selector)), [], 'a chart lists a canvas plotRegistry.ts does not');
 });
 
 /**
@@ -436,60 +423,9 @@ function drawingSurfaces(program: ts.Program, files: readonly string[]): Map<str
     return found;
 }
 
-/**
- * Every plot's click (the `tap` handed to attachPlotInteraction), as `file:function`: the function that makes the click,
- * the tap itself or the function of its file it hands the click to, and whether that function acts through
- * clickOnRead (the readout's read, R7, R13).
- */
-function plotClicks(sources: ReadonlyArray<{ file: string; source: ts.SourceFile }> = sourceFiles().filter(file => read(file).includes('attachPlotInteraction(')).map(file => ({ file, source: parse(file) }))): Map<string, boolean> {
-    const clicks = new Map<string, boolean>();
-    for (const { file, source } of sources) {
-        // The file's own functions by name (a declaration, or an arrow given to a const), never a property of an object.
-        const named = new Map<string, ts.Node>();
-        each(source, node => {
-            const name = ts.isFunctionDeclaration(node) && node.name ? node.name.text
-                : (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) && ts.isVariableDeclaration(node.parent) && ts.isIdentifier(node.parent.name) ? node.parent.name.text : null;
-            if (name && !named.has(name)) named.set(name, node);
-        });
-        const acts = (node: ts.Node | undefined): boolean => !!node && /\bclickOnRead\(/u.test(node.getText(source));
-        each(source, node => {
-            if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression) || node.expression.text !== 'attachPlotInteraction') return;
-            const deps = node.arguments[3];
-            if (!deps || !ts.isObjectLiteralExpression(deps)) return;
-            for (const property of deps.properties) {
-                if (!property.name || property.name.getText(source) !== 'tap') continue;
-                // The tap: a function of the file it names, or written here (a method, an arrow).
-                const own = ts.isShorthandPropertyAssignment(property) ? named.get('tap')
-                    : ts.isPropertyAssignment(property) && ts.isIdentifier(property.initializer) ? named.get(property.initializer.text) : property;
-                const ownName = ts.isPropertyAssignment(property) && ts.isIdentifier(property.initializer) ? property.initializer.text : 'tap';
-                if (acts(own)) { clicks.set(`${file}:${ownName}`, true); continue; }
-                // A tap that hands the click to a function of its file (the lanes' endLaneDrag).
-                let handed: string | null = null;
-                if (own) each(own, inner => { if (!handed && ts.isCallExpression(inner) && ts.isIdentifier(inner.expression) && acts(named.get(inner.expression.text))) handed = inner.expression.text; });
-                clicks.set(`${file}:${handed ?? ownName}`, !!handed);
-            }
-        });
-    }
-    return clicks;
-}
-
-test('every plot\'s click is a click row of the table and acts on the point its readout reads, through clickOnRead, never a hit test of its own (R7, R13)', () => {
-    const clicks = plotClicks();
-    assert.ok(clicks.size >= 4, `the scan finds the plots' clicks (${[...clicks.keys()].join(', ')})`);
-    const own = [...clicks].filter(([, through]) => !through).map(([at]) => at);
-    assert.deepEqual(own, [], 'Rule (docs/display-rules.md R7, R13: "a click acts on the point the readout reads"): every plot\'s click acts on what its readout read at the press, the same pick and the same identity. These taps do not act through clickOnRead (plotHoverLayer.ts), so they decide by a hit test of their own. Fix: return clickOnRead(marks, plot, current, got => ...) from the tap, acting on got.read (or, where the readout reads no point, on what its words say there), and delete the tap\'s own geometry.');
-    const rows = ROWS.filter(row => row.value === 'click');
-    const listed = new Set(rows.flatMap(row => row.computedIn));
-    assert.deepEqual([...clicks.keys()].filter(at => !listed.has(at)).sort(), [], 'Rule (R7, R13): every plot with a click has a click row in the contract table, which the browser test (CLICK_TEST in src/test/plotContracts/model.ts) clicks at ties, overlapping points, bin edges and gaps. These clicks have none. Fix: add a row of value \'click\' to the chart\'s file in src/test/plotContracts/charts (computedIn: ...CLICK_READ and this function), add \'click\' to its requires, and give it a case in plotContract.spec.ts CLICK_CASES.');
-    for (const row of rows) {
-        assert.ok(CLICK_READ.every(at => row.computedIn.includes(at)), `${row.id}: a click row names the readout's read it acts on (CLICK_READ)`);
-        assert.ok(row.tests.some(item => item.file === 'src/test/uiSmoke/plotContract.spec.ts' && item.name === CLICK_TEST), `${row.id}: a click row is held by the browser test of every plot's click (CLICK_TEST)`);
-    }
-});
-
 /** Charts with a ticks row and no vertical axis whose ticks are placed by a transform, each with why. */
 const NO_TICK_AXIS: Readonly<Record<string, string>> = {
-    'colour-bar': 'its numbers are a colour bar\'s two ends, held to the scale its colours are painted from (R9, canvasAudit.ts colour ends), not ticks up an axis',
+    'time-ruler': 'its ticks are along the time axis the rows are stacked on, each at its time\'s place over the rows\' width (timeRuler.test.ts), not up a vertical axis',
 };
 
 test('every chart with a level, value or row axis names in its ticks row a test that holds each tick label at the place its axis paints that number, at several vertical zooms (R9, R14)', () => {
@@ -500,33 +436,8 @@ test('every chart with a level, value or row axis names in its ticks row a test 
     assert.deepEqual(Object.keys(NO_TICK_AXIS).filter(chart => !ticked.includes(chart)), [], 'NO_TICK_AXIS lists a chart with no ticks row: take it off');
 });
 
-test('the click scan finds a plot\'s own hit test: a tap that does not act through clickOnRead', () => {
-    const text = [
-        'function handOn(current) { return clickOnRead(marks, plot, current, got => act(got.read)); }',
-        'attachPlotInteraction(a, document, ".a", { tap: (plot, event, current) => handOn(current) });',
-        // The old distribution's click: the first dot within 5 px of the pointer, a hit test of its own.
-        'const tap = (plot, event) => { const dot = dotAt(plot, event.clientX, event.clientY); return dot ? () => go(dot) : undefined; };',
-        'attachPlotInteraction(b, document, ".b", { tap });',
-    ].join('\n');
-    const clicks = plotClicks([{ file: 'fixture.ts', source: ts.createSourceFile('fixture.ts', text, ts.ScriptTarget.Latest, true) }]);
-    assert.deepEqual([...clicks].sort(), [['fixture.ts:handOn', true], ['fixture.ts:tap', false]]);
-});
-
-test('a use of the plot component is found under any name: imported under another, through a namespace, or handed on as a value', () => {
-    const file = 'src/webview/runtime/injectedPainter.ts';
-    const program = typedWith(new Map([[file, [
-        "import { paintOverlay as draw } from './stagePanes';",
-        "import * as panes from './stagePanes';",
-        'export function renamed(...args: Parameters<typeof draw>) { return draw(...args); }',
-        'export function spaced(...args: Parameters<typeof panes.paintStage>) { return panes.paintStage(...args); }',
-        'export function handedOn() { const painter = panes.paintOverlay; return painter; }',
-        "export function unrelated() { const paintOverlay = (): number => 1; return paintOverlay(); }",
-    ].join('\n')]]));
-    assert.deepEqual([...plotCallers(program, [file])].sort(), ['handedOn', 'renamed', 'spaced'].map(name => `${file}:${name}`));
-});
-
 test('every drawing surface of the webview (a canvas or an SVG made, or a context taken) is the plot component\'s, a chart\'s, or says why it is no chart', () => {
-    const found = drawingSurfaces(typed(), sourceFiles().filter(file => file !== STAGE_PANES));
+    const found = drawingSurfaces(typed(), sourceFiles());
     const painted = new Set(CHARTS.flatMap(chart => chart.paintedBy));
     const charts = new Set(CHARTS.map(chart => chart.id));
     const unlisted = [...found].filter(([where]) => !painted.has(where) && !Object.hasOwn(SURFACES, where)).map(([where, what]) => `${where} (${[...what].join(', ')})`).sort();
@@ -586,7 +497,7 @@ test('every function that writes a number in the webview is in the table, a valu
 test('the detector finds a number written by a primitive, a helper imported under another name, a local alias of one, and rounding to decimals by arithmetic', () => {
     const file = 'src/webview/runtime/fake.ts';
     const source = ts.createSourceFile(file, [
-        "import { frequencyText as hz } from '../plot/plotText';",
+        "import { frequencyText as hz } from '../shell/numberText';",
         'const fmt = hz;',
         'export function a(value: number): string { return value.toFixed(2); }',
         'export const b = (value: number): string => hz(value);',
@@ -603,8 +514,8 @@ test('the detector finds a number written by a primitive, a helper imported unde
         writersIn(file, new Set([...VALUE_HELPERS, `${file}:round1`]), writers);
         assert.deepEqual(Object.fromEntries([...writers].map(([writer, calls]) => [writer, [...calls]])), {
             [`${file}:a`]: ['toFixed'],
-            [`${file}:b`]: ['src/webview/plot/plotText.ts:frequencyText'],
-            [`${file}:c`]: ['src/webview/plot/plotText.ts:frequencyText'],
+            [`${file}:b`]: ['src/webview/shell/numberText.ts:frequencyText'],
+            [`${file}:c`]: ['src/webview/shell/numberText.ts:frequencyText'],
             // Rounding to decimals by arithmetic writes a number, and so does a helper that does it: a pixel's Math.round does not.
             [`${file}:e`]: ['Math.round'],
             [`${file}:round1`]: ['Math.round'],
@@ -674,84 +585,6 @@ function typedWith(overlay: ReadonlyMap<string, string>): ts.Program {
     return ts.createProgram([...new Set([...base.getRootFileNames(), ...added.keys()])], options, host);
 }
 
-const PYTHON = 'python-backend';
-/** Every def of the backend's modules (not its tests), with its body. */
-function pythonDefs(): Map<string, string> {
-    const defs = new Map<string, string>();
-    const files = readdirSync(path.join(repoRoot, PYTHON)).filter(item => item.endsWith('.py') && !item.startsWith('test_') && item !== 'conftest.py').sort().map(name => `${PYTHON}/${name}`);
-    // Every def by the one Python discovery (namedTest.ts pythonDiscovery), a method by its own name as the table names it.
-    pythonDiscovery(files.map(read));
-    for (const file of files) {
-        for (const [name, body] of pythonDefBodies(read(file))) {
-            const own = name.slice(name.lastIndexOf('.') + 1);
-            if (!defs.has(`${file}:${own}`)) defs.set(`${file}:${own}`, body);
-        }
-    }
-    return defs;
-}
-
-/**
- * The backend's defs that read drawn points: those that call a decimator (PY_DECIMATORS), and every def whose own
- * code computes with drawn points however they reached it (a returned view's values, a dict, an attribute, a
- * subscript, a call in another module), as check_decimation_flow.py follows them through the backend's AST.
- */
-function pythonDrawn(readers: Readonly<Record<string, readonly string[]>> = pythonFlowReaders()): Map<string, Set<string>> {
-    const found = new Map<string, Set<string>>();
-    const decimators = PY_DECIMATORS.map(entry => ({ entry, name: entry.slice(entry.lastIndexOf(':') + 1) }));
-    for (const [def, body] of pythonDefs()) {
-        const calls = decimators.filter(item => item.entry !== def && new RegExp(`\\b${item.name}\\(`).test(body.slice(body.indexOf('\n'))));
-        if (calls.length) found.set(def, new Set(calls.map(item => item.entry)));
-    }
-    for (const [def, origins] of Object.entries(readers)) {
-        if (PY_DECIMATORS.includes(def)) continue;
-        found.set(def, new Set([...(found.get(def) ?? []), ...origins]));
-    }
-    return found;
-}
-
-/** check_decimation_flow.py's readers: every backend def computing with drawn points, by the AST data flow. */
-function pythonFlowReaders(sources?: Readonly<Record<string, string>>): Record<string, string[]> {
-    const python = pythonExecutable();
-    const script = sources
-        ? ['-c', 'import json,sys; sys.path.insert(0, "scripts"); import check_decimation_flow as c; print(json.dumps(c.find_readers(json.loads(sys.stdin.buffer.read().decode("utf-8")))))']
-        : ['scripts/check_decimation_flow.py', '--readers'];
-    const run = spawnSync(python, script, { cwd: repoRoot, encoding: 'utf8', input: sources ? JSON.stringify(sources) : undefined });
-    assert.equal(run.status, 0, `check_decimation_flow.py --readers: ${run.stderr}`);
-    return JSON.parse(run.stdout) as Record<string, string[]>;
-}
-
-/** The backend's modules (not its tests), by module name, as check_decimation_flow.py reads them. */
-function pythonSources(): Record<string, string> {
-    return Object.fromEntries(readdirSync(path.join(repoRoot, PYTHON)).filter(item => item.endsWith('.py') && !item.startsWith('test_') && item !== 'conftest.py').map(name => [name.slice(0, -3), read(`${PYTHON}/${name}`)]));
-}
-
-test('the backend\'s readers are found by data flow: a def that takes a returned view\'s values and sends their max is one, with no decimator call in it', () => {
-    const sources = pythonSources();
-    // Injected (Codex round 1, P2): no decimator is called here; the drawn values come back from stage_view.
-    sources.scan_service += '\n\ndef _peak_of(frame):\n    view = stage_view(frame)\n    return {"peakDb": float(np.max(view["values"]))}\n';
-    sources.stage_combine += '\n\ndef _top_of(view):\n    return max(view["values"])\n';
-    sources.scan_service += '\n\nfrom stage_combine import _top_of\n\n\ndef _send_top(frame):\n    return {"peakDb": _top_of({"p": stage_view(frame)}["p"])}\n';
-    const found = pythonFlowReaders(sources);
-    assert.ok(found['python-backend/scan_service.py:_peak_of']?.some(origin => origin.startsWith('stage_view:')), JSON.stringify(found['python-backend/scan_service.py:_peak_of']));
-    assert.ok(found['python-backend/stage_combine.py:_top_of'], 'a helper in another module given the drawn view through a dict is a reader');
-    // As the contract test reads them, both are unclassified readers: the injection fails it.
-    const python = pythonDrawn(found);
-    assert.deepEqual(['python-backend/scan_service.py:_peak_of', 'python-backend/stage_combine.py:_top_of'].filter(def => python.has(def) && !Object.hasOwn(BACKEND_READERS, def)), ['python-backend/scan_service.py:_peak_of', 'python-backend/stage_combine.py:_top_of']);
-});
-
-test('every backend function that computes with thinned points says what it does with them (drawn_points_contract.json)', () => {
-    const python = pythonDrawn();
-    assert.deepEqual(PY_DECIMATORS.filter(entry => !exists(entry)), [], 'Rule: every decimator in python-backend/drawn_points_contract.json is a def of the backend. Fix: remove or rename these.');
-    const unclassified = [...python].filter(([where]) => !Object.hasOwn(BACKEND_READERS, where)).map(([where, reads]) => `${where} (${[...reads].sort().join(', ')})`).sort();
-    assert.deepEqual(unclassified, [], 'Rule: every backend function that computes with points thinned to draw (it calls a decimator, or is handed its result) says what it does with them. Fix: add each to "readers" in python-backend/drawn_points_contract.json as use "draws" (it only makes the picture; scripts/check_decimation_flow.py checks that by data flow). If it makes a number of them, take that number from the full data it is given, before thinning, so it only draws: classifying it "value" makes its row a gap, which GAP_CEILING (0) does not allow. See docs/plot-contracts-guide.md.');
-    assert.deepEqual(Object.keys(BACKEND_READERS).filter(where => !python.has(where)).sort(), [], 'Rule: "readers" in python-backend/drawn_points_contract.json lists only functions that compute with thinned points today. Fix: remove these entries.');
-    for (const row of ROWS) {
-        const values = row.computedIn.filter(where => BACKEND_READERS[where]?.use === 'value');
-        if (row.from === 'extremes' || row.from === 'thinned') continue;
-        assert.deepEqual(values, [], `${row.id} says it is from ${row.from}, but names backend functions that make a number of thinned points`);
-    }
-});
-
 test('every number the backend\'s protocol sends back is a value of a row, or says why it is not shown', () => {
     const file = 'src/shared/protocol/generated/backendProtocolSchema.ts';
     const fields: string[] = [];
@@ -762,12 +595,15 @@ test('every number the backend\'s protocol sends back is a value of a row, or sa
             const literals: ts.TypeLiteralNode[] = [];
             each(member.type, node => { if (ts.isTypeLiteralNode(node) && !literals.some(outer => node.pos >= outer.pos && node.end <= outer.end)) literals.push(node); });
             if (literals.length) literals.forEach(literal => members(name, literal.members));
-            else if (/\b(?:number|Drawn)\b/.test(member.type.getText())) fields.push(name);
+            // A figure picture's drawn point is typed FigureDrawn.
+            else if (/\b(?:number|FigureDrawn)\b/.test(member.type.getText())) fields.push(name);
         }
     };
     for (const statement of parse(file).statements) {
         // Requests and the backend's own notices carry nothing shown: what it answers does.
-        if (ts.isInterfaceDeclaration(statement) && !NOT_SHOWN.some(pattern => pattern.test(statement.name.text))) members(statement.name.text, statement.members);
+        // The figure service's replies (Figure*) are the new path's: src/webview/answers/ and figure/ take them, held by
+        // their own types, ESLint and tests (figureComponent.test.ts, compareOverlayFigure.test.ts), not this old table.
+        if (ts.isInterfaceDeclaration(statement) && !statement.name.text.startsWith('Figure') && !NOT_SHOWN.some(pattern => pattern.test(statement.name.text))) members(statement.name.text, statement.members);
     }
     const ids = new Set(ROWS.map(row => row.id));
     assert.deepEqual(fields.filter(field => !Object.hasOwn(SCHEMA_FIELDS, field)).sort(), [], 'these numbers reach the webview: map each to its rows in plotContracts/schema.ts, or say why it is not shown');
@@ -1063,13 +899,13 @@ test('a pytest proof moved into a test class is one test, named TestX::test_y, f
     try {
         const file = path.join(dir, 'test_held.py');
         const text = [
-            'import numpy as np', 'from conftest import assert_not_drawn', 'from decimator import decimated_waveform', '', '',
+            'import numpy as np', 'from conftest import assert_not_drawn', 'from services.analyzer import absolute_peak', '', '',
             'class TestHeld:', '    def test_it(self):', '        samples = np.sin(np.arange(5000) * 0.3)', '        samples[3210] = -0.95',
-            '        result = decimated_waveform(samples, 50, 0, 5000)', '        assert result["absolutePeak"] == 0.95',
+            '        result = {"absolutePeak": absolute_peak(samples)}', '        assert result["absolutePeak"] == 0.95',
             '        averaged = np.abs(samples.reshape(50, -1).mean(axis=1))', '        assert_not_drawn(result["absolutePeak"], float(averaged.max()))', '',
         ].join('\n');
         writeFileSync(file, text);
-        const targets = ['python-backend/decimator.py:decimated_waveform'];
+        const targets = ['python-backend/services/analyzer.py:absolute_peak'];
         assert.equal(testProblem('test_held.py', text, 'TestHeld::test_it'), null);
         assert.equal(pythonProof(targets, { file, name: 'TestHeld::test_it' }), null);
         // By its bare name it is a test of neither, and the proof check names the name that is.
@@ -1083,7 +919,7 @@ test('a pytest proof moved into a test class is one test, named TestX::test_y, f
 test('the proof check follows names to what they declare: only a use of the row\'s code, its answer asserted outright, and assertNotDrawn(answer, drawnAnswer) make a proof', () => {
     // Proofs written here for the injection, compiled over the real sources and never written to disk.
     const file = 'src/test/injectedWholeProof.test.ts';
-    const range = 'src/webview/runtime/stagePanes.ts:stageRange';
+    const range = 'src/webview/runtime/injectedRange.ts:stageRange';
     const full = "    const full = stageRange([line([-43, -12], { min: -61, max: -2 })]);";
     const outright = "    assert.deepEqual(full, stageRange([line([-61, -2])]));";
     const cases: Array<{ name: string; body: string[]; problem: RegExp | null }> = [
@@ -1109,14 +945,21 @@ test('the proof check follows names to what they declare: only a use of the row\
         // A test that never uses the row's code proves nothing of it, whatever it asserts.
         { name: 'unreached', body: ["    const full = { min: -61, max: -2 }, drawn = [full].map(item => ({ ...item, min: -43 }))[0];", "    assert.deepEqual(full, { min: -61, max: -2 });", "    assertNotDrawn(full, drawn);"], problem: /never uses the row's code/u },
     ];
-    const program = typedWith(new Map([[file, [
+    // The code the proofs are of: a range taken of each line's full extremes where it has them, of its drawn values otherwise.
+    const code = [
+        'export interface Line { values: number[]; valueRange?: { min: number; max: number } }',
+        'export function stageRange(lines: Line[]): { min: number; max: number } {',
+        '    const all = lines.flatMap(line => (line.valueRange ? [line.valueRange.min, line.valueRange.max] : line.values));',
+        '    return { min: Math.min(...all), max: Math.max(...all) };',
+        '}',
+    ].join('\n');
+    const program = typedWith(new Map([['src/webview/runtime/injectedRange.ts', code], [file, [
         "import assert from 'node:assert/strict';",
         "import test from 'node:test';",
-        "import type { StageView } from '../shared/protocol/backendProtocol';",
-        "import { stageRange } from '../webview/runtime/stagePanes';",
-        "import * as panes from '../webview/runtime/stagePanes';",
+        "import { stageRange, type Line } from '../webview/runtime/injectedRange';",
+        "import * as panes from '../webview/runtime/injectedRange';",
         "import { assertNotDrawn, assertNotDrawn as apart } from './fullNotDrawn';",
-        "const line = (values: number[], valueRange?: StageView['valueRange']): StageView => ({ frame: 'SpectralFrame', kind: 'line', xs: values.map((_, i) => i), values, ...(valueRange ? { valueRange } : {}) });",
+        "const line = (values: number[], valueRange?: Line['valueRange']): Line => ({ values, ...(valueRange ? { valueRange } : {}) });",
         ...cases.flatMap(item => [`test('${item.name}', () => {`, ...item.body, '});']),
     ].join('\n')]]));
     for (const item of cases) {

@@ -1,14 +1,5 @@
-import type { PendingRequest } from './answerStore';
-import type { Drawn } from '../../shared/provenance';
-import type { FullSource } from './fullRead';
 import type { UiStrings } from '../../shared/i18n/strings';
-import type {
-    AnalysisResultWithError,
-    ChannelSummary,
-    SpectrogramData,
-    SpectrogramSettings,
-    WaveformEnvelope,
-} from '../../shared/analysis/analysisTypes';
+import type { AnalysisResultWithError, SpectrogramSettings } from '../../shared/analysis/analysisTypes';
 
 declare const trackIdBrand: unique symbol;
 export type TrackId = string & { readonly [trackIdBrand]: true };
@@ -55,8 +46,6 @@ export interface PersistedWebviewState {
     spectrumCollapsed?: boolean;
     /** Entry table slots 0–3 by file path. */
     entrySlots?: (string | null)[];
-    /** Differences fixed while comparing (D), shown as derived rows of the entry table. */
-    entryDerived?: import('./entryTable').DerivedRow[];
     /** The scan Recipe as edited in the step bar; read back with a warning if it no longer parses. */
     entryRecipe?: unknown;
     /** The attribute CSV picked on the entry table (name and text), when small enough to keep. */
@@ -95,15 +84,6 @@ export interface RuntimeWindow extends Omit<Window, 'addEventListener' | 'remove
     __uiSmokeState?: UiSmokeState;
     /** Set by a page the tests open: the runtime then publishes its rendered UI (`comparison-panel-test-snapshot`). */
     __AWA_TEST_HOOKS__?: boolean;
-    paintLoopRegion?: (
-        context: CanvasRenderingContext2D,
-        width: number,
-        height: number,
-        startNorm: number,
-        endNorm: number,
-        zoomStart: number,
-        zoomEnd: number,
-    ) => void;
     addEventListener<K extends keyof WindowEventMap>(
         type: K,
         listener: (event: WindowEventMap[K]) => void,
@@ -119,55 +99,20 @@ export interface TrackRuntimeState {
     ownColorIndex?: number;
 }
 
-export interface SpectrumSlice {
-    /** As drawn: every bin when the slice has no `frequenciesHz`, else cut for display; never read (x-drawn). */
-    values: Drawn[];
-    /** Every bin (or band), sent only for a slice not cut for display (x-whole): what is read (wholeAnswers.ts everyBin). */
-    bins?: number[];
-    frequencyBins: number;
-    maxFrequencyHz: number;
-    minDb: number;
-    maxDb: number;
-    unit?: string;
-    axisLabel?: string;
-    cursorNorm?: number;
-    channelIndex?: number;
-    settingsSignature?: string;
-    originalMaxFrequencyHz?: number;
-    /** Octave-band slices only: one value per band centre, drawn on a log axis from minFrequencyHz. */
-    bandsPerOctave?: number;
-    bandCentersHz?: number[];
-    minFrequencyHz?: number;
-    /** FFT slices cut for display only: each point's frequency. Absent when values holds every FFT bin. */
-    frequenciesHz?: number[];
-    /** Track-normalized span of the samples the backend actually transformed; may extend past 0..1 where frames are padded. */
-    windowStartNorm?: number;
-    windowEndNorm?: number;
-    window?: string;
-    /** The slice's own range (the backend's extremes), kept when a typed spectrogram dB range replaced minDb/maxDb. */
-    autoMinDb?: number;
-    autoMaxDb?: number;
-    /** The ends of minDb/maxDb typed in the spectrogram settings: kept exactly; the other ends follow the dB line rule (spectrumLevelRange). */
-    typedDb?: { min?: number; max?: number };
-    /** Drawn in place of a slice the backend has not given (cursorSpectrum.ts): no number is read of it (R7). */
-    standIn?: SpectrumStandIn;
-    /** A 'pending' stand-in's request: what its reads wait on (fullRead.ts pendingSource). */
-    waitingOn?: PendingRequest;
-}
-
 /**
- * What a cursor spectrum draws when it has no slice of the backend's: 'pending', the lane's display spectrogram's
- * column (cells power-averaged to draw) while the slice is on its way; 'silence', the floor past the track's end.
+ * A track's cursor spectrum as the backend keeps it for the figure service (the reply to a slice request with
+ * `answers`): each channel's kept line, what its levels are in, and the window the lines are of. No value of a line.
  */
-export type SpectrumStandIn = 'pending' | 'silence';
-
-export interface WaveformRangeCache {
-    startNorm: number;
-    endNorm: number;
-    channels: RangeWaveform[];
+export interface CursorAnswers {
+    settingsSignature: string;
+    /** Track-normalized cursor the backend transformed at. */
+    cursorNorm: number;
+    channels: ReadonlyArray<{ channelIndex: number; level: { unit: string; ref: number; label: string }; key?: string }>;
+    /** Track-normalized span of the samples transformed; may extend past 0..1 where frames are padded. */
+    windowStartNorm: number;
+    windowEndNorm: number;
+    window: string;
 }
-
-export type RangeWaveform = WaveformEnvelope;
 
 export interface LazyRequestState {
     trackId: TrackId;
@@ -176,48 +121,11 @@ export interface LazyRequestState {
     settingsSignature: string;
     channelIndex?: number;
     cursorNorm?: number;
-    /** Cursor-spectrum requests: every FFT bin was asked for, not the row cut for display. */
-    fullResolution?: boolean;
-}
-
-export interface DragPoint {
-    freqNorm: number;
-    dbNorm: number;
 }
 
 export interface LoopRegion {
     start: number;
     end: number;
-}
-
-export interface RectZoomSelection {
-    trackId: TrackId;
-    startNorm: number;
-    endNorm: number;
-    startAmpNorm: number;
-    endAmpNorm: number;
-    /** A box on a spectrogram lane: its ends up the axis are fractions of the frequency band shown, not amplitudes. */
-    frequency?: boolean;
-}
-
-/** A press on a lane: where it started, and the drag of its own it became under Alt or Shift (null: none, a box zoom or a click). */
-export interface WaveformDragState {
-    trackId: TrackId;
-    /** The pressed canvas: the lane's waveform or its spectrogram, whose time spans differ in width. */
-    canvasId: string;
-    startClientX: number;
-    startOffset: number;
-    canvasWidth: number;
-    startNorm: number;
-    dragType: 'offset' | 'loop' | 'gripStart' | 'gripEnd' | null;
-}
-
-export interface WaveformCoverage {
-    minX: number;
-    maxX: number;
-    canvasWidth: number;
-    coversLeft: boolean;
-    coversRight: boolean;
 }
 
 export interface TimelineSpan {
@@ -233,23 +141,6 @@ export interface TrackFileView {
     fileAtZoomEnd: number;
 }
 
-export interface SpectrumSeries {
-    slice: SpectrumSlice;
-    color: string;
-    index: number;
-    channelIndex: number;
-    label: string;
-    /** A slice cut for display: where its every bin is read (R7, laneReads.slice). */
-    full?: FullSource;
-    /** Its recording's level identity, where known: lines share a level axis only by it and their slices' own reference (figureModel). */
-    level?: { unit?: string; ref?: number; levelReferenceLabel?: string };
-}
-
-export interface WaveformDrawOptions {
-    /** false: the amplitude axis beside the lane is left as drawn (it does not follow the cursor). */
-    drawAxis?: boolean;
-}
-
 export interface CanvasSyncOptions {
     syncStyle?: boolean;
 }
@@ -261,7 +152,3 @@ export interface TestAction {
     payload?: Record<string, unknown>;
 }
 
-export interface RuntimeAnalysisChannel extends ChannelSummary {
-    waveform: WaveformEnvelope;
-    spectrogram: SpectrogramData | null;
-}

@@ -35,18 +35,21 @@ test('R7 states the keyboard-focus exception these tests hold, with its reason (
     for (const phrase of [
         'キーボードのフォーカスの例外（← / →）',
         '← / → は再生の時刻カーソルを動かします。これは読み取りではなく再生の操作（聞く位置を動かすこと）だからです',
-        'キーで読み値を 1 点ずつ進めるのは、マウスの下のグラフ（どのグラフでも）で押す ← / → と、フォーカスできるレーンでないグラフ（今はカーソルスペクトルだけ。Tab で選べます）にフォーカスがあるときの ← / → です',
+        'キーで読み値を 1 点ずつ進めるのは、マウスの下のグラフ（どのグラフでも）で押す ← / → と、フォーカスできるレーンでないグラフ（今はカーソルスペクトルと 2 本を比べる図。どちらも図の部品が描き、Tab で選べます）にフォーカスがあるときの ← / → です',
         '1 回で今の拡大の窓の 1 画素ぶん、Shift を押すと 0.1 秒です（`shortcuts.ts` の `keydownIntent` と `arrowCursorStep`）',
     ]) assert.ok(r7.includes(phrase), `R7 no longer says: ${phrase}. ${FOCUS_EXCEPTION}`);
-    // What R7 says can have the focus is what can: the canvases the webview makes focusable (tabindex 0) are the lanes'
-    // waveforms and the cursor spectrum. A plot made focusable, or one no longer, changes that sentence too.
+    // What R7 says can have the focus is what can: no canvas is made focusable in markup any more; every plot is a
+    // Figure, which makes its own canvas focusable, and only a Tracks row's keeps ← → for the screen (pressFocuses).
     const webview = path.resolve(__dirname, '..', '..', 'src', 'webview');
     const walk = (dir: string): string[] => readdirSync(dir).flatMap(name => {
         const full = path.join(dir, name);
         return statSync(full).isDirectory() ? walk(full) : name.endsWith('.ts') ? [readFileSync(full, 'utf8')] : [];
     });
     const focusable = walk(webview).flatMap(source => [...source.matchAll(/<canvas\b([^>]*)\btabindex="0"/g)].map(match => /\bid="([\w-]+)"|\bclass="([\w -]+)"/.exec(match[1])?.slice(1).find(Boolean) ?? '?'));
-    assert.deepEqual(focusable.sort(), ['spectrum-overlay-canvas', 'track-canvas'], `the focusable plots changed: say so in R7. ${FOCUS_EXCEPTION}`);
+    assert.deepEqual(focusable.sort(), [], `the focusable plots changed: say so in R7. ${FOCUS_EXCEPTION}`);
+    const keeping = walk(webview).filter(source => /\bpressFocuses: true\b/u.test(source)).length;
+    assert.equal(keeping, 1, `only the Tracks rows keep the arrows while focused (pressFocuses: true, trackRowsScreen.ts). ${FOCUS_EXCEPTION}`);
+    assert.match(readFileSync(path.join(webview, 'figure', 'figure.ts'), 'utf8'), /canvas\.tabIndex = 0;/u, `the Figure's canvas no longer takes the keyboard. ${FOCUS_EXCEPTION}`);
 });
 
 test('arrowCursorStep moves one pixel of the zoomed view, or 0.1 s with Shift (R7)', () => {
@@ -96,7 +99,7 @@ function focused(id: string, tagName: string, classes: string[] = []) {
 }
 
 test('keydownContextFor derives the keyboard context from the focused element and the help', () => {
-    assert.deepEqual(keydownContextFor(focused('t0', 'CANVAS', ['track-canvas']), { hidden: true }), {
+    assert.deepEqual(keydownContextFor({ ...focused('t0', 'CANVAS'), closest: (selector: string) => (selector === '.track-row-figure' ? {} : null) }, { hidden: true }), {
         helpOpen: false, textEntryFocused: false, trackCanvasFocused: true,
     });
     assert.equal(keydownContextFor(focused('q', 'input'), null).textEntryFocused, true);

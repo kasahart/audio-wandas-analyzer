@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
-import { keyRouterFor } from '../webview/runtime/keyRouter';
+import { keyRouterFor } from '../webview/shell/keyRouter';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, windowFromBox, type PlotDrag, type PlotInteractionDeps, type PlotPoint, type PlotWindow } from '../webview/runtime/plotInteraction';
 
 test('a box zooms both axes; one too thin on an axis it zooms zooms nothing', () => {

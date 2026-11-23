@@ -8,6 +8,7 @@
  */
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { isNewPath } from './helpers/newPath';
 import path from 'node:path';
 import test from 'node:test';
 import ts from 'typescript';
@@ -23,7 +24,8 @@ function webviewSources(): string[] {
         for (const name of readdirSync(path.join(repoRoot, dir)).sort()) {
             const rel = `${dir}/${name}`;
             if (statSync(path.join(repoRoot, rel)).isDirectory()) walk(rel);
-            else if (rel.endsWith('.ts') && !rel.endsWith('.d.ts') && !STORE.has(rel)) found.push(rel);
+            // The new figure path's own code is held by its own rules (helpers/newPath.ts), not this scan.
+            else if (rel.endsWith('.ts') && !rel.endsWith('.d.ts') && !STORE.has(rel) && !isNewPath(rel)) found.push(rel);
         }
     };
     // The webview, and the host's side, whose caches of answers (stored scans, a track's analysis) are answers kept too.
@@ -99,15 +101,15 @@ test('the write check knows an answer by its type, whatever it is called: a fiel
     const file = 'src/webview/runtime/__answerWriteMutant.ts';
     const text = `
         import type { HostInboundMessage } from './hostMessaging';
-        import type { ChannelSummary } from '../../shared/analysis/analysisTypes';
-        export function createKeeper(target: ChannelSummary[], label: { textContent: string }, record: { kept?: unknown; size?: number }) {
-            let last: ChannelSummary | null = null;
+                type Kept = Extract<HostInboundMessage, { type: 'track-answers-result' }>['channels'][number];
+        export function createKeeper(target: Array<{ kept?: Kept }>, label: { textContent: string }, record: { kept?: unknown; size?: number }) {
+            let last: Kept | null = null;
             let count = 0;
             const byPath: Record<string, unknown> = {};
             return {
                 take(event: HostInboundMessage) {
-                    if (event.type !== 'track-detail-result') return;
-                    event.channels.forEach((channel, index) => { if (target[index]) target[index].spectrogram = channel.spectrogram; });
+                    if (event.type !== 'track-answers-result') return;
+                    event.channels.forEach((channel, index) => { if (target[index]) target[index].kept = channel; });
                     last = event.channels[0] ?? null;
                     record.kept = { x: event.requestId };
                     record.size = 3;
@@ -121,7 +123,7 @@ test('the write check knows an answer by its type, whatever it is called: a fiel
         export function local(event: HostInboundMessage) { let seen = event.type; return seen; }
     `;
     const checked = answerProgram(repoRoot, [], { [file]: text });
-    assert.deepEqual(writesIn(checked, [file]).sort(), [`${file}#byPath[event.filePath]`, `${file}#let last`, `${file}#record.kept`, `${file}#target[index].spectrogram`]);
+    assert.deepEqual(writesIn(checked, [file]).sort(), [`${file}#byPath[event.filePath]`, `${file}#let last`, `${file}#record.kept`, `${file}#target[index].kept`]);
 });
 
 test('no answer source schedules with a timer of its own: when a failed answer is asked again is the store\'s (whenFailureEnds)', () => {
@@ -138,8 +140,8 @@ test('no answer source schedules with a timer of its own: when a failed answer i
         'An answer source (a maker of answerStore.ts, or a fetched full source) keeps no timer: a failed read resumes through the store\'s whenFailureEnds, a pending one through whenSettled');
     assert.deepEqual(Object.keys(SCHEDULING_OWNERS).filter(file => !timed.has(file)), [], 'an entry that matches nothing any more is taken off SCHEDULING_OWNERS (the list only shrinks)');
     for (const [entry, reason] of Object.entries(SCHEDULING_OWNERS)) assert.ok(reason.why.trim().length >= 12, `${entry} says what its timers are for`);
-    // The full-data layer and the lane reads are answer sources: the rule holds them.
-    for (const file of ['src/webview/runtime/fullRead.ts', 'src/webview/runtime/laneReads.ts']) {
+    // The region peaks are an answer source: the rule holds them.
+    for (const file of ['src/webview/runtime/regionPeak.ts']) {
         const source = checked.getSourceFile(path.join(repoRoot, file));
         assert.ok(source && isAnswerSource(source, checked.getTypeChecker()), `${file} is an answer source`);
     }
@@ -147,7 +149,7 @@ test('no answer source schedules with a timer of its own: when a failed answer i
 
 test('the timer rule knows a wake of its own by the call, whatever it is named: the `wakeAt` the name check let through (mutation)', () => {
     const file = 'src/webview/runtime/__wakeAtMutant.ts';
-    // fullRead.ts's former wake, under names no retry pattern matches, and through aliases.
+    // A wake of a source's own, under names no retry pattern matches, and through aliases.
     const text = `
         import { createAnswerStore, answerKey } from './answerStore';
         export function createSource(now: () => number) {

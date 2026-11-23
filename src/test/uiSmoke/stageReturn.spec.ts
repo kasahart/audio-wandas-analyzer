@@ -86,7 +86,7 @@ test('opened from the tracks, Compare goes back to the tracks on Esc, playback g
     await expect(page.locator('#loop-time-display')).toBeHidden();
     await expect(page.locator('[data-action="toggle-playback"]').first()).toHaveClass(/is-playing/);
     // Space plays (or stops) the recording compared.
-    await page.locator('.track-stage canvas').first().click();
+    await page.locator('.track-stage canvas:visible').first().click();
     await page.keyboard.press(' ');
     await expect(play).toHaveText('▶');
     await page.keyboard.press(' ');

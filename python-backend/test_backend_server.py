@@ -21,11 +21,14 @@ import pytest
 import soundfile as sf
 import wandas as wd
 
-import backend_errors
-from analysis_engine import AnalysisEngine, CachedAnalysis
-from analysis_service import AnalysisService
 from backend_server import dispatch, main, validate_request
-from protocol_schema import DEFINITIONS, first_violation, result_violation
+from conftest import with_cursor_lines
+from services import backend_errors
+from services.analysis_engine import AnalysisEngine, CachedAnalysis
+from services.analysis_service import AnalysisService
+from services.answer_store import STORE
+from services.tracks_answers import ImageData
+from transport.protocol_schema import DEFINITIONS, first_violation, result_violation
 
 ROOT = Path(__file__).parent
 PROTOCOL_FIXTURES = json.loads(
@@ -41,20 +44,39 @@ def handle_analyze(command: dict, service: AnalysisService | None = None) -> dic
     return _dispatch({"cmd": "analyze", **command}, service)
 
 
-def handle_track_detail(command: dict, service: AnalysisService | None = None) -> dict[str, object]:
-    return _dispatch(
-        {"cmd": "track-detail", "trackIndex": -1, "analysisId": "a1", "settingsSignature": "sig1", **command}, service
+def handle_track_answers(command: dict, service: AnalysisService | None = None) -> dict[str, Any]:
+    """A row's answers as the server replies them (checked against the shared schema)."""
+    reply = _dispatch({"cmd": "track-answers", **command}, service)
+    assert result_violation("track-answers", reply) is None
+    return reply
+
+
+def row_image(reply: dict[str, Any], channel: int = 0) -> ImageData:
+    """A row's kept STFT levels of one channel, read back by their key."""
+    image = STORE.get(reply["channels"][channel]["image"])
+    assert isinstance(image, ImageData)
+    return image
+
+
+def handle_cursor_lines(command: dict, service: AnalysisService | None = None) -> dict[str, Any]:
+    """The cursor answers as the server replies them (checked against the shared schema), with each kept line read
+    back by its key (conftest.with_cursor_lines) for the tests of the numbers."""
+    reply = _dispatch({"cmd": "cursor-answers", **command}, service)
+    assert result_violation("cursor-answers", reply) is None
+    return with_cursor_lines(reply)
+
+
+def region_peak(file_path: Path, start: float, end: float, service: AnalysisService | None = None) -> float:
+    """The largest |sample| of a stretch of a file (the file's 0..1), as the server replies it."""
+    reply = _dispatch(
+        {
+            "cmd": "region-peak",
+            "sources": [{"filePath": str(file_path), "channels": [], "startNorm": start, "endNorm": end}],
+        },
+        service,
     )
-
-
-def handle_spectrum_slice(command: dict, service: AnalysisService | None = None) -> dict[str, object]:
-    return _dispatch(
-        {"cmd": "spectrum-slice", "trackIndex": -1, "analysisId": "a1", "settingsSignature": "sig1", **command}, service
-    )
-
-
-def handle_range(command: dict, service: AnalysisService | None = None) -> dict[str, object]:
-    return _dispatch({"cmd": "range", **command}, service)
+    assert result_violation("region-peak", reply) is None
+    return float(reply["peak"])  # type: ignore[arg-type]
 
 
 def handle_export_wav_loop(command: dict, service: AnalysisService | None = None) -> dict[str, object]:
@@ -165,7 +187,7 @@ def test_analyze_round_trip(server: _ServerHandle, tmp_path: Path) -> None:
     assert resp["fileName"] == "tone.wav"
     assert resp["channelCount"] == 1
     assert len(resp["channels"]) == 1
-    assert resp["channels"][0]["spectrogram"] is None
+    assert "spectrogram" not in resp["channels"][0] and "waveform" not in resp["channels"][0]
 
 
 def test_non_ascii_paths_survive_a_non_utf8_locale(tmp_path: Path) -> None:
@@ -205,7 +227,7 @@ def test_analyze_round_trip_accepts_flac_from_supported_ui_formats(server: _Serv
     assert resp["fileName"] == "tone.flac"
     assert resp["channelCount"] == 1
     assert len(resp["channels"]) == 1
-    assert resp["channels"][0]["spectrogram"] is None
+    assert "spectrogram" not in resp["channels"][0] and "waveform" not in resp["channels"][0]
 
 
 def test_analyze_uses_engine_frame_under_resolved_path(monkeypatch, tmp_path: Path) -> None:
@@ -232,46 +254,32 @@ def test_analyze_uses_engine_frame_under_resolved_path(monkeypatch, tmp_path: Pa
     assert resp["channels"][0]["peakAbsolute"] == pytest.approx(0.5, abs=0.01)
 
 
-def test_track_detail_returns_spectrogram_for_requested_file(tmp_path: Path) -> None:
+def test_track_answers_keep_the_stft_of_the_requested_file(tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
 
-    resp = handle_track_detail(
-        {
-            "filePath": str(wav),
-            "trackIndex": 2,
-            "analysisId": "a1",
-            "settingsSignature": "sig1",
-            "stftOptions": {"nFft": 256, "overlapPercent": 50, "window": "hann"},
-        }
+    resp = handle_track_answers(
+        {"filePath": str(wav), "stftOptions": {"nFft": 256, "overlapPercent": 50, "window": "hann"}}
     )
 
-    assert result_violation("track-detail", resp) is None
-    assert resp["trackIndex"] == 2
-    assert resp["analysisId"] == "a1"
-    assert resp["settingsSignature"] == "sig1"
-    spec = resp["channels"][0]["spectrogram"]
-    assert spec["windowSize"] == 256
-    assert spec["hopSize"] == 128
-    assert spec["timeBins"] > 0
-    assert spec["frequencyBins"] > 0
+    assert resp["filePath"] == str(wav)
+    assert (resp["windowSize"], resp["hopSize"]) == (256, 128)
+    image = row_image(resp)
+    assert image.values.shape[0] == 129 and image.values.shape[1] > 0
 
 
-def test_handle_range_uses_same_pcm_scale_as_analysis(tmp_path: Path) -> None:
+def test_a_regions_peak_uses_the_same_pcm_scale_as_analysis(tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav, seconds=1.0)
 
-    overview = handle_analyze({"filePath": str(wav)})["channels"][0]["waveform"]
-    response = handle_range({"filePath": str(wav), "startNorm": 0.25, "endNorm": 0.75, "points": 128})
-    waveform = response["channels"][0]
+    overview = handle_analyze({"filePath": str(wav)})["channels"][0]["peakAbsolute"]
+    peak = region_peak(wav, 0.25, 0.75)
 
-    assert waveform["absolutePeak"] == pytest.approx(overview["absolutePeak"], rel=0.05)
-    assert waveform["absolutePeak"] == pytest.approx(0.5, abs=0.01)
-    assert min(waveform["minT"]) >= 0.24
-    assert max(waveform["maxT"]) <= 0.76
+    assert peak == pytest.approx(overview, rel=0.05)
+    assert peak == pytest.approx(0.5, abs=0.01)
 
 
-def test_handle_range_does_not_reread_cached_audio(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_a_regions_peak_does_not_reread_cached_audio(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav, seconds=2.0)
     engine = AnalysisEngine(cache_limit_bytes=10_000_000)
@@ -287,24 +295,18 @@ def test_handle_range_does_not_reread_cached_audio(monkeypatch: pytest.MonkeyPat
     service = AnalysisService(engine)
     service.analyze(wav)
     assert reads == 1
-    result = handle_range(
-        {"filePath": str(wav), "startNorm": 0.25, "endNorm": 0.3, "points": 128},
-        service,
-    )
-
-    assert result["channels"]
+    assert region_peak(wav, 0.25, 0.3, service) > 0
     assert reads == 1
 
 
-def test_handle_range_matches_non_wav_overview_scale(tmp_path: Path) -> None:
+def test_a_regions_peak_matches_non_wav_overview_scale(tmp_path: Path) -> None:
     audio = tmp_path / "tone.flac"
     _write_sine_flac(audio, seconds=1.0)
-    overview = handle_analyze({"filePath": str(audio)})["channels"][0]["waveform"]
-    ranged = handle_range({"filePath": str(audio), "startNorm": 0.25, "endNorm": 0.75, "points": 128})
-    assert ranged["channels"][0]["absolutePeak"] == pytest.approx(overview["absolutePeak"], rel=0.05)
+    overview = handle_analyze({"filePath": str(audio)})["channels"][0]["peakAbsolute"]
+    assert region_peak(audio, 0.25, 0.75) == pytest.approx(overview, rel=0.05)
 
 
-def test_handle_range_matches_unsigned_8_bit_wav_overview_scale(tmp_path: Path) -> None:
+def test_a_regions_peak_matches_unsigned_8_bit_wav_overview_scale(tmp_path: Path) -> None:
     audio = tmp_path / "tone-u8.wav"
     sample_rate = 8000
     time_axis = np.arange(sample_rate, dtype=np.float64) / sample_rate
@@ -315,64 +317,31 @@ def test_handle_range_matches_unsigned_8_bit_wav_overview_scale(tmp_path: Path) 
         output.setframerate(sample_rate)
         output.writeframes(samples.tobytes())
 
-    overview = handle_analyze({"filePath": str(audio)})["channels"][0]["waveform"]
-    ranged = handle_range({"filePath": str(audio), "startNorm": 0.25, "endNorm": 0.75, "points": 128})
-    assert ranged["channels"][0]["absolutePeak"] == pytest.approx(overview["absolutePeak"], rel=0.01)
+    overview = handle_analyze({"filePath": str(audio)})["channels"][0]["peakAbsolute"]
+    assert region_peak(audio, 0.25, 0.75) == pytest.approx(overview, rel=0.01)
 
 
-def test_spectrum_slice_matches_track_detail_shape_and_peak(tmp_path: Path) -> None:
+def test_spectrum_slice_matches_the_rows_stft_shape_and_peak(tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
     opts = {"nFft": 256, "overlapPercent": 50, "window": "hann"}
-    detail = handle_track_detail({"filePath": str(wav), "trackIndex": 0, "stftOptions": opts})
-    spec = detail["channels"][0]["spectrogram"]
+    image = row_image(handle_track_answers({"filePath": str(wav), "stftOptions": opts}))
 
     cursor_norm = 0.5
-    resp = handle_spectrum_slice(
+    resp = handle_cursor_lines(
         {
             "filePath": str(wav),
-            "trackIndex": 0,
             "cursorNorm": cursor_norm,
             "stftOptions": opts,
         }
     )
-    time_index = min(spec["timeBins"] - 1, int(np.floor(cursor_norm * spec["timeBins"])))
-    expected_row = spec["values"][time_index]
-
-    assert result_violation("spectrum-slice", resp) is None
-    assert resp["trackIndex"] == 0
-    assert resp["frequencyBins"] == spec["frequencyBins"]
-    assert resp["maxFrequencyHz"] == spec["maxFrequencyHz"]
+    centre = (resp["windowStartNorm"] + resp["windowEndNorm"]) / 2 * image.x_limits[1]
+    expected_row = image.values[:, int(np.argmin(np.abs(image.xs - centre)))]
+    assert resp["frequencyBins"] == image.values.shape[0]
+    assert resp["maxFrequencyHz"] == pytest.approx(float(image.ys[-1]))
     channel = resp["channels"][0]
     assert int(np.argmax(channel["values"])) == int(np.argmax(expected_row))
-    assert abs(float(channel["maxDb"]) - float(np.max(expected_row))) < 1.0
-
-
-def test_track_detail_spectrogram_bins_stay_aligned_with_time(tmp_path: Path) -> None:
-    sr, seconds, burst_start, burst_end = 16000, 10.0, 8.82, 8.93
-    samples = np.zeros(int(sr * seconds), dtype=np.int16)
-    t = np.arange(int(burst_start * sr), int(burst_end * sr))
-    samples[t] = (0.5 * np.sin(2 * math.pi * 1000.0 * t / sr) * 32767).astype(np.int16)
-    wav = tmp_path / "burst.wav"
-    with wave.open(str(wav), "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(sr)
-        w.writeframes(samples.tobytes())
-    opts = {"nFft": 256, "overlapPercent": 75, "window": "hann"}
-    spec = handle_track_detail({"filePath": str(wav), "trackIndex": 0, "stftOptions": opts})["channels"][0][
-        "spectrogram"
-    ]
-    loudest = np.asarray(spec["values"]).max(axis=1)
-    loud_bins = np.nonzero(loudest > loudest.min() + 40)[0]
-    bin_seconds = seconds / spec["timeBins"]
-    centres = spec["timeCentersSec"]
-
-    # Many more STFT frames than display bins: every display bin must still sit at its own time, the centre of its
-    # frames that the lane places it at.
-    assert spec["timeBins"] == 720
-    assert centres[loud_bins[0]] == pytest.approx(burst_start, abs=2 * bin_seconds)
-    assert centres[loud_bins[-1]] == pytest.approx(burst_end, abs=2 * bin_seconds)
+    assert abs(max(channel["values"]) - float(np.max(expected_row))) < 1.0
 
 
 @pytest.mark.parametrize(("cursor_norm", "expected_start"), [(0.0, 0), (1.0, 8000 - 256)])
@@ -382,7 +351,7 @@ def test_spectrum_slice_window_stays_inside_the_file_at_the_ends(
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
     opts = {"nFft": 256, "overlapPercent": 50, "window": "hann"}
-    resp = handle_spectrum_slice({"filePath": str(wav), "cursorNorm": cursor_norm, "stftOptions": opts})
+    resp = handle_cursor_lines({"filePath": str(wav), "cursorNorm": cursor_norm, "stftOptions": opts})
     assert resp["windowStartNorm"] * 8000 == pytest.approx(expected_start)
     assert resp["windowEndNorm"] * 8000 == pytest.approx(expected_start + 256)
 
@@ -401,12 +370,11 @@ def test_spectrum_slice_reports_the_transformed_window(tmp_path: Path, cached_de
     opts = {"nFft": 256, "overlapPercent": 50, "window": "boxcar"}
     service = AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000))
     if cached_detail:
-        handle_track_detail({"filePath": str(wav), "trackIndex": 0, "stftOptions": opts}, service)
+        handle_track_answers({"filePath": str(wav), "stftOptions": opts}, service)
 
     def slice_at(sample: int) -> dict:
-        command = {"filePath": str(wav), "trackIndex": 0, "cursorNorm": sample / sample_count, "stftOptions": opts}
-        resp = handle_spectrum_slice(command, service)
-        assert result_violation("spectrum-slice", resp) is None
+        command = {"filePath": str(wav), "cursorNorm": sample / sample_count, "stftOptions": opts}
+        resp = handle_cursor_lines(command, service)
         assert resp["window"] == "boxcar"
         assert (resp["windowEndNorm"] - resp["windowStartNorm"]) * sample_count == pytest.approx(256)
         return resp
@@ -417,7 +385,7 @@ def test_spectrum_slice_reports_the_transformed_window(tmp_path: Path, cached_de
     # The reported span must be the samples the FFT saw: the impulse shows up exactly when the span covers it.
     for cursor_sample in (2900, 3000, 3200, 3400, 6000):
         resp = slice_at(cursor_sample)
-        heard = float(resp["channels"][0]["maxDb"]) > -100.0
+        heard = max(resp["channels"][0]["values"]) > -100.0
         assert heard == covers_impulse(resp)
     assert covers_impulse(slice_at(impulse_at))
 
@@ -425,7 +393,7 @@ def test_spectrum_slice_reports_the_transformed_window(tmp_path: Path, cached_de
 def test_spectrum_slice_window_includes_fft_padding_past_a_short_file(tmp_path: Path) -> None:
     wav = tmp_path / "short.wav"
     _write_sine_wav(wav, seconds=200 / 16000)
-    resp = handle_spectrum_slice(
+    resp = handle_cursor_lines(
         {"filePath": str(wav), "cursorNorm": 0.5, "stftOptions": {"nFft": 256, "overlapPercent": 50, "window": "hann"}}
     )
     assert resp["windowStartNorm"] == 0
@@ -436,7 +404,7 @@ def test_spectrum_slice_window_includes_fft_padding_past_a_short_file(tmp_path: 
 def test_spectrum_slice_clamps_cursor_to_cached_stft_bounds(tmp_path: Path, cursor_norm: float) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
-    response = handle_spectrum_slice(
+    response = handle_cursor_lines(
         {
             "filePath": str(wav),
             "cursorNorm": cursor_norm,
@@ -447,19 +415,18 @@ def test_spectrum_slice_clamps_cursor_to_cached_stft_bounds(tmp_path: Path, curs
     assert all(np.isfinite(response["channels"][0]["values"]))
 
 
-def test_spectrum_slice_does_not_build_track_detail(monkeypatch, tmp_path: Path) -> None:
+def test_spectrum_slice_does_not_build_the_rows_answers(monkeypatch, tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
     service = AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000))
 
-    def fail_track_detail(*_args: object, **_kwargs: object) -> dict:
-        raise AssertionError("spectrum slice must not compute full track detail")
+    def fail_track_answers(*_args: object, **_kwargs: object) -> dict:
+        raise AssertionError("spectrum slice must not compute the row's answers")
 
-    monkeypatch.setattr(service, "track_detail", fail_track_detail)
-    resp = handle_spectrum_slice(
+    monkeypatch.setattr(service, "track_answers", fail_track_answers)
+    resp = handle_cursor_lines(
         {
             "filePath": str(wav),
-            "trackIndex": 0,
             "cursorNorm": 0.5,
             "stftOptions": {"nFft": 256, "overlapPercent": 50, "window": "hann"},
         },
@@ -467,27 +434,6 @@ def test_spectrum_slice_does_not_build_track_detail(monkeypatch, tmp_path: Path)
     )
 
     assert resp["frequencyBins"] > 0
-    assert len(resp["channels"][0]["values"]) == resp["frequencyBins"]
-
-
-@pytest.mark.parametrize("full_resolution", [False, True])
-def test_spectrum_slice_cuts_long_rows_for_display_unless_every_bin_is_asked_for(
-    tmp_path: Path, full_resolution: bool
-) -> None:
-    wav = tmp_path / "tone.wav"
-    _write_sine_wav(wav)
-    request = {
-        "filePath": str(wav),
-        "trackIndex": 0,
-        "cursorNorm": 0.5,
-        "stftOptions": {"nFft": 4096, "overlapPercent": 50, "window": "hann"},
-        **({"fullResolution": True} if full_resolution else {}),
-    }
-    resp = handle_spectrum_slice(request, AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000)))
-
-    # Cut for display, the row fits the point budget (SPECTRUM_DISPLAY_POINT_LIMIT); asked for, every bin comes.
-    assert resp["frequencyBins"] == 2049 if full_resolution else 400 < resp["frequencyBins"] <= 1025
-    assert ("frequenciesHz" in resp) is not full_resolution
     assert len(resp["channels"][0]["values"]) == resp["frequencyBins"]
 
 
@@ -499,15 +445,15 @@ def test_spectrum_slice_window_steps_with_the_stft_frames(tmp_path: Path, cached
     opts = {"nFft": 256, "overlapPercent": 0, "window": "hann"}
     service = AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000))
     if cached_detail:
-        handle_track_detail({"filePath": str(wav), "trackIndex": 0, "stftOptions": opts}, service)
+        handle_track_answers({"filePath": str(wav), "stftOptions": opts}, service)
 
     # Cursors between two frame centres get the nearer frame's window, so nearby cursors share one window.
     for cursor_sample, center in ((4000, 4096), (4001, 4096), (4050, 4096), (4500, 4608)):
         command = {"filePath": str(wav), "cursorNorm": cursor_sample / n_samples, "stftOptions": opts}
-        resp = handle_spectrum_slice(command, service)
+        resp = handle_cursor_lines(command, service)
         assert resp["windowStartNorm"] * n_samples == pytest.approx(center - 128)
         assert resp["windowEndNorm"] * n_samples == pytest.approx(center + 128)
-        assert handle_spectrum_slice(command, service)["channels"] == resp["channels"]
+        assert handle_cursor_lines(command, service)["channels"] == resp["channels"]
 
 
 @pytest.mark.parametrize(
@@ -529,9 +475,7 @@ def test_spectrum_slice_octave_bands_level_the_cursor_samples(
     opts = {"nFft": 4096, "overlapPercent": 75, "window": "hann"}
     command = {"filePath": str(wav), "cursorNorm": 0.5, "stftOptions": opts, "bandsPerOctave": bands_per_octave}
     service = AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000))
-    resp = handle_spectrum_slice(command, service)
-
-    assert result_violation("spectrum-slice", resp) is None
+    resp = handle_cursor_lines(command, service)
     centers = resp["bandCentersHz"]
     assert (centers[0], centers[-1]) == (first, last)
     assert resp["frequencyBins"] == len(centers) == len(resp["channels"][0]["values"])
@@ -540,13 +484,14 @@ def test_spectrum_slice_octave_bands_level_the_cursor_samples(
     assert resp["minFrequencyHz"] == pytest.approx(22.39 if bands_per_octave == 1 else 17.78, abs=0.01)
     assert resp["maxFrequencyHz"] == pytest.approx(22387.2, abs=0.1)
     assert resp["window"] == "boxcar"
-    assert resp["channels"][0]["axisLabel"].startswith("Band level")
+    # The bands' levels are in the channel's own unit and reference (uncalibrated: full scale).
+    assert resp["channels"][0]["level"] == {"unit": "FS", "ref": 1.0, "label": "dBFS"}
     values = resp["channels"][0]["values"]
     assert centers[int(np.argmax(values))] == peak
     # A 0.5 amplitude sine has an RMS level of 20*log10(0.5/sqrt(2)) dBFS.
     assert max(values) == pytest.approx(-9.03, abs=0.5)
-    assert handle_spectrum_slice(command, service)["channels"] == resp["channels"]
-    fft = handle_spectrum_slice({key: value for key, value in command.items() if key != "bandsPerOctave"}, service)
+    assert handle_cursor_lines(command, service)["channels"] == resp["channels"]
+    fft = handle_cursor_lines({key: value for key, value in command.items() if key != "bandsPerOctave"}, service)
     assert "bandCentersHz" not in fft and fft["window"] == "hann"
 
 
@@ -559,7 +504,7 @@ def test_spectrum_slice_octave_bands_lengthen_short_windows_for_the_lowest_band(
     _write_sine_wav(wav, freq_hz=freq_hz, seconds=4.0, sr=sr)
     opts = {"nFft": 1024, "overlapPercent": 75, "window": "hann"}
     command = {"filePath": str(wav), "cursorNorm": 0.5, "stftOptions": opts, "bandsPerOctave": bands_per_octave}
-    resp = handle_spectrum_slice(command, AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000)))
+    resp = handle_cursor_lines(command, AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000)))
 
     # 1024 samples are 21 ms, under one period of the lowest band, so the slice grows to fit it.
     span_s = (resp["windowEndNorm"] - resp["windowStartNorm"]) * 4.0
@@ -577,9 +522,7 @@ def test_spectrum_slice_octave_bands_level_clips_shorter_than_the_decimator(
     wav = tmp_path / "click.wav"
     _write_sine_wav(wav, freq_hz=1000.0, seconds=20 / 48000, sr=48000)
     command = {"filePath": str(wav), "cursorNorm": 0.5, "bandsPerOctave": bands_per_octave}
-    resp = handle_spectrum_slice(command, AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000)))
-
-    assert result_violation("spectrum-slice", resp) is None
+    resp = handle_cursor_lines(command, AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000)))
     assert (resp["windowStartNorm"], resp["windowEndNorm"]) == (0.0, 1.0)
     values = resp["channels"][0]["values"]
     assert len(values) == len(resp["bandCentersHz"]) and all(math.isfinite(value) for value in values)
@@ -591,12 +534,9 @@ def test_spectrum_slice_rejects_other_band_counts(tmp_path: Path) -> None:
     with pytest.raises(backend_errors.InputError):
         validate_request(
             {
-                "cmd": "spectrum-slice",
+                "cmd": "cursor-answers",
                 "requestId": "r",
                 "filePath": str(wav),
-                "trackIndex": 0,
-                "analysisId": "a",
-                "settingsSignature": "s",
                 "cursorNorm": 0.5,
                 "bandsPerOctave": 6,
             }
@@ -613,7 +553,7 @@ def test_spectrum_slice_avoids_full_stft_when_detail_is_not_cached(monkeypatch, 
         raise AssertionError("cursor spectrum must not build a full-file spectrogram")
 
     monkeypatch.setattr(engine, "get_spectrogram", fail_get_spectrogram)
-    response = handle_spectrum_slice(
+    response = handle_cursor_lines(
         {
             "filePath": str(wav),
             "cursorNorm": 0.5,
@@ -640,20 +580,19 @@ def test_spectrum_slice_batches_all_channels(tmp_path: Path) -> None:
     service = AnalysisService(engine)
     command = {
         "filePath": str(wav),
-        "trackIndex": 0,
         "cursorNorm": 0.5,
         "stftOptions": {"nFft": 256, "overlapPercent": 50, "window": "hann"},
     }
-    response = handle_spectrum_slice(command, service)
+    response = handle_cursor_lines(command, service)
 
     assert [channel["channelIndex"] for channel in response["channels"]] == [0, 1]
     assert np.argmax(response["channels"][0]["values"]) != np.argmax(response["channels"][1]["values"])
     cached = engine.get_file(wav)
     assert len(cached.spectrum_slices) == 1
-    assert handle_spectrum_slice(command, service)["channels"] == response["channels"]
+    assert handle_cursor_lines(command, service)["channels"] == response["channels"]
     assert len(cached.spectrum_slices) == 1
     revised = dict(command, analysisRevision=1)
-    handle_spectrum_slice(revised, service)
+    handle_cursor_lines(revised, service)
     assert len(cached.spectrum_slices) == 2
 
 
@@ -691,7 +630,7 @@ def test_engine_reuses_cached_source_peaks_for_calibration(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    import calibration_profile
+    from services import calibration_profile
 
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
@@ -740,22 +679,15 @@ def test_engine_caches_file_frame_once(monkeypatch: pytest.MonkeyPatch, tmp_path
     assert cache_calls == 1
 
 
-def test_range_round_trip(server: _ServerHandle, tmp_path: Path) -> None:
+def test_region_peak_round_trip(server: _ServerHandle, tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
     resp = server.request(
-        {
-            "cmd": "range",
-            "filePath": str(wav),
-            "startNorm": 0.2,
-            "endNorm": 0.6,
-            "points": 200,
-        }
+        {"cmd": "region-peak", "sources": [{"filePath": str(wav), "channels": [], "startNorm": 0.2, "endNorm": 0.6}]}
     )
     assert "error" not in resp, resp
-    assert resp["startNorm"] == 0.2
-    assert len(resp["channels"]) == 1
-    assert result_violation("range", resp) is None, "the real range result must satisfy the shared schema"
+    assert 0.0 < resp["peak"] <= 1.0
+    assert result_violation("region-peak", resp) is None, "the real result must satisfy the shared schema"
 
 
 def test_error_codes_match_the_shared_protocol_fixture() -> None:
@@ -817,27 +749,23 @@ def test_a_recipe_stft_longer_than_the_file_is_an_analysis_settings_error(tmp_pa
     assert first_violation(DEFINITIONS["BackendErrorPayload"], error) is None
 
 
-def test_a_spectrogram_window_longer_than_the_file_is_an_analysis_settings_error(tmp_path: Path) -> None:
+def test_a_spectrogram_window_longer_than_the_file_is_said_in_the_rows_reply_not_an_error(tmp_path: Path) -> None:
+    # (Until the rows said why a lane draws nothing, this was an analysis-settings error, and the waveform went
+    # with it. The kind is still what a Recipe's step too long for its file answers: the test above.)
     short = tmp_path / "short.wav"
     _write_samples(short, 1000)
 
-    error = _error_reply(
+    reply = _dispatch(
         {
-            "cmd": "track-detail",
+            "cmd": "track-answers",
             "requestId": "d",
-            "trackIndex": 0,
-            "analysisId": "a1",
-            "settingsSignature": "sig1",
             "filePath": str(short),
             "stftOptions": {"nFft": 4096, "overlapPercent": 50, "window": "hann"},
         }
     )
 
-    assert error == {
-        "code": "input-error",
-        "kind": "analysis-settings",
-        "message": "Audio is too short for this STFT window; choose a smaller window",
-    }
+    assert reply["noLevels"] == "too-short"
+    assert all("signal" in channel and "image" not in channel for channel in reply["channels"])
 
 
 def test_missing_and_undecodable_files_are_unreadable_file_errors(tmp_path: Path) -> None:
@@ -881,7 +809,7 @@ def _short_recording(tmp_path: Path, name: str, channels: int = 1) -> Path:
 def test_the_apps_spectrum_and_transfer_recipes_on_a_file_shorter_than_their_window_are_settings_errors(
     tmp_path: Path,
 ) -> None:
-    from recipe_builder import RecipeSource, spectrum_recipe, transfer_recipe
+    from services.recipe_builder import RecipeSource, spectrum_recipe, transfer_recipe
 
     mono = _short_recording(tmp_path, "mono.wav")
     stereo = _short_recording(tmp_path, "stereo.wav", channels=2)
@@ -1017,12 +945,11 @@ def test_validate_request_rejects_invalid_payloads(payload: object, message: str
 
 def test_validate_request_rejects_non_finite_numbers() -> None:
     payload = {
-        "cmd": "range",
+        "cmd": "export-wav-loop",
         "requestId": "r1",
         "filePath": "tone.wav",
         "startNorm": float("nan"),
         "endNorm": 1.0,
-        "points": 100,
     }
 
     with pytest.raises(ValueError, match="startNorm"):
@@ -1030,20 +957,12 @@ def test_validate_request_rejects_non_finite_numbers() -> None:
 
 
 def test_invalid_payload_returns_deterministic_error_response(server: _ServerHandle) -> None:
-    response = server.request(
-        {
-            "cmd": "range",
-            "filePath": "tone.wav",
-            "startNorm": 0.0,
-            "endNorm": 1.0,
-            "points": "many",
-        }
-    )
+    response = server.request({"cmd": "export-wav-loop", "filePath": "tone.wav", "startNorm": 0.0, "endNorm": "end"})
 
     assert response["requestId"] == "r1"
     assert first_violation(DEFINITIONS["BackendErrorPayload"], response["error"]) is None
     assert response["error"]["code"] == "input-error"
-    assert "points" in response["error"]["message"]
+    assert "endNorm" in response["error"]["message"]
 
 
 def test_dispatch_uses_injected_service_without_creating_an_engine() -> None:
@@ -1075,8 +994,8 @@ def test_default_service_loader_reports_startup_phases(monkeypatch: pytest.Monke
             self.engine = engine
 
     modules = {
-        "analysis_engine": type("EngineModule", (), {"AnalysisEngine": FakeEngine}),
-        "analysis_service": type("ServiceModule", (), {"AnalysisService": FakeService}),
+        "services.analysis_engine": type("EngineModule", (), {"AnalysisEngine": FakeEngine}),
+        "services.analysis_service": type("ServiceModule", (), {"AnalysisService": FakeService}),
     }
     monkeypatch.setattr(backend_server.importlib, "import_module", modules.__getitem__)
     monkeypatch.setattr(backend_server, "perf_log", lambda phase, _started, **_extra: phases.append(phase))
@@ -1126,22 +1045,17 @@ def test_malformed_request_line_is_an_input_error(
     assert "not valid JSON" in response["error"]["message"]
 
 
-def test_analyze_then_range_share_cache(server: _ServerHandle, tmp_path: Path) -> None:
+def test_analyze_then_region_peak_share_cache(server: _ServerHandle, tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_sine_wav(wav)
     server.request({"cmd": "analyze", "filePath": str(wav)})
     t = time.perf_counter()
-    server.request(
-        {
-            "cmd": "range",
-            "filePath": str(wav),
-            "startNorm": 0.0,
-            "endNorm": 1.0,
-            "points": 100,
-        }
+    resp = server.request(
+        {"cmd": "region-peak", "sources": [{"filePath": str(wav), "channels": [], "startNorm": 0.0, "endNorm": 1.0}]}
     )
     elapsed = time.perf_counter() - t
-    assert elapsed < 1.0, f"range after analyze took {elapsed:.3f}s — cache likely not shared"
+    assert "error" not in resp, resp
+    assert elapsed < 1.0, f"a region's peak after analyze took {elapsed:.3f}s — cache likely not shared"
 
 
 def test_heartbeat_loop_produces_heartbeat_json(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1317,7 +1231,7 @@ def test_export_wav_loop_zero_frames_raises(tmp_path: Path) -> None:
 
 
 def test_lru_evicts_oldest_when_over_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("analysis_engine.CachedAnalysis.nbytes", property(lambda _entry: 128))
+    monkeypatch.setattr("services.analysis_engine.CachedAnalysis.nbytes", property(lambda _entry: 128))
     engine = AnalysisEngine(cache_limit_bytes=256)
     paths: list[Path] = []
     for i in range(4):
@@ -1449,23 +1363,6 @@ def test_backend_has_no_scipy_stft_implementation() -> None:
     assert "get_window" not in source
 
 
-@pytest.mark.parametrize("points", [32768, 32769])
-def test_waveform_point_limit_is_validated_before_dispatch(points: int) -> None:
-    payload = {
-        "cmd": "range",
-        "requestId": "bounded",
-        "filePath": "missing.wav",
-        "startNorm": 0,
-        "endNorm": 1,
-        "points": points,
-    }
-    if points == 32768:
-        assert validate_request(payload) is payload
-    else:
-        with pytest.raises(ValueError, match="points"):
-            validate_request(payload)
-
-
 @pytest.mark.parametrize("setting", [None, "0", "1", "custom"])
 def test_shared_perf_preserves_backend_default_and_disable_setting(setting):
     environment = dict(os.environ)
@@ -1476,7 +1373,7 @@ def test_shared_perf_preserves_backend_default_and_disable_setting(setting):
         [
             sys.executable,
             "-c",
-            "import time; from perf import perf_log; perf_log('probe', time.perf_counter(), channels=2)",
+            "import time; from services.perf import perf_log; perf_log('probe', time.perf_counter(), channels=2)",
         ],
         cwd=ROOT,
         env=environment,
@@ -1635,7 +1532,7 @@ def test_surrogate_error_response_keeps_utf8_backend_alive(monkeypatch, field):
     assert messages[1] == {"requestId": "next", "filePath": "tone.wav"}
 
 
-def test_pair_spectrum_result_satisfies_the_shared_schema(tmp_path: Path) -> None:
+def test_pair_answers_result_satisfies_the_shared_schema(tmp_path: Path) -> None:
     first = tmp_path / "first.wav"
     second = tmp_path / "second.wav"
     _write_sine_wav(first, seconds=1.0)
@@ -1643,9 +1540,7 @@ def test_pair_spectrum_result_satisfies_the_shared_schema(tmp_path: Path) -> Non
     command = validate_request(
         {
             "requestId": "pair-1",
-            "cmd": "pair-spectrum",
-            "analysisId": "a1",
-            "settingsSignature": "sig1",
+            "cmd": "pair-answers",
             "reference": {"filePath": str(first), "channelIndex": 0, "offsetSeconds": 0.0},
             "responses": [
                 {"filePath": str(second), "channelIndex": 0, "offsetSeconds": 0.25},
@@ -1657,7 +1552,7 @@ def test_pair_spectrum_result_satisfies_the_shared_schema(tmp_path: Path) -> Non
 
     resp = _dispatch(command)
 
-    assert result_violation("pair-spectrum", resp) is None
+    assert result_violation("pair-answers", resp) is None
     assert [response["status"] for response in resp["responses"]] == ["ok", "no-overlap"]
 
 
@@ -1674,13 +1569,10 @@ def test_spectrum_slice_window_snaps_to_the_nearest_stft_frame(tmp_path: Path, o
     _write_sine_wav(wav)
     n_fft = opts["nFft"]
     service = AnalysisService(AnalysisEngine())
-    spec = handle_track_detail({"filePath": str(wav), "trackIndex": 0, "stftOptions": opts}, service)["channels"][0][
-        "spectrogram"
-    ]
-    centers_sec = np.asarray(spec["timeCentersSec"])
+    centers_sec = row_image(handle_track_answers({"filePath": str(wav), "stftOptions": opts}, service)).xs
     for cursor_sample in (3000, 3000 + hop // 3, 3000 + 2 * hop // 3, 4100):
-        resp = handle_spectrum_slice(
-            {"filePath": str(wav), "trackIndex": 0, "cursorNorm": cursor_sample / 8000, "stftOptions": opts}, service
+        resp = handle_cursor_lines(
+            {"filePath": str(wav), "cursorNorm": cursor_sample / 8000, "stftOptions": opts}, service
         )
         center = (resp["windowStartNorm"] + resp["windowEndNorm"]) / 2 * 8000
         # The window sits on the frame grid of the current settings, at the frame nearest the cursor.
@@ -1704,10 +1596,10 @@ def test_spectrum_slice_reaches_an_event_at_the_file_end(tmp_path: Path) -> None
         w.writeframes(samples.tobytes())
     opts = {"nFft": 1024, "overlapPercent": 0, "window": "hann"}
     for cursor_sample in (7850, 7999):
-        resp = handle_spectrum_slice({"filePath": str(wav), "cursorNorm": cursor_sample / 8000, "stftOptions": opts})
+        resp = handle_cursor_lines({"filePath": str(wav), "cursorNorm": cursor_sample / 8000, "stftOptions": opts})
         assert resp["windowStartNorm"] * 8000 <= cursor_sample < resp["windowEndNorm"] * 8000
-        assert float(resp["channels"][0]["maxDb"]) > -60.0
-    start = handle_spectrum_slice({"filePath": str(wav), "cursorNorm": 300 / 8000, "stftOptions": opts})
+        assert max(resp["channels"][0]["values"]) > -60.0
+    start = handle_cursor_lines({"filePath": str(wav), "cursorNorm": 300 / 8000, "stftOptions": opts})
     assert start["windowStartNorm"] == 0
 
 
@@ -1803,6 +1695,7 @@ def test_a_scan_against_a_reference_holds_the_reference_files_requests_until_it_
             "requestId": "scan",
             "filePath": "x.wav",
             "recipe": recipe,
+            "stage": "out",
             "reference": {"filePath": "r.wav", "step": "out", "recipe": recipe},
         },
         {"cmd": "analyze", "requestId": "panel", "filePath": "r.wav"},
@@ -1828,7 +1721,7 @@ def test_a_request_holds_the_lane_of_every_file_it_reads() -> None:
     )
     assert _lanes_of(
         {
-            "cmd": "pair-spectrum",
+            "cmd": "pair-answers",
             "reference": {"filePath": "r.wav"},
             "responses": [{"filePath": "a.wav"}, {"filePath": "r.wav"}],
         }
@@ -1869,28 +1762,36 @@ def _stdin(monkeypatch: pytest.MonkeyPatch, *requests: dict[str, object]) -> Non
     monkeypatch.setattr(sys, "stdin", io.StringIO("".join(json.dumps(r) + "\n" for r in requests)))
 
 
-def test_a_range_does_not_wait_behind_a_track_detail_for_the_same_file(monkeypatch, capsys):
-    range_done = threading.Event()
+def test_a_cursors_answers_do_not_wait_behind_a_rows_answers_for_the_same_file(monkeypatch, capsys):
+    cursor_done = threading.Event()
 
     class FakeService:
-        def track_detail(self, file_path, **_options):
-            # Returns only once the later range for the same file has been answered beside it.
-            assert range_done.wait(10)
+        def track_answers(self, file_path, **_options):
+            # Returns only once the later cursor read for the same file has been answered beside it.
+            assert cursor_done.wait(10)
             return {"filePath": file_path}
 
-        def waveform_range(self, file_path, *_args, **_options):
-            range_done.set()
+        def cursor_answers(self, file_path, **_options):
+            cursor_done.set()
             return {"filePath": file_path}
 
-    detail = {"cmd": "track-detail", "requestId": "detail", "filePath": "a.wav", "trackIndex": 0}
-    detail |= {"analysisId": "x", "settingsSignature": "s"}
-    rng = {"cmd": "range", "requestId": "range", "filePath": "a.wav", "startNorm": 0, "endNorm": 1, "points": 10}
+    detail = {"cmd": "track-answers", "requestId": "detail", "filePath": "a.wav"}
+    rng = {"cmd": "cursor-answers", "requestId": "range", "filePath": "a.wav", "cursorNorm": 0.5}
     _stdin(monkeypatch, detail, rng)
 
     main(FakeService(), workers=2, drain=True)  # type: ignore[arg-type]
 
     responses = _replies(capsys.readouterr().out)
     assert [response["requestId"] for response in responses] == ["range", "detail"], responses
+
+
+def test_a_figures_draw_and_read_are_interactive_a_recordings_answers_are_not() -> None:
+    """A picture (figure-draw) is what a scroll or a zoom waits for: with the workers busy it starts before a
+    recording's answers (track-answers: an STFT) asked earlier, as a read does."""
+    from backend_server import _INTERACTIVE_COMMANDS
+
+    assert {"figure-draw", "figure-read", "cursor-answers"} <= _INTERACTIVE_COMMANDS
+    assert "track-answers" not in _INTERACTIVE_COMMANDS
 
 
 def test_interactive_requests_start_before_other_ready_ones() -> None:
@@ -1981,11 +1882,15 @@ def test_a_request_queued_behind_a_barrier_reports_started_only_when_it_runs(mon
             time.sleep(0.1)
             return {"filePath": file_path}
 
-        def waveform_range(self, file_path, *_args, **_options):
+        def cursor_answers(self, file_path, **_options):
             return {"filePath": file_path}
 
-    rng = {"cmd": "range", "requestId": "range", "filePath": "a.wav", "startNorm": 0, "endNorm": 1, "points": 10}
-    _stdin(monkeypatch, {"cmd": "scan", "requestId": "scan", "filePath": "a.wav", "recipe": {"schema": 3}}, rng)
+    rng = {"cmd": "cursor-answers", "requestId": "range", "filePath": "a.wav", "cursorNorm": 0.5}
+    _stdin(
+        monkeypatch,
+        {"cmd": "scan", "requestId": "scan", "filePath": "a.wav", "recipe": {"schema": 3}, "stage": "out"},
+        rng,
+    )
 
     main(FakeService(), workers=2, drain=True)  # type: ignore[arg-type]
 
@@ -2213,8 +2118,10 @@ def test_what_a_request_writes_to_the_standard_output_lands_in_the_log_and_never
             "        os.write(1, b'stray fd 1 write\\n')",
             "        subprocess.run([sys.executable, '-c', 'print(\"stray child output\")'], check=True)",
             "        return {'answered': file_path}",
-            "sys.modules['analysis_engine'] = types.SimpleNamespace(AnalysisEngine=lambda: None)",
-            "sys.modules['analysis_service'] = types.SimpleNamespace(AnalysisService=lambda engine: Service())",
+            "sys.modules['services.analysis_engine'] = types.SimpleNamespace(AnalysisEngine=lambda: None)",
+            "sys.modules['services.analysis_service'] = types.SimpleNamespace(",
+            "    AnalysisService=lambda engine: Service()",
+            ")",
             f"sys.argv = [{str(_SERVER)!r}]",
             f"runpy.run_path({str(_SERVER)!r}, run_name='__main__')",
         ]

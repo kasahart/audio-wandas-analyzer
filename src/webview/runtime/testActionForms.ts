@@ -82,7 +82,8 @@ function testTarget<T extends Element = Element>(doc: Document, payload: ActionP
     return el;
 }
 
-// Mouse events land on the element's centre so handlers that read clientX/clientY place popovers as for a real pointer.
+// Mouse events land on the element's centre so handlers that read clientX/clientY place popovers as for a real pointer;
+// with `x` and `y` in the payload, at that place from the element's left and top (an axis of a Figure's canvas).
 export function dispatchTestMouseEvent(doc: Document, payload: ActionPayload): void {
     const el = testTarget(doc, payload);
     const rect = el.getBoundingClientRect();
@@ -94,8 +95,8 @@ export function dispatchTestMouseEvent(doc: Document, payload: ActionPayload): v
         bubbles: true,
         cancelable: true,
         view,
-        clientX: rect.left + rect.width / 2,
-        clientY: rect.top + rect.height / 2,
+        clientX: rect.left + (typeof payload.x === 'number' ? payload.x : rect.width / 2),
+        clientY: rect.top + (typeof payload.y === 'number' ? payload.y : rect.height / 2),
     }));
 }
 
