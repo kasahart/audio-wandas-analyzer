@@ -138,6 +138,8 @@ export interface TrackRowsDeps {
     viewed(track: TrackRowsTrack, channel: number, view: FigureView, typed?: FigureTypedAxis): void;
     placed(track: TrackRowsTrack, seconds: number): (() => void) | void;
     ranged(track: TrackRowsTrack, from: number, to: number): (() => void) | void;
+    /** An Alt+drag under way on a row (from the press to the pointer, s), or null when it ends picking nothing. */
+    ranging?(track: TrackRowsTrack, drag: { from: number; to: number } | null): void;
     shifted(track: TrackRowsTrack, by: number | null, done: boolean): void;
     read(track: TrackRowsTrack, channel: number, seconds: number | null): void;
     reset(): void;
@@ -347,6 +349,7 @@ export function createTrackRows(deps: TrackRowsDeps): TrackRows {
             viewed: (view, typed) => deps.viewed(now(), channel, view, typed),
             placed: seconds => deps.placed(now(), seconds),
             ranged: (from, to) => deps.ranged(now(), from, to),
+            ...(deps.ranging ? { ranging: (drag: { from: number; to: number } | null) => deps.ranging?.(now(), drag) } : {}),
             shifted: (by, done) => deps.shifted(now(), by, done),
             read: seconds => deps.read(now(), channel, seconds),
             reset: () => deps.reset(),

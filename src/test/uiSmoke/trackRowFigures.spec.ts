@@ -15,7 +15,7 @@ import { pointOnLane, seenFigure, type Seen } from './tracksFigures';
  * at the time of the sample read there; a box drawn on the waveform is the screen's time on screen (the ruler's too),
  * and the 0 key is the screen's reset; Shift+drag shifts the recording's place in time; a row zoomed past the
  * whole file's columns, or boxed to a narrow band, shows the frames and the bins that are there (R3); zoomed or
- * scrolled, the waveform's range up stays the whole recording's (R16).
+ * scrolled, the waveform's range up stays the whole recording's (R16); Alt+drag shows its loop while dragged (R17).
  */
 const RATE = 8000, SECONDS = 2, LONG_SECONDS = 120;
 const ROW = '#track-row-figure-0 canvas[data-figure]';
@@ -142,6 +142,49 @@ test('a click, a box and Shift+drag on a row are the screen\'s cursor, time on s
     await page.mouse.up();
     await page.keyboard.up('Shift');
     await expect(page.locator('#offset-val-0')).toHaveText(/^\+0\.[45]\d\ds$/);
+    expect(await stop()).toEqual([]);
+});
+
+const loopText = (page: Page): Promise<string | null> => page.locator('#loop-time-display').evaluate(el => ((el as HTMLElement).style.display === 'none' ? null : el.textContent));
+const boxDrawn = (page: Page): Promise<unknown> => page.locator(ROW).evaluate(canvas => (canvas as HTMLCanvasElement & { __figureInspect: () => { box: unknown } }).__figureInspect().box);
+
+test('Alt+drag on a row shows the loop while it is dragged, never a zoom box; dragging an end moves that end; let go where pressed puts the loop back (R17)', async ({ page }) => {
+    test.skip(!ready(), 'no Python backend here');
+    const stop = await openRows(page);
+    await drawnRow(page);
+    const rule = 'R17: an Alt+drag shows the loop it makes from its first move, not the box zoom\'s rubber band (figure.ts ranging, trackRowsScreen.ts ranging)';
+    const at = (across: number) => pointOnLane(page, ROW, 'wave', across);
+    const quarter = await at(0.25), middle = await at(0.5), late = await at(0.75);
+    expect(await loopText(page)).toBeNull();
+    // Pressed a quarter across, held, moved to the middle: the loop is there already, 0.5 s to 1 s, and no box.
+    await page.mouse.move(quarter.x, quarter.y);
+    await page.keyboard.down('Alt');
+    await page.mouse.down();
+    await page.mouse.move(middle.x, middle.y, { steps: 4 });
+    await expect.poll(() => loopText(page), { message: `${rule}: the loop shows mid-drag` }).toMatch(/0:00\.50 – 0:01\.00/);
+    expect(await boxDrawn(page), `${rule}: no zoom box is drawn`).toBeNull();
+    // Further on, still held: the loop follows the pointer, from the same press.
+    await page.mouse.move(late.x, late.y, { steps: 4 });
+    await expect.poll(() => loopText(page), { message: `${rule}: the loop follows the pointer` }).toMatch(/0:00\.50 – 0:01\.50/);
+    await page.mouse.up();
+    await expect.poll(() => loopText(page)).toMatch(/0:00\.50 – 0:01\.50/);
+    // Its end pressed and dragged back to the middle: the end moves while held, the start stays.
+    await page.mouse.move(late.x, late.y);
+    await page.mouse.down();
+    await page.mouse.move(middle.x, middle.y, { steps: 4 });
+    await expect.poll(() => loopText(page), { message: `${rule}: the end follows, the start stays` }).toMatch(/0:00\.50 – 0:01\.00/);
+    await page.mouse.up();
+    // A new loop dragged out and brought back to its press: let go there, it picks nothing, and the loop before is back.
+    const early = await at(0.1);
+    await page.mouse.move(early.x, early.y);
+    await page.mouse.down();
+    await page.mouse.move(quarter.x, quarter.y, { steps: 4 });
+    await expect.poll(() => loopText(page)).toMatch(/0:00\.20 – 0:00\.50/);
+    await page.mouse.move(early.x, early.y, { steps: 4 });
+    await page.mouse.up();
+    await page.keyboard.up('Alt');
+    await expect.poll(() => loopText(page), { message: `${rule}: a drag that picks nothing puts the loop at its press back` }).toMatch(/0:00\.50 – 0:01\.00/);
+    expect(await boxDrawn(page)).toBeNull();
     expect(await stop()).toEqual([]);
 });
 

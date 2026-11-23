@@ -443,3 +443,11 @@ Webview は全データの集まり（線の全部の値、マスの全部の行
 - テスト: `python-backend/test_tracks_scroll_range.py` › test_a_range_specified_up_is_still_the_requests_while_scrolled
 - テスト: `python-backend/test_figures_signal.py` › test_the_confirmed_range_is_the_signals_whole_length_and_the_largest_magnitude_of_every_sample
 - テスト: `src/test/uiSmoke/trackRowFigures.spec.ts` › a row zoomed or scrolled onto its quiet half keeps the waveform's range up: the whole recording's (R16)
+
+## R17 Alt+ドラッグのループは、ドラッグの間から見せる
+
+トラックの行で Alt+ドラッグすると、動かしはじめた時点からループ区間の枠が出て、ポインタに合わせて伸び縮みします。矩形ズームの青い枠は出しません。離したところでループ区間が決まります。ループの端を押してドラッグしたときは、その端だけが動き、もう一方の端は動きません。押した場所の近くで離した（何も選ばなかった）ときや、離した知らせが届かなかったときは、押す前のループに戻します。
+
+- 離すまで矩形ズームの枠に見えると、ループを作っているのか拡大しているのか分からず、区間も離すまで分かりません。前の実装も、ドラッグの間からループ区間を描いていました（`comparisonRuntime.ts` の `moveLaneDrag`）。
+- 図の部品（`src/webview/figure/figure.ts`）は、画面が `ranging` を聞いているときだけ、ドラッグの間の区間を知らせて矩形を描きません。聞いていない図（入口の分布図の値の範囲選び）は、今までどおり離したときの `range` だけです。どのループにするかは画面（`src/webview/screens/trackRowsScreen.ts`）が、押したときのループから毎回決めます（`loopDrag.ts` の `loopAfterDrag`）。
+- テスト: `src/test/uiSmoke/trackRowFigures.spec.ts` › Alt+drag on a row shows the loop while it is dragged, never a zoom box; dragging an end moves that end; let go where pressed puts the loop back (R17)
