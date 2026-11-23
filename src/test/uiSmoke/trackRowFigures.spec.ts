@@ -166,6 +166,9 @@ test('Alt+drag on a row shows the loop while it is dragged, never a zoom box; dr
     // Further on, still held: the loop follows the pointer, from the same press.
     await page.mouse.move(late.x, late.y, { steps: 4 });
     await expect.poll(() => loopText(page), { message: `${rule}: the loop follows the pointer` }).toMatch(/0:00\.50 – 0:01\.50/);
+    // The cursor readout reads the pointer's time all through the drag; drawing the loop does not take it back (R7).
+    await settled(page);
+    await expect(page.locator('#cursor-display'), `${rule}: the readout is the pointer's time while dragging`).toHaveText(/0:01\.50/);
     await page.mouse.up();
     await expect.poll(() => loopText(page)).toMatch(/0:00\.50 – 0:01\.50/);
     // Its end pressed and dragged back to the middle: the end moves while held, the start stays.

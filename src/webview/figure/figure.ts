@@ -1224,7 +1224,9 @@ export function createFigure(options: FigureOptions): Figure {
         const seen = inspect();
         const ownReadout = writeReadout(seen.readout);
         tellRead(seen.mark);
-        tellAcross(seen.mark);
+        // A drag under way tells the place under the pointer itself (onMove): a paint meanwhile (the loop drawn as it is
+        // dragged) does not take it back to the mark, which is none while dragging (R7).
+        if (!press?.isDrag) tellAcross(seen.mark);
         if (listeners.placed.size) {
             const lanes: FigurePlacedLane[] = seen.lanes.map(lane => ({ id: lane.id, frame: lane.frame, guides: lane.guides, ...(lane.events ? { events: lane.events } : {}) }));
             const now = JSON.stringify(lanes);
@@ -1697,8 +1699,9 @@ export function createFigure(options: FigureOptions): Figure {
                 pointer = at;
                 const lane = press.lane;
                 const to = lane.x.at(Math.max(0, Math.min(1, (at.x - lane.frame.left) / lane.frame.width)));
-                for (const listener of listeners.ranging) listener({ lane: lane.id, from: lane.x.at(Math.max(0, Math.min(1, (press.x - lane.frame.left) / lane.frame.width))), to });
+                // The readout reads the pointer's place first (R7), then the screen shows the stretch.
                 tellAcross({ x: to });
+                for (const listener of listeners.ranging) listener({ lane: lane.id, from: lane.x.at(Math.max(0, Math.min(1, (press.x - lane.frame.left) / lane.frame.width))), to });
                 return;
             }
             if (press.isDrag) {
