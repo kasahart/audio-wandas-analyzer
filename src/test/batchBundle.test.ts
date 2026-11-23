@@ -17,7 +17,7 @@ test('the bundle\'s run_recipe.py is python-backend/batch/run_recipe.py (node sc
 
 test('a recording whose channels are all targets runs whole; one with only some runs per channel, with that channel\'s Recipe', () => {
     const attributes = new Map([['/d/L1/a.wav', { sample_id: 'S1' }], ['/d/L2/b.wav', { sample_id: 'S2' }], ['/d/m.wav', { sample_id: 'S3' }]]);
-    const all = datasetRows(['/d/L1/a.wav', '/d/L2/b.wav', '/d/m.wav'], '/d', attributes, new Map(), new Map([['/d/L1/a.wav', 2], ['/d/L2/b.wav', 2], ['/d/m.wav', 1]]));
+    const all = datasetRows(['/d/L1/a.wav', '/d/L2/b.wav', '/d/m.wav'], '/d', attributes, new Map([['/d/L1/a.wav', 2], ['/d/L2/b.wav', 2], ['/d/m.wav', 1]]));
     // Filtered: a.wav both channels, b.wav ch 2 only, m.wav (mono).
     const rows = all.filter(row => row.filePath !== '/d/L2/b.wav' || row.ch === 2);
     assert.deepEqual(batchCount(rows), { recordings: 3, channels: 4 });
@@ -38,13 +38,13 @@ test('a recording whose channels are all targets runs whole; one with only some 
 
 test('a CSV id column called path, channel or recipe is written as id_<name>, so it does not hide the column run_recipe.py reads', () => {
     const attributes = new Map([['/d/a.wav', { path: '/archive/a_original.wav' }]]);
-    const all = datasetRows(['/d/a.wav'], '/d', attributes, new Map(), new Map([['/d/a.wav', 1]]));
+    const all = datasetRows(['/d/a.wav'], '/d', attributes, new Map([['/d/a.wav', 1]]));
     const { files } = batchBundle({ recipe, recipeName: 'Standard', rows: all, allRows: all, rootPath: '/d', idColumn: 'path', now: new Date(2026, 9, 26) });
     assert.equal(files.find(file => file.name === 'targets.csv')?.text, '\uFEFFpath,channel,recipe,id_path\r\na.wav,,Standard.recipe.json,/archive/a_original.wav\r\n');
 });
 
 test('a Recipe that compares two channels of a recording runs on whole recordings: one Recipe, no channel targets', () => {
-    const all = datasetRows(['/d/a.wav', '/d/b.wav'], '/d', new Map(), new Map(), new Map([['/d/a.wav', 2], ['/d/b.wav', 2]]));
+    const all = datasetRows(['/d/a.wav', '/d/b.wav'], '/d', new Map(), new Map([['/d/a.wav', 2], ['/d/b.wav', 2]]));
     const nodes = (recipe as unknown as { nodes: Array<{ id: string }> }).nodes;
     const cross = { ...recipe, nodes: [...nodes, { id: 'node-9', operation: 'wandas.audio.coherence', version: 2, inputs: [nodes.at(-1)!.id], params: { $type: 'map', entries: [] } }], output: 'node-9' } as unknown as RecipeDocument;
     // a.wav's ch 2 and both of b.wav's channels.

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { addableOperations, brokenStep, chainEnd, endsInEvents, bypassedSteps, SELECT_PAIR, decodeParam, encodeNumber, isRecipeChain, movedStep, recipeKey, recipeNodes, recipeSteps, withBypass, withDefaults, withParam, withoutSteps, withStep, withSlotReference, slotReferenced, activeSlotReferenced, withoutBypassed, recipeChain, REFERENCE_KEY, BYPASS_KEY, STEP_PARAMS, APP_SET_PARAMS, TRIGGER, PAIRED_ON_ADD, CROSS_CHANNEL, SLOT_REFERABLE } from '../shared/recipe/recipeSteps';
+import { addableOperations, brokenStep, endsInEvents, bypassedSteps, SELECT_PAIR, decodeParam, encodeNumber, isRecipeChain, movedStep, recipeKey, recipeNodes, recipeSteps, withBypass, withDefaults, withParam, withoutSteps, withStep, withSlotReference, slotReferenced, activeSlotReferenced, withoutBypassed, recipeChain, REFERENCE_KEY, BYPASS_KEY, STEP_PARAMS, APP_SET_PARAMS, TRIGGER, PAIRED_ON_ADD, CROSS_CHANNEL, SLOT_REFERABLE } from '../shared/recipe/recipeSteps';
 import { operationGroup, operationHint } from '../shared/recipe/operationGuide';
 import { catalogOperation, takes } from '../shared/recipe/recipeCatalog';
 import { WANDAS_OPERATIONS } from '../shared/recipe/generated/wandasOperations';
@@ -317,19 +317,6 @@ test('a bypassed step stays in the chain but is skipped: the Recipe run and expo
     // Off again, the Recipe is as it was.
     assert.deepEqual(withBypass(bypassed, hpf.id, false), entry);
     assert.notEqual(recipeKey(bypassed), recipeKey(entry));
-});
-
-test('the first step that cannot run breaks the chain: every step after it cannot run either, and nothing is run past it', () => {
-    const { recipe, id } = withStep(entry, 'node-0', catalogOperation('wandas.audio.stft')!);
-    const steps = recipeSteps(recipe, 16000);
-    // The region takes a time signal, not the STFT's spectrogram: it is the break; the average spectrum after it cannot run either.
-    assert.deepEqual(steps.map(step => [step.name, step.reason?.kind]), [['highpass_filter', undefined], ['stft', undefined], ['time_slice', 'frame'], ['welch', 'after']]);
-    assert.equal(steps[3].reason?.text, steps[2].id);
-    assert.equal(brokenStep(recipe, 16000)?.id, steps[2].id);
-    // The Recipe run stops before the break; the chain would still end in a spectrum.
-    assert.deepEqual(recipeSteps(runnableRecipe(recipe, 16000)).map(step => step.id), ['node-0', id]);
-    assert.equal(chainEnd(recipe, 16000), 'SpectralFrame');
-    assert.equal(brokenStep(entry, 16000), undefined);
 });
 
 test('channel_difference needs two channels: on one it subtracts the only channel from itself (all zeros)', () => {

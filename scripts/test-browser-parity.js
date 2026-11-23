@@ -46,37 +46,64 @@ const tonePath = path.join(root, 'test-results/generated-frequency-tones.wav');
 fs.writeFileSync(tonePath, toneBytes);
 const bytes = fixtures[0].bytes;
 // Only these payloads list stftOptions; the schema rejects keys it does not list.
-const STFT_COMMANDS = new Set(['analyze', 'track-detail', 'spectrum-slice', 'pair-spectrum', 'build-recipe']);
+const STFT_COMMANDS = new Set(['analyze', 'track-answers', 'cursor-answers', 'pair-answers', 'build-recipe']);
 const withStft = (command, stftOptions) => (STFT_COMMANDS.has(command.cmd) ? { ...command, stftOptions } : command);
 const commands = [
     { cmd: 'analyze' },
-    { cmd: 'track-detail', trackIndex: 0, analysisId: 'fixture', settingsSignature: 'fixture' },
-    { cmd: 'spectrum-slice', trackIndex: 0, analysisId: 'fixture', settingsSignature: 'fixture', cursorNorm: 0.437 },
-    { cmd: 'spectrum-slice', trackIndex: 0, analysisId: 'fixture', settingsSignature: 'fixture', cursorNorm: 0.437, bandsPerOctave: 3 },
-    { cmd: 'spectrum-slice', trackIndex: 0, analysisId: 'fixture', settingsSignature: 'fixture', cursorNorm: 0.437, bandsPerOctave: 1 },
-    { cmd: 'range', startNorm: 0.21, endNorm: 0.63, points: 128 },
+    // A Tracks row's answers (each channel's samples and spectrogram levels) are kept by key too.
+    { cmd: 'track-answers', scale: 'linear' },
+    // The cursor spectrum's answers are kept by key: the reply names them and carries no value (rows below read them).
+    { cmd: 'cursor-answers', cursorNorm: 0.437, scale: 'linear' },
+    { cmd: 'cursor-answers', cursorNorm: 0.437, bandsPerOctave: 3 },
+    { cmd: 'cursor-answers', cursorNorm: 0.437, bandsPerOctave: 1 },
     { cmd: 'export-wav-loop', startNorm: 0.21, endNorm: 0.63 },
     { cmd: 'build-recipe', bandsPerOctave: 3 },
     { cmd: 'build-recipe', referenceChannel: 0, responses: [{ filePath: '/sources/selected.wav', channelIndex: 1 }] },
 ].map((command, index) => withStft({ ...command, requestId: String(index), filePath: '/sources/selected.wav' }, { nFft: 256, overlapPercent: 75, window: 'hann' }));
 // Pair sources name their files inside the payload, so the command carries no top-level filePath.
 const pairSource = (channelIndex, offsetSeconds) => ({ filePath: '/sources/selected.wav', channelIndex, offsetSeconds });
-commands.push(withStft({ cmd: 'pair-spectrum', requestId: 'pair-parity', analysisId: 'fixture', settingsSignature: 'fixture',
+// A region's peak names its files inside the payload too: the largest |sample| of every channel over the stretch.
+commands.push({ cmd: 'region-peak', requestId: 'region-peak', sources: [{ filePath: '/sources/selected.wav', channels: [], startNorm: 0.21, endNorm: 0.63 }] });
+commands.push(withStft({ cmd: 'pair-answers', requestId: 'pair-parity',
     reference: pairSource(0, 0), responses: [pairSource(1, 0), pairSource(1, 0.05)] }, { nFft: 256, overlapPercent: 75, window: 'hann' }));
-// An 8192-point cursor spectrum is cut to log-spaced peak points for display; the CSV export asks for every bin.
+/**
+ * Every value of the lines an answers command kept (the command of that requestId in the same list), as the figure
+ * service's table gives them: a draw, its table (every point of every line, never thinned), and the figure let go.
+ * `$spec` and `$dataId` name an earlier command of the list by its requestId; both runners fill them in from that
+ * command's reply (the figure spec of its keys; the data id of its picture) before they send the command.
+ */
+const rowsOf = asked => [
+    { cmd: 'figure-draw', requestId: `draw-${asked}`, figureId: `parity-${asked}`, generation: 1, requestNumber: 1, spec: { $spec: asked }, width: 900, height: 360, view: null, selection: null },
+    { cmd: 'figure-export', requestId: `rows-${asked}`, spec: { $spec: asked }, dataId: { $dataId: `draw-${asked}` } },
+    { cmd: 'figure-release', requestId: `release-${asked}`, figureId: `parity-${asked}` },
+];
+commands.push(...rowsOf('2'), ...rowsOf('3'), ...rowsOf('4'), ...rowsOf('pair-parity'));
+// A Tracks row as the page draws it: the first channel's waveform over its spectrogram, one picture of the figure
+// service from the answers command 1 kept (every number of the picture is compared: the ranges, the points drawn).
+commands.push(
+    { cmd: 'figure-draw', requestId: 'draw-row', figureId: 'parity-row', generation: 1, requestNumber: 1, spec: { $spec: '1' }, width: 900, height: 360, view: null, selection: null },
+    { cmd: 'figure-release', requestId: 'release-row', figureId: 'parity-row' },
+);
+// An 8192-point cursor spectrum: every one of its 4097 bins is kept and written, whatever the width it is drawn at.
 const longFft = { nFft: 8192, overlapPercent: 75, window: 'hann' };
 fixtures.push({ name: 'generated-frequency-tones.wav', path: tonePath, bytes: toneBytes, commands: [
-    { ...commands[2], cursorNorm: 0.5 }, ...commands,
+    { ...commands[2], requestId: 'tone-mid', cursorNorm: 0.5 }, ...rowsOf('tone-mid'), ...commands,
 ].map(command => withStft(command, { nFft: 2048, overlapPercent: 75, window: 'hann' })).concat([
-    { ...commands[2], requestId: 'long-fft', cursorNorm: 0.5, stftOptions: longFft },
-    { ...commands[2], requestId: 'long-fft-full', cursorNorm: 0.5, stftOptions: longFft, fullResolution: true },
+    { ...commands[2], requestId: 'long-fft', cursorNorm: 0.5, stftOptions: longFft }, ...rowsOf('long-fft'),
 ]) });
+/** The reply of the command of that requestId in a fixture's list. */
+const replyOf = (fixtureIndex, replies, requestId) => {
+    const list = fixtures[fixtureIndex].commands || commands;
+    const at = list.findIndex(command => command.requestId === requestId);
+    assert.ok(at >= 0, `fixture ${fixtureIndex} has no command ${requestId}`);
+    return replies[at];
+};
 function nativeResultsFor(fixture) {
 const native = spawnSync(python.command, [...python.args, '-c', `
 import sys,json
 sys.path.insert(0,'python-backend')
-from analysis_engine import AnalysisEngine
-from analysis_service import AnalysisService
+from services.analysis_engine import AnalysisEngine
+from services.analysis_service import AnalysisService
 from backend_server import dispatch
 from browser_service import _service
 service=_service()
@@ -87,11 +114,44 @@ commands=packet['commands']
 # MoSQITo prints resampling warnings to stdout, which carries only the JSON result here.
 out=sys.stdout
 sys.stdout=sys.stderr
-byte_results=[dispatch(c,service) for c in commands]
+def spec_of(reply):
+    if 'channels' in reply and 'windowed' in reply:
+        first=reply['channels'][0]
+        lanes=[{'id':'wave','kind':'band','lines':[{'id':'samples','of':{'key':first['signal']}}]},{'id':'spectrogram','kind':'image','lines':[{'id':'levels','of':{'key':first['image']}}]}]
+    elif 'channels' in reply:
+        lanes=[{'id':'spectrum','kind':'lines','lines':[{'id':f"ch{c['channelIndex']}",'of':{'key':c['key']}} for c in reply['channels']]}]
+    else:
+        ok=[(i,r['keys']) for i,r in enumerate(reply['responses']) if 'keys' in r]
+        lanes=[{'id':part,'kind':'lines','axis':'own','lines':[{'id':f'{part}-{i}','of':{'key':keys[part]}} for i,keys in ok]} for part in ('gain','phase','coherence')]
+    keys=[line['of']['key'] for lane in lanes for line in lane['lines']]
+    return {'lanes':lanes,'keys':[{'key':key,'state':'usable','version':key} for key in keys]}
+def run(commands,service,tag):
+    replies=[]
+    def reply_of(request_id):
+        return replies[[c['requestId'] for c in commands].index(request_id)]
+    for c in commands:
+        if isinstance(c.get('spec'),dict) and '$spec' in c['spec']:
+            c={**c,'spec':spec_of(reply_of(c['spec']['$spec']))}
+        if isinstance(c.get('dataId'),dict):
+            drawn=reply_of(c['dataId']['$dataId'])
+            assert 'dataId' in drawn, f"{c['dataId']['$dataId']} drew no picture: {json.dumps(drawn)[:400]}"
+            c={**c,'dataId':drawn['dataId']}
+        if 'figureId' in c:
+            # A figure's id is its own for good: each run draws under ids of its own.
+            c={**c,'figureId':c['figureId']+tag}
+        replies.append(dispatch(c,service))
+    return replies
+byte_results=run(commands,service,'-bytes')
 native_service=AnalysisService(AnalysisEngine())
 for c in commands:
-    if c['cmd']=='pair-spectrum':
+    if c['cmd']=='pair-answers':
         for source in [c['reference'],*c['responses']]:
+            source['filePath']=packet['fixture']
+        continue
+    if c['cmd'].startswith('figure-'):
+        continue
+    if c['cmd']=='region-peak':
+        for source in c['sources']:
             source['filePath']=packet['fixture']
         continue
     c['filePath']=packet['fixture']
@@ -99,7 +159,7 @@ for c in commands:
         source['filePath']=packet['fixture']
     if c.get('reference'):
         c['reference']['filePath']=packet['fixture']
-native_results=[dispatch(c,native_service) for c in commands]
+native_results=run(commands,native_service,'-path')
 print(json.dumps([byte_results,native_results],allow_nan=False),file=out)
 `], { maxBuffer: 32 * 1024 * 1024, cwd: root, input: JSON.stringify({commands:fixture.commands || commands,fixture:fixture.path || `src/test/fixtures/${fixture.name}`}), encoding: 'utf8', env: { ...process.env, MPLBACKEND: 'Agg' } });
 assert.equal(native.status, 0, native.stderr);
@@ -127,10 +187,12 @@ let numbers = 0;
 // natively, so a path is never read twice to name it; the content hash when the bytes are loaded), so a path and
 // the same bytes loaded give different values by design. Its value is compared only between two byte loads;
 // `checkSourceVersions` keeps it checked on every route.
-const HOST_IDENTITY = ['filePath', 'fileName', 'input.id', 'stage.data'];
+// A kept answer's key is a hash of what it is of, the file's identity among it: it differs as that does.
+const HOST_IDENTITY = ['filePath', 'fileName', 'input.id', 'stage.data', 'key', 'signal', 'image', 'signalExtent', 'imageExtent', 'keys.gain', 'keys.phase', 'keys.coherence', 'version', 'members'];
 const SOURCE_VERSION = 'sourceVersion';
 function compare(a, b, at = '', hostKeys = HOST_IDENTITY) {
-    if (['computeMs', 'elapsedMs', ...hostKeys].some(key => at.endsWith('.' + key))) return;
+    // A picture's own ids (figureId, pictureId, dataId) are made per run and draw: they say nothing of the answers.
+    if (['computeMs', 'elapsedMs', 'figureId', 'pictureId', 'dataId', ...hostKeys].some(key => at.endsWith('.' + key))) return;
     if (typeof a === 'number') {
         assert.equal(typeof b, 'number', at);
         assert.ok(Math.abs(a - b) <= 0.0002 + Math.abs(a) * 0.00002, `${at}: ${a} vs ${b}`); numbers++; return;
@@ -209,7 +271,26 @@ const server = http.createServer((req,res) => {
                 for (const fixture of fixtures) {
                     await run({cmd:'load',sourceId:'selected.wav',bytes:new Uint8Array(fixture.bytes).buffer});
                     const results=[];
-                    for(const command of fixture.commands || commands) results.push(await run(command));
+                    const list=fixture.commands || commands;
+                    const replyOf=requestId=>results[list.findIndex(command=>command.requestId===requestId)];
+                    const specOf=reply=>{
+                        const lanes=reply.channels && reply.windowed!==undefined
+                            ? [{id:'wave',kind:'band',lines:[{id:'samples',of:{key:reply.channels[0].signal}}]},{id:'spectrogram',kind:'image',lines:[{id:'levels',of:{key:reply.channels[0].image}}]}]
+                            : reply.channels
+                            ? [{id:'spectrum',kind:'lines',lines:reply.channels.map(c=>({id:`ch${c.channelIndex}`,of:{key:c.key}}))}]
+                            : ['gain','phase','coherence'].map(part=>({id:part,kind:'lines',axis:'own',
+                                lines:reply.responses.flatMap((r,i)=>r.keys?[{id:`${part}-${i}`,of:{key:r.keys[part]}}]:[])}));
+                        const keys=lanes.flatMap(lane=>lane.lines.map(line=>line.of.key));
+                        return {lanes,keys:keys.map(key=>({key,state:'usable',version:key}))};
+                    };
+                    for(const asked of list) {
+                        let command=asked;
+                        if(command.spec?.$spec!==undefined) command={...command,spec:specOf(replyOf(command.spec.$spec))};
+                        if(command.dataId?.$dataId!==undefined) command={...command,dataId:replyOf(command.dataId.$dataId).dataId};
+                        // A figure's id is its own for good: each fixture draws under ids of its own.
+                        if(command.figureId!==undefined) command={...command,figureId:`${command.figureId}-${all.length}`};
+                        results.push(await run(command));
+                    }
                     all.push(results);
                     await run({cmd:'unload',filePath:'/sources/selected.wav'});
                 }
@@ -221,25 +302,30 @@ const server = http.createServer((req,res) => {
         checkSourceVersions(results,'Pyodide');
         for (const runtime of [byteResults, nativeResults, results]) {
             const tones = runtime[2];
-            const [shown, full] = tones.slice(-2);
-            for (const [slice, bins] of [[tones[0], 1025], [tones[3], 1025], [shown, 1025], [full, 4097]]) {
-                // A cut row keeps each stretch's lowest and highest bin per channel, at most the 1025-point budget.
-                if (slice === shown) assert.ok(slice.frequencyBins > 512 && slice.frequencyBins <= bins, `cut to ${slice.frequencyBins} points`);
-                else assert.equal(slice.frequencyBins, bins);
-                assert.equal(slice.frequenciesHz === undefined, slice !== shown);
-                slice.channels.forEach((channel, i) => {
-                    const peak = channel.values.indexOf(Math.max(...channel.values));
-                    const hz = slice.frequenciesHz ? slice.frequenciesHz[peak] : peak * slice.maxFrequencyHz / (slice.frequencyBins - 1);
-                    assert.ok(Math.abs(hz - [440, 880][i]) <= 8000 / (slice.frequencyBins - 1) / 2, `known tone mapped to ${hz} Hz`);
+            /** The rows the figure service writes of an answers command's kept lines: a column a line, every point. */
+            const rows = asked => {
+                const table = replyOf(2, tones, `rows-${asked}`);
+                assert.equal(table.status, 'rows', `rows of ${asked}: ${table.status}`);
+                return table.columns;
+            };
+            for (const [asked, bins] of [['tone-mid', 1025], ['2', 1025], ['long-fft', 4097]]) {
+                const columns = rows(asked);
+                assert.equal(columns.length, 2, 'a line a channel');
+                columns.forEach((column, i) => {
+                    // Every bin is kept and written, at its own frequency: nothing is cut to be drawn.
+                    assert.equal(column.values.length, bins);
+                    const hz = column.xs[column.values.indexOf(Math.max(...column.values))];
+                    assert.ok(Math.abs(hz - [440, 880][i]) <= 8000 / (bins - 1) / 2, `known tone mapped to ${hz} Hz`);
                 });
             }
-            // The points drawn keep each tone's level from the every-bin row.
-            shown.channels.forEach((channel, i) => assert.equal(Math.max(...channel.values), Math.max(...full.channels[i].values)));
-            for (const [slice, bands] of [[runtime[2][4], [400, 800]], [runtime[2][5], [500, 1000]]]) {
-                slice.channels.forEach((channel, i) => {
-                    assert.equal(slice.bandCentersHz[channel.values.indexOf(Math.max(...channel.values))], bands[i]);
+            for (const [asked, bands] of [['3', [400, 800]], ['4', [500, 1000]]]) {
+                rows(asked).forEach((column, i) => {
+                    assert.equal(column.xs[column.values.indexOf(Math.max(...column.values))], bands[i]);
                 });
             }
+            // The pair's three lines of both responses, every bin (this fixture's 2048-point FFT: 1025).
+            const pair = rows('pair-parity');
+            assert.deepEqual(pair.map(column => [column.lane, column.values.length]), ['gain', 'gain', 'phase', 'phase', 'coherence', 'coherence'].map(lane => [lane, 1025]));
         }
         await page.locator(OPEN_FILE).setInputFiles(path.join(root,'src/test/fixtures/short-stereo.wav'));
         await page.getByRole('status').filter({hasText:READY}).waitFor({timeout:120000});
@@ -252,8 +338,21 @@ const server = http.createServer((req,res) => {
                 await page.waitForFunction(count => document.querySelectorAll('.track-row').length < count, left);
             }
         };
-        // The first track's canvas: track numbers go on counting after tracks are taken off, so it is not always 0.
-        const firstCanvas = async (target = page) => `#${await target.evaluate(() => [...document.querySelectorAll('.track-row canvas')].map(canvas => canvas.id).find(id => /^track-canvas-\d+$/.test(id)))}`;
+        // A Tracks row is one Figure per channel. The first track's: track numbers go on counting after tracks are
+        // taken off, so it is not always 0.
+        const rowFigure = async (target = page, channel = 0) => {
+            const id = await (await target.waitForFunction(() => [...document.querySelectorAll('[id^="track-row-figure-"]')]
+                .map(node => node.id).find(name => /^track-row-figure-\d+$/.test(name)) || null, undefined, {timeout:120000})).jsonValue();
+            return `#${id}${channel ? `-${channel}` : ''} canvas[data-figure]`;
+        };
+        // Where a lane of a row's drawn picture sits on the page (the row has a picture of that lane, and waits for none).
+        const laneBox = async (target, figure, lane) => (await target.waitForFunction(([selector, id]) => {
+            const canvas = document.querySelector(selector), seen = canvas?.__figureInspect?.();
+            const found = seen && !seen.waiting && seen.pictureId !== null && seen.lanes.find(item => item.id === id);
+            if (!found) return null;
+            const box = canvas.getBoundingClientRect();
+            return {x: box.left + found.frame.left, y: box.top + found.frame.top, width: found.frame.width, height: found.frame.height};
+        }, [figure, lane], {timeout:120000})).jsonValue();
         const recordHostMessages = () => page.evaluate(() => {
             window.__testInbound = [];
             window.__testOutbound = [];
@@ -262,8 +361,8 @@ const server = http.createServer((req,res) => {
             window.__AWA_HOST__.onMessage(message => window.__testInbound.push(message));
         });
         await recordHostMessages();
-        await page.waitForFunction(() => window.__testInbound.some(message => message.type === 'track-detail-result'
-            && message.channels.every(channel => channel.spectrogram?.timeBins > 0)), undefined, {timeout:120000});
+        // Both channels' rows are drawn: a waveform lane over a spectrogram lane, from the answers the Worker kept.
+        for (const channel of [0, 1]) assert.ok((await laneBox(page, await rowFigure(page, channel), 'spectrogram')).height > 0);
         assert.equal(await page.getByRole('status').filter({hasText:'Error'}).count(),0);
         await page.evaluate(() => {
             const download = window.__AWA_HOST__.downloadFile;
@@ -274,7 +373,7 @@ const server = http.createServer((req,res) => {
         const csvMenu = page.locator('details').filter({has:page.locator('[data-action="export-csv"]')});
         await csvMenu.locator('summary').click();
         const [csvDownload] = await Promise.all([page.waitForEvent('download'),page.locator('[data-action="export-csv"]').click()]);
-        assert.equal(csvDownload.suggestedFilename(),'spectrum-export.csv');
+        assert.match(csvDownload.suggestedFilename(),/^spectrum-export_.+\.csv$/);
         assert.equal(await csvDownload.failure(),null);
         const csv = fs.readFileSync(await csvDownload.path(),'utf8');
         const artifact = await page.evaluate(()=>window.__csvArtifact);
@@ -303,16 +402,16 @@ const server = http.createServer((req,res) => {
         await page.evaluate(() => { window.__testInbound = []; });
         await page.locator('#spec-apply').click();
         await page.waitForFunction(() => window.__testInbound.some(message => message.type === 'reanalyze-end')
-            && window.__testInbound.some(message => message.type === 'track-detail-result'
-                && message.channels.every(channel => channel.spectrogram?.windowSize === 256 && channel.spectrogram?.hopSize === 64)));
+            && window.__testInbound.some(message => message.type === 'track-answers-result'
+                && message.windowSize === 256 && message.hopSize === 64));
         assert.equal(await page.locator('#reanalyze-overlay').isVisible(), false);
         await page.locator('[data-action="content-waveform"]').click();
         await page.waitForTimeout(300);
-        const box = await page.locator('#track-canvas-0').boundingBox();
+        const box = await laneBox(page, await rowFigure(), 'wave');
         assert.ok(box);
         await page.evaluate(() => { window.__testInbound = []; });
         await page.mouse.click(box.x + box.width * .437, box.y + box.height * .5);
-        await page.waitForFunction(() => window.__testInbound.some(message => message.type === 'spectrum-slice-result' && Math.abs(message.cursorNorm - .437) < .01));
+        await page.waitForFunction(() => window.__testInbound.some(message => message.type === 'cursor-answers-result' && Math.abs(message.cursorNorm - .437) < .01));
         // Alt+drag sets the loop (a plain drag is the box zoom).
         await page.mouse.move(box.x + box.width * .21, box.y + box.height * .5);
         await page.keyboard.down('Alt');
@@ -362,10 +461,7 @@ const server = http.createServer((req,res) => {
             if (await page.locator('.track-row').count()) await clearAll();
             await picker.setInputFiles(fixturePath(name));
             await status.filter({hasText:`${name}: ${READY}`}).waitFor({timeout:120000});
-            await page.waitForFunction(() => {
-                const canvas=[...document.querySelectorAll('.track-row canvas')].find(item=>/^track-canvas-\d+$/.test(item.id));
-                return canvas?.width>0 && Math.abs(canvas.width-canvas.getBoundingClientRect().width)<1.1;
-            });
+            await laneBox(page, await rowFigure(), 'wave');
             assert.ok(await page.locator('audio').count() > 0);
             assert.equal(await page.locator('audio').evaluateAll(nodes=>nodes.every(audio=>audio.paused)),true);
         }
@@ -392,17 +488,22 @@ const server = http.createServer((req,res) => {
         const secondUrl = await page.locator('audio').first().getAttribute('src');
         assert.notEqual(firstUrl,secondUrl);
         assert.equal(await page.evaluate(async url => {try {await fetch(url);return true;} catch {return false;}},firstUrl),false);
-        const changingBox = await page.locator(await firstCanvas()).boundingBox();
+        const changingBox = await laneBox(page, await rowFigure(), 'wave');
         assert.ok(changingBox);
         await page.mouse.click(changingBox.x + changingBox.width * .2, changingBox.y + changingBox.height * .5);
-        await page.waitForFunction(() => window.__testInbound.some(message => message.type==='spectrum-slice-result' && Math.abs(message.cursorNorm-.2)<.01));
+        await page.waitForFunction(() => window.__testInbound.some(message => message.type==='cursor-answers-result' && Math.abs(message.cursorNorm-.2)<.01));
         await page.evaluate(() => { window.__testInbound = []; });
         await page.mouse.click(changingBox.x + changingBox.width * .437, changingBox.y + changingBox.height * .5);
-        await page.waitForFunction(() => window.__testInbound.some(message => message.type==='spectrum-slice-result' && Math.abs(message.cursorNorm-.437)<.01));
+        await page.waitForFunction(() => window.__testInbound.some(message => message.type==='cursor-answers-result' && Math.abs(message.cursorNorm-.437)<.01));
+        // The page holds no value of the line: the peak is read off the picture the Figure drew (its highest point's
+        // place across, turned back into Hz by the lane's own axis).
+        await page.waitForFunction(() => { const seen=document.querySelector('#spectrum-overlay-plot canvas[data-figure]')?.__figureInspect?.(); return !!seen && !seen.waiting && seen.pictureId!==null && seen.lanes[0]?.lines.length>0; });
+        await page.waitForTimeout(300);
         const peakHz = await page.evaluate(() => {
-            const slice=window.__testInbound.filter(message=>message.type==='spectrum-slice-result' && Math.abs(message.cursorNorm-.437)<.01).at(-1);
-            const values=slice.channels[0].values;
-            return values.indexOf(Math.max(...values))*slice.maxFrequencyHz/(slice.frequencyBins-1);
+            const lane=document.querySelector('#spectrum-overlay-plot canvas[data-figure]').__figureInspect().lanes[0];
+            const top=lane.lines[0].points.filter(Boolean).reduce((best,point)=>point[1]<best[1]?point:best);
+            const part=(top[0]-lane.frame.left)/lane.frame.width, [low,high]=lane.range.x;
+            return lane.xLog ? low*Math.pow(high/low,part) : low+part*(high-low);
         });
         assert.ok(Math.abs(peakHz-880)<80,`2.5s cursor should select the later 880Hz section, got ${peakHz}`);
         // Playwright hands buffers over 50 MB only as files, so the oversized pick is a sparse file one byte past the limit.
@@ -474,16 +575,16 @@ const server = http.createServer((req,res) => {
         await page.locator('#spec-maxfreq').fill('2000');
         await page.evaluate(() => {window.__testInbound = [];});
         await page.locator('#spec-apply').click();
-        await page.waitForFunction(() => window.__testInbound.some(m => m.type === 'track-detail-result'
-            && m.channels.every(c => c.spectrogram?.windowSize === 2048)),undefined,{timeout:120000});
-        // The spectrogram under the waveform fills its canvas; the colour bar sits over its top right.
-        const toneCanvas = await page.locator((await firstCanvas()).replace('track-canvas-', 'track-spec-canvas-')).boundingBox();
+        await page.waitForFunction(() => window.__testInbound.some(m => m.type === 'track-answers-result' && m.windowSize === 2048),undefined,{timeout:120000});
+        // The spectrogram lane under the waveform lane of the row's Figure.
+        await page.waitForTimeout(300);
+        const toneCanvas = await laneBox(page, await rowFigure(), 'spectrogram');
         await page.evaluate(() => {window.__testInbound = [];});
         await page.mouse.click(toneCanvas.x + toneCanvas.width * .5, toneCanvas.y + toneCanvas.height * .5);
         // A click acts on the point the readout reads (R7): the spectrogram frame nearest the pointer, so the cursor
         // lands within half a hop of the middle (2048 points at 75 % overlap: 512 samples of the 1 s, 16 kHz tones).
         const halfHopNorm = 512 / toneRate / 2;
-        await page.waitForFunction(tolerance => window.__testInbound.some(m => m.type === 'spectrum-slice-result'
+        await page.waitForFunction(tolerance => window.__testInbound.some(m => m.type === 'cursor-answers-result'
             && Math.abs(m.cursorNorm - .5) <= tolerance), halfHopNorm + .002);
         const toneCsvMenu = page.locator('details').filter({has:page.locator('[data-action="export-csv"]')});
         if (!await toneCsvMenu.evaluate(node=>node.open)) await toneCsvMenu.locator('summary').click();
@@ -500,11 +601,22 @@ const server = http.createServer((req,res) => {
             const peakRow = toneCsvRows.reduce((best,row)=>row[channel*2+1]>best[channel*2+1]?row:best);
             const peakHz = peakRow[channel*2], peakDb = peakRow[channel*2+1];
             assert.ok(Math.abs(peakHz-hz)<=16000/2048/2, `CSV ${hz} Hz tone exported as ${peakHz}`);
-            // The cursor spectrum overlays both channels: at the top of the plot the nearest line is the one peaking there.
-            const spectrumBox = await page.locator('#spectrum-overlay-canvas').boundingBox();
-            assert.ok(spectrumBox);
-            // OVERLAY_SPECTRUM_PAD: 52 px left and 8 px right of the plot.
-            await page.mouse.move(spectrumBox.x+52+(spectrumBox.width-60)*peakHz/2000,spectrumBox.y+9);
+            // The cursor spectrum is one Figure of both channels: the pointer on the highest point of the line peaking
+            // there reads that bin (the picture's points are real bins, each bucket's lowest and highest).
+            // The panel was just opened: the picture of its settled size is the one to point at.
+            const drawn = () => page.waitForFunction(() => { const seen=document.querySelector('#spectrum-overlay-plot canvas[data-figure]')?.__figureInspect?.(); return !!seen && !seen.waiting && seen.pictureId!==null && seen.lanes[0]?.lines.length===2; });
+            await drawn(); await page.waitForTimeout(500); await drawn();
+            await page.mouse.move(0,0);
+            const top = await page.evaluate(expectedHz => {
+                const canvas=document.querySelector('#spectrum-overlay-plot canvas[data-figure]');
+                const lane=canvas.__figureInspect().lanes[0], [low,high]=lane.range.x;
+                const hzOf=px=>{ const part=(px-lane.frame.left)/lane.frame.width; return lane.xLog ? low*Math.pow(high/low,part) : low+part*(high-low); };
+                const tops=lane.lines.map(line=>line.points.filter(Boolean).reduce((best,point)=>point[1]<best[1]?point:best));
+                const peak=tops.reduce((best,point)=>Math.abs(hzOf(point[0])-expectedHz)<Math.abs(hzOf(best[0])-expectedHz)?point:best);
+                const box=canvas.getBoundingClientRect();
+                return {x:box.left+peak[0],y:box.top+peak[1]};
+            }, hz);
+            await page.mouse.move(top.x,top.y);
             // The readout lands on the peak bin whether the bins are denser than the plot's pixels or not.
             await page.waitForFunction(expected=>{
                 const text=document.getElementById('spectrum-freq-readout')?.textContent || '';
@@ -512,14 +624,22 @@ const server = http.createServer((req,res) => {
                 const match=text.match(/(\d+(?:\.\d+)?) (k?)Hz \/ ([−-]?\d+(?:\.\d+)?)/);
                 const hz=match ? Number(match[1])*(match[2] ? 1000 : 1) : NaN, db=match ? Number(match[3].replace('−','-')) : NaN;
                 return !!match && Math.abs(hz-expected.hz)<.11 && Math.abs(db-expected.db)<.11;
-            },{hz:peakHz,db:peakDb});
-            const stftId = (await firstCanvas()).replace('track-canvas-', 'track-spec-canvas-') + (channel ? '-1' : '');
-            const band = await page.locator(stftId).evaluate(canvas=>{
-                const x=Math.floor(canvas.width*.5), h=canvas.height;
-                const data=canvas.getContext('2d').getImageData(x,0,1,h).data;
+            },{hz:peakHz,db:peakDb}).catch(async error=>{ throw new Error(`the readout at the ${hz} Hz peak says "${await page.locator('#spectrum-freq-readout').textContent()}", expected ${peakHz} Hz / ${peakDb}: ${error.message}`); });
+            // The row's spectrogram lane as painted: the brightest rows of one pixel column (the palette's green
+            // rises with the level), turned back into Hz by the lane's own axis up.
+            const stftFigure = await rowFigure(page, channel);
+            await laneBox(page, stftFigure, 'spectrogram');
+            const band = await page.locator(stftFigure).evaluate(canvas=>{
+                const lane=canvas.__figureInspect().lanes.find(item=>item.id==='spectrogram');
+                const scale=canvas.width/canvas.getBoundingClientRect().width;
+                const x=Math.floor((lane.frame.left+lane.frame.width*.3)*scale), y0=Math.ceil(lane.frame.top*scale), h=Math.floor((lane.frame.top+lane.frame.height)*scale)-y0;
+                const data=canvas.getContext('2d').getImageData(x,y0,1,h).data;
                 const green=Array.from({length:h},(_,y)=>data[y*4+1]);
                 const top=Math.max(...green), rows=green.map((v,y)=>v===top?y:-1).filter(y=>y>=0);
-                return {hz:(1-(rows[0]+rows.at(-1)+1)/2/h)*2000,pixelHz:2000/h,top};
+                const [low,high]=lane.range.y;
+                const hzAt=row=>{ const part=1-((y0+row)/scale-lane.frame.top)/lane.frame.height; return lane.yLog ? low*Math.pow(high/low,part) : low+part*(high-low); };
+                const mid=(rows[0]+rows.at(-1)+1)/2;
+                return {hz:hzAt(mid),pixelHz:Math.abs(hzAt(mid-1)-hzAt(mid+1))/2,top};
             });
             assert.ok(band.top>100,'actual STFT raster must be painted');
             assert.ok(Math.abs(band.hz-peakHz)<=band.pixelHz+1,`STFT band ${band.hz} Hz vs CSV/hover ${peakHz} Hz`);
@@ -532,28 +652,25 @@ const server = http.createServer((req,res) => {
         const mobile=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
         await mobile.goto(origin+'/analyzer/');
         await mobile.locator(OPEN_FILE).setInputFiles(fixturePath('short-stereo.wav'));
-        await mobile.getByRole('status').filter({hasText:READY}).waitFor({timeout:120000});
-        const mobileBox=await mobile.locator('#track-canvas-0').boundingBox();
+        // At 390 px the footer's status line has no room to be seen, so it is waited for as text.
+        await mobile.getByRole('status').filter({hasText:READY}).waitFor({state:'attached',timeout:120000});
+        const rowFigureOf=async target=>`#${await (await target.waitForFunction(()=>[...document.querySelectorAll('[id^="track-row-figure-"]')].map(node=>node.id).find(name=>/^track-row-figure-\d+$/.test(name))||null,undefined,{timeout:120000})).jsonValue()} canvas[data-figure]`;
+        const mobileBox=await laneBox(mobile, await rowFigureOf(mobile), 'wave');
         assert.ok(mobileBox?.width>0);
         await mobile.evaluate(() => {
             window.__testInbound=[];
             window.__AWA_HOST__.onMessage(message=>window.__testInbound.push(message));
         });
         await mobile.touchscreen.tap(mobileBox.x+mobileBox.width*.5,mobileBox.y+mobileBox.height*.5);
-        await mobile.waitForFunction(()=>window.__testInbound.some(message=>message.type==='spectrum-slice-result' && Math.abs(message.cursorNorm-.5)<.1));
+        await mobile.waitForFunction(()=>window.__testInbound.some(message=>message.type==='cursor-answers-result' && Math.abs(message.cursorNorm-.5)<.1));
         const cdp=await mobile.context().newCDPSession(mobile);
         await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:mobileBox.x+mobileBox.width*.2,y:mobileBox.y+mobileBox.height*.5}]});
         await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:mobileBox.x+mobileBox.width*.7,y:mobileBox.y+mobileBox.height*.5}]});
         await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
         assert.equal(await mobile.locator('#loop-time-display').isVisible(),false,'documented prototype limitation: no touch-drag region');
         console.log('390px touch tap/STFT passed; touch-drag region remains unavailable.');
-        // The spectrogram under the waveform is painted without a toggle (its detail may have come before the listener).
-        await mobile.waitForFunction(()=>{
-            const canvas=document.getElementById('track-spec-canvas-0');
-            if(!canvas?.width) return false;
-            const data=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;
-            return data.some((value,index)=>index%4===3&&value>0);
-        },undefined,{timeout:120000});
+        // The spectrogram lane under the waveform is drawn without a toggle.
+        assert.ok((await laneBox(mobile, await rowFigureOf(mobile), 'spectrogram')).height>0);
         await mobile.screenshot({path:path.join(root,'test-results/static-mobile.png')});
         await removeAllTracks(mobile, 'tap');
         await mobile.close();

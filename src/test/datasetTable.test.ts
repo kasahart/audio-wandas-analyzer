@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { auditAudioMatches, finiteNumber, parseCSV, resolveAudio, summarizeAudioCandidates, AUDIO_REASON_CANDIDATE_LIMIT } from '../shared/dataset/asdData';
 import { CSVColumnCountError, csvColumnCountMessage } from '../shared/dataset/csvDiagnostics';
-import { annotatedCsv, baseGroupMembers, columnValues, datasetRows, matchCsv, middleEllipsis, readDatasetCsv, valueOf, visibleRows, type ColumnId, type DatasetFilter, type DatasetRow } from '../shared/dataset/datasetTable';
-import type { ScanResult } from '../shared/protocol/backendProtocol';
+import { annotatedCsv, tableCsv, baseGroupMembers, columnValues, datasetRows, inValueRange, matchCsv, middleEllipsis, readDatasetCsv, valueOf, visibleRows, type ColumnId, type DatasetFilter, type DatasetRow } from '../shared/dataset/datasetTable';
+import { csvRecords } from '../shared/utils/csv';
 import { getStrings } from '../shared/i18n/strings';
 import { baseOptionsHtml, filterChipText, rowWindow } from '../webview/runtime/entryTableHtml';
 
@@ -101,12 +101,7 @@ test('a picked CSV must be UTF-8, at most 20 MB, a .csv or .tsv', () => {
 
 // ---- the Analyzer's dataset: rows per recording and channel
 
-const ok = (channels: number, leq: number[]): ScanResult => (({
-    ok: true, input: { id: 'x', fs: 48000, channels: Array.from({ length: channels }, (_, index) => index), durationS: 2, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true },
-    leqDbA: leq, peakHz: leq.map(() => 1000), crest: leq.map(() => 3), thirdOctDb: leq.map(level => [level - 10, level - 20]), spectrumDb: [], specVersion: 5,
-}));
-
-test('rows are a recording and its channel; CSV attributes follow every channel, computed values are per channel', () => {
+test('rows are a recording and its channel; CSV attributes and the file\'s own information follow every channel', () => {
     const csv = readDatasetCsv(bytes('audio_file,line,score\nL1/a.wav,L1,0.2\nL2/b.wav,L2,0.9\nL2/b.wav,L2,0.1\nzzz.wav,L3,0.5\n'), 'm.csv');
     const files = ['/d/L1/a.wav', '/d/L2/b.wav', '/d/L2/c.wav'];
     const match = matchCsv(csv, files, '/d');
@@ -114,26 +109,52 @@ test('rows are a recording and its channel; CSV attributes follow every channel,
     // The first row for a recording wins; the rest are said why.
     assert.equal(match.attributes.get('/d/L2/b.wav')!.score, '0.9');
     assert.deepEqual(match.unmatched.map(item => [item.reason, item.row ?? item.filePath]), [['missing', 4], ['repeated', 3], ['no-row', '/d/L2/c.wav']]);
-    const results = new Map([['/d/L1/a.wav', ok(1, [-30])], ['/d/L2/b.wav', ok(2, [-25, -40])]]);
-    const rows = datasetRows(files, '/d', match.attributes, results);
+    // The headers say the channels, the lengths and the sample rates; the host, which file has a calibration.
+    const info = new Map([['/d/L1/a.wav', { durationS: 2, sampleRate: 48000, calibrated: true, calibration: 'Calibrated' }], ['/d/L2/b.wav', { durationS: 12.5, sampleRate: 44100, calibrated: false, calibration: 'Uncalibrated' }]]);
+    const rows = datasetRows(files, '/d', match.attributes, new Map([['/d/L1/a.wav', 1], ['/d/L2/b.wav', 2]]), path => info.get(path));
     assert.deepEqual(rows.map(row => [row.key, row.ch, row.channels]), [['/d/L1/a.wav', 1, 1], ['/d/L2/b.wav#ch1', 1, 2], ['/d/L2/b.wav#ch2', 2, 2], ['/d/L2/c.wav', 1, undefined]]);
     assert.deepEqual(rows.map(row => row.folders), [['L1'], ['L2'], ['L2'], ['L2']]);
     const ch2 = rows[2];
-    assert.equal(valueOf(ch2, 'csv:score', results), 0.9);
-    assert.equal(valueOf(ch2, 'leq', results), -40);
-    assert.equal(valueOf(ch2, 'band:1', results), -60);
-    assert.equal(valueOf(rows[3], 'leq', results), null);
+    assert.equal(valueOf(ch2, 'csv:score'), 0.9);
+    assert.equal(valueOf(ch2, 'duration'), 12.5);
+    assert.equal(valueOf(ch2, 'fs'), 44100);
+    // No value of the table is computed from the sound: a file with no CSV row and no header read has none.
+    assert.equal(valueOf(rows[3], 'csv:score'), null);
+    assert.equal(valueOf(rows[3], 'duration'), null);
+    assert.equal(valueOf(ch2, 'none'), null);
     // Filters: ch 2 only; a range on the score; the order by value, a missing value last.
-    const view = (extra: object = {}) => visibleRows({ rows, group: 'csv:line', value: 'leq', filters: [], sort: { column: 'value', descending: true }, excluded: new Set(), ...extra }, results).map((row: DatasetRow) => row.key);
-    assert.deepEqual(view(), ['/d/L2/b.wav#ch1', '/d/L1/a.wav', '/d/L2/b.wav#ch2', '/d/L2/c.wav']);
+    const view = (extra: object = {}) => visibleRows({ rows, group: 'csv:line', value: 'csv:score', filters: [], sort: { column: 'value', descending: true }, excluded: new Set(), ...extra }).map((row: DatasetRow) => row.key);
+    assert.deepEqual(view(), ['/d/L2/b.wav#ch1', '/d/L2/b.wav#ch2', '/d/L1/a.wav', '/d/L2/c.wav']);
     assert.deepEqual(view({ filters: [{ column: 'ch', kind: 'values', values: ['2'] }] }), ['/d/L2/b.wav#ch2']);
     assert.deepEqual(view({ filters: [{ column: 'csv:score', kind: 'range', low: 0.5, high: 1 }] }), ['/d/L2/b.wav#ch1', '/d/L2/b.wav#ch2']);
     assert.deepEqual(view({ excluded: new Set(['/d/L1/a.wav']), sort: { column: 'name', descending: false } }), ['/d/L2/b.wav#ch1', '/d/L2/b.wav#ch2', '/d/L2/c.wav']);
-    assert.deepEqual(columnValues(rows, 'csv:line', results), [['', 1], ['L1', 1], ['L2', 2]]);
+    assert.deepEqual(columnValues(rows, 'csv:line'), [['', 1], ['L1', 1], ['L2', 2]]);
+    // A file's information orders and narrows the table as any column does: by length, by sample rate (a range takes
+    // its low end, not its high), by the calibration's word (the calibrated first, those not known last).
+    assert.deepEqual(view({ sort: { column: 'duration', descending: false } }), ['/d/L1/a.wav', '/d/L2/b.wav#ch1', '/d/L2/b.wav#ch2', '/d/L2/c.wav']);
+    assert.deepEqual(view({ sort: { column: 'fs', descending: false } }), ['/d/L2/b.wav#ch1', '/d/L2/b.wav#ch2', '/d/L1/a.wav', '/d/L2/c.wav']);
+    assert.deepEqual(view({ sort: { column: 'calibration', descending: false } }), ['/d/L1/a.wav', '/d/L2/b.wav#ch1', '/d/L2/b.wav#ch2', '/d/L2/c.wav']);
+    assert.deepEqual(view({ filters: [{ column: 'fs', kind: 'range', low: 44100, high: 48000 }] }), ['/d/L2/b.wav#ch1', '/d/L2/b.wav#ch2']);
+    assert.deepEqual(view({ filters: [{ column: 'calibration', kind: 'values', values: ['Calibrated'] }] }), ['/d/L1/a.wav']);
+    assert.deepEqual(columnValues(rows, 'calibration'), [['', 1], ['Calibrated', 1], ['Uncalibrated', 2]]);
+    assert.deepEqual(columnValues(rows, 'fs'), [['', 1], ['44100', 2], ['48000', 1]]);
+});
+
+test('the table\'s CSV writes every row with its file\'s information, the picked CSV\'s columns, its slot, memo and exclusion: no analysis value', () => {
+    const rows = datasetRows(['/d/L1/a.wav', '/d/b.wav'], '/d', new Map([['/d/L1/a.wav', { line: 'L1', score: '0.2' }]]), new Map([['/d/b.wav', 2]]),
+        path => (path === '/d/b.wav' ? { durationS: 12.5, sampleRate: 44100, calibrated: false, calibration: '未校正' } : undefined));
+    const text = tableCsv(rows, ['line', 'score'], { file: 'File', ch: 'ch', duration: 'Length [s]', rate: 'fs [Hz]', calibration: 'Calibration', slot: 'Slot', memo: 'Memo', excluded: 'Excluded' },
+        key => (key === '/d/b.wav#ch2' ? 'Base' : ''), new Map([['/d/L1/a.wav', 'hum, low']]), new Set(['/d/b.wav#ch1']));
+    assert.deepEqual(csvRecords(text), [
+        ['File', 'ch', 'Length [s]', 'fs [Hz]', 'Calibration', 'line', 'score', 'Slot', 'Memo', 'Excluded'],
+        ['L1/a.wav', '1', '', '', '', 'L1', '0.2', '', 'hum, low', ''],
+        ['b.wav', '1', '12.5', '44100', '未校正', '', '', '', '', '1'],
+        ['b.wav', '2', '12.5', '44100', '未校正', '', '', 'Base', '', ''],
+    ]);
 });
 
 test('rows sort by name in natural order, also after the folder changes and through a filter', () => {
-    const byName = (paths: string[], extra: object = {}): string[] => visibleRows({ rows: datasetRows(paths, '/d', new Map(), new Map()), group: 'none', value: 'leq', filters: [], sort: { column: 'name', descending: false }, excluded: new Set(), ...extra }, new Map()).map((row: DatasetRow) => row.name);
+    const byName = (paths: string[], extra: object = {}): string[] => visibleRows({ rows: datasetRows(paths, '/d', new Map()), group: 'none', value: 'none', filters: [], sort: { column: 'name', descending: false }, excluded: new Set(), ...extra }).map((row: DatasetRow) => row.name);
     assert.deepEqual(byName(['/d/run10.wav', '/d/Run2.wav', '/d/run9.wav', '/d/run1.wav']), ['run1.wav', 'Run2.wav', 'run9.wav', 'run10.wav']);
     // Another folder: its own names, in their own order.
     assert.deepEqual(byName(['/d/b100.wav', '/d/a.wav', '/d/b20.wav']), ['a.wav', 'b20.wav', 'b100.wav']);
@@ -141,7 +162,7 @@ test('rows sort by name in natural order, also after the folder changes and thro
 });
 
 test('before anything is computed, the headers split a recording into its channels', () => {
-    const rows = datasetRows(['/d/a.wav', '/d/b.wav'], '/d', new Map(), new Map(), new Map([['/d/a.wav', 2]]));
+    const rows = datasetRows(['/d/a.wav', '/d/b.wav'], '/d', new Map(), new Map([['/d/a.wav', 2]]));
     assert.deepEqual(rows.map(row => [row.key, row.ch, row.channels]), [['/d/a.wav#ch1', 1, 2], ['/d/a.wav#ch2', 2, 2], ['/d/b.wav', 1, undefined]]);
 });
 
@@ -154,7 +175,7 @@ test('a long name keeps its start and its end', () => {
 
 test('a base group is the group\'s other recordings in the pool, of the compared channel; recordings without it are left out and counted', () => {
     const attributes = new Map([['/d/a.wav', { rpm: '900' }], ['/d/b.wav', { rpm: '900' }], ['/d/m.wav', { rpm: '900' }], ['/d/c.wav', { rpm: '1500' }]]);
-    const rows = datasetRows(['/d/a.wav', '/d/b.wav', '/d/m.wav', '/d/c.wav'], '/d', attributes, new Map(), new Map([['/d/a.wav', 2], ['/d/b.wav', 2], ['/d/m.wav', 1], ['/d/c.wav', 2]]));
+    const rows = datasetRows(['/d/a.wav', '/d/b.wav', '/d/m.wav', '/d/c.wav'], '/d', attributes, new Map([['/d/a.wav', 2], ['/d/b.wav', 2], ['/d/m.wav', 1], ['/d/c.wav', 2]]));
     assert.deepEqual(baseGroupMembers(rows, '/d/a.wav', 'csv:rpm', '900', 2), { paths: ['/d/b.wav'], fewerChannels: 1, fewerPaths: ['/d/m.wav'] });
     assert.deepEqual(baseGroupMembers(rows, '/d/a.wav', 'csv:rpm', '900', null), { paths: ['/d/b.wav', '/d/m.wav'], fewerChannels: 0, fewerPaths: [] });
     // The pool is what the filters left: ch = 2 only leaves the mono recording out before any channel is asked for.
@@ -167,7 +188,7 @@ test('memos and exclusions go back as the picked CSV with two columns after: per
     const csv = readDatasetCsv(bytes('audio_file,line,score\nL1/a.wav,L1,0.2\nL2/b.wav,L2,0.9\nmissing.wav,L3,0.5\nL1/m.wav,L1,0.1\n'), 'm.csv');
     const files = ['/d/L1/a.wav', '/d/L2/b.wav', '/d/L1/m.wav'];
     const match = matchCsv(csv, files, '/d');
-    const rows = datasetRows(files, '/d', match.attributes, new Map(), new Map([['/d/L1/a.wav', 2], ['/d/L2/b.wav', 2], ['/d/L1/m.wav', 1]]));
+    const rows = datasetRows(files, '/d', match.attributes, new Map([['/d/L1/a.wav', 2], ['/d/L2/b.wav', 2], ['/d/L1/m.wav', 1]]));
     const memo = new Map([['/d/L1/a.wav#ch2', 'rattle, 3 kHz'], ['/d/L1/m.wav', 'quiet']]);
     const excluded = new Set(['/d/L2/b.wav#ch1', '/d/L2/b.wav#ch2', '/d/L1/a.wav#ch1']);
     const text = annotatedCsv(csv, match, files, '/d', rows, memo, excluded);
@@ -218,4 +239,14 @@ test('the base select offers slot 1\'s group median, each group\'s median, and s
     assert.deepEqual(values(row), ['row', 'auto', 'group:900', 'group:1500']);
     assert.equal(selected(row), 'row');
     assert.match(row, />0 a &lt;b&gt;\.wav</);
+});
+
+test('a range takes its low end and not its high end, unless it is closed (the one rule of a selected range)', () => {
+    // As a distribution's bin takes its values (python-backend/figures/members.py rows_picked): a picked bar's range
+    // keeps exactly the rows the bar counts, and a range up to the top of the axis keeps the values on the top.
+    assert.equal(inValueRange(1, { low: 1, high: 2 }), true);
+    assert.equal(inValueRange(2, { low: 1, high: 2 }), false);
+    assert.equal(inValueRange(2, { low: 1, high: 2, closed: true }), true);
+    assert.equal(inValueRange(2.0001, { low: 1, high: 2, closed: true }), false);
+    assert.equal(inValueRange(0.9999, { low: 1, high: 2, closed: true }), false);
 });

@@ -1,7 +1,7 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import { SUPPORTED_AUDIO_FILE_EXTENSIONS } from '../../shared/utils/audioTarget';
 import { setHint } from './hintFooter';
-import { keyRouterFor } from './keyRouter';
+import { keyRouterFor } from '../shell/keyRouter';
 import type { PythonState } from './staticWorker';
 
 /** Actions the browser version cannot run: greyed out, and a press says why instead of acting. */
@@ -20,6 +20,8 @@ export interface StaticFooter {
     showPythonState: (state: PythonState, quiet?: boolean) => void;
     /** Says in the hint footer, and to screen readers, that the browser version cannot do this. */
     reportUnavailable: () => void;
+    /** Takes off its key context (keyRouter's clean-up promise), for an owner that tears it down. */
+    dispose: () => void;
 }
 
 export function createStaticFooter(document: Document, window: Window, strings: UiStrings): StaticFooter {
@@ -146,7 +148,7 @@ export function createStaticFooter(document: Document, window: Window, strings: 
     });
     window.addEventListener('pointerdown', event => { if (about.open && !about.contains(event.target as Node)) about.open = false; });
     window.addEventListener('resize', clampAbout);
-    keyRouterFor(window).add({
+    const removeKeys = keyRouterFor(window).add({
         layer: 'popover',
         keydown(event) {
             if (!about.open || event.key !== 'Escape') return false;
@@ -155,5 +157,5 @@ export function createStaticFooter(document: Document, window: Window, strings: 
             return true;
         },
     });
-    return { bar, pick, folderPick, announce, showPythonState, reportUnavailable };
+    return { bar, pick, folderPick, announce, showPythonState, reportUnavailable, dispose: removeKeys };
 }

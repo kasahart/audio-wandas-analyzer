@@ -2,6 +2,8 @@ import { expect, settled, test, type Page } from './canvasAudit';
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { buildUiSmokeHtml, buildUiSmokeSelectionHtml } from './buildHtml';
+import { drawnRow, pointOnLane, rowFigure, ROW_WAVE } from './tracksFigures';
+
 
 function dispatchAnalysisUpdate(input: string[] | { paths: string[]; durations: number[] }): void {
     const paths = Array.isArray(input) ? input : input.paths;
@@ -78,10 +80,10 @@ test('directory file remove/re-add keeps surviving offset, cursor and document',
     // The offset's steps are in the track's … menu.
     await page.locator('.track-row[data-track-id="track-1"] details.track-more summary').click();
     await page.locator('[data-action="offset-up"][data-track-id="track-1"]').click();
-    const canvas = page.locator('#track-canvas-0');
-    await canvas.scrollIntoViewIfNeeded();
-    const box = (await canvas.boundingBox())!;
-    await page.mouse.click(box.x + box.width * .437, box.y + box.height * .5);
+    await page.locator(rowFigure(0)).scrollIntoViewIfNeeded();
+    await drawnRow(page, 0, 0, true);
+    const at = await pointOnLane(page, rowFigure(0), ROW_WAVE, .437);
+    await page.mouse.click(at.x, at.y);
     // The click moves the cursor at once (plotInteraction.ts, R13), then the zoom is about it.
     await settled(page);
     await page.locator('#toolbar [data-action="zoom-in"]').click();

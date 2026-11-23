@@ -15,16 +15,6 @@ const options = {
 
 // The bundles read tsc's output under dist/, so `npm run watch` rebuilds them when any file they import changes.
 const BUILDS = [
-    {
-        ...options,
-        stdin: {
-            contents: `import { paintLoopRegion } from './dist/webview/waveform/waveformRenderer.js';
-window.paintLoopRegion = paintLoopRegion;`,
-            resolveDir: ROOT,
-            sourcefile: 'waveformWindow.js',
-        },
-        outfile: path.join(OUT_DIR, 'comparisonWaveform.js'),
-    },
     ...[
         ['comparisonEntry', 'comparisonRuntime'],
         ['staticHostEntry', 'staticHost'],

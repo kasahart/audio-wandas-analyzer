@@ -68,10 +68,8 @@ export function getRenderStyles(): string {
 export function getRenderHtml(state: unknown): string {
     return loadComparisonPanelModule().renderComparisonHtml(
         {
-            asWebviewUri: (uri: unknown) => ({
-                toString: () => (uri as { fsPath?: string }).fsPath?.endsWith('comparisonRuntime.js')
-                    ? '__COMPARISON_RUNTIME__'
-                    : '__WAVEFORM_PIPELINE__',
+            asWebviewUri: () => ({
+                toString: () => '__COMPARISON_RUNTIME__',
             }),
             cspSource: 'data:',
         },

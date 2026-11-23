@@ -21,6 +21,11 @@ async function removeAllTracks(page, act = 'click') {
     }
 }
 
+/** What a row's answers reply says of what was kept (the keys themselves are each host's own). */
+const kept=m=>({windowSize:m.windowSize,hopSize:m.hopSize,windowed:m.windowed,sampleRateHz:m.sampleRateHz,durationSeconds:m.durationSeconds,channels:m.channels.map(c=>({channelIndex:c.channelIndex,level:c.level,unit:c.unit,signal:typeof c.signal,image:typeof c.image}))});
+/** Where a lane of the first track's drawn row sits on the page. */
+const rowBox=async(target,lane='wave')=>(await target.waitForFunction(id=>{const canvas=[...document.querySelectorAll('[id^="track-row-figure-"]')].find(node=>/^track-row-figure-\d+$/.test(node.id))?.querySelector('canvas[data-figure]'),seen=canvas?.__figureInspect?.();const found=seen&&!seen.waiting&&seen.pictureId!==null&&seen.lanes.find(item=>item.id===id);if(!found)return null;const box=canvas.getBoundingClientRect();return{x:box.left+found.frame.left,y:box.top+found.frame.top,width:found.frame.width,height:found.frame.height};},lane,{timeout:120000})).jsonValue();
+
 module.exports = async function auditMulti({ browser, origin, root, nativeResults, compare }) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
     const errors = [];
@@ -54,24 +59,28 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         await status.filter({hasText:tracks(2)}).waitFor({timeout:120000});
         assert.equal(await page.locator('.track-row').count(),2);
         assert.equal(await page.evaluate(()=>window.__workers.length),1,'one shared Python runtime');
-        // The lanes ask for each track's spectrogram at once and merge it into the result: the overview is compared without it, the STFT below.
-        const initial = await page.evaluate(()=>window.__multiIn.filter(m=>m.type==='analysis-update').at(-1).results
-            .map(result=>({...result,channels:result.channels.map(channel=>({...channel,spectrogram:null}))})));
-        for(let i=0;i<2;i++) compare(nativeResults[i][0].channels,initial[i].channels,`multi.waveform[${i}]`);
-        await page.waitForFunction(()=>new Set(window.__multiIn.filter(m=>m.type==='track-detail-result'&&m.channels.every(c=>c.spectrogram?.timeBins>0)).map(m=>m.filePath)).size===2,undefined,{timeout:120000});
+        // The analysis is a recording's summary (no picture in it); each row asks for its answers at once.
+        const initial = await page.evaluate(()=>window.__multiIn.filter(m=>m.type==='analysis-update').at(-1).results);
+        for(let i=0;i<2;i++) compare(nativeResults[i][0].channels,initial[i].channels,`multi.summary[${i}]`);
+        await page.waitForFunction(()=>new Set(window.__multiIn.filter(m=>m.type==='track-answers-result'&&m.windowSize>0).map(m=>m.filePath)).size===2,undefined,{timeout:120000});
         await page.locator('[data-action="spectrogram-settings"]').click();
         await page.locator('#spec-auto').uncheck();await page.locator('#spec-nfft').selectOption('256');await page.locator('#spec-overlap').selectOption('75');
         await page.evaluate(()=>window.__multiIn=[]);await page.locator('#spec-apply').click();
-        await page.waitForFunction(()=>new Set(window.__multiIn.filter(m=>m.type==='track-detail-result'&&m.channels.every(c=>c.spectrogram?.windowSize===256&&c.spectrogram?.hopSize===64)).map(m=>m.filePath)).size===2,undefined,{timeout:120000});
-        const detail = await page.evaluate(()=>window.__multiIn.filter(m=>m.type==='track-detail-result'));
-        for(let i=0;i<2;i++) compare(nativeResults[i][1].channels,detail.find(m=>m.filePath===initial[i].filePath).channels,`multi.STFT[${i}]`);
+        await page.waitForFunction(()=>new Set(window.__multiIn.filter(m=>m.type==='track-answers-result'&&m.windowSize===256&&m.hopSize===64&&m.channels.every(c=>typeof c.image==='string')).map(m=>m.filePath)).size===2,undefined,{timeout:120000});
+        const detail = await page.evaluate(()=>window.__multiIn.filter(m=>m.type==='track-answers-result'&&m.windowSize===256&&m.channels.every(c=>typeof c.image==='string')));
+        // What each row's reply says was kept, against the native backend's (the values kept are compared by the
+        // parity script's row picture; here the page's own route to them).
+        for(let i=0;i<2;i++) compare(kept(nativeResults[i][1]),kept(detail.findLast(m=>m.filePath===initial[i].filePath)),`multi.STFT[${i}]`);
+        await rowBox(page,'spectrogram');
         await page.screenshot({path:path.join(root,'test-results/browser-multi-stft.png'),fullPage:true});
-        // The pair view goes through the same session controller to the Worker's pair-spectrum command.
+        // The pair view goes through the same session controller to the Worker's pair-answers command: the reply
+        // names each response's three kept lines, and the Figure draws them (a lane each: gain, phase, coherence).
         await page.locator('[data-action="set-pair-reference"]').first().click();
-        await page.waitForFunction(()=>window.__multiIn.some(m=>m.type==='pair-spectrum-result'),undefined,{timeout:120000});
-        const pair = await page.evaluate(()=>window.__multiIn.filter(m=>m.type==='pair-spectrum-result').at(-1));
+        await page.waitForFunction(()=>window.__multiIn.some(m=>m.type==='pair-answers-result'),undefined,{timeout:120000});
+        const pair = await page.evaluate(()=>window.__multiIn.filter(m=>m.type==='pair-answers-result').at(-1));
         assert.equal(pair.nFft,256);assert.equal(pair.responses.length,3);
-        assert.ok(pair.responses.every(r=>r.status==='ok'&&r.averages>=8&&r.gainDb.length===pair.frequencyBins),JSON.stringify(pair.responses.map(r=>[r.status,r.averages])));
+        assert.ok(pair.responses.every(r=>r.status==='ok'&&r.averages>=8&&typeof r.keys?.gain==='string'),JSON.stringify(pair.responses.map(r=>[r.status,r.averages])));
+        await page.waitForFunction(()=>{const seen=document.querySelector('#pair-spectrum-figure canvas[data-figure]')?.__figureInspect?.();return !!seen&&!seen.waiting&&seen.pictureId!==null&&seen.lanes.length===3&&seen.lanes.every(lane=>lane.lines.length===3);},undefined,{timeout:120000});
         const averages = S.pairAverages.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('\\{n\\}', '\\d+');
         assert.match(await page.locator('#pair-spectrum-summary').innerText(),new RegExp(`^H1 · ${averages} · \\d\\.\\d\\d–\\d\\.\\d\\d s$`));
         assert.equal(await page.locator('[data-action="spectrum-octave-3"]').isDisabled(),true);
@@ -86,8 +95,7 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         await page.locator('.track-row .track-more > summary').first().click();
         await page.locator('[data-action="offset-up"]').first().click();
         assert.match(await page.locator('#offset-val-0').innerText(),/0\.010/);
-        await page.waitForFunction(()=>{const c=document.querySelector('#track-canvas-0');return c?.width>0&&Math.abs(c.width-c.getBoundingClientRect().width)<1.1;});
-        const box = await page.locator('#track-canvas-0').boundingBox();assert.ok(box);
+        const box = await rowBox(page);assert.ok(box);
         // Alt+drag sets the loop (a plain drag is the box zoom).
         await page.mouse.move(box.x+box.width*.21,box.y+box.height*.5);await page.keyboard.down('Alt');await page.mouse.down();
         await page.mouse.move(box.x+box.width*.63,box.y+box.height*.5,{steps:5});await page.mouse.up();await page.keyboard.up('Alt');
@@ -159,15 +167,21 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         await picker.setInputFiles(Array.from({length:6},(_,i)=>({name:`additional-${i}.wav`,mimeType:'audio/wav',buffer:bytes})));
         await status.filter({hasText:S.browserAggregateLimit.slice(0,S.browserAggregateLimit.indexOf('{mib}')).replace('{count}','8')}).waitFor();assert.equal(await page.locator('.track-row').count(),8);
         assert.equal(await page.evaluate(()=>window.__workers.length),1);
-        // Lanes are drawn (and fetch their STFT) near the view only: each is scrolled to before its rasters are checked.
+        // Rows are drawn (and ask for their answers) near the view only: each is scrolled to before its picture is checked.
+        // A row is one Figure per channel; its spectrogram lane is painted when the lane's frame holds pixels.
         const waitStftPainted = async () => {
-            assert.equal(await page.locator('canvas[id^="track-spec-canvas-"]').count(), 16);
+            assert.equal(await page.locator('.track-row-figure').count(), 16);
             for (let row = 0; row < 8; row++) {
                 await page.locator('.track-row').nth(row).scrollIntoViewIfNeeded();
                 await page.waitForFunction((index) => {
-                    const canvases = Array.from(document.querySelectorAll('.track-row')[index].querySelectorAll('canvas[id^="track-spec-canvas-"]'));
+                    const canvases = Array.from(document.querySelectorAll('.track-row')[index].querySelectorAll('.track-row-figure canvas[data-figure]'));
                     return canvases.length === 2 && canvases.every(canvas => {
-                        const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width - 20, canvas.height).data;
+                        const seen = canvas.__figureInspect?.();
+                        const lane = seen && !seen.waiting && seen.pictureId !== null && seen.lanes.find(item => item.id === 'spectrogram');
+                        if (!lane) return false;
+                        const scale = canvas.width / canvas.getBoundingClientRect().width;
+                        const pixels = canvas.getContext('2d').getImageData(Math.ceil(lane.frame.left * scale), Math.ceil(lane.frame.top * scale),
+                            Math.max(1, Math.floor(lane.frame.width * scale / 2)), Math.max(1, Math.floor(lane.frame.height * scale) - 1)).data;
                         return pixels.some((value, i) => i % 4 === 3 && value > 0);
                     });
                 }, row, {timeout:30000});
@@ -178,7 +192,7 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         await picker.setInputFiles({name:'replacement.wav',mimeType:'audio/wav',buffer:bytes});
         await status.filter({hasText:tracks(8)}).waitFor();
         await waitStftPainted();
-        console.log('Eight-track STFT remove/add: all 16 real Canvas rasters repainted.');
+        console.log('Eight-track STFT remove/add: all 16 row pictures drawn again.');
         await page.evaluate(()=>window.__workers[0].postMessage({cmd:'__test_throw',requestId:'test-fault'}));
         await status.filter({hasText:S.browserWorkerFailed}).waitFor();assert.equal(await page.locator('.track-row').count(),0);
         assert.equal(await page.evaluate(async u=>{try{await fetch(u);return true;}catch{return false;}},firstUrl),false);

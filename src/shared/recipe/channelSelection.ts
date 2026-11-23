@@ -4,7 +4,6 @@
  * Recipe exported with the report has the step, and its numbers are that channel's of the per-channel results.
  */
 import type { RecipeDocument } from './recipeSelection';
-import type { ScanResult } from '../protocol/backendProtocol';
 import { NEEDS_TWO_CHANNELS, PAIRED_ON_ADD, recipeNodes, TIME_SLICE } from './recipeSteps';
 
 export const GET_CHANNEL = 'wandas.frame.get_channel';
@@ -37,27 +36,6 @@ export function channelOfRecipe(recipe: RecipeDocument): number | null {
     const entries = (node?.params as { entries?: Array<[string, unknown]> } | undefined)?.entries ?? [];
     const index = entries.find(([key]) => key === 'channel_idx')?.[1];
     return typeof index === 'number' ? index + 1 : null;
-}
-
-const PER_CHANNEL = ['leqDbA', 'peakHz', 'spectrumDb', 'spectrumBinsDb', 'thirdOctDb', 'crest'] as const;
-
-/** One channel's numbers of a result scanned over every channel; a result without that channel is not ok. */
-export function channelResult(result: ScanResult | undefined, ch: number): ScanResult | undefined {
-    if (!result?.ok) return result;
-    const index = ch - 1;
-    const count = (result.leqDbA ?? []).length;
-    if (index >= count) return { ok: false, reason: `no channel ${ch} (${count} ch)` };
-    const picked: ScanResult = { ...result };
-    for (const key of PER_CHANNEL) {
-        const values = result[key];
-        if (Array.isArray(values)) Object.assign(picked, { [key]: [values[index]] });
-    }
-    // The channel names its own calibration (a file calibrated channel by channel), not the whole file's (R4).
-    if (result.input) {
-        const own = result.input.channelCalibration?.[index];
-        picked.input = { ...result.input, channels: [result.input.channels[index] ?? index], ...(own ? { calibrationStatus: own, channelCalibration: [own] } : {}) };
-    }
-    return picked;
 }
 
 export const BASE_INPUT = 'input-base';

@@ -21,13 +21,15 @@ User picks audio file
   → src/webview/panels/ComparisonPanel.ts renders Webview
 ```
 
-On-demand high-resolution waveform data during zoom:
+A Tracks row's picture (when opened, and again at each zoom):
 
 ```
-Webview postMessage("request-waveform-range")
+Webview postMessage("request-track-detail", answers)   the row asks its answers once
   → ComparisonSessionController → AnalysisClient → PythonBackendServer (TS)
-  → backend_server.py → AnalysisService.waveform_range() (cached AnalysisEngine frame)
-  → postMessage("waveform-range-result") back to Webview
+  → backend_server.py → AnalysisService.track_answers() keeps the samples and STFT levels by key
+  → postMessage("track-answers-result") back to the Webview: keys, no values
+Webview postMessage("figure-request", figure-draw)     the row's Figure asks for one picture of those keys
+  → python-backend/figures/ (the figure service) → postMessage("figure-result")
 ```
 
 See [docs/architecture.md](docs/architecture.md) for full detail.
@@ -93,7 +95,7 @@ scripts/worktree-new.sh <feature-slug> [base-branch]   # base 既定: main
 # node_modules と .venv は symlink で共有、dist と .vscode-test は worktree 専有。
 ```
 
-`npm run compile` は実行前に `scripts/clean-dist.js` で **対応する `src/**/*.ts` が存在しない tsc 出力 (`.js` / `.js.map`)** を自動削除する。ブランチ切替や rebase 後に古いテスト .js が node:test に拾われる事故 (stale dist) を防ぐ。`.json` や画像など tsc が emit しないファイルは対象外で誤削除されない。`scripts/build-webview.js` が生成する `dist/webview/comparisonWaveform.js`・`dist/webview/comparisonRuntime.js`・`dist/webview/staticHost.js` は `PROTECTED_RELATIVE` で保護する。
+`npm run compile` は実行前に `scripts/clean-dist.js` で **対応する `src/**/*.ts` が存在しない tsc 出力 (`.js` / `.js.map`)** を自動削除する。ブランチ切替や rebase 後に古いテスト .js が node:test に拾われる事故 (stale dist) を防ぐ。`.json` や画像など tsc が emit しないファイルは対象外で誤削除されない。`scripts/build-webview.js` が生成する `dist/webview/comparisonRuntime.js`・`dist/webview/staticHost.js` は `PROTECTED_RELATIVE` で保護する。
 
 TS/JS の役割分担は `src/**/*.ts` が編集対象のソース、`dist/**/*.js` が compile で生成される実行物。Webview のバンドル生成物も手で編集せず、元の TS と build script を直す。
 
@@ -109,21 +111,23 @@ TS/JS の役割分担は `src/**/*.ts` が編集対象のソース、`dist/**/*.
 | `src/webview/panels/ComparisonPanel.ts` | Multi-track comparison Webview shell and CSP-safe bootstrap data |
 | `src/webview/runtime/comparisonEntry.ts` | Strict TypeScript entry for the modular Comparison Webview runtime |
 | `src/shared/analysis/analysisTypes.ts` | Shared `AnalysisResult` / `DirectoryTreeNode` contracts |
-| `src/webview/waveform/waveformRenderer.ts` | Pure TS waveform rendering pipeline (3 layers, no Canvas dependency). `src/webview/plot/waveformLayer.ts` imports it, so it ships inside `dist/webview/comparisonRuntime.js`. |
-| `src/webview/waveform/rangeRequestPolicy.ts` | `isCacheSufficient` / `computeReqBounds` |
-| `python-backend/analyzer.py` | `analyze_from_frame()` — display payload from calibrated wandas frames |
-| `python-backend/decimator.py` | `decimated_waveform()` — bucket-level argmin/argmax |
-| `python-backend/analysis_service.py` | Initial summary, detail, spectrum slice, waveform range, WAV export and Recipe |
-| `python-backend/analysis_engine.py` | Cached audio frames and STFT by calibration/settings |
-| `python-backend/backend_server.py` | Persistent NDJSON server; dispatches the validated commands in `command_dispatch.COMMANDS` (11 today) |
+| `src/webview/charts/`, `src/webview/screens/` | A chart's declaration (which answers, which lanes) and the screen that hosts it |
+| `src/webview/figure/figure.ts` | The Figure: the one component that draws a picture of the figure service and takes its gestures |
+| `python-backend/figures/` | The figure service: one picture per request (ranges, points drawn, the point a read reads) |
+| `python-backend/services/analyzer.py` | `analyze_from_frame()` — a recording's summary (length, rate, each channel's peak and calibration) from calibrated wandas frames |
+| `python-backend/frames/stage_view.py` | `read_frame()` — the one place a wandas Frame is read: its values at full resolution and its axes; `describe()` says what a step's result is |
+| `python-backend/transport/` | The protocol's schema, the validation and routing of a request, and the answers handed to the figure service |
+| `python-backend/services/analysis_service.py` | Initial summary, the answers kept for the Tracks figures, region peak, WAV export and Recipe |
+| `python-backend/services/analysis_engine.py` | Cached audio frames and STFT by calibration/settings |
+| `python-backend/backend_server.py` | Persistent NDJSON server; dispatches the validated commands in `transport/command_dispatch.py` `COMMANDS` |
 
-### Waveform rendering pipeline
+### How a Tracks row is drawn
 
-`waveformRenderer.ts` is the **single source of truth**. `src/webview/plot/waveformLayer.ts` imports its layers, so they ship inside the runtime bundle `dist/webview/comparisonRuntime.js`. (`dist/webview/comparisonWaveform.js` only exposes the loop-region painter `paintLoopRegion`.) Three pure layers:
-
-1. **CoordTransform** (`makeCoordTransform`) — file-normalized time `tNorm ∈ [0,1]` → canvas x, using `offsetNorm` and `trackDurRatio`.
-2. **Decimation** (`computeViewRange` + `decimateBuckets`) — choose bucket range and apply argmin/argmax.
-3. **Painting** (`paintDecimatedPoints`) — the only layer that touches Canvas.
+A row is one Figure per channel (`src/webview/charts/trackRow.ts`): a waveform lane above a spectrogram lane. The
+backend keeps the channel's samples and its spectrogram levels under keys (`python-backend/services/tracks_answers.py`); the
+row's declaration names the keys, the figure service answers with one picture thinned for the lane's width
+(`python-backend/figures/thinning.py`: each bucket's lowest and highest sample), and the Figure draws it. The webview
+holds no envelope and no spectrogram cells.
 
 Multi-track global span:
 
@@ -134,7 +138,7 @@ trackStart     = (offsetSec - globalStartSec) / globalSpanSec   → offsetNorm
 trackDurRatio  = durationSeconds / globalSpanSec
 ```
 
-`zoomStart/zoomEnd ∈ [0,1]` refer to the global span. Python's `decimated_waveform()` returns `minT`/`maxT` normalized to the **full file**, not the requested range.
+`zoomStart/zoomEnd ∈ [0,1]` refer to the global span. A row's Figure is asked for the part of its own file that span shows.
 
 ---
 
@@ -154,16 +158,17 @@ Line endings: every text file is LF in the repository and in every checkout, on 
 
 - Lint/format: **Ruff** (config in `pyproject.toml`). Run `ruff format` before committing.
 - Types: **pyright** basic mode over the non-test modules (`[tool.pyright]` in `pyproject.toml`). Silence a finding only where wandas' own annotations are wrong, with a narrow `# pyright: ignore[rule]` and the reason.
-- Prefer wandas APIs over reimplementing DSP. See `python-backend/analyzer.py` for the canonical entry point.
+- Prefer wandas APIs over reimplementing DSP. See `python-backend/services/analyzer.py` for the canonical entry point.
 - Tests use `pytest` and live alongside the module they test (`python-backend/test_*.py`).
 - The backend never leaves its request or reply pipe as a standard handle of the process. `backend_server._request_stream` reads requests through a private fd and points fd 0 and the Win32 standard input handle at the null device, because on Windows a thread loading a DLL (a lazy scipy import) queries the standard input and would wait for the main thread's pending read on the pipe, that is for the host's next request. `backend_server._reply_stream` writes replies through a private fd and points fd 1, the Win32 standard output handle and `sys.stdout` where stderr goes, because anything else written to the standard output (a library's `print`, C code, a child process) would otherwise land inside the JSON-lines protocol; there it lands in the log. stderr stays the pipe the host reads: the host reads it continuously, so a write there waits a moment at most. Held by `test_the_backends_standard_input_is_not_its_request_pipe` and `test_what_a_request_writes_to_the_standard_output_lands_in_the_log_and_never_in_the_reply_stream`.
 
 ### Charts
 
 - Every chart follows the numbered rules in [docs/display-rules.md](docs/display-rules.md). A change that decides a new rule adds it there with the test that checks it; `src/test/displayRules.test.ts` fails when a listed test is missing or any rule is marked 未.
-- Every chart and every value a user reads off it (readout, ← / →, Δ, median, headline, order, auto range, ticks, axis names, exports, counts, data identity, pending state) is a row of `src/test/plotContracts/charts/<chart>.ts` (one file per chart), rendered to [docs/plot-contracts.md](docs/plot-contracts.md). `src/test/plotContracts.test.ts` fails when a plot-component call, a `plotRegistry.ts` plot, a function that writes a number (`toFixed`… or a `VALUE_HELPERS` call), or a numeric protocol field (`schema.ts`) is missing from it; when a row's source disagrees with what its functions read; when a named test or function does not exist; or when the gaps differ from each chart's `knownGaps` or from `GAP_CEILING`, which only goes down. Regenerate the doc with `npm run compile && node dist/test/plotContracts/render.js`.
-- A number a user reads comes from the full data, never from points thinned to draw. The compiler enforces it in the webview: thinned arrays are typed `Drawn` and cannot be computed with; readouts and exports take only `Whole` (`src/shared/provenance.ts`, checked further by `src/test/provenanceBoundary.test.ts`). The backend is checked by data flow (`scripts/check_decimation_flow.py`). Which layer decides what on a chart: [docs/plot-layers.md](docs/plot-layers.md).
+- A figure (every chart on screen) is one picture of the figure service put on screen by the Figure; its values are held by the figure service's tests (`python-backend/test_figures_*.py`) and the Figure's (`src/test/figureComponent.test.ts`, `src/test/uiSmoke/plotContract.spec.ts`), not by the contract table. The contract table (`src/test/plotContracts/charts/<chart>.ts`, one file per chart, rendered to [docs/plot-contracts.md](docs/plot-contracts.md)) lists what the screens write themselves: the numbers of the track headers, the toolbar, the tables and the files written. `src/test/plotContracts.test.ts` fails when a function of `runtime/` or `shared/` that writes a number (`toFixed`… or a `VALUE_HELPERS` call) or a numeric protocol field (`schema.ts`) is missing from it; when a row's source disagrees with what its functions read; when a named test or function does not exist; or when the gaps differ from each chart's `knownGaps` or from `GAP_CEILING`, which only goes down. Regenerate the doc with `npm run compile && node dist/test/plotContracts/render.js`. See [docs/plot-contracts-guide.md](docs/plot-contracts-guide.md).
+- A number a user reads comes from the full data, never from points thinned to draw. The webview holds no measured data: every number it writes is one the backend answered. Points thinned to be drawn exist only in a figure's picture: Python `Drawn` / `DrawnImage` are made in `python-backend/figures/thinning.py` and sent by `figures/picture.py` alone (`scripts/check_figure_imports.py`, rule B), and the generated TypeScript type `FigureDrawn` cannot be computed with and is imported by `src/webview/figure/` alone (ESLint). The backend's folders import one way: entries → `transport/` → `figures/`, `services/` → `frames/` (same script, rule F). Which layer decides what: [docs/plot-layers.md](docs/plot-layers.md).
 - Adding a chart, a number a user reads, or a canvas/SVG: read [docs/plot-contracts-guide.md](docs/plot-contracts-guide.md) first. It says what the contract tests will ask of you (rows, `NOT_CHART_VALUES`, `surfaces.ts`, proof tests with `assertNotDrawn` / `assert_not_drawn`, `scripts/check_test_proofs.py`).
+- Adding a kind of figure to the new path (the figure service and the Figure component): read [docs/figure-kinds-guide.md](docs/figure-kinds-guide.md). It lists the steps as they were done for the heatmap, the time signal and the distribution.
 
 ---
 

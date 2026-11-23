@@ -1,11 +1,11 @@
 import type { StftOptions } from './analysisTypes';
 import type {
-    AnalyzePayload, BackendCommand, BuildRecipePayload, BuildRecipeResult, BackendPayload, ScanPayload, ScanResult, StageCombinePayload, StageCombineResult, BackendResult,
-    CalibrationRequestContext, PairSpectrumResult, RangeResult, SpectrumSlicePayload, SpectrumSliceResult, StageRead,
-    TrackDetailPayload, TrackDetailResult, ExportWavLoopResult,
+    AnalyzePayload, BackendCommand, BuildRecipePayload, BuildRecipeResult, BackendPayload, ScanPayload, ScanResult, BackendResult,
+    CalibrationRequestContext, CursorAnswersResult, PairAnswersResult, RegionPeakResult, TrackAnswersResult,
+    ExportWavLoopResult,
 } from '../protocol/backendProtocol';
-import { scanSpecOf } from '../protocol/backendProtocol';
-import type { PairSourceRef, PairSpectrumRequest, SpectrumSliceRequest, TrackDetailRequest, WaveformRangeRequest } from '../utils/audioTarget';
+import type { FigureCommand } from '../protocol/figureMessages';
+import type { PairSourceRef, PairSpectrumRequest, RegionPeakSourceRef, SpectrumSliceRequest, TrackDetailRequest } from '../utils/audioTarget';
 
 export type AnalyzeOptions = Omit<AnalyzePayload, 'filePath'>;
 
@@ -77,71 +77,25 @@ export abstract class AnalysisClient {
         return this.analyzeWithContext(filePath, options, resolved => this.request('analyze', analysisPayload(filePath, resolved)));
     }
 
-    async requestRange(
-        filePath: string,
-        startNorm: number,
-        endNorm: number,
-        points: number,
-        requestId?: string,
-        calibration: CalibrationRequestContext = {},
-        cancellation?: AnalysisCancellationSignal,
-        read?: StageRead,
-        sourceVersion?: string,
-    ): Promise<RangeResult> {
-        return this.request(
-            'range',
-            { filePath, startNorm, endNorm, points, ...(read ? { read } : {}), ...versionPayload(sourceVersion),
-                ...this.calibrationPayload(this.requestContext(filePath, calibration)) },
-            requestId,
-            cancellation,
-        );
-    }
-
-    async requestTrackDetail(
-        filePath: string,
-        payload: Omit<TrackDetailPayload, 'filePath'>,
-        requestId: string,
-        cancellation?: AnalysisCancellationSignal,
-    ): Promise<TrackDetailResult> {
-        return this.request(
-            'track-detail',
-            {
-                filePath,
-                trackIndex: payload.trackIndex,
-                analysisId: payload.analysisId,
-                settingsSignature: payload.settingsSignature,
-                ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
-                ...(payload.startNorm !== undefined && payload.endNorm !== undefined ? { startNorm: payload.startNorm, endNorm: payload.endNorm } : {}),
-                ...(payload.lowHz !== undefined && payload.highHz !== undefined ? { lowHz: payload.lowHz, highHz: payload.highHz } : {}),
-                ...(payload.read ? { read: payload.read } : {}),
-                ...versionPayload(payload.sourceVersion),
-                ...this.calibrationPayload(this.requestContext(filePath, payload)),
-            },
-            requestId,
-            cancellation,
-        );
-    }
-
     async releaseTrackDetail(filePath: string): Promise<void> {
         await this.request('release-track-detail', { filePath });
     }
 
-    async requestSpectrumSlice(
+    /** A Tracks row's answers kept by key for the figure service (the backend's `track-answers`): keys, no value. */
+    async requestTrackAnswers(
         filePath: string,
-        payload: Omit<SpectrumSlicePayload, 'filePath'>,
+        payload: CalibrationRequestContext & { scale: 'log' | 'linear'; startNorm?: number; endNorm?: number; spectrogram?: boolean; extents?: boolean; stftOptions?: StftOptions; sourceVersion: string | undefined },
         requestId: string,
         cancellation?: AnalysisCancellationSignal,
-    ): Promise<SpectrumSliceResult> {
+    ): Promise<TrackAnswersResult> {
         return this.request(
-            'spectrum-slice',
+            'track-answers',
             {
                 filePath,
-                trackIndex: payload.trackIndex,
-                analysisId: payload.analysisId,
-                settingsSignature: payload.settingsSignature,
-                cursorNorm: payload.cursorNorm,
-                ...(payload.bandsPerOctave ? { bandsPerOctave: payload.bandsPerOctave } : {}),
-                ...(payload.fullResolution ? { fullResolution: true } : {}),
+                scale: payload.scale,
+                ...(payload.startNorm !== undefined && payload.endNorm !== undefined ? { startNorm: payload.startNorm, endNorm: payload.endNorm } : {}),
+                ...(payload.spectrogram === false ? { spectrogram: false } : {}),
+                ...(payload.extents === true ? { extents: true } : {}),
                 ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
                 ...versionPayload(payload.sourceVersion),
                 ...this.calibrationPayload(this.requestContext(filePath, payload)),
@@ -151,21 +105,53 @@ export abstract class AnalysisClient {
         );
     }
 
-    async requestPairSpectrum(
-        request: Omit<PairSpectrumRequest, 'type' | 'requestId'> & { stftOptions?: StftOptions },
+    /** The cursor spectrum's answers kept by key for the figure service (the backend's `cursor-answers`): keys, no value. */
+    async requestCursorAnswers(
+        filePath: string,
+        payload: CalibrationRequestContext & { cursorNorm: number; bandsPerOctave?: 1 | 3; stftOptions?: StftOptions; sourceVersion: string | undefined; scale: 'log' | 'linear' },
+        requestId: string,
+        cancellation?: AnalysisCancellationSignal,
+    ): Promise<CursorAnswersResult> {
+        return this.request(
+            'cursor-answers',
+            {
+                filePath,
+                cursorNorm: payload.cursorNorm,
+                scale: payload.scale,
+                ...(payload.bandsPerOctave ? { bandsPerOctave: payload.bandsPerOctave } : {}),
+                ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
+                ...versionPayload(payload.sourceVersion),
+                ...this.calibrationPayload(this.requestContext(filePath, payload)),
+            },
+            requestId,
+            cancellation,
+        );
+    }
+
+    /** The largest |sample| of the sources' channels over their stretches (AnalysisService.region_peak): one answer. */
+    async requestRegionPeak(sources: readonly RegionPeakSourceRef[], contexts: ReadonlyMap<string, CalibrationRequestContext>, requestId: string): Promise<RegionPeakResult> {
+        return this.request('region-peak', {
+            sources: sources.map(({ sourceVersion, ...ref }) => ({
+                ...ref, ...versionPayload(sourceVersion), ...this.calibrationPayload(this.requestContext(ref.filePath, contexts.get(ref.filePath) ?? {})),
+            })),
+        }, requestId);
+    }
+
+    /** The pair figure's answers kept by key for the figure service (the backend's `pair-answers`): keys, no value. */
+    async requestPairAnswers(
+        request: Pick<PairSpectrumRequest, 'reference' | 'responses' | 'startSeconds' | 'endSeconds'> & { stftOptions?: StftOptions; scale: 'log' | 'linear' },
         contexts: ReadonlyMap<string, CalibrationRequestContext>,
         requestId: string,
-    ): Promise<PairSpectrumResult> {
+    ): Promise<PairAnswersResult> {
         const source = ({ sourceVersion, ...ref }: PairSourceRef) => ({
             ...ref, ...versionPayload(sourceVersion), ...this.calibrationPayload(this.requestContext(ref.filePath, contexts.get(ref.filePath) ?? {})),
         });
         return this.request(
-            'pair-spectrum',
+            'pair-answers',
             {
-                analysisId: request.analysisId,
-                settingsSignature: request.settingsSignature,
                 reference: source(request.reference),
                 responses: request.responses.map(source),
+                scale: request.scale,
                 ...(request.startSeconds !== undefined ? { startSeconds: request.startSeconds } : {}),
                 ...(request.endSeconds !== undefined ? { endSeconds: request.endSeconds } : {}),
                 ...(request.stftOptions ? { stftOptions: request.stftOptions } : {}),
@@ -194,7 +180,7 @@ export abstract class AnalysisClient {
         return this.contextPolicy?.current(filePath).calibrationProfile;
     }
 
-    /** One file's entry-table metrics, under the calibration the host keeps for it. */
+    /** One step of a Recipe over one file, under the calibration the host keeps for it. */
     scan(payload: ScanPayload): Promise<ScanResult> {
         const calibration = payload.calibration ?? this.calibrationFor(payload.filePath);
         // The recording a step is measured against is calibrated as its own.
@@ -202,15 +188,20 @@ export abstract class AnalysisClient {
         return this.request('scan', { ...payload, ...(calibration ? { calibration } : {}), ...(reference ? { reference } : {}) });
     }
 
-    /** What decides a scan's numbers besides its file, calibration and Recipe (the analysis spec and wandas' versions). */
-    async scanSpec(): Promise<string> {
-        return scanSpecOf(await this.request('scan-spec', {}));
+    /**
+     * One request of the figure service (python-backend/figures/), as the webview's answers/ sent it, under `requestId`
+     * (the backend's request id, so a superseded draw is stopped by it: abandonRequests).
+     */
+    figure<K extends FigureCommand>(command: K, payload: BackendPayload<K>, requestId?: string): Promise<BackendResult<K>> {
+        return this.request(command, payload, requestId);
     }
 
-    /** A base group's median and a recording's difference from it, from the values its scans kept (stage_combine.py). */
-    stageCombine(payload: StageCombinePayload): Promise<StageCombineResult> {
-        return this.request('stage-combine', payload);
+    /** Gives up on these requests if they still run: Python drops a queued one and sends no reply for a running one. */
+    abandonRequests(requestIds: readonly string[]): void {
+        for (const requestId of requestIds) this.abandonRequest(requestId);
     }
+
+    protected abandonRequest(_requestId: string): void {}
 
     protected calibrationPayload(context: CalibrationRequestContext): CalibrationRequestContext {
         return {
@@ -221,8 +212,8 @@ export abstract class AnalysisClient {
 
 }
 
-export type LazyAnalysisRequest = WaveformRangeRequest | TrackDetailRequest | SpectrumSliceRequest;
-export type LazyAnalysisBackend = Pick<AnalysisClient, 'requestRange' | 'requestTrackDetail' | 'requestSpectrumSlice' | 'requestPairSpectrum'>;
+export type LazyAnalysisRequest = TrackDetailRequest | SpectrumSliceRequest;
+export type LazyAnalysisBackend = Pick<AnalysisClient, 'requestTrackAnswers' | 'requestCursorAnswers' | 'requestPairAnswers' | 'requestRegionPeak'>;
 
 export async function executeLazyAnalysis(
     backend: LazyAnalysisBackend,
@@ -230,35 +221,28 @@ export async function executeLazyAnalysis(
     context: CalibrationRequestContext & { stftOptions?: StftOptions },
     cancellation?: AnalysisCancellationSignal,
 ) {
-    if (message.type === 'request-waveform-range') {
-        const result = await backend.requestRange(message.filePath, message.startNorm, message.endNorm, message.points, message.requestId, context, cancellation, message.read, message.sourceVersion);
-        return { type: 'waveform-range-result' as const, analysisRevision: result.analysisRevision, sourceVersion: result.sourceVersion, requestId: message.requestId,
-            trackIndex: message.trackIndex, startNorm: message.startNorm, endNorm: message.endNorm, channels: result.channels, ...(result.points ? { points: result.points } : {}) };
+    if (message.type === 'request-spectrum-slice') {
+        // The answers are kept by key for the figure service: the reply names them and carries no value.
+        const kept = await backend.requestCursorAnswers(message.filePath,
+            { ...context, cursorNorm: message.cursorNorm, scale: message.answers, sourceVersion: message.sourceVersion,
+                ...(message.bandsPerOctave ? { bandsPerOctave: message.bandsPerOctave } : {}) }, message.requestId, cancellation);
+        return { type: 'cursor-answers-result' as const, requestId: message.requestId, analysisId: message.analysisId,
+            settingsSignature: message.settingsSignature, trackIndex: message.trackIndex, filePath: message.filePath,
+            sourceVersion: kept.sourceVersion, stftSignature: kept.stftSignature, analysisRevision: kept.analysisRevision,
+            cursorNorm: message.cursorNorm, scale: message.answers, channels: kept.channels,
+            windowStartNorm: kept.windowStartNorm, windowEndNorm: kept.windowEndNorm, window: kept.window,
+            ...(kept.bandsPerOctave ? { bandsPerOctave: kept.bandsPerOctave } : {}) };
     }
-    const payload = { trackIndex: message.trackIndex, analysisId: message.analysisId,
-        settingsSignature: message.settingsSignature, ...context, sourceVersion: message.sourceVersion };
-    const window = message.type === 'request-track-detail' && message.startNorm !== undefined && message.endNorm !== undefined
-        ? { startNorm: message.startNorm, endNorm: message.endNorm } : undefined;
-    const band = message.type === 'request-track-detail' && message.lowHz !== undefined && message.highHz !== undefined
-        ? { lowHz: message.lowHz, highHz: message.highHz } : undefined;
-    const read = message.type === 'request-track-detail' && message.read ? { read: message.read } : undefined;
-    const result = message.type === 'request-track-detail'
-        ? await backend.requestTrackDetail(message.filePath, { ...payload, ...window, ...band, ...read }, message.requestId, cancellation)
-        : await backend.requestSpectrumSlice(message.filePath,
-            { ...payload, cursorNorm: message.cursorNorm, ...(message.bandsPerOctave ? { bandsPerOctave: message.bandsPerOctave } : {}),
-                ...(message.fullResolution ? { fullResolution: true } : {}) }, message.requestId, cancellation);
-    const identity = { requestId: message.requestId, analysisId: message.analysisId,
-        settingsSignature: message.settingsSignature, trackIndex: message.trackIndex, filePath: message.filePath, sourceVersion: result.sourceVersion,
-        ...(result.stftSignature !== undefined ? { stftSignature: result.stftSignature } : {}) };
-    if ('frequencyBins' in result) {
-        return { ...identity, analysisRevision: result.analysisRevision, type: 'spectrum-slice-result' as const, channels: result.channels,
-            frequencyBins: result.frequencyBins, maxFrequencyHz: result.maxFrequencyHz, computeMs: result.computeMs,
-            windowStartNorm: result.windowStartNorm, windowEndNorm: result.windowEndNorm, window: result.window,
-            ...(result.bandCentersHz ? { bandsPerOctave: result.bandsPerOctave, bandCentersHz: result.bandCentersHz, minFrequencyHz: result.minFrequencyHz } : {}),
-            ...(result.frequenciesHz ? { frequenciesHz: result.frequenciesHz } : {}),
-            ...(message.type === 'request-spectrum-slice' ? { cursorNorm: message.cursorNorm } : {}) };
-    }
-    return { ...identity, analysisRevision: result.analysisRevision, type: 'track-detail-result' as const, channels: result.channels, ...window, ...(result.points ? { points: result.points } : {}) };
+    // The row's answers are kept by key for the figure service: the reply names them and carries no value.
+    const timed = message.startNorm !== undefined && message.endNorm !== undefined ? { startNorm: message.startNorm, endNorm: message.endNorm } : {};
+    const kept = await backend.requestTrackAnswers(message.filePath,
+        { ...context, scale: message.answers, ...timed, ...(message.spectrogram === false ? { spectrogram: false } : {}), ...(message.extents === true ? { extents: true } : {}), sourceVersion: message.sourceVersion },
+        message.requestId, cancellation);
+    return { type: 'track-answers-result' as const, requestId: message.requestId, analysisId: message.analysisId,
+        settingsSignature: message.settingsSignature, trackIndex: message.trackIndex, filePath: message.filePath,
+        sourceVersion: kept.sourceVersion, stftSignature: kept.stftSignature, analysisRevision: kept.analysisRevision,
+        scale: message.answers, ...timed, channels: kept.channels, sampleRateHz: kept.sampleRateHz, durationSeconds: kept.durationSeconds,
+        windowSize: kept.windowSize, hopSize: kept.hopSize, windowed: kept.windowed, ...(kept.noLevels ? { noLevels: kept.noLevels } : {}) };
 }
 
 export function lazyAnalysisError(message: TrackDetailRequest | SpectrumSliceRequest, reason: string) {

@@ -1,4 +1,4 @@
-import { keyRouterFor } from './keyRouter';
+import { keyRouterFor } from '../shell/keyRouter';
 
 /** A small in-page choice (the page's language and look, not the browser's prompt); Esc or a press outside cancels. */
 export function choose<T extends string>(

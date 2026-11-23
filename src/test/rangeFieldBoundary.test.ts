@@ -6,7 +6,7 @@
  * fieldWindow, windowEnds, laneAmplitudeRange, colourScale), never the text.
  *
  * The scan starts at every place that fills a range popover's fields: each call of `RangePopover.open`
- * (src/webview/rangePopover.ts), its request's `min` and `max` (and a spread that gives them), and each call of
+ * (src/webview/shell/rangePopover.ts), its request's `min` and `max` (and a spread that gives them), and each call of
  * `openAxisPart` with the `shown` ends it writes. From there it follows what those values are made of: a local or
  * module const to its initializer, a call to what the function it names returns (an object's one property when only
  * that is read), and every argument passed. Anything it reaches that rounds a number (`toFixed`, `toPrecision`,
@@ -22,10 +22,11 @@ import test from 'node:test';
 import ts from 'typescript';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
-const POPOVER = 'src/webview/rangePopover.ts';
-const TEXT = 'src/webview/plot/plotText.ts';
+const POPOVER = 'src/webview/shell/rangePopover.ts';
+const TEXT = 'src/webview/shell/numberText.ts';
 /** The module that may round a range's ends: figureModel makes the ranges at the field's numbers (fieldWindow and the rest). */
-const ROUNDING_MODULES: ReadonlySet<string> = new Set(['src/webview/runtime/figureModel.ts']);
+// fieldWindow and atDecimals live in figure/fieldWindow.ts (figureModel.ts names them).
+const ROUNDING_MODULES: ReadonlySet<string> = new Set(['src/webview/runtime/figureModel.ts', 'src/webview/figure/fieldWindow.ts']);
 /** Whether `symbol` is exactFieldText, the one way a range box writes an end: the shortest text that parses back to it. */
 const isExactFieldText = (symbol: ts.Symbol | undefined): boolean => symbol?.name === 'exactFieldText' && declaredIn(symbol, TEXT);
 const ROUNDING_METHODS = new Set(['toFixed', 'toPrecision', 'toExponential']);
@@ -212,20 +213,21 @@ function scan(scanned: ts.Program): { problems: Problem[]; fields: number } {
 }
 
 const FIX = 'R9 (docs/display-rules.md): a range box writes the very ends the axis is painted with. Write each end with exactFieldText '
-    + '(src/webview/plot/plotText.ts), never rounded; if the exact text is long because the range is an artefact (a zoom\'s float step, '
+    + '(src/webview/shell/numberText.ts), never rounded; if the exact text is long because the range is an artefact (a zoom\'s float step, '
     + 'a norm times a peak, an automatic range), make the range at the field\'s numbers where it is made, in src/webview/runtime/figureModel.ts '
     + '(fieldWindow, windowEnds, laneAmplitudeRange, colourScale), and paint from it.';
 
 test('every range box writes the ends it is painted with by exactFieldText, and nothing on their way there rounds them outside figureModel (R9)', () => {
     const { problems, fields } = scan(program());
     assert.deepEqual(problems.map(problem => `${problem.at} ${problem.field} ${problem.text}`), [], FIX);
-    // The popovers of the lanes, the cursor spectrum, the pair view, the steps mode, the entry's plots and its distribution.
-    assert.ok(fields >= 26, `the scan reaches the range popovers (${fields} fields)`);
+    // The popovers the screens open themselves: the Tracks time ruler's and the shell's own (every Figure's range box is
+    // opened by the Figure with the picture's own ends).
+    assert.ok(fields >= 4, `the scan reaches the range popovers (${fields} fields)`);
 });
 
 test('the range field scan finds a rounded end: in the field, in a helper, through a local, a destructured const, a spread, another plotText writer, and in openAxisPart\'s shown ends (R9)', () => {
-    const file = 'src/webview/rangeFieldViolation.ts';
-    const head = `import type { RangePopover } from './rangePopover';\nimport { linearAxis, openAxisPart } from './rangePopover';\nimport { exactFieldText } from './plot/plotText';\n`;
+    const file = 'src/webview/shell/rangeFieldViolation.ts';
+    const head = `import type { RangePopover } from './rangePopover';\nimport { linearAxis, openAxisPart } from './rangePopover';\nimport { exactFieldText } from './numberText';\n`;
     const request = (min: string, max: string) => `{ axisLabel: '', horizontal: false, min: ${min}, max: ${max}, clientX: 0, clientY: 0, apply() { /* none */ }, auto() { /* none */ } }`;
     const cases: Array<[string, string]> = [
         ['in the field', `export function f(p: RangePopover, v: number): void { p.open(${request('String(v.toPrecision(4))', 'String(Math.round(v))')}); }`],
@@ -233,7 +235,7 @@ test('the range field scan finds a rounded end: in the field, in a helper, throu
         ['through a local', `export function f(p: RangePopover, v: number): void { const end = Math.round(v); p.open(${request('exactFieldText(end)', 'exactFieldText(end)')}); }`],
         ['through a destructured const', `function ends(v: number) { return { min: Number(v.toPrecision(3)), max: v }; }\nexport function f(p: RangePopover, v: number): void { const { min, max } = ends(v); p.open(${request('exactFieldText(min)', 'exactFieldText(max * 2)')}); }`],
         ['in a spread', `class View { fields(v: number) { return { min: v.toFixed(1), max: v.toFixed(1) }; } }\nexport function f(p: RangePopover, v: number): void { p.open({ axisLabel: '', horizontal: false, ...new View().fields(v), clientX: 0, clientY: 0, apply() { /* none */ }, auto() { /* none */ } }); }`],
-        ['by another of plotText\'s writers', `import { stepText } from './plot/plotText';\nexport function f(p: RangePopover, v: number): void { p.open(${request('stepText(v, 0.1)', 'exactFieldText(v)')}); }`],
+        ['by another of plotText\'s writers', `import { stepText } from './numberText';\nexport function f(p: RangePopover, v: number): void { p.open(${request('stepText(v, 0.1)', 'exactFieldText(v)')}); }`],
         ['without exactFieldText', `export function f(p: RangePopover, v: number): void { p.open(${request('String(v)', 'String(v)')}); }`],
         ['in openAxisPart\'s shown ends', `export function f(p: RangePopover, v: number): void { openAxisPart(p, { mapping: linearAxis(0, 1, ''), horizontal: true, current: { start: 0, end: 1 }, clientX: 0, clientY: 0, invalid: '', set() { /* none */ }, shown: { min: Math.floor(v), max: v } }); }`],
     ];

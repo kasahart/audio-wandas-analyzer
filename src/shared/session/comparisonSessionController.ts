@@ -6,10 +6,11 @@ import type {
     SpectrogramSettings,
     StftOptions,
 } from '../analysis/analysisTypes';
-import { compareScanAsker, saveSession, runCompareCombine, runCompareScan, runEntryProbe, runEntryScan, type ComparePublication, type EntryProbePublication, type EntryPublication, type EntryScanPorts } from '../analysis/entryScan';
-import { backendErrorCode, userErrorText, type CalibrationRequestContext, type ErrorSummaryStrings, type PairSpectrumResult } from '../protocol/backendProtocol';
+import { compareScanAsker, saveSession, runFigureRequest, runCompareScan, runEntryOpen, runEntryProbe, type ComparePublication, type EntryProbePublication, type EntryPublication, type EntryScanPorts } from '../analysis/entryScan';
+import { backendErrorCode, userErrorText, type CalibrationRequestContext, type ErrorSummaryStrings, type PairAnswersResult } from '../protocol/backendProtocol';
 import { parsePanelMessage, type PanelMessage, type SaveRecipeMessage } from '../protocol/panelMessages';
-import type { AnalyzeSelectedFilesMessage, ConfigureCalibrationMessage, ExportReportOptionsMessage, ExportWavLoopMessage, PairSpectrumRequest, SelectionTargetKind } from '../utils/audioTarget';
+import type { FigureResultMessage } from '../protocol/figureMessages';
+import type { AnalyzeSelectedFilesMessage, ConfigureCalibrationMessage, ExportReportOptionsMessage, ExportWavLoopMessage, PairSpectrumRequest, RegionPeakRequest, SelectionTargetKind } from '../utils/audioTarget';
 import { exportWavRegions, reportArtifact, type ReportFormat, type WavExportSink, type WavExportSource } from '../utils/exportArtifact';
 
 type LazyPublication = Awaited<ReturnType<typeof executeLazyAnalysis>> | ReturnType<typeof lazyAnalysisError>;
@@ -22,13 +23,21 @@ export type SessionPublication =
     | { type: 'reanalyze-end' }
     | DistributiveOmit<LazyPublication, 'analysisRevision'>
     | PairSpectrumPublication
+    | RegionPeakPublication
     | EntryPublication
     | EntryProbePublication
-    | ComparePublication;
+    | ComparePublication
+    | FigureResultMessage;
 
 export type PairSpectrumPublication =
-    | ({ type: 'pair-spectrum-result'; requestId: string } & Omit<PairSpectrumResult, 'analysisRevision' | 'calibrationSignature'>)
+    /** The pair figure's answers kept by key (asked by a `request-pair-spectrum`); a failure is a `pair-spectrum-error`. */
+    | ({ type: 'pair-answers-result'; requestId: string; analysisId: string; settingsSignature: string } & Omit<PairAnswersResult, 'analysisRevision' | 'calibrationSignature'>)
     | { type: 'pair-spectrum-error'; requestId: string; analysisId: string; settingsSignature: string; error: string; staleSource?: true };
+
+/** A region's peak (AnalysisService.region_peak), or that it could not be read (asked again after the answer store's pause). */
+export type RegionPeakPublication =
+    | { type: 'region-peak-result'; requestId: string; peak: number }
+    | { type: 'region-peak-error'; requestId: string; error: string };
 
 /** A failure no asking again can mend: the file changed on disk since its track was analysed (stale-source). */
 export function staleSourceOf(error: unknown): { staleSource?: true } {
@@ -111,7 +120,6 @@ function thenable(value: unknown): value is PromiseLike<unknown> {
  */
 export class ComparisonSessionController {
     /** Advanced by every entry scan, so an older scan stops before its next file. */
-    private entryScans = 0;
     private entryProbes = 0;
     /**
      * The latest comparison scan per source (a request id's prefix: 'track-stage', 'entry-hold', 'row', ...): a newer
@@ -145,9 +153,10 @@ export class ComparisonSessionController {
             switch (message.type) {
                 case 'update-spectrogram-settings': { const pending = this.ports.saveSettings(message.settings); if (thenable(pending)) await pending; } return;
                 case 'request-reanalyze': await this.reanalyze(message.settings, scope); return;
-                case 'request-waveform-range': case 'request-track-detail': case 'request-spectrum-slice':
+                case 'request-track-detail': case 'request-spectrum-slice':
                     await this.lazy(message, scope); return;
                 case 'request-pair-spectrum': await this.pair(message, scope); return;
+                case 'request-region-peak': await this.regionPeak(message, scope); return;
                 case 'release-track-detail': { const pending = this.ports.releaseTrackDetail(message.filePath); if (thenable(pending)) await pending; } return;
                 case 'export-wav-loop': await this.exportWav(message, scope); return;
                 case 'export-report-options': await this.exportReport(message); return;
@@ -161,12 +170,10 @@ export class ComparisonSessionController {
                     if (this.ports.selectPythonEnvironment) await this.ports.selectPythonEnvironment(); else this.ports.unsupported(message.type);
                     return;
                 case 'save-recipe': await this.saveRecipe(message); return;
-                case 'entry-scan': {
+                case 'entry-open': {
                     const entry = this.ports.entry;
                     if (!entry) { this.ports.unsupported(message.type); return; }
-                    const scan = ++this.entryScans;
-                    await runEntryScan(entry, message, publication => this.ports.publish(publication),
-                        () => scan === this.entryScans && scope.isCurrent());
+                    await runEntryOpen(entry, message, publication => (scope.isCurrent() ? this.ports.publish(publication) : undefined));
                     return;
                 }
                 case 'entry-probe': {
@@ -187,12 +194,16 @@ export class ComparisonSessionController {
                         () => this.compareScans.get(source) === scan && scope.isCurrent());
                     return;
                 }
-                case 'compare-combine': {
+                case 'figure-request': {
                     const entry = this.ports.entry;
                     if (!entry) { this.ports.unsupported(message.type); return; }
-                    await runCompareCombine(entry, message, publication => (scope.isCurrent() ? this.ports.publish(publication) : undefined));
+                    await runFigureRequest(entry, message, publication => (scope.isCurrent() ? this.ports.publish(publication) : undefined));
                     return;
                 }
+                case 'figure-cancel':
+                    // A superseded draw is stopped by its id in the backend's own request table (VS Code; the Worker cannot).
+                    this.ports.entry?.cancelFigure?.(message.requestIds);
+                    return;
                 case 'save-report-folder':
                     if (!this.ports.saveReportFolder) { this.ports.unsupported(message.type); return; }
                     await this.ports.saveReportFolder(message.folder, message.files.map(file => ({
@@ -200,8 +211,6 @@ export class ComparisonSessionController {
                         bytes: file.base64 !== undefined ? Uint8Array.from(atob(file.base64), char => char.charCodeAt(0)) : new TextEncoder().encode(file.text),
                     })));
                     return;
-                // The running entry scan stops after its current file: a newer scan number makes it stale.
-                case 'entry-scan-cancel': this.entryScans++; return;
                 case 'entry-save-session':
                     if (this.ports.entry) await saveSession(this.ports.entry, message);
                     else this.ports.unsupported(message.type);
@@ -233,12 +242,10 @@ export class ComparisonSessionController {
 
     private async lazy(request: LazyAnalysisRequest, scope: SessionScope): Promise<void> {
         let context: CalibrationRequestContext | undefined;
-        // A zoomed lane's spectrogram window is asked beside the whole file's: neither cancels the other.
-        const windowed = request.type === 'request-track-detail' && (request.startNorm !== undefined || request.lowHz !== undefined) ? '\u0000window' : '';
-        // A plot readout's read (R7) has a slot of its own: it neither cancels the lane's picture nor is cancelled by it,
-        // nor by another read (each source has one read on its way at a time, and waits for its answer).
-        const reading = request.read ? `\u0000read\u0000${request.requestId}` : '';
-        const slot = `${request.type}\u0000${request.trackIndex}\u0000${request.filePath}${windowed}${reading}`;
+        // A row's answers for the time on screen are asked beside the whole file's, and so are a recording's extents
+        // (for the rows' linked scale): none cancels another.
+        const windowed = request.type !== 'request-track-detail' ? '' : request.extents === true ? '\u0000extents' : request.startNorm !== undefined ? '\u0000window' : '';
+        const slot = `${request.type}\u0000${request.trackIndex}\u0000${request.filePath}${windowed}`;
         const cancellation = new RequestCancellation();
         this.lazyInFlight.get(slot)?.cancel();
         this.lazyInFlight.set(slot, cancellation);
@@ -255,14 +262,7 @@ export class ComparisonSessionController {
             const reason = this.reasonOf(error);
             const stale = staleSourceOf(error);
             this.ports.lazyFailed?.(request, reason);
-            if (request.type !== 'request-waveform-range') { const pending = this.ports.publish({ ...lazyAnalysisError(request, reason), ...stale }); if (thenable(pending)) await pending; }
-            else if (request.read || stale.staleSource) {
-                // A read waits for its answer: one that failed is answered with no points (the readout shows none). A
-                // range of a file changed since is answered too, so the lane stops asking (staleSource).
-                const pending = this.ports.publish({ type: 'waveform-range-result', requestId: request.requestId, trackIndex: request.trackIndex, sourceVersion: request.sourceVersion,
-                    startNorm: request.startNorm, endNorm: request.endNorm, channels: [], ...stale });
-                if (thenable(pending)) await pending;
-            }
+            { const pending = this.ports.publish({ ...lazyAnalysisError(request, reason), ...stale }); if (thenable(pending)) await pending; }
         } finally {
             if (this.lazyInFlight.get(slot) === cancellation) this.lazyInFlight.delete(slot);
         }
@@ -277,18 +277,43 @@ export class ComparisonSessionController {
                 if (!context) return;
                 contexts.set(source.filePath, context);
             }
-            const { analysisRevision: referenceRevision, calibrationSignature: _signature, ...result } = await this.ports.client.requestPairSpectrum(
-                { ...request, stftOptions: this.ports.stftOptions() }, contexts, request.requestId,
+            const published = (found: { filePath: string; responses: ReadonlyArray<{ filePath: string; analysisRevision?: number }> }, referenceRevision: number | undefined): boolean => {
+                const revisions = new Map(found.responses.map(response => [response.filePath, response.analysisRevision]));
+                revisions.set(found.filePath, referenceRevision);
+                return [...revisions].every(([filePath, revision]) => scope.canPublish(filePath, revision));
+            };
+            // The answers are kept by key for the figure service: the reply names them and carries no value.
+            const { analysisRevision, calibrationSignature: _kept, ...kept } = await this.ports.client.requestPairAnswers(
+                { ...request, stftOptions: this.ports.stftOptions(), scale: request.answers }, contexts, request.requestId,
             );
-            const revisions = new Map(result.responses.map(response => [response.filePath, response.analysisRevision]));
-            revisions.set(result.filePath, referenceRevision);
-            if (![...revisions].every(([filePath, revision]) => scope.canPublish(filePath, revision))) return;
-            const pending = this.ports.publish({ type: 'pair-spectrum-result', requestId: request.requestId, ...result });
+            if (!published(kept, analysisRevision)) return;
+            const pending = this.ports.publish({ type: 'pair-answers-result', requestId: request.requestId, analysisId: request.analysisId, settingsSignature: request.settingsSignature, ...kept });
             if (thenable(pending)) await pending;
         } catch (error) {
             if (!sources.every(source => scope.canPublish(source.filePath, contexts.get(source.filePath)?.analysisRevision))) return;
             const pending = this.ports.publish({ type: 'pair-spectrum-error', requestId: request.requestId,
                 analysisId: request.analysisId, settingsSignature: request.settingsSignature, error: this.reasonOf(error), ...staleSourceOf(error) });
+            if (thenable(pending)) await pending;
+        }
+    }
+
+    /** One answer of the backend's for every source; a request naming a file no longer shown is dropped, as a pair's. */
+    private async regionPeak(request: RegionPeakRequest, scope: SessionScope): Promise<void> {
+        const contexts = new Map<string, CalibrationRequestContext>();
+        for (const source of request.sources) {
+            const context = this.ports.lazyContext(source.filePath);
+            if (!context) return;
+            contexts.set(source.filePath, context);
+        }
+        const current = (): boolean => request.sources.every(source => scope.canPublish(source.filePath, contexts.get(source.filePath)?.analysisRevision));
+        try {
+            const { peak } = await this.ports.client.requestRegionPeak(request.sources, contexts, request.requestId);
+            if (!current()) return;
+            const pending = this.ports.publish({ type: 'region-peak-result', requestId: request.requestId, peak });
+            if (thenable(pending)) await pending;
+        } catch (error) {
+            if (!current()) return;
+            const pending = this.ports.publish({ type: 'region-peak-error', requestId: request.requestId, error: this.reasonOf(error) });
             if (thenable(pending)) await pending;
         }
     }

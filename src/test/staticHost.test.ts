@@ -58,7 +58,6 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
     const windowListeners = new Map<string, () => void>();
     const blockedWorkerCommands = new Set<string>();
     /** Workers after the first do not answer limits: a spare Worker that has not booted yet. */
-    let spareBooting = false;
     let limitsReply: Record<string, unknown> = { maxInputBytes: 16 * 1024 * 1024, maxSources: 8, maxTotalInputBytes: 64 * 1024 * 1024, maxExportBytes: 32 * 1024 * 1024 };
     const received: Record<string, unknown>[] = [];
     const firstAnalysis = new Set<string>();
@@ -80,7 +79,6 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
                 this.loadedSources.add(`/sources/${String(command.sourceId)}`);
             }
             if (command.cmd === 'limits') {
-                if (spareBooting && workers.indexOf(this) > 0) return;
                 queueMicrotask(() => this.reply(command, limitsReply));
                 return;
             }
@@ -94,7 +92,7 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
                 queueMicrotask(() => this.reply(command, {}, 'Source is not loaded'));
                 return;
             }
-            if (['load','unload','export-plan','scan-spec'].includes(String(command.cmd)) || (command.cmd === 'analyze' && firstAnalysis.has(String(command.filePath)))) {
+            if (['load','unload','export-plan'].includes(String(command.cmd)) || (command.cmd === 'analyze' && firstAnalysis.has(String(command.filePath)))) {
                 if (command.cmd === 'analyze') firstAnalysis.delete(String(command.filePath));
                 queueMicrotask(() => this.reply(command, command.cmd === 'load' ? { filePath: `/sources/${String(command.sourceId)}` } : {}));
             }
@@ -135,7 +133,6 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         Worker: ControlledWorker,
         URL: { createObjectURL: () => `blob:fixture-${++blobId}`, revokeObjectURL: (url: string) => { revoked.push(url); } },
         setTimeout,
-        restartAfterScans: 1,
     } as unknown as StaticHostDeps);
     const host = browser.__AWA_HOST__!;
     host.onMessage!(message => received.push(message as Record<string, unknown>));
@@ -149,7 +146,7 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
     }
     // Unchecking every file posts an empty selection; the panel's Clear also marks it clearAll.
     const clear = (clearAll = false): void => { host.postMessage({ type: 'analyze-selected-files', requestId: 'clear', filePaths: [], ...(clearAll ? { clearAll: true } : {}) }); };
-    return { host, browser, storage, workers, clear, windowListeners, blockedWorkerCommands, setLimitsReply: (reply: Record<string, unknown>): void => { limitsReply = reply; }, holdSpareBoot: (): void => { spareBooting = true; }, received, load, picker, elements, revoked, fetched, prompts, served, documentListeners,
+    return { host, browser, storage, workers, clear, windowListeners, blockedWorkerCommands, setLimitsReply: (reply: Record<string, unknown>): void => { limitsReply = reply; }, received, load, picker, elements, revoked, fetched, prompts, served, documentListeners,
         setPromptAnswer(value: string | null) { promptAnswer = value; },
         get status() { return elements.find(element => element.attributes.role === 'status')!.textContent; },
         get footer() { return footer.textContent; },
@@ -255,11 +252,11 @@ test('unrelated detail/export errors do not end a pending reanalysis', async () 
     const app = harness();
     await app.load();
     app.host.postMessage({ type: 'request-reanalyze', settings: DEFAULT_SPECTROGRAM_SETTINGS });
-    app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-track-detail' });
+    app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-track-detail', answers: 'log' });
     app.host.postMessage({ type: 'export-wav-loop', filePaths: [app.sourcePath], startNorm: 0.2, endNorm: 0.5 });
     await flush();
     const worker = app.workers[0];
-    worker.reply(worker.commands.find(command => command.cmd === 'track-detail')!, {}, 'detail failed');
+    worker.reply(worker.commands.find(command => command.cmd === 'track-answers')!, {}, 'detail failed');
     worker.reply(worker.commands.find(command => command.cmd === 'export-wav-loop')!, {}, 'export failed');
     await flush();
     assert.ok(app.received.some(message => message.type === 'track-detail-error'));
@@ -294,7 +291,7 @@ test('worker errors clear results and stale requests cannot resurrect an unloade
     assert.equal(oldWorker.terminated, true);
     const cleared = app.received.filter(message => message.type === 'analysis-update').at(-1)!;
     assert.equal((cleared.results as unknown[]).length, 0);
-    app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-spectrum-slice', cursorNorm: 0.5 });
+    app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-spectrum-slice', cursorNorm: 0.5, answers: 'linear' });
     await flush();
     assert.equal(app.workers.length, 1);
     assert.equal(app.received.at(-1)?.type, 'spectrum-slice-error');
@@ -302,7 +299,7 @@ test('worker errors clear results and stale requests cannot resurrect an unloade
     assert.equal(app.workers.length, 2);
     oldWorker.onerror();
     assert.equal(app.workers[1].terminated, false);
-    app.host.postMessage({ ...identity, filePath: '/sources/previous.wav', type: 'request-track-detail' });
+    app.host.postMessage({ ...identity, filePath: '/sources/previous.wav', type: 'request-track-detail', answers: 'log' });
     await flush();
     assert.equal(app.received.at(-1)?.type, 'track-detail-error');
     assert.equal(app.workers[1].commands.length, 2);
@@ -440,50 +437,50 @@ test('cancel during a file read clears all sources and ignores late completion',
 
 test('Web uses the common backend validator and rejects malformed detail replies', async () => {
     const app = harness(); await app.load();
-    app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-track-detail' });
+    app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-track-detail', answers: 'log' });
     const worker = app.workers[0];
-    const command = worker.commands.find(command => command.cmd === 'track-detail')!;
+    const command = worker.commands.find(command => command.cmd === 'track-answers')!;
     worker.reply(command, { channels: [{ label: 'invalid-channel' }] });
     await flush();
     const response = app.received.at(-1)!;
     assert.equal(response.type, 'track-detail-error');
-    assert.match(String(response.error), /Invalid track-detail success response/);
+    assert.match(String(response.error), /Invalid track-answers success response/);
 });
 
 test('Worker error envelopes use the native correlation contract and empty errors reject', async () => {
     const app = harness(); await app.load();
-    app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-track-detail' });
+    app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-track-detail', answers: 'log' });
     const worker = app.workers[0];
     const malformed = worker.commands.at(-1)!;
     worker.onmessage({ data: { requestId: malformed.requestId, error: 0 } });
     await flush();
     assert.equal(app.received.at(-1)?.type, 'track-detail-error');
-    assert.equal(app.received.at(-1)?.error, 'Invalid error response for track-detail');
+    assert.equal(app.received.at(-1)?.error, 'Invalid error response for track-answers');
     const count = app.received.length;
     worker.reply(malformed, {});
     await flush();
     assert.equal(app.received.length, count);
-    app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-track-detail' });
+    app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-track-detail', answers: 'log' });
     worker.reply(worker.commands.at(-1)!, {}, '');
     await flush();
     assert.equal(app.received.at(-1)?.type, 'track-detail-error');
     assert.equal(app.received.at(-1)?.error, getStrings('en').errorInvalidInput, 'an empty backend text leaves the summary alone');
-    app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-track-detail' });
+    app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-track-detail', answers: 'log' });
     const mixed = worker.commands.at(-1)!;
     worker.onmessage({ data: { requestId: mixed.requestId, result: {}, error: { code: 'input-error', kind: 'invalid-input', message: 'm' } } });
     await flush();
-    assert.equal(app.received.at(-1)?.error, 'Invalid error response for track-detail', 'a reply with result and error is malformed');
+    assert.equal(app.received.at(-1)?.error, 'Invalid error response for track-answers', 'a reply with result and error is malformed');
 });
 
 test('Worker success envelopes with extra outer keys are protocol errors', async () => {
     const app = harness(); await app.load();
-    app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-track-detail' });
+    app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-track-detail', answers: 'log' });
     const worker = app.workers[0];
     const command = worker.commands.at(-1)!;
     worker.onmessage({ data: { requestId: command.requestId, result: {}, debug: 1 } });
     await flush();
     assert.equal(app.received.at(-1)?.type, 'track-detail-error');
-    assert.match(String(app.received.at(-1)?.error), /Invalid track-detail response envelope/);
+    assert.match(String(app.received.at(-1)?.error), /Invalid track-answers response envelope/);
 });
 
 test('browser-only Worker commands reject success envelopes with extra outer keys', async () => {
@@ -753,100 +750,38 @@ test('picked files are listed in the tree under their own names and load checked
     assert.deepEqual(app.received.filter(message => message.type === 'directory-selection').at(-1)!.filePaths, ['/sources/a.wav']);
 });
 
-test('an entry scan loads each listed file only for its scan, reuses unchanged files and then restarts the Worker', { timeout: SETTLE_LIMIT_MS }, async () => {
+test('opening a folder asks for its Recipe and its stored session only: no file is loaded and nothing is scanned', { timeout: SETTLE_LIMIT_MS }, async () => {
     const app = harness();
-    app.served['./recipes/entry-scan.recipe.json'] = { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'signal', kind: 'frame' }], nodes: [], output: 'input-0' };
-    (app.browser as unknown as { crypto: Crypto }).crypto = globalThis.crypto;
-    const folderPicker = app.elements.find(element => element.tag === 'input' && 'webkitdirectory' in element.attributes)!;
-    const file = (path: string, byte: number) => ({ size: 4, name: path.split('/').pop()!, webkitRelativePath: path, arrayBuffer: async () => new Uint8Array([byte, 1, 2, 3]).buffer });
-    folderPicker.files = [file('rec/a.wav', 1), file('rec/b.wav', 2)];
-    folderPicker.onchange!();
-    assert.equal(app.received.find(message => message.type === 'directory-selection')!.entry, true);
-    const filePaths = ['/sources/rec/a.wav', '/sources/rec/b.wav'];
-    const answered = new Set<Record<string, unknown>>();
-    async function scanFolder(requestId: string): Promise<Record<string, unknown>[]> {
-        const results = (): Record<string, unknown>[] => app.received.filter(message => message.type === 'entry-scan-result' && message.requestId === requestId);
-        app.host.postMessage({ type: 'entry-scan', requestId, filePaths });
-        await settle(() => app.received.some(message => message.type === 'entry-scan-done' && message.requestId === requestId), app.workers, answered);
-        return results();
-    }
-
-    const first = await scanFolder('e1');
-    assert.deepEqual(first.map(message => [message.filePath, (message.result as { ok: boolean }).ok]), filePaths.map(path => [path, true]));
-    const scanWorker = app.workers[0];
-    // The backend's analysis spec first: a stored result of another is not reused.
-    assert.deepEqual(scanWorker.commands.map(command => command.cmd).filter(cmd => cmd !== 'limits'), ['scan-spec', 'load', 'scan', 'unload', 'load', 'scan', 'unload']);
-    assert.deepEqual(scanWorker.commands.filter(command => command.cmd === 'scan').map(command => command.filePath), filePaths);
-    await settle(() => app.workers.length >= 2);
-    assert.equal(scanWorker.terminated, true, 'the scan Worker is replaced so Pyodide gives its heap back');
-    assert.equal(app.workers.length, 2);
-    // Without IndexedDB (here) the folder's index falls back to localStorage, under the folder's own key: its
-    // name, and its file count and a tag of its first files' names, sizes and times (another folder of the same name has another).
-    const stored = (prefix: string): string => app.storage.get([...app.storage.keys()].find(key => key.startsWith(prefix))!)!;
-    assert.ok([...app.storage.keys()].some(key => /^awa\.scanIndex\.v3:#2:[0-9a-f]{8}$/.test(key)));
-    assert.deepEqual(Object.keys(JSON.parse(stored('awa.scanIndex.v3:#'))), filePaths);
-
-    const again = await scanFolder('e2');
-    assert.equal(again.length, 2);
-    assert.ok(!app.workers.slice(1).some(worker => worker.commands.some(command => command.cmd === 'scan')), 'unchanged files are not scanned again');
-    assert.equal(app.workers.length, 2, 'a scan that scanned nothing keeps the Worker');
-
-    app.host.postMessage({ type: 'entry-save-session', rootPath: '/sources/rec', session: { version: 1, value: 'leq' }, csv: { name: 'm.csv', text: 'a' } });
-    // The CSV is written last: wait for it.
-    await settle(() => [...app.storage.keys()].some(key => key.startsWith('awa.sessionCsv.v1:/sources/rec#2:')));
-    assert.deepEqual(JSON.parse(stored('awa.session.v1:/sources/rec#2:')), { version: 1, value: 'leq' });
-    assert.deepEqual(JSON.parse(stored('awa.sessionCsv.v1:/sources/rec#2:')), { name: 'm.csv', text: 'a' });
-    app.host.setState({ entrySlots: [null, '/sources/rec/a.wav', null, null] });
-    assert.deepEqual(harness(app.storage).host.getState()?.entrySlots, [null, '/sources/rec/a.wav', null, null]);
-});
-
-test('after a folder scan the next Worker boots behind the current one, which keeps answering until the swap', { timeout: SETTLE_LIMIT_MS }, async () => {
-    const app = harness();
-    app.served['./recipes/entry-scan.recipe.json'] = { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'signal', kind: 'frame' }], nodes: [], output: 'input-0' };
-    (app.browser as unknown as { crypto: Crypto }).crypto = globalThis.crypto;
-    const folderPicker = app.elements.find(element => element.tag === 'input' && 'webkitdirectory' in element.attributes)!;
-    const file = (path: string, byte: number) => ({ size: 4, name: path.split('/').pop()!, webkitRelativePath: path, arrayBuffer: async () => new Uint8Array([byte, 1, 2, 3]).buffer });
-    folderPicker.files = [file('rec/a.wav', 1), file('rec/b.wav', 2)];
-    folderPicker.onchange!();
-    const filePaths = ['/sources/rec/a.wav', '/sources/rec/b.wav'];
-    const answer = (until: () => boolean): Promise<void> => settle(until, app.workers);
-    // The spare Worker has not booted: it does not answer yet.
-    app.holdSpareBoot();
-    app.host.postMessage({ type: 'entry-scan', requestId: 'e1', filePaths });
-    await answer(() => app.received.some(message => message.type === 'entry-scan-done'));
-    await settle(() => app.workers.length >= 2);
-    const [current, spare] = app.workers;
-    assert.ok(spare, 'a spare Worker boots after the folder scan');
-    assert.equal(current.terminated, false, 'the current Worker is kept while the spare boots');
-    // The comparison is answered meanwhile, by the current Worker: nothing waits for the boot.
-    app.host.postMessage({ type: 'compare-scan', requestId: 'b1', filePaths: [filePaths[0]], stage: 'node-0' });
-    await answer(() => app.received.some(message => message.type === 'compare-scan-done'));
-    assert.ok(app.received.some(message => message.type === 'compare-scan-done' && message.requestId === 'b1'));
-    assert.ok(current.commands.filter(command => command.cmd === 'scan').length >= 3);
-    assert.ok(!spare.commands.some(command => command.cmd === 'scan'));
-    // Two sources at once (the comparison and the side panel's table): neither stops the other.
-    app.host.postMessage({ type: 'compare-scan', requestId: 'track-stage-1', filePaths, stage: 'node-0' });
-    app.host.postMessage({ type: 'compare-scan', requestId: 'row-1', filePaths: [filePaths[1]] });
-    const done = (requestId: string) => app.received.some(message => message.type === 'compare-scan-done' && message.requestId === requestId);
-    await answer(() => done('track-stage-1') && done('row-1'));
-    const results = (requestId: string) => app.received.filter(message => message.type === 'compare-scan-result' && message.requestId === requestId).length;
-    assert.equal(results('track-stage-1'), 2, 'the comparison gets every file although the table asked meanwhile');
-    assert.equal(results('row-1'), 1);
-});
-
-test('a CSV in an opened folder is neither read as conditions nor scanned (the user picks one on the table)', { timeout: SETTLE_LIMIT_MS }, async () => {
-    const app = harness();
-    app.served['./recipes/entry-scan.recipe.json'] = { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'signal', kind: 'frame' }], nodes: [], output: 'input-0' };
+    const recipe = { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'signal', kind: 'frame' }], nodes: [], output: 'input-0' };
+    app.served['./recipes/entry-scan.recipe.json'] = recipe;
     const folderPicker = app.elements.find(element => element.tag === 'input' && 'webkitdirectory' in element.attributes)!;
     const file = (path: string, text = '') => ({ size: 4, name: path.split('/').pop()!, webkitRelativePath: path, arrayBuffer: async () => new TextEncoder().encode(text || 'RIFF').buffer });
     folderPicker.files = [file('rec/a.wav'), file('rec/b.wav'), file('rec/motor.csv', '﻿sample_id,audio_file,line\nS1,a.wav,L1\nS2,b.wav,L2\n')];
     folderPicker.onchange!();
-    app.host.postMessage({ type: 'entry-scan', requestId: 'm1', rootPath: '/sources/rec', filePaths: ['/sources/rec/a.wav', '/sources/rec/b.wav', '/sources/rec/motor.csv'] });
-    await settle(() => app.received.some(message => message.type === 'entry-scan-done'), app.workers);
-    const conditions = app.received.find(message => message.type === 'entry-conditions')!;
-    assert.equal(conditions.metadataPath, undefined);
-    assert.equal(conditions.table, null);
-    assert.deepEqual(app.received.filter(message => message.type === 'entry-scan-result').map(message => message.filePath), ['/sources/rec/a.wav', '/sources/rec/b.wav']);
+    assert.equal(app.received.find(message => message.type === 'directory-selection')!.entry, true);
+    const opened = async (requestId: string): Promise<Record<string, unknown>> => {
+        app.host.postMessage({ type: 'entry-open', requestId, rootPath: '/sources/rec' });
+        await settle(() => app.received.some(message => message.type === 'entry-conditions' && message.requestId === requestId), app.workers);
+        return app.received.find(message => message.type === 'entry-conditions' && message.requestId === requestId)!;
+    };
+    const first = await opened('o1');
+    // A CSV in the folder is not read as conditions (the user picks one on the table).
+    assert.deepEqual(first, { type: 'entry-conditions', requestId: 'o1', table: null, recipe });
+    const commands = app.workers.flatMap(worker => worker.commands.map(command => String(command.cmd)));
+    assert.deepEqual(commands.filter(cmd => ['load', 'scan', 'analyze', 'figure-draw'].includes(cmd)), [], 'opening a folder reads no file and computes nothing');
+
+    app.host.postMessage({ type: 'entry-save-session', rootPath: '/sources/rec', session: { version: 1, value: 'none' }, csv: { name: 'm.csv', text: 'a' } });
+    // The CSV is written last: wait for it. Without IndexedDB (here) the folder's session falls back to localStorage,
+    // under the folder's own key: its name, and its file count and a tag of its first files' names, sizes and times.
+    await settle(() => [...app.storage.keys()].some(key => key.startsWith('awa.sessionCsv.v1:/sources/rec#3:')));
+    const stored = (prefix: string): string => app.storage.get([...app.storage.keys()].find(key => key.startsWith(prefix))!)!;
+    assert.deepEqual(JSON.parse(stored('awa.session.v1:/sources/rec#3:')), { version: 1, value: 'none' });
+    assert.deepEqual(JSON.parse(stored('awa.sessionCsv.v1:/sources/rec#3:')), { name: 'm.csv', text: 'a' });
+    const again = await opened('o2');
+    assert.deepEqual(again.session, { version: 1, value: 'none' }, 'the folder opened again gets its session back');
+    assert.deepEqual(again.csv, { name: 'm.csv', text: 'a' });
+    app.host.setState({ entrySlots: [null, '/sources/rec/a.wav', null, null] });
+    assert.deepEqual(harness(app.storage).host.getState()?.entrySlots, [null, '/sources/rec/a.wav', null, null]);
 });
 
 test('a report folder downloads as one zip named after the folder', async () => {

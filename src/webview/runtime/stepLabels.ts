@@ -1,5 +1,5 @@
 /** The step bar's words: a chip's label, a value as a field shows it, and why a step cannot run. */
-import { secondsSpanText } from '../plot/plotText';
+import { secondsSpanText } from '../shell/numberText';
 import { SLOT_REFERABLE, type RecipeStep, type StepParam } from '../../shared/recipe/recipeSteps';
 import { type RegionRange, type StepBarState, type StepBarStrings } from './stepBarModel';
 

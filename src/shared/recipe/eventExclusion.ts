@@ -32,6 +32,15 @@ export function excludedOf(recipe: RecipeDocument | null | undefined, key: strin
     return [...(excludedEvents(recipe)[key] ?? [])].sort((a, b) => a - b);
 }
 
+/** The events left out, a recording (and the channel it is compared as) of a trigger each, in the keys' order. */
+export function excludedList(recipe: RecipeDocument | null | undefined): Array<{ trigger: string; path: string; channel: number | null; ids: number[] }> {
+    return Object.entries(excludedEvents(recipe)).map(([key, ids]) => {
+        const bar = key.indexOf('|'), hash = key.lastIndexOf('#');
+        const ch = key.slice(hash + 1);
+        return { trigger: key.slice(0, bar), path: key.slice(bar + 1, hash), channel: ch === '*' ? null : Number(ch), ids: [...ids].sort((a, b) => a - b) };
+    });
+}
+
 /** The Recipe with event `id` of the recording `key` left out (or back in). */
 export function withEventExcluded(recipe: RecipeDocument, key: string, id: number, out: boolean): RecipeDocument {
     const copy = JSON.parse(JSON.stringify(recipe)) as RecipeDocument;

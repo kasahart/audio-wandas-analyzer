@@ -21,6 +21,9 @@ export default defineConfig({
         // The browser's locale, never the machine's (headless Chromium takes LANG): navigator.language and the
         // runtime's Intl (number grouping, the natural sort of names) then read alike on a Japanese desktop and in CI.
         locale: 'en-US',
+        // AWA_UI_DPR=2 runs the smoke as on a screen of two device pixels a point (a Retina display): the audit of
+        // canvases drawn at another size than shown (canvasAudit.ts) then finds a canvas that ignores the ratio.
+        ...(process.env['AWA_UI_DPR'] ? { deviceScaleFactor: Number(process.env['AWA_UI_DPR']) } : {}),
         launchOptions: { executablePath: process.env['AWA_CHROMIUM_EXECUTABLE'] || undefined },
     },
 });

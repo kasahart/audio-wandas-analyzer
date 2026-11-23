@@ -35,7 +35,7 @@ test('settled() counts a host request as answered only once the page has read th
 /**
  * settled() waits for a message the page posts to itself (window.postMessage) until the page has read it. The ui-smoke
  * stand-in host answers a request from a short timer that posts the answer (buildHtml.ts: a readout's read, a
- * 'compare-combine', a cursor spectrum's slice), and a test posts a scan's results the same way: the timer is counted
+ * a cursor spectrum's slice), and a test posts a scan's results the same way: the timer is counted
  * until it runs, but the message it posts arrives in a task of its own after it. Not counted, the page looked quiet in
  * between (no frame, timer or request outstanding), and under load settled() could end there: the test then read the
  * page as it was before the answer, e.g. an empty readout while the read's full data was on its way (R7), and failed

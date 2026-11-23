@@ -3,16 +3,14 @@
  * file it compares, the region it compares over, and the scans (StageSpec) its pictures are asked for with.
  */
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
-import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
 import { activeSlotReferenced, recipeKey, recipeSteps, slotReferenced, TIME_SLICE, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
 import { withChannel } from '../../shared/recipe/channelSelection';
-import { INPUT_STAGE, recipeWithout, unpairedRecipe } from './stepBarModel';
+import { INPUT_STAGE, recipeWithout } from './stepBarModel';
 import type { StageSpec } from './stageSource';
 import { FULL_PLOT_WINDOW, type PlotWindow } from './plotInteraction';
 import type { NormalizedRange } from './waveformInteraction';
-import type { Combined } from './combineSource';
-import { regionKey } from './entryTable';
+import { regionKey } from './compareBasics';
 
 /** The Recipe the entry table scans with, the one its scans run (the steps that cannot run left out), and the failures. */
 export interface StageRecipe { recipe: RecipeDocument; runRecipe?: RecipeDocument; failed?: Readonly<Record<string, string>> }
@@ -105,20 +103,23 @@ export function channelRecipe(recipe: RecipeDocument | undefined, ch: number | n
     return own ? withChannel(own, ch, activeSlotReferenced(editor).length > 0) : undefined;
 }
 
-/** The scan for step `id`'s pictures over `region`, one channel or all. */
-export function stageSpec(recipe: StageRecipe | null, region: EntryRegion | null, id: string, ch: number | null = null): StageSpec {
-    const run = channelRecipe(recipe?.runRecipe, ch, recipe?.recipe);
-    return { key: `stage|${recipeKey(run)}|${regionKey(region)}|${id}`, message: { ...(run ? { recipe: run } : {}), ...(region ? { region } : {}), stage: id } };
+/**
+ * The channel (from 1, as `stageSpec` and `withChannel` count) of the recording drawn under a trigger's events: the
+ * compared channel row's, else the one the trigger watches. The trigger's own `channel` counts from 0 (wandas'
+ * index): the channel held against its level is that index + 1, never the recording's channels averaged (what "no
+ * channel" would ask for).
+ */
+export function watchedChannel(row: number | null, triggerChannel: unknown): number {
+    return row ?? (typeof triggerChannel === 'number' && triggerChannel >= 0 ? Math.floor(triggerChannel) : 0) + 1;
 }
 
 /**
- * The files' scans over the region (their metrics), for D and the report: with every Welch bin (spectrumBins), of
- * which the report takes its median and Δ. Without a region, the whole files', asked for by the report only.
+ * The scan for step `id` over `region`, one channel or all: it describes the step's result (what it is, its events,
+ * the key of its kept answer), with no drawn point. The comparison's figures are the figure service's.
  */
-export function regionStageSpec(recipe: StageRecipe | null, region: EntryRegion | null): StageSpec {
-    // The metrics: the base recording is not paired in this scan, so the steps measured against it are left out.
-    const run = unpairedRecipe(recipe?.runRecipe, recipe?.recipe);
-    return { key: `region|${recipeKey(run)}|${regionKey(region)}|bins`, message: { ...(run ? { recipe: run } : {}), ...(region ? { region } : {}), spectrumBins: true } };
+export function stageSpec(recipe: StageRecipe | null, region: EntryRegion | null, id: string, ch: number | null = null): StageSpec {
+    const run = channelRecipe(recipe?.runRecipe, ch, recipe?.recipe);
+    return { key: `stage|${recipeKey(run)}|${regionKey(region)}|${id}`, message: { ...(run ? { recipe: run } : {}), ...(region ? { region } : {}), stage: id } };
 }
 
 /** What holding `step` draws: the chain without it (and the steps that then cannot run), on the step on screen `id`. */
@@ -133,50 +134,5 @@ export function holdStageSpec(recipe: StageRecipe | null, id: string | null, ste
     // With a channel there is a Recipe to pick it from: the one without the step.
     const without = channelRecipe(unselected, ch, recipe.recipe) ?? unselected;
     return { key: `hold|${recipeKey(without)}|${regionKey(region)}|${shownOf}`, message: { recipe: without, ...(region ? { region } : {}), stage: shownOf } };
-}
-
-/**
- * The pictures of one paint: the base, the compared file's, the other tracks' and the compared file's difference from
- * the base. A base group of signals has no median signal: `baseMembers` are its files' own
- * waveforms, drawn each (named, for the line under the pointer).
- */
-export interface StagePlots<T> { base: StageView | null; baseMembers: Array<{ path: string; view: StageView }>; compare: StageView | null; others: Array<{ track: T; view: StageView | null }>; diff: StageView | null }
-
-/**
- * The base is one file's picture (`baseOf`, else `views`), or a group's median once `combined` (taken from the
- * Frames' full resolution, combineSource.ts); the difference is `combined`'s too. A group's
- * waveforms are its members, each drawn as it is.
- */
-export function plotsOf<T extends { filePath: string }>(views: (path: string) => StageView | null | undefined, tracks: readonly T[], comparePath: string | null, basePaths: readonly string[], combined: Combined | undefined, baseOf = views): StagePlots<T> {
-    const base = basePaths.length === 1 ? baseOf(basePaths[0]) ?? null : basePaths.length > 1 ? combined?.base ?? null : null;
-    const members = basePaths.map(path => ({ path, view: baseOf(path) })).filter((item): item is { path: string; view: StageView } => !!item.view);
-    const baseMembers = members.length > 1 && members.every(item => item.view.waveform) ? members : [];
-    const compare = comparePath ? views(comparePath) ?? null : null;
-    const others = tracks.filter(track => track.filePath !== comparePath && !basePaths.includes(track.filePath)).map(track => ({ track, view: views(track.filePath) ?? null }));
-    const compared = !!comparePath && !basePaths.includes(comparePath);
-    return { base, baseMembers, compare, others, diff: compared ? combined?.diff ?? null : null };
-}
-
-/**
- * What to ask the backend to combine for a paint: the base's pictures' kept values (`data`) and the compared
- * file's. Undefined while a picture is not in; null when there is nothing to combine (one base file and nothing
- * compared, or a picture without kept values: a step not drawn, a trigger that found no event); 'tooLarge' when a
- * picture's values were over what the backend keeps (`tooLarge`, its scan's stageDataTooLarge): nothing is asked,
- * and nothing scanned again, for a combination that cannot be made.
- */
-export function combineRequest(views: (path: string) => StageView | null | undefined, comparePath: string | null, basePaths: readonly string[], tooLarge: (path: string) => boolean = () => false): { base: string[]; compare: string | null } | 'tooLarge' | null | undefined {
-    const compared = !!comparePath && !basePaths.includes(comparePath);
-    if (!basePaths.length || (basePaths.length === 1 && !compared)) return null;
-    const paths = [...basePaths, ...(compared && comparePath ? [comparePath] : [])];
-    const pictures = paths.map(views);
-    if (pictures.some(view => view === undefined)) return undefined;
-    if (paths.some(tooLarge)) return 'tooLarge';
-    const keys = pictures.map(view => view?.data);
-    const base = keys.slice(0, basePaths.length);
-    if (base.some(key => !key)) return null;
-    // A compared picture without kept values has no difference; the base group's median is still taken.
-    const compare = compared ? keys[basePaths.length] ?? null : null;
-    if (!compare && base.length === 1) return null;
-    return { base: base as string[], compare };
 }
 

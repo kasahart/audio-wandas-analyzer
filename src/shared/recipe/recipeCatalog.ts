@@ -1,6 +1,6 @@
 /**
  * The wandas operations a chain can hold, from wandas' own Recipe registry (generated/wandasOperations.ts,
- * written by python-backend/operation_catalog.py): which Frame each takes and gives, and which of its
+ * written by python-backend/services/operation_catalog.py): which Frame each takes and gives, and which of its
  * parameters it cannot do without. The step bar's ＋ lists these.
  */
 import { METRIC_SERIES_OPERATIONS, WANDAS_FRAMES, WANDAS_OPERATIONS } from './generated/wandasOperations';

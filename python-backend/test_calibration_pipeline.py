@@ -9,13 +9,13 @@ import pytest
 import soundfile as sf
 import wandas as wd
 
-import command_dispatch
-from analysis_engine import AnalysisEngine
-from analysis_service import AnalysisService
-from analyzer import analyze_from_frame
-from backend_errors import InputError, StaleCalibrationError, error_payload
-from calibration_profile import finite_source_channel_peaks, resolve_calibration_profile, source_channel_peaks
-from protocol_schema import DEFINITIONS, first_violation
+from services.analysis_engine import AnalysisEngine
+from services.analysis_service import AnalysisService
+from services.analyzer import analyze_from_frame
+from services.backend_errors import InputError, StaleCalibrationError, error_payload
+from services.calibration_profile import finite_source_channel_peaks, resolve_calibration_profile, source_channel_peaks
+from transport import command_dispatch
+from transport.protocol_schema import DEFINITIONS, first_violation
 
 
 def _profile(labels: list[str], factors: list[float], units: list[str], refs: list[float]) -> dict[str, object]:
@@ -300,13 +300,11 @@ def test_csv_physical_values_are_never_clipped_but_a_full_scale_wav_is(tmp_path)
 
     wav = service.analyze(wav_path)["channels"][0]
     csv = service.analyze(csv_path)["channels"][0]
-    detail = service.track_detail(csv_path)["channels"][0]
 
     assert wav["clipped"] is True
-    assert (wav["fullScale"], csv["fullScale"], detail["fullScale"]) == (True, False, False)
+    assert (wav["fullScale"], csv["fullScale"]) == (True, False)
     assert csv["rawPeakFullScale"] > 1.4
     assert csv["clipped"] is None
-    assert detail["clipped"] is None
     assert first_violation(DEFINITIONS["ChannelSummary"], csv) is None
 
 
@@ -331,8 +329,6 @@ def test_full_scale_comes_from_the_source_as_wandas_read_it_not_from_its_calibra
     assert csv[0]["measurement"]["levelReferenceLabel"] == "dB SPL re 20 µPa"
     sources = [(channel["sourceUnit"], channel["sourceLevelReferenceLabel"]) for channel in [*wav, *csv]]
     assert sources == [("FS", "dBFS"), ("FS", "dBFS"), ("", "dB re 1 input unit")]
-    detail = service.track_detail(csv_path, calibration_profile=_profile(["accel"], [1.0], ["Pa"], [2e-5]))["channels"]
-    assert (detail[0]["sourceUnit"], detail[0]["sourceLevelReferenceLabel"]) == ("", "dB re 1 input unit")
 
 
 def test_micro_reference_prefix_attaches_to_non_pascal_unit() -> None:
@@ -399,7 +395,7 @@ def test_spectrogram_cache_is_partitioned_by_calibration_signature(tmp_path) -> 
     assert len({key[0] for key in cached.spectrograms}) == 2
 
 
-def test_backend_range_is_calibrated_but_wav_export_stays_raw(tmp_path) -> None:
+def test_backend_analysis_is_calibrated_but_wav_export_stays_raw(tmp_path) -> None:
     file_path = tmp_path / "source.wav"
     samples = np.array([0.5, -0.5, 0.25, -0.25], dtype=np.float64)
     sf.write(file_path, samples, 8_000, subtype="DOUBLE")
@@ -409,19 +405,16 @@ def test_backend_range_is_calibrated_but_wav_export_stays_raw(tmp_path) -> None:
     labels = list(cached.frame.labels)
     profile = _profile(labels, [2.0], ["Pa"], [2e-5])
 
-    range_result = command_dispatch.handle_range(
-        service,
-        {
-            "filePath": str(file_path),
-            "startNorm": 0.0,
-            "endNorm": 1.0,
-            "points": 16,
-            "calibrationProfile": profile,
-            "analysisRevision": 4,
-        },
+    analysed = command_dispatch.handle_analyze(
+        service, {"filePath": str(file_path), "calibrationProfile": profile, "analysisRevision": 4}
     )
-    assert range_result["analysisRevision"] == 4
-    assert math.isclose(range_result["channels"][0]["absolutePeak"], 1.0)
+    assert analysed["analysisRevision"] == 4
+    assert math.isclose(analysed["channels"][0]["peakAbsolute"], 1.0)
+    peak = command_dispatch.handle_region_peak(
+        service,
+        {"sources": [{"filePath": str(file_path), "startNorm": 0.0, "endNorm": 1.0, "calibrationProfile": profile}]},
+    )
+    assert math.isclose(peak["peak"], 1.0)
 
     wav_result = command_dispatch.handle_export_wav_loop(
         service,

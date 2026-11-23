@@ -20,7 +20,7 @@
 Comparison UI と DSP は同じソースを使う。解析コマンドの型・応答検証は
 `src/shared/protocol/backendProtocol.ts`、UI から host への型・入力検証は
 `src/shared/protocol/panelMessages.ts` に置く。Worker の正常応答も native IPC と同じ
-validator を通す。Web の load/unload/clear/export-plan/limits は Worker 専用であり共通10コマンド（`command_dispatch.COMMANDS`）と混同しない。
+validator を通す。Web の load/unload/clear/export-plan/limits は Worker 専用であり共通コマンド（`transport/command_dispatch.py` の `COMMANDS`）と混同しない。
 その応答は `src/webview/runtime/workerProtocol.ts` が検証し、共通コマンドは `parseBackendResult` に渡す。
 Web host（`staticHost.ts`）は port 実装と組み立てを持ち、Worker の起動・再読込・再起動・予備 Worker への交代は
 `staticWorker.ts`、ソースの一覧・上限・フォルダ鍵は `staticSources.ts`、ダウンロードと ZIP は `staticDownloads.ts`、
@@ -53,7 +53,7 @@ Web host（`staticHost.ts`）は port 実装と組み立てを持ち、Worker �
   パス許可検証を UI 側の選択状態で代替しない。
   native host は Webview が名指ししたパスを `PanelSession.allowsFile`（表示中のトラックか、
   フォルダが列挙した・追加したファイルだけを許す）で確かめてから disk や backend に渡す。
-  入口表の走査・識別・先頭読み、比較の走査、WAV 書き出しがこれを通る（`panelController.ts`）。
+  入口のヘッダの読み取り、比較の走査、WAV 書き出しがこれを通る（`panelController.ts`）。
 - `exportWavRegions` は区間計画・順序・衝突しない名前を共有する。sink は書込み先と
   失敗方針を提供する。native は個別失敗後も継続し、Web は予算検証後に失敗で中断する。
 - spectrogram 設定は `SpectrogramSettingsStore.get/update` を通す。
@@ -66,8 +66,6 @@ Web host（`staticHost.ts`）は port 実装と組み立てを持ち、Worker �
   ファイルを読み、`src/shared/recipe/recipeOpen.ts` が手順バーの一本の手順にする（入力 1 つはそのまま、
   基準と応答の channel を `concat_frame` で組にする 2 入力は、その cross-channel step を基準スロットに参照させる）。
   開いた手順は手順バーで組んだ手順と同じく `scan` で各録音に適用し、比較台に描く。結果専用のパネルや backend command は持たない。
-  ChartSpec 文書の CSS と globals は `chartSpecDocument.ts` に置き、renderer は `chartSpecRuntime.ts` の
-  `startChartSpecRenderer` を bundle した `dist/webview/chartSpecRuntime.js` を両 host が読み込む。
 - 「レシピとして保存」は webview が下のパネルの内容（スペクトルのファイルと帯域、または基準チャンネルと応答チャンネル）を
   `save-recipe` で送り、共通 session controller が STFT 設定を足して `build-recipe` を呼ぶ。Python 側の `recipe_builder.py` は
   表示中のファイルと同じ形の無音 frame で wandas の処理を実行し、`RecipePlan.from_frame()` で Recipe JSON にする。
@@ -108,12 +106,12 @@ flowchart LR
   Backend --> Dispatch[command_dispatch.py]
   Dispatch --> Service[AnalysisService\nanalysis_service.py]
   Service --> Engine[AnalysisEngine\nanalysis_engine.py]
-  Service --> Analyzer[analyzer.py / decimator.py]
+  Service --> Analyzer[analyzer.py]
   Backend -->|stdout NDJSON| Server
   Server --> Client
   Extension --> Panel[ComparisonPanel\nsrc/webview/panels/ComparisonPanel.ts]
   Panel --> User
-  Panel -->|request-waveform-range| Extension
+  Panel -->|request-track-detail / figure-request| Extension
   Extension --> Client
 ```
 
@@ -144,7 +142,7 @@ flowchart LR
 - `package.json` の VS Code コマンド（`analyzeFile`、`analyzeThisTarget`、`analyzeDebugFile`、`selectPythonEnvironment`、`configureCalibration`）を登録する
 - 対象の音声ファイルまたはディレクトリを選択または解決する
 - 受け取った対象を単一ファイル解析導線または比較ビュー導線へ振り分ける
-- Webview から `select-target`、`analyze-selected-files`、`request-waveform-range` を受け取る
+- Webview から `select-target`、`analyze-selected-files`、`request-track-detail`、`figure-request` を受け取る
 - 設定値 `pythonCommand`、`cacheMemoryMb`、`debugFilePath` を読み込む
 - 常駐の `PythonBackendServer` を起動し、`AnalysisClient` 経由で解析要求を送る（詳細は 2 節）
 - Python は遅延起動する。ウィンドウを開いただけでは環境確認も backend 起動もせず、コマンド・ウェルカムビュー・
@@ -173,12 +171,12 @@ flowchart LR
 
 ### 3. Python Backend Entry Point
 
-対象: [python-backend/backend_server.py](../python-backend/backend_server.py) / [python-backend/command_dispatch.py](../python-backend/command_dispatch.py)
+対象: [python-backend/backend_server.py](../python-backend/backend_server.py) / [python-backend/transport/command_dispatch.py](../python-backend/transport/command_dispatch.py)
 
 責務:
 
 - stdin の NDJSON リクエストを検証し、`AnalysisService` に渡す
-- 共通コマンド（analyze、range、track-detail、release-track-detail、spectrum-slice、pair-spectrum、export-wav-loop、build-recipe、scan、stage-combine）を dispatch する
+- 共通コマンド（analyze、track-answers、release-track-detail、region-peak、cursor-answers、pair-answers、export-wav-loop、build-recipe、scan）を dispatch する
 - request ID 付きの結果または error を stdout に返す
 - 起動通知・heartbeat・request ごとの実行開始通知 (started) と stderr の診断を提供する
 
@@ -186,45 +184,42 @@ flowchart LR
 
 ### 4. Audio Analyzer
 
-対象: [python-backend/analyzer.py](../python-backend/analyzer.py)
+対象: [python-backend/services/analyzer.py](../python-backend/services/analyzer.py)
 
 責務:
 
 - `AnalysisEngine` で読み込み・校正された frame から表示用の結果を生成する
 - チャンネル向きの正規化
 - ピーク値の算出
-- 波形エンベロープ生成（`decimator.py` 経由）
-- スペクトログラム生成と可視化向けの縮約
-- UI が扱いやすい辞書構造への整形
+- 録音の要約（長さ、サンプリング周波数、チャンネルごとのピークと校正）への整形
 
 設計上のポイント:
 
-- 大きな音声データをそのまま UI に渡さず、波形は最大 1200 点、スペクトログラムは時間方向最大 720 ビン・周波数方向最大 192 ビンへ圧縮している。カーソルスペクトルは FFT ビン数が 1025 以下 (n_fft ≤ 2048) ならそのまま、それより長ければ対数間隔の区間に分け、比較台の線 (`stage_view.min_max_line`) と同じく区間ごとに各チャンネルの最小と最大のビンをそれぞれの周波数で残す (合計 1025 点以下、`frequenciesHz` に各点の周波数)。パワー平均しないのでトーンのレベルは下がらず、雑音は幅のある帯として描かれる。CSV エクスポートは `fullResolution` で全 FFT ビン (n_fft/2+1 行) を受け取る
-- 数値データを可視化用に事前整形することで、Webview 側は描画ロジックに集中できる
-- チャンネルごとに独立した要約を返すため、多チャンネル音声でも同一描画パターンを再利用できる
+- 画面に描く絵はここでは作らない。Tracks の行、カーソルスペクトル、2 本を比べる図は、処理部が全解像度の答え（サンプル、スペクトログラムのレベル、全ビンの線）を鍵つきで取り置き（`tracks_answers.py`）、図のサービス（`python-backend/figures/`）が画面の幅に合わせた 1 枚の絵と読み値をその答えから作る
+- チャンネルごとに独立した要約を返すため、多チャンネル音声でも同じ形を再利用できる
 
-### 5. Decimator
+### 5. フォルダと依存の向き
 
-対象: [python-backend/decimator.py](../python-backend/decimator.py)
+対象: [python-backend/](../python-backend/)
 
 責務:
 
-- バケット単位の argmin/argmax で波形エンベロープを生成する
-- タイムスタンプをファイル全体に対して正規化した `minT`/`maxT` として返す
+- 入口は `backend_server.py` と `browser_service.py` の 2 つで、`python-backend/` の直下に置く（Python は起動したスクリプトのフォルダから import を探すので、直下に置けば 4 つのフォルダをそのまま見つけられる）
+- 4 つのフォルダは一方向にだけ import する：入口 → `transport/` → `figures/`・`services/` → `frames/`。`scripts/check_figure_imports.py`（verify が実行）が、逆向きの import を名前で止める
+- 描くために間引いた点（`Drawn`、`DrawnImage`）を作るのは `figures/thinning.py`、送るのは `figures/picture.py` だけ。範囲・読み値・見出し・件数は答え（間引く前）から作る
 
 設計上のポイント:
 
-- 正規化済みタイムスタンプは Webview 側の `[0, 1]` ファイル座標系に直接マッピングされる
+- 図の絵の間引きは図のサービスの `figures/thinning.py` だけが行う（表示の規則 R2）。フォルダの表と層の説明は [plot-layers.md](plot-layers.md) にある
 
 ### 6. AnalysisService / AnalysisEngine
 
-対象: [python-backend/analysis_service.py](../python-backend/analysis_service.py) / [python-backend/analysis_engine.py](../python-backend/analysis_engine.py)
+対象: [python-backend/services/analysis_service.py](../python-backend/services/analysis_service.py) / [python-backend/services/analysis_engine.py](../python-backend/services/analysis_engine.py)
 
 責務:
 
 - `AnalysisEngine`: `wandas.read()` で読み込んだ frame と設定別 STFT をメモリ上限付き LRU キャッシュに保持する。ファイル更新時はキャッシュを無効化する
-- `AnalysisService`: 初期要約、トラック詳細、カーソルスペクトル、波形範囲、WAV 区間書き出し、Recipe を処理する
-- `waveform_range()`: 校正済みのキャッシュ frame を指定範囲で切り出し、`decimator.py` に渡す。同一ファイルを再読み込みしない
+- `AnalysisService`: 初期要約、Tracks の行・カーソルスペクトル・ペアの図の答えの取り置き、領域のピーク、WAV 区間書き出し、Recipe を処理する
 
 ### 7. ComparisonPanel
 
@@ -236,76 +231,56 @@ flowchart LR
 - 1 件のときは単一トラック解析ビュー、2 件以上のときは比較ビューとして描画する
 - 表示モードは縦積み（stacked）のみ
 - 共通タイムルーラー、ズーム、パン、カーソル同期、トラックごとの再生操作を処理する
-- ズーム時に `request-waveform-range` を AnalysisClient / PythonBackendServer 経由で送り、高解像度波形をオンデマンドに取得する
+- 行ごとに `request-track-detail` で答えの鍵を取り寄せ、行の Figure が図のサービスに絵を頼む（`figure-request`）。ズームのたびに、その範囲の絵を頼み直す
 - 解析失敗トラックをエラー表示のまま比較対象に残す
 
 設計上のポイント:
 
 - 単一ファイル、ディレクトリ選択、複数ファイル比較のすべてで `ComparisonPanel` に統一されている
 - 比較件数に応じてタイトルとレイアウト密度だけが変わり、基本的な描画パイプラインは共通である
-- 波形描画の定義元は `src/webview/waveform/waveformRenderer.ts`。`src/webview/plot/waveformLayer.ts` がこれを import するので、runtime バンドル `dist/webview/comparisonRuntime.js` に入る
+- 図を描くのは 1 つの部品（`src/webview/figure/figure.ts`）で、行の図の宣言は `src/webview/charts/trackRow.ts`
 
 ### 7.1 入口の表（entry table）
 
-対象: [src/webview/runtime/entryRuntime.ts](../src/webview/runtime/entryRuntime.ts) / [entryTable.ts](../src/webview/runtime/entryTable.ts) / [entryTableHtml.ts](../src/webview/runtime/entryTableHtml.ts) / [src/shared/analysis/entryScan.ts](../src/shared/analysis/entryScan.ts)
+対象: [src/webview/runtime/entryRuntime.ts](../src/webview/runtime/entryRuntime.ts) / [entryTableHtml.ts](../src/webview/runtime/entryTableHtml.ts) / [src/shared/analysis/entryScan.ts](../src/shared/analysis/entryScan.ts)
 
-`entryRuntime.ts` の `createEntryScreen` は画面の配線だけを持ち、状態の変更は `choose` / `focusOn` / `setSlots` / `setDerived` を通す。描き直しは [entryRedraw.ts](../src/webview/runtime/entryRedraw.ts) がまとめ、クリック・キー・変更ごとに 1 回だけ描く（結果の到着は `createThrottle` で間引く）。部品: スロットと役割 [entrySlots.ts](../src/webview/runtime/entrySlots.ts)、ヘッダの読み取りと計算の進み・見積もり [entryScanQueue.ts](../src/webview/runtime/entryScanQueue.ts)、分布 [entryDistributionPane.ts](../src/webview/runtime/entryDistributionPane.ts)、列の絞り込み [entryFilterPopover.ts](../src/webview/runtime/entryFilterPopover.ts)、押さえている間の図 [entryHeldPlot.ts](../src/webview/runtime/entryHeldPlot.ts)、俯瞰帯と横の図のズーム [entrySidePlots.ts](../src/webview/runtime/entrySidePlots.ts)、比較する行の基準（スロット 0 か群の中央値） [entryBase.ts](../src/webview/runtime/entryBase.ts)、フォルダのセッション [entrySession.ts](../src/webview/runtime/entrySession.ts)。
+入口は録音の一覧です。録音を選んで比較へ渡すだけで、解析はしません。レベルやスペクトルなどの答えは持たず、自分では何も数えません（`src/test/entryNoAnalysis.test.ts` が、入口のファイルが送るメッセージと import を確かめます）。`entryRuntime.ts` の `createEntryScreen` は画面の配線だけを持ちます。描き直しは [entryRedraw.ts](../src/webview/runtime/entryRedraw.ts) がまとめ、クリック・キー・変更ごとに 1 回だけ描きます。部品: スロットと役割 [entrySlots.ts](../src/webview/runtime/entrySlots.ts)、ヘッダの読み取り（チャンネル数・長さ・サンプルレート。音は復号しない）と読む時間の見積もり [entryHeaders.ts](../src/webview/runtime/entryHeaders.ts)、諸元表の数値列の分布（図のサービスが数えて描く Figure） [distributionFigure.ts](../src/webview/screens/distributionFigure.ts)、列の絞り込み [entryFilterPopover.ts](../src/webview/runtime/entryFilterPopover.ts)、比較する行の基準（スロット 0 か群） [entryBase.ts](../src/webview/runtime/entryBase.ts)、フォルダのセッション [entrySession.ts](../src/webview/runtime/entrySession.ts)。
 
-フォルダを開くと（VS Code はディレクトリ解析、Web はフォルダ選択）、レーン表示の上に 1 行 1 ファイルの表が開く。Webview は `entry-scan` を 1 回送り、共通 controller の `runEntryScan` が保存済みの条件表を返したあと、1 件ずつ `scan`（固定レシピ `python-backend/recipes/entry-scan.recipe.json`）の結果を `entry-scan-result` で返す。同じファイル（VS Code はパス・size・mtime、Web は内容の sha256）と同じ校正なら保存済みの結果を使う。保存先は VS Code が workspaceState、Web が localStorage で、鍵は `awa.scanIndex.v1` / `awa.conditions.v1`（このフォルダの分だけ残す）。Web は 1 件ずつ load → scan → unload し、走査後に Worker を作り直して選択中のトラックを読み直す。表の数値・条件・Δ・外れ値・CSV は `entryTable.ts` の純関数。条件は諸元表から取る: フォルダ直下（VS Code は 1 つ上も）の CSV/TSV のうち、音源の 50% 以上に対応するものを自動で読み（`src/shared/analysis/entryMetadata.ts`、asd-insight と同じ規則: 区切りはタブとカンマの多い方、音声列 audio_file 等は開いたフォルダ直下からの相対パスで完全一致、ファイル名だけなら候補が 1 つのときだけ、無ければ sample_id 等に拡張子を補う、大小区別、1 音源に複数行なら最初の行、128 列・20 MiB まで）、表を貼る・表にドロップしても同じ規則で読む。サブフォルダの階層も条件列になる。諸元表もサブフォルダも無いときだけファイル名（`_`/`-` 区切りで最後のトークンの前の 2 つ）から取る。走査中は行をファイル（諸元の行）順に固定し、全件そろってから Δ 順に並べ直す。スロットに入れた未走査のファイルは先に走査する。キーは 0（押す: 基準、押さえる: Δ）、1–3（スロット）、Enter（比較台へ）、Esc（ファイルツリーへ）。入口が開いている間、レーン表示のショートカットは働かない。
+フォルダを開くと（VS Code はディレクトリ解析、Web はフォルダ選択）、レーン表示の上に 1 行 1 ファイルの表が開きます。Webview は `entry-open` を 1 回送り、共通 controller が `entry-conditions`（標準の Recipe、保存したセッション、諸元表の CSV）を返します。スキャンは 1 件も走りません。表の列は、ファイル・条件・長さ・サンプルレート・校正の有無で、長さとサンプルレートはヘッダの読み取り（`entry-probe`）から書きます。条件は諸元表から取ります: フォルダ直下（VS Code は 1 つ上も）の CSV/TSV のうち、音源の 50% 以上に対応するものを自動で読み（`src/shared/analysis/entryMetadata.ts`: 区切りはタブとカンマの多い方、音声列 audio_file 等は開いたフォルダ直下からの相対パスで完全一致、ファイル名だけなら候補が 1 つのときだけ、無ければ sample_id 等に拡張子を補う、大小区別、1 音源に複数行なら最初の行、128 列・20 MiB まで）、表を貼る・表にドロップしても同じ規則で読みます。サブフォルダの階層も条件列になります。諸元表もサブフォルダも無いときだけファイル名（`_`/`-` 区切りで最後のトークンの前の 2 つ）から取ります。キーは 0（基準）、1–3（スロット）、Enter（比較へ）、Esc（ファイルツリーへ）。入口が開いている間、レーン表示のショートカットは働きません。
 
 ### 7.2 比較台（comparison bench）
 
-対象: [src/webview/runtime/benchRuntime.ts](../src/webview/runtime/benchRuntime.ts) / [benchPanes.ts](../src/webview/runtime/benchPanes.ts)
+対象: [src/webview/runtime/trackStageMode.ts](../src/webview/runtime/trackStageMode.ts) / [trackStageModel.ts](../src/webview/runtime/trackStageModel.ts) / [src/webview/screens/compareOverlay.ts](../src/webview/screens/compareOverlay.ts)
 
-入口の表で 1–3 にスロットを入れて Enter を押すと比較台が開く（スロット 1–3 が空なら開かず、フッタに「1–3」を出す）。左にスロットのカード、中央に 基準・比較・差 の 3 段で、どれも scan の全ビン（`spectrumBinsDb`）をチャンネル間でパワー平均して描き、全ビンがなければ 1/3 oct の帯を描く（192 点の `spectrumDb` は描くための間引いた点で、中央値も Δ も取らない）。基準はスロット 0 のファイル、無ければ比較中のファイルと同条件のビンごとの中央値（入口の表の群と同じ）。差段の見出しは 1/3 oct の Δ の絶対値が大きい 3 帯と Δ Leq で、Δ は丸める前の Leq どうしを引いてから 0.1 dB に丸めて書く（丸めた値どうしは引かない）。1–3 は押さえている間だけ比較を入れ替え、短く押すとその比較に切り替える。B は比較中のファイルを基準にする（もう一度で群に戻す）。0 と _ はレーン表示と同じくズームのリセットと縮小。Esc で入口に戻り、スロットはそのまま。Enter はスロットのファイルを今までどおり `analyze-selected-files` で開くので、各段の ▶ は既存の再生を使い、Web が Frame を持つのはスロットのファイルだけになる。レーン表示は比較台の裏に残るが、比較台からは行けない（消すのは後の PR）。
-
-### 7.3 散布図・俯瞰帯・区間・差の固定（PR 4）
-
-入口の右に散布図（`entryPlots.ts`）。軸名のプルダウンがそのまま軸の選択で、候補は Leq・主成分 Hz・表の帯域と、諸元の数値列。点の形 = 条件、青 = フォーカス行の基準群、橙の輪 = 外れ値。点を押すとその行にフォーカスする。下に全件の 1/3 oct 俯瞰帯（行 = 表の順、表示中の範囲を枠で囲む）。1–3 は短く押すとスロットへ、押さえるとそのスロットの行（空ならフォーカス行）と基準群の差スペクトルが散布図の下に出て、離して 150 ms で消える（スロットのチップの長押しも同じ）。比較台の左下の区間を変えると、スロットのファイルと各比較の基準群（12 件まで）を `bench-scan` でその区間について scan し直し、終わるまで基準段・差段は灰で「未確定」。13 件以上の群は入口区間の基準を使い、差段の見出しに「基準 = 入口区間」。保存済みの指標は書き換えない。D で比較中の差を固定すると、左列に「Δ · 区間」カードが増え、入口の表では親の行の直下に派生行（親の条件、そのときの基準との Δ）が 1 行入る。派生行は群の件数・中央値・外れ値に入らず、CSV には区間列付きで出る。派生行は PersistedWebviewState（Web は localStorage の viewState）に残る。
+入口の表でスロット（0 が基準、1–3 が比較）に入れた録音が Tracks になり、Enter で比較台が開きます。比較台は、手順バーで選んだ手順の絵を録音ごとに取り寄せ（`compare-scan`。scan は「Recipe の 1 つの手順を 1 つのファイルにかける」だけ）、重ねて描きます。重ね描き、基準の群の中央値、Δ は図のサービス（[python-backend/figures/](../python-backend/figures/)）が 1 枚の絵として作り、画面はそれを描くだけです。基準はスロット 0 の録音、無ければ比較中の録音と同じ群の録音です（`entryBase.ts`）。30 本を超える基準の群は、ボタンを押すまで解析しません。どの図がどの経路で描かれているかは [figure-list.md](figure-list.md) にあります。
 
 ### 7.4 手順バー（PR 5）
 
 対象: [src/webview/runtime/stepBar.ts](../src/webview/runtime/stepBar.ts) / [src/shared/recipe/recipeSteps.ts](../src/shared/recipe/recipeSteps.ts)
 
-`stepBar.ts` は状態とイベントの配線だけを持ち、中身は同じフォルダのモジュールに分かれる: `stepBarModel.ts`（StepBarState・scan が走らせるレシピ・チェーンの並び）、`stepLabels.ts`（チップ名と走れない理由）、`stepChips.ts`（チップの行）、`stepMenu.ts`（＋のメニューと絞り込み。打つたびに描き直すのは一覧だけ）、`stepForm.ts`（⚙ のフォームとその検査）、`stepHistory.ts`（↶ ↷）、`stepGestures.ts`（タップ・長押し・ドラッグ）。トラック表示の「ステップ」モードも同様に `trackStageMode.ts` が配線、`trackStageModel.ts` が状態と scan の指定、`trackStagePainter.ts` が描画、`trackStageGestures.ts` がプロットの操作を持つ。
+`stepBar.ts` は状態とイベントの配線だけを持ち、中身は同じフォルダのモジュールに分かれる: `stepBarModel.ts`（StepBarState・scan が走らせるレシピ・チェーンの並び）、`stepLabels.ts`（チップ名と走れない理由）、`stepChips.ts`（チップの行）、`stepMenu.ts`（＋のメニューと絞り込み。打つたびに描き直すのは一覧だけ）、`stepForm.ts`（⚙ のフォームとその検査）、`stepHistory.ts`（↶ ↷）、`stepGestures.ts`（タップ・長押し・ドラッグ）。トラック表示の「ステップ」モードも同様に `trackStageMode.ts` が配線、`trackStageModel.ts` が状態と scan の指定、`trackStagePainter.ts` が描画を持つ。
 
-入口と比較台の上に、scan のレシピをチップで並べる。入口は「entry-scan › … › 指標 v2」、比較台は「entry-scan › … › 区間 › 平均スペクトル」に畳み、「…」で全部を開く。レシピはホストが `entry-conditions` で送る固定レシピ（`recipes/entry-scan.recipe.json`）。⚙ で開くフォームの項目は `STEP_PARAMS`（HPF・LPF・BPF の cutoff と order、welch の n_fft と window）で、wandas 0.9.0 に `default_recipe_registry().describe()` が無いための仮の表（wandas の次のリリースで置き換える）。値は wandas の符号化（float は big-endian IEEE 754 の 16 進）でレシピに書き戻す。標本化周波数に対して無効な値（cutoff ≥ fs/2、2 の冪でない n_fft など）のチップは赤くなり、そのステップを抜いたレシピ（`runnableRecipe`）で入口を最初から scan し直す（保存済みの結果はレシピ鍵が違うので使わない）。編集したレシピは PersistedWebviewState に残り、読めなくなっていたら 1 行の警告を出して標準のレシピに戻す。比較台では区間チップが「≠ 入口」の点線になり、平均スペクトルのチップを押さえている間は、基準がスロット 0 の 1 件のときに限り、レーン表示が持つスペクトログラムで 3 段を描く。
+手順バーは scan の Recipe の手順をチップで並べる。標準の Recipe はホストが `entry-conditions` で送る（`recipes/entry-scan.recipe.json`）。⚙ のフォームの項目は `recipeSteps.ts` の `STEP_PARAMS`（wandas の操作の一覧 `WANDAS_OPERATIONS` から作る）。標本化周波数に対して走れない手順のチップは赤くなり、理由を書く（`stepLabels.ts`）。編集した Recipe はフォルダのセッションに残る（`entrySession.ts`）。
 
 ### 7.5 報告の出口（PR 6）
 
-対象: [src/webview/runtime/benchReport.ts](../src/webview/runtime/benchReport.ts)
+対象: [src/webview/runtime/compareReport.ts](../src/webview/runtime/compareReport.ts)
 
-比較台の「報告に」で、`<レシピ名>_<YYYYMMDD-HHMMSS>/` の 1 フォルダに、基準.png、スロットごとの 比較 n.png・差 n.png（1200×360、白地）、報告.csv、`<レシピ名>.recipe.json` を書き出す。報告.csv は 1 行 1 スロットで、列は ファイル・条件（列ごと）・区間・Leq A特性・基準 Leq A特性（どちらも隣の列がその行のレベル基準を書く。どちらも未校正の録音があれば「未校正」付き）・Δ Leq・帯域1〜3 Hz と Δ1〜3 dB・基準群 n・基準群ファイル（`;` 区切り）・解析仕様版・外れ値（UTF-8 BOM、dB は小数 1 桁、Hz は整数、欠損は空）。.recipe.json は scan のレシピの time_slice に比較台の区間を書き込んだもので、wandas の `RecipePlan.from_dict` でそのまま読める。ファイル名・見出しは UI の言語。Webview が中身を作り、`save-report-folder` でホストに渡す: VS Code は選んだフォルダの下にフォルダを作って書き、Web はフォルダ名の zip を 1 つダウンロードさせる。
+比較台の「報告に」で、1 つのフォルダに 報告.csv、定義.json、`<レシピ名>.recipe.json`、図.png、図.csv を書き出す。報告.csv と 定義.json は言葉だけ（録音、条件、区間、基準、メモなど。列は [docs/plot-contracts.md](plot-contracts.md) の報告の行）で、解析の値の欄は持たない。図.png と 図.csv は、比較台に出ている図を図のサービスが書き出したもの（[figure-list.md](figure-list.md)）。Webview が中身を作り、`save-report-folder` でホストに渡す: VS Code は選んだフォルダの下にフォルダを作って書き、Web はフォルダ名の zip を 1 つダウンロードさせる。
 
-### 8. Waveform Renderer
+### 8. Figure（図の部品）と図のサービス
 
-対象: [src/webview/waveform/waveformRenderer.ts](../src/webview/waveform/waveformRenderer.ts) / [scripts/build-webview.js](../scripts/build-webview.js)
-
-責務:
-
-3 層の純粋関数パイプラインで波形を描画する:
-
-1. **CoordTransform** (`makeCoordTransform`): ファイル正規化時刻 `tNorm ∈ [0,1]` をキャンバス X 座標へ変換
-2. **Decimation** (`computeViewRange` + `decimateBuckets`): 表示範囲のバケットを選択し argmin/argmax 間引きを行う
-3. **Painting** (`paintDecimatedPoints`): Canvas API を呼び出す唯一の層
-
-設計上のポイント:
-
-- Canvas 依存を Painting 層のみに閉じることで、TypeScript 単体テストが Canvas なしで実行できる
-- TypeScript ソースを編集し、`npm run compile` で `dist/webview/comparisonWaveform.js` を生成する。生成物は手編集しない
-
-### 9. Range Request Policy
-
-対象: [src/webview/waveform/rangeRequestPolicy.ts](../src/webview/waveform/rangeRequestPolicy.ts)
+対象: [src/webview/figure/figure.ts](../src/webview/figure/figure.ts) / [python-backend/figures/](../python-backend/figures/)
 
 責務:
 
-- `isCacheSufficient`: 現在のキャッシュデータでズーム表示に十分かを判定する
-- `computeReqBounds`: リクエストすべき範囲を計算する
+- 図の宣言（`src/webview/charts/`）を図のサービスへ送り、返った 1 枚の絵を描く。軸の変換、目盛り、軸の名前、読み値の書式、拡大の操作を持つ
+- 図のサービスは、絵に載せるものと件数、確定した範囲、描く用の点、読む点、見出しの点を、間引く前の答えから決める
 
 設計上のポイント:
 
-- リクエスト判定ロジックを ComparisonPanel から分離し、単独でテスト可能にしている
+- 画面は絵のほかに値を持たない。読み値と ← / → は図のサービスへの問い合わせで、描いた点からは読まない（表示の規則 R1、R7）
+- 設計は [figure-design.md](figure-design.md)、図の一覧は [figure-list.md](figure-list.md)
 
 ### 10. Shared Analysis Types
 
@@ -323,68 +298,24 @@ flowchart LR
 
 ## 実行シーケンス
 
-### オンデマンド高解像度波形取得（ズーム時）
+### Tracks の行の絵（開いたときとズーム時）
 
 ```mermaid
 sequenceDiagram
     participant W as Webview JS
     participant E as Extension Host
     participant WS as AnalysisClient / PythonBackendServer
-    participant P as backend_server.py / AnalysisService
+    participant P as backend_server.py / AnalysisService / figures
 
-    W->>E: postMessage("request-waveform-range", {file, zoomStart, zoomEnd})
-    E->>WS: requestRange(file, start, end, points)
+    W->>E: postMessage("request-track-detail", {file, answers})
+    E->>WS: track-answers
     WS->>P: JSON request via stdin
-    P->>P: waveform_range() / AnalysisEngine の frame 参照
-    P-->>WS: JSON response via stdout
-    WS-->>E: resolve promise
-    E->>W: postMessage("waveform-range-result", waveformData)
-    W->>W: 共通の描画部品 (paintOverlay) でレーンを再描画
-```
-
-### 単一ファイル解析
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant E as Extension Host
-    participant P as PythonBackendServer / backend_server.py
-    participant A as AnalysisService / AnalysisEngine
-    participant C as ComparisonPanel
-
-    U->>E: Analyze File / Analyze Debug Path
-    E->>E: 設定読込と対象パス解決
-    E->>P: 常駐 backend に analyze リクエスト
-    P->>A: analyze(file)
-    A-->>P: 解析結果 dict
-    P-->>E: request ID 付き NDJSON 応答
-    E->>E: JSON.parse / AnalysisResultWithError[] を構築
-    E->>C: ComparisonPanel.show([result])
-    C-->>U: 1 トラック状態の解析ビューを表示
-```
-
-### 比較ビュー
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant E as Extension Host
-    participant C as ComparisonPanel
-    participant P as PythonBackendServer / backend_server.py
-    participant A as AnalysisService / AnalysisEngine
-
-    U->>E: フォルダを開く、または既存パネルで再度開く
-    E->>C: ディレクトリツリーを選択モードで表示
-    C->>E: analyze-selected-files
-    loop selected filePaths
-        E->>P: 常駐 backend に analyze リクエスト
-        P->>A: analyze(file)
-        A-->>P: 解析結果 dict
-        P-->>E: request ID 付き NDJSON 応答
-        E->>E: JSON.parse / AnalysisResultWithError[] へ追加
-    end
-    E->>C: ComparisonPanel.updateDirectoryResults(results, panel, selectedFilePaths)
-    C-->>U: ツリーを残したまま比較トラックを更新
+    P->>P: サンプルとスペクトログラムのレベルを鍵つきで取り置く
+    P-->>W: track-answers-result（鍵だけ。値は入らない）
+    W->>E: postMessage("figure-request", {draw, 図の宣言, 範囲, 大きさ})
+    E->>P: figure-draw
+    P-->>W: figure-result（1 枚の絵）
+    W->>W: Figure が絵を描く
 ```
 
 ## データフロー
@@ -398,7 +329,7 @@ sequenceDiagram
 
 - Python 側で `wandas` が返す音声信号オブジェクト
 - NumPy 配列に変換したチャンネル別サンプル列
-- 集約済みの波形エンベロープと正規化済みスペクトログラム
+- 鍵つきで取り置いた全解像度の答え（サンプル、スペクトログラムのレベル）と、図のサービスが作る 1 枚の絵
 
 ### 出力
 
@@ -422,8 +353,7 @@ interface AnalysisResult {
 
 - ラベル
 - Peak absolute value
-- 波形エンベロープ
-- 遅延解析で取得したスペクトログラム（未取得時は `null`）
+- 校正とレベルの基準（画面に描く絵は入らない）
 
 この構造により、バックエンドと UI の依存関係は明確で、互いの内部実装を知らなくても境界契約だけで接続できます。
 
@@ -469,9 +399,9 @@ src/
   webview/
     panels/
       ComparisonPanel.ts    単一ファイル表示と比較表示の Webview UI
-    waveform/
-      waveformRenderer.ts   波形描画パイプライン（Canvas 非依存・TypeScript）
-      rangeRequestPolicy.ts 波形レンジ取得ポリシー
+    charts/                 図の宣言（どの答えを、どの段に）
+    figure/                 Figure（図の部品）
+    screens/                図を載せる画面
   test/
     *.test.ts               node:test の単体テスト（npm run verify）
     uiSmoke/                Playwright Chromium のスモークテスト（npm run test:ui）
@@ -479,18 +409,26 @@ src/
   e2e/
     suite/index.ts          VS Code E2E スモークテスト
 python-backend/
-  backend_server.py         常駐 NDJSON サーバー
-  command_dispatch.py       共通10コマンドの入力検証と dispatch
-  analysis_service.py       解析コマンドの実装
-  scan_service.py           scan: 1 ファイルの区間から解析仕様の指標を取る（入口の表の 1 行）
-  analysis_spec.py          解析仕様（版付きの固定値。版は scan の条件 ID に入る）
-  analysis_engine.py        音声 frame と STFT のキャッシュ
-  analyzer.py               frame から表示用結果を生成
-  decimator.py              バケット argmin/argmax 波形エンベロープ生成
+  backend_server.py         入口：拡張機能の常駐 NDJSON サーバー
+  browser_service.py        入口：ブラウザ版（Pyodide）のサービス
+  transport/                通信の形と入口の振り分け
+    protocol_schema.py        プロトコルの定義（TypeScript の型はここから生成）
+    command_dispatch.py       コマンドの入力検証と dispatch
+    figure_answers.py         取り置いた答えを図のサービスに渡す
+  figures/                  図のサービス（答えから 1 枚の絵を作る。間引きは thinning.py だけ）
+  services/                 走査、解析、取り置いた答え、Recipe
+    analysis_service.py       解析コマンドの実装
+    scan_service.py           scan: 1 ファイルの区間に Recipe の 1 つの手順をかけ、その値を図のために持つ
+    analysis_engine.py        音声 frame と STFT のキャッシュ
+    analyzer.py               frame から録音の要約を生成（チャンネルのピークも）
+    stage_combine.py          手順の結果を全解像度のまま取り置く
+    tracks_answers.py         Tracks の図のために取り置く答えの鍵
+  frames/                   wandas の Frame の読み方
+    stage_view.py             Frame を読む 1 か所（read_frame）と、手順の結果の説明（describe）
+    level_identity.py         レベルが比べられるか（単位・基準値・基準の名前）
+    analysis_spec.py          scan と図が共有する固定値（版付き。端の保護、スペクトルの下限、無音の床）
 dist/webview/               compile による生成物
-  comparisonWaveform.js     ループ領域の描画（paintLoopRegion）だけを出すバンドル
   comparisonRuntime.js      比較ビューの runtime バンドル
-  chartSpecRuntime.js       Recipe ChartSpec renderer のバンドル
 media/
   debug/
     sine-440.wav            デバッグ用の単一音声ファイル
@@ -535,10 +473,10 @@ docs/
 
 将来的な拡張は主に次の 3 箇所に集約できます。
 
-1. Python 側の解析項目追加
-   `analyzer.py` の戻り値へ新しいメトリクスを追加し、`AnalysisResult` に追従させる
-2. Webview の可視化追加
-  既存のチャンネルループに新しいセクションを加えるだけで、マルチトラック比較レイアウトを維持したまま拡張しやすい
+1. 解析の演算の追加
+   数の答えを出す演算は wandas（無ければ wandas-extras）に足し、Recipe の手順として使う。処理部に計算を足さない（[plot-layers.md](plot-layers.md)）
+2. 図の種類の追加
+   図の宣言（`src/webview/charts/`）、図のサービス（`python-backend/figures/`）、Figure 部品（`src/webview/figure/`）の順に足す。手順は [figure-kinds-guide.md](figure-kinds-guide.md)
 3. コマンド追加
    `src/extension/index.ts` で別の入力導線やバッチ解析導線を定義できる。現状でも単一ファイルとディレクトリの両方を受け付ける
 

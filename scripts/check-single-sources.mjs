@@ -3,7 +3,6 @@
 //   - Python runtime dependencies: pyproject.toml [project].dependencies
 //   - The dev tools' versions: python-backend/constraints.txt (every documented setup command installs with it)
 //   - Browser session limits: python-backend/browser_service.py (README tables, browserAbout*Limits)
-//   - How many buckets a spectrum is drawn in: python-backend/stage_view.py SPECTRUM_LINE_BUCKETS
 // `--write` regenerates the README limit tables; without it the script only checks (used by verify).
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -128,13 +127,6 @@ for (const [readme, rows] of Object.entries(limitRows)) {
     if (text.slice(start, end + END.length) === expected) continue;
     if (write) writeFileSync(join(root, readme), text.slice(0, start) + expected + text.slice(end + END.length));
     else problems.push(`${readme}: browser limit table is out of date; run node scripts/check-single-sources.mjs --write`);
-}
-
-// The report draws a spectrum's bins as the comparison does (comparePanes.ts minMaxLine, stage_view.min_max_line).
-const drawnBuckets = /^SPECTRUM_LINE_BUCKETS = (\d+)$/m.exec(read('python-backend/stage_view.py'))?.[1];
-const reportBuckets = /^export const SPECTRUM_LINE_BUCKETS = (\d+);$/m.exec(read('src/webview/runtime/comparePanes.ts'))?.[1];
-if (drawnBuckets === undefined || reportBuckets === undefined || Number(drawnBuckets) !== Number(reportBuckets)) {
-    problems.push(`comparePanes.ts SPECTRUM_LINE_BUCKETS (${reportBuckets}) must equal stage_view.py SPECTRUM_LINE_BUCKETS (${drawnBuckets})`);
 }
 
 if (problems.length) {

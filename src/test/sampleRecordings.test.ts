@@ -17,7 +17,7 @@ test('the samples are three short mono 16-bit WAV files the header reader accept
         assert.equal(view.getUint32(24, true), SAMPLE_RATE_HZ);
         assert.equal(view.getUint16(34, true), 16);
         assert.equal(sample.bytes.byteLength, 44 + SAMPLE_RATE_HZ * SAMPLE_SECONDS * 2);
-        assert.deepEqual(channelsFromHeader(sample.bytes, sample.name), { channels: 1, durationS: SAMPLE_SECONDS });
+        assert.deepEqual(channelsFromHeader(sample.bytes, sample.name), { channels: 1, durationS: SAMPLE_SECONDS, sampleRate: 16000 });
         // Loud enough to see, and never clipped.
         const peak = pcm(sample.bytes).reduce((max, value) => Math.max(max, Math.abs(value)), 0);
         assert.ok(peak > 3000 && peak < 32767, `peak ${peak}`);

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import test, { mock } from 'node:test';
 import { JSDOM } from 'jsdom';
-import { attachOffsetEditing, isOffsetEditorOpen, OFFSET_EDIT_OPEN_DELAY_MS, openOffsetEditor } from '../webview/runtime/offsetInlineEditor';
+import { attachOffsetEditing, isOffsetEditorOpen, openOffsetEditor } from '../webview/runtime/offsetInlineEditor';
 
 const LABELS = { placeholder: 'ms', ariaLabel: 'Offset (ms)' };
 
@@ -73,37 +75,75 @@ function setupWrapper() {
         onReset: (idx) => calls.push('reset:' + idx),
         onEdited: (idx, ms) => calls.push('edited:' + idx + ':' + ms),
     });
-    const fire = (el: HTMLElement, type: string) => el.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true }));
-    const wait = () => new Promise((resolve) => setTimeout(resolve, OFFSET_EDIT_OPEN_DELAY_MS + 30));
-    return { doc, span, calls, fire, wait, other: doc.querySelector('.other') as HTMLElement };
+    const fire = (el: Element, type: string, detail = 1) => el.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, detail }));
+    /** One press as the browser tells it: `detail` is its count of presses in a row (2: a double click's second). */
+    const press = (el: Element, detail: number) => { fire(el, 'mousedown', detail); fire(el, 'mouseup', detail); fire(el, 'click', detail); };
+    /** A double click as the browser tells it, its second press landing where the first one's click left `second`. */
+    const doubleClick = (first: Element, second: () => Element, between?: () => void) => {
+        press(first, 1);
+        between?.();
+        const at = second();
+        press(at, 2);
+        fire(doc.querySelector('.track-offset-input') ?? at, 'dblclick', 2);
+    };
+    const editor = () => doc.querySelector<HTMLInputElement>('.track-offset-input');
+    return { doc, span, calls, fire, press, doubleClick, editor, other: doc.querySelector('.other') as HTMLElement };
 }
 
-test('attachOffsetEditing opens the editor after the click delay and reports the edit', async () => {
-    const { doc, span, calls, fire, wait } = setupWrapper();
-    fire(span, 'click');
-    assert.equal(isOffsetEditorOpen(span), false);
-    await wait();
-    const input = doc.querySelector('.track-offset-input') as HTMLInputElement;
+test('a click on the offset opens its editor at once, with no wait, and reports the edit (R13)', () => {
+    const { span, calls, press, editor } = setupWrapper();
+    press(span, 1);
+    assert.equal(isOffsetEditorOpen(span), true, 'the editor opens on the click itself');
+    const input = editor();
+    assert.ok(input);
     assert.equal(input.value, '250');
     input.value = '-40';
-    input.dispatchEvent(new (doc.defaultView as unknown as { FocusEvent: typeof FocusEvent }).FocusEvent('blur'));
+    input.dispatchEvent(new (input.ownerDocument.defaultView as unknown as { FocusEvent: typeof FocusEvent }).FocusEvent('blur'));
     assert.deepEqual(calls, ['edited:1:-40']);
 });
 
-test('attachOffsetEditing: a double-click resets the offset and cancels the pending editor', async () => {
-    const { doc, span, calls, fire, wait } = setupWrapper();
-    fire(span, 'click');
-    fire(span, 'dblclick');
-    await wait();
-    assert.equal(doc.querySelector('.track-offset-input'), null);
+test('a double click on the offset resets it to 0 and leaves no editor, however slow: the browser decides it is one (R13)', () => {
+    // Timers mocked: a click that waited on a timer of its own to tell a double click would open its editor here,
+    // when the time between the presses (longer than any wait of ours, still a double click to the browser) is ticked.
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+        const { span, calls, doubleClick, editor } = setupWrapper();
+        doubleClick(span, () => editor() ?? span, () => mock.timers.tick(1000));
+        mock.timers.tick(1000);
+        assert.equal(editor(), null, 'no editor is left open');
+        assert.equal(isOffsetEditorOpen(span), false);
+        assert.deepEqual(calls, ['reset:1'], 'the offset is reset once, and the opening took back commits nothing');
+    } finally {
+        mock.timers.reset();
+    }
+});
+
+test('a double click on the offset resets it whether its second press lands on the editor or beside it (R13)', () => {
+    const { span, calls, doubleClick, editor, other } = setupWrapper();
+    doubleClick(span, () => other);
+    assert.equal(editor(), null);
     assert.deepEqual(calls, ['reset:1']);
 });
 
-test('attachOffsetEditing ignores clicks outside the offset label', async () => {
-    const { doc, other, calls, fire, wait } = setupWrapper();
-    fire(other, 'click');
-    fire(other, 'dblclick');
-    await wait();
-    assert.equal(doc.querySelector('.track-offset-input'), null);
+test('a press between a click and a second press makes it no double click: the editor the click opened stays (R13)', () => {
+    const { span, calls, press, editor, other, fire } = setupWrapper();
+    press(span, 1);
+    fire(other, 'mousedown', 1);
+    press(editor() ?? span, 2);
+    assert.ok(editor(), 'the editor stays open');
     assert.deepEqual(calls, []);
+});
+
+test('attachOffsetEditing ignores clicks outside the offset label', () => {
+    const { other, calls, press, fire, editor } = setupWrapper();
+    press(other, 1);
+    press(other, 2);
+    fire(other, 'dblclick', 2);
+    assert.equal(editor(), null);
+    assert.deepEqual(calls, []);
+});
+
+test('the offset editor waits on no timer of its own: a click opens it, the browser tells a double click (R13)', () => {
+    const source = readFileSync(path.resolve(__dirname, '..', '..', 'src', 'webview', 'runtime', 'offsetInlineEditor.ts'), 'utf8');
+    assert.doesNotMatch(source, /\bset(?:Timeout|Interval)\s*\(|requestAnimationFrame\s*\(/, 'no timer decides a click from a double click');
 });

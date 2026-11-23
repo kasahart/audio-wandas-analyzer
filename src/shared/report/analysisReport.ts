@@ -1,7 +1,7 @@
 // Markdown and Jupyter Notebook report builders for the comparison view's "Export report".
 // Pure functions of the active tracks, so the runtime only gathers its state and posts the result.
 import type { AnalysisResultWithError, ChannelSummary } from '../analysis/analysisTypes';
-import { levelText, withMinus } from '../../webview/plot/plotText';
+import { levelText, withMinus } from '../../webview/shell/numberText';
 import { channelLabel, channelsForResult, formatMeasuredLevel, formatMeasurementNumber, formatReportDuration } from '../utils/format';
 
 export interface ReportTrack {
@@ -107,12 +107,17 @@ export function buildMarkdownReport(tracks: readonly ReportTrack[], loop: Report
         const globalStartSec = loop.globalStartSec;
         const globalEndSec = loop.globalEndSec;
         const globalDurationSec = Math.max(0, globalEndSec - globalStartSec);
+        // Written to the millisecond; a shorter region with as many decimals (to the microsecond) as keep its
+        // length from being written as zero, so a short transient's region is not written as nothing. (Ends a length
+        // of at least half the last decimal apart are written apart.)
+        let decimals = 3;
+        while (decimals < 6 && globalDurationSec > 0 && /^[0.]+$/.test(withMinus(globalDurationSec.toFixed(decimals)))) decimals += 1;
         lines.push('## Loop Region');
         lines.push('');
         lines.push('- Time basis: global comparison timeline (offset-adjusted)');
-        lines.push('- Global Start: ' + withMinus(globalStartSec.toFixed(3)) + ' s');
-        lines.push('- Global End: ' + withMinus(globalEndSec.toFixed(3)) + ' s');
-        lines.push('- Global Duration: ' + withMinus(globalDurationSec.toFixed(3)) + ' s');
+        lines.push('- Global Start: ' + withMinus(globalStartSec.toFixed(decimals)) + ' s');
+        lines.push('- Global End: ' + withMinus(globalEndSec.toFixed(decimals)) + ' s');
+        lines.push('- Global Duration: ' + withMinus(globalDurationSec.toFixed(decimals)) + ' s');
         lines.push('');
         lines.push('| Track | Offset | Local Start | Local End | Local Duration | Status |');
         lines.push('|-------|--------|-------------|-----------|----------------|--------|');
@@ -128,9 +133,9 @@ export function buildMarkdownReport(tracks: readonly ReportTrack[], loop: Report
             const status = inRange
                 ? ((localStart < 0 || localEnd > dur) ? 'Partial' : 'In range')
                 : 'Out of range';
-            const localStartText = inRange ? withMinus(coveredStart.toFixed(3)) + ' s' : '-';
-            const localEndText = inRange ? withMinus(coveredEnd.toFixed(3)) + ' s' : '-';
-            const localDurationText = inRange ? withMinus((coveredEnd - coveredStart).toFixed(3)) + ' s' : '-';
+            const localStartText = inRange ? withMinus(coveredStart.toFixed(decimals)) + ' s' : '-';
+            const localEndText = inRange ? withMinus(coveredEnd.toFixed(decimals)) + ' s' : '-';
+            const localDurationText = inRange ? withMinus((coveredEnd - coveredStart).toFixed(decimals)) + ' s' : '-';
             lines.push('| ' + markdownTableCell(r.fileName) + ' | ' + withMinus(offset.toFixed(3)) + ' s | ' + localStartText + ' | ' + localEndText + ' | ' + localDurationText + ' | ' + status + ' |');
         });
         lines.push('');

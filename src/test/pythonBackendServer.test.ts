@@ -54,6 +54,9 @@ test('error codes match the shared protocol fixture', () => {
     assert.deepEqual([...BACKEND_ERROR_CODES], fixture.errorCodes);
 });
 
+/** A cursor read as the lazy sample request of these tests (any command a newer one may cancel). */
+const CURSOR = { cursorNorm: 0.5, scale: 'log' as const, sourceVersion: undefined };
+
 function makePending(
     command: BackendCommand,
     resolved: unknown[],
@@ -183,18 +186,6 @@ function calibratedAnalyzeResponse(): { [key: string]: unknown } {
             sourceUnit: 'FS',
             sourceLevelReferenceLabel: 'dBFS',
             clipped: false,
-            waveform: { min: [-0.1], max: [0.1], samples: [0], absolutePeak: 0.1 },
-            spectrogram: {
-                values: [[74]],
-                timeBins: 1,
-                frequencyBins: 1,
-                windowSize: 1024,
-                hopSize: 256,
-                maxFrequencyHz: 24_000,
-                minDb: 74,
-                maxDb: 74,
-                ...scale,
-            },
         }],
     };
 }
@@ -232,10 +223,6 @@ test('parseBackendResult rejects malformed calibration analysis fields', () => {
             const channels = candidate['channels'] as Array<{ clipped: unknown }>;
             channels[0].clipped = 'false';
         }],
-        ['spectrogram reference', (candidate) => {
-            const channels = candidate['channels'] as Array<{ spectrogram: { referenceValue: unknown } }>;
-            channels[0].spectrogram.referenceValue = -1;
-        }],
         ['shared unit metadata', (candidate) => {
             const units = candidate['units'] as { amplitudeLevel: { referenceValue: unknown } };
             units.amplitudeLevel.referenceValue = '2e-5';
@@ -250,28 +237,15 @@ test('parseBackendResult rejects malformed calibration analysis fields', () => {
 });
 
 test('parseBackendResult validates calibration identity on lazy results', () => {
-    assert.throws(() => parseBackendResult('range', {
-        startNorm: 0,
-        endNorm: 1,
-        channels: [],
-        calibrationSignature: 1,
-    }), BackendProtocolError);
-    assert.throws(() => parseBackendResult('track-detail', {
-        trackIndex: 0,
-        analysisId: 'analysis',
-        settingsSignature: 'settings',
+    const kept = loadValidResponseFixtures().find(fixture => fixture.command === 'cursor-answers')!.response;
+    assert.throws(() => parseBackendResult('cursor-answers', { ...kept, calibrationSignature: 1 }), BackendProtocolError);
+    assert.throws(() => parseBackendResult('cursor-answers', { ...kept, analysisRevision: -1 }), BackendProtocolError);
+    assert.throws(() => parseBackendResult('cursor-answers', {
         filePath: '/tmp/calibrated.wav',
-        channels: [],
-        analysisRevision: -1,
-    }), BackendProtocolError);
-    assert.throws(() => parseBackendResult('spectrum-slice', {
-        trackIndex: 0,
-        analysisId: 'analysis',
-        settingsSignature: 'settings',
-        filePath: '/tmp/calibrated.wav',
-        channels: [{ channelIndex: 0, values: [74], minDb: 74, maxDb: 74, referenceValue: 0 }],
-        frequencyBins: 1,
-        maxFrequencyHz: 24_000,
+        channels: [{ channelIndex: 0, level: { unit: 'Pa', ref: 0, label: 'dB' }, key: 7 }],
+        windowStartNorm: 0.4,
+        windowEndNorm: 0.6,
+        window: 'hann',
     }), BackendProtocolError);
 });
 
@@ -309,15 +283,15 @@ test('feedStdoutChunk buffers partial lines and handles multiple responses', () 
     const pending = new Map<string, PendingRequest>();
     const resolved: unknown[] = [];
     const rejected: Error[] = [];
-    pending.set('r1', makePending('range', resolved, rejected));
+    pending.set('r1', makePending('region-peak', resolved, rejected));
     pending.set('r2', makePending('export-wav-loop', resolved, rejected));
     const buffer: { input?: PassThrough } = {};
 
-    feedStdoutChunk(buffer, '{"requestId":"r1","startNorm":0,', pending);
+    feedStdoutChunk(buffer, '{"requestId":"r1",', pending);
     assert.equal(resolved.length, 0);
     feedStdoutChunk(
         buffer,
-        '"endNorm":1,"channels":[]}\n{"requestId":"r2","wavBase64":"UklGRg==","sampleRate":16000}\n',
+        '"peak":0.5}\n{"requestId":"r2","wavBase64":"UklGRg==","sampleRate":16000}\n',
         pending,
     );
 
@@ -402,7 +376,7 @@ test('feedStdoutChunk rejects a wrong-command result without leaking pending sta
     const resolved: unknown[] = [];
     const rejected: Error[] = [];
     const diagnostics: BackendDiagnostic[] = [];
-    pending.set('r1', makePending('range', resolved, rejected));
+    pending.set('r1', makePending('region-peak', resolved, rejected));
 
     feedStdoutChunk(
         {},
@@ -421,11 +395,11 @@ test('feedStdoutChunk rejects non-finite numeric fields', () => {
     const pending = new Map<string, PendingRequest>();
     const resolved: unknown[] = [];
     const rejected: Error[] = [];
-    pending.set('r1', makePending('range', resolved, rejected));
+    pending.set('r1', makePending('region-peak', resolved, rejected));
 
     feedStdoutChunk(
         {},
-        '{"requestId":"r1","startNorm":1e999,"endNorm":1,"channels":[]}\n',
+        '{"requestId":"r1","peak":1e999}\n',
         pending,
     );
 
@@ -461,7 +435,7 @@ test('rejectPendingRequests rejects and clears every request on backend exit or 
     const resolved: unknown[] = [];
     const rejected: Error[] = [];
     pending.set('r1', makePending('analyze', resolved, rejected));
-    pending.set('r2', makePending('range', resolved, rejected));
+    pending.set('r2', makePending('region-peak', resolved, rejected));
     const error = new Error('backend exited');
 
     rejectPendingRequests(pending, error);
@@ -478,10 +452,10 @@ test('shared reply correlation consumes a request once and isolates completion f
     assert.equal(settleBackendRequest(pending, 'r', { ok: true }), undefined);
     assert.equal(settleBackendRequest(pending, 'r', { late: true })?.kind, 'orphan-response');
     assert.deepEqual(completed, [{ ok: true }]);
-    pending.set('bad', { command: 'range', complete: () => { throw new Error('bad shape'); }, reject: error => { rejected.push(error); } });
+    pending.set('bad', { command: 'region-peak', complete: () => { throw new Error('bad shape'); }, reject: error => { rejected.push(error); } });
     assert.equal(settleBackendRequest(pending, 'bad', {})?.kind, 'protocol-validation-error');
     assert.equal(pending.size, 0);
-    pending.set('cancelled', { command: 'range', complete: () => assert.fail('cancelled request must not complete'), reject: error => { rejected.push(error); } });
+    pending.set('cancelled', { command: 'region-peak', complete: () => assert.fail('cancelled request must not complete'), reject: error => { rejected.push(error); } });
     rejectPendingRequests(pending, new Error('cancelled'));
     assert.equal(pending.size, 0);
     assert.equal(rejected.length, 2);
@@ -658,7 +632,7 @@ test('cancelling a running analysis asks Python to drop it without restarting th
         await server.warmup();
         const source = tokenSource();
         const analysis = server.analyze('/long.wav', {}, source.token as never);
-        const other = server.requestRange('/other.wav', 0, 1, 4, 'other-range');
+        const other = server.requestCursorAnswers('/other.wav', CURSOR, 'other-range');
         await settle();
         const backend = children[0];
         const analyze = backend.commands.find(command => command.cmd === 'analyze')!;
@@ -668,7 +642,7 @@ test('cancelling a running analysis asks Python to drop it without restarting th
         assert.equal(source.listening(), false);
         // A reply already on its way is dropped quietly; the other request is untouched.
         backend.reply(analyze);
-        backend.reply(backend.commands.find(command => command.cmd === 'range')!);
+        backend.reply(backend.commands.find(command => command.cmd === 'cursor-answers')!);
         await other;
         assert.equal(backend.killed, false);
         assert.equal(children.length, 1);
@@ -681,7 +655,7 @@ test('a lazy request cancelled by a newer one is dropped by Python too', async (
     try {
         await server.warmup();
         const older = tokenSource();
-        const range = server.requestRange('/a.wav', 0, 0.5, 4, 'range-old', {}, older.token);
+        const range = server.requestCursorAnswers('/a.wav', CURSOR, 'range-old', older.token);
         await settle();
         older.cancel();
         await assert.rejects(range, /cancelled/);
@@ -693,8 +667,8 @@ test('a request that outlives its command timeout restarts the backend and repla
     const { server, children } = recipeRestartHarness(false, false, undefined, { timeoutsMs: { scan: 20 } });
     try {
         await server.warmup();
-        const scan = server.scan({ filePath: '/stuck.wav', recipe: {} });
-        const range = server.requestRange('/panel.wav', 0, 1, 4, 'panel-range');
+        const scan = server.scan({ filePath: '/stuck.wav', recipe: {}, stage: 's1' });
+        const range = server.requestCursorAnswers('/panel.wav', CURSOR, 'panel-range');
         await settle();
         children[0].start(children[0].commands.find(command => command.cmd === 'scan')!);
         await assert.rejects(scan, /scan request timed out/);
@@ -709,11 +683,11 @@ test('a request that outlives its command timeout restarts the backend and repla
 });
 
 test('a request queued behind a long barrier is not timed until Python starts it', async () => {
-    const { server, children } = recipeRestartHarness(false, false, undefined, { timeoutsMs: { scan: 10_000, range: 20 } });
+    const { server, children } = recipeRestartHarness(false, false, undefined, { timeoutsMs: { scan: 10_000, 'cursor-answers': 20 } });
     try {
         await server.warmup();
-        const scan = server.scan({ filePath: '/a.wav', recipe: {} });
-        const range = server.requestRange('/a.wav', 0, 1, 4, 'queued-range');
+        const scan = server.scan({ filePath: '/a.wav', recipe: {}, stage: 's1' });
+        const range = server.requestCursorAnswers('/a.wav', CURSOR, 'queued-range');
         await settle();
         const backend = children[0];
         const [scanCommand, rangeCommand] = backend.commands;
@@ -726,7 +700,7 @@ test('a request queued behind a long barrier is not timed until Python starts it
         backend.reply(rangeCommand);
         await Promise.all([scan, range]);
         assert.equal(children.length, 1);
-        assert.deepEqual(backend.commands.map(command => command.cmd), ['scan', 'range']);
+        assert.deepEqual(backend.commands.map(command => command.cmd), ['scan', 'cursor-answers']);
     } finally { server.dispose(); }
 });
 
@@ -771,6 +745,6 @@ test('a request to a backend that vanished fails instead of throwing a null dere
     try {
         await server.warmup();
         children[0].stdin.destroy();
-        await assert.rejects(server.requestRange('/a.wav', 0, 1, 4, 'r'), /Python backend is not running/);
+        await assert.rejects(server.requestCursorAnswers('/a.wav', CURSOR, 'r'), /Python backend is not running/);
     } finally { server.dispose(); }
 });

@@ -10,39 +10,29 @@ const base: ChannelLaneSpec = {
     channelCount: 1,
     channelLabel: 'Ch 1',
     metricSummaryHtml: '<span>Peak 80.0 dB</span>',
-    axisWidth: 64,
-    waveformLabel: 'a<b>.wav · Ch 1 · waveform',
-    spectrogramLabel: 'a<b>.wav · Ch 1 · spectrogram',
-    axisHint: 'Double-click: reset',
-    spectrogramAxisHint: 'Double-click: reset zoom',
     splitHint: 'Drag the split',
     splitLabel: 'Split',
 };
 
-test('single-channel lane has no header and uses unsuffixed canvas ids', () => {
+test('single-channel lane has no header and its Figure\'s box has an unsuffixed id', () => {
     const html = channelLaneHtml(base);
     assert.ok(!html.includes('track-channel-lane-header'));
     assert.ok(!html.includes('Peak 80.0 dB'));
-    assert.ok(html.includes('id="track-canvas-1"'));
-    assert.ok(!html.includes('track-spectrum'));
-    assert.ok(html.includes('style="width:64px"'));
-    assert.ok(html.includes('left:64px'));
+    assert.ok(html.includes('<div class="track-row-figure" id="track-row-figure-1"><canvas class="track-row-layer" aria-hidden="true"></canvas><div class="track-row-says" hidden></div></div>'));
+    assert.ok(!html.includes('track-canvas-wrap') && !html.includes('track-axis-canvas'), 'a lane holds no canvas of its own beside its Figure\'s box');
 });
 
 test('multi-channel lane shows the label header with the metric summary', () => {
     const html = channelLaneHtml({ ...base, channelIndex: 1, channelCount: 2, channelLabel: 'Ch <2>' });
     assert.ok(html.includes('<span class="track-channel-lane-label">Ch &lt;2&gt;</span><span>Peak 80.0 dB</span>'));
-    assert.ok(html.includes('id="track-canvas-1-1"'));
-    // The lane, its two axes, its two plots, the layers of lines over each, and the split between them.
-    assert.equal(html.match(/data-track-id="t1" data-channel-index="1"/g)?.length, 8);
+    assert.ok(html.includes('id="track-row-figure-1-1"'));
+    // The lane and the split between its Figure's two lanes.
+    assert.equal(html.match(/data-track-id="t1" data-channel-index="1"/g)?.length, 2);
 });
 
-test('the waveform and spectrogram canvases are named by file, channel and kind, with no inline outline over the focus ring', () => {
+test('the split between a lane\'s waveform and spectrogram is a separator the keyboard reaches', () => {
     const html = channelLaneHtml(base);
-    assert.ok(html.includes('class="track-canvas" id="track-canvas-1" data-track-id="t1" data-channel-index="0" data-plot data-plot-axes="" tabindex="0" role="img" aria-label="a&lt;b&gt;.wav · Ch 1 · waveform"'));
-    assert.ok(html.includes('aria-label="a&lt;b&gt;.wav · Ch 1 · spectrogram"'));
-    assert.ok(!html.includes('outline:none'));
-    assert.ok(html.includes('role="separator" tabindex="0"'));
+    assert.ok(html.includes('role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Split"'));
 });
 
 const rowStrings = {
@@ -100,7 +90,7 @@ test('track row disables transport buttons without audio', () => {
 });
 
 test('mono track row appends the channel summary to the meta line', () => {
-    const channel = { label: 'L', peakAbsolute: 1.5, peakLevelDb: 80, fullScale: true, waveform: { min: [], max: [], samples: [], absolutePeak: 0 }, spectrogram: null } as unknown as ChannelSummary;
+    const channel = { label: 'L', peakAbsolute: 1.5, peakLevelDb: 80, fullScale: true } as unknown as ChannelSummary;
     const html = trackRowHtml({ ...baseRow, channelCount: 1, channels: [channel] }, rowStrings);
     assert.ok(html.includes('<div class="track-meta">1 ch &nbsp;48 kHz &nbsp; <span>Pk 80.0 dBFS</span></div>'));
     assert.ok(html.includes('data-hint="Full scale"'));
@@ -110,13 +100,15 @@ test('mono track row appends the channel summary to the meta line', () => {
     assert.ok(!csv.includes('>FS</span>'));
 });
 
-test('every track header control and the lane canvases carry a footer hint', () => {
+test('every track header control and the split between a row\'s lanes carry a footer hint', () => {
     const row = trackRowHtml(baseRow, rowStrings);
     for (const control of row.match(/<(button|span class="track-offset-val"|div class="height-resizer)\b[^>]*>/g) ?? []) {
         assert.match(control, / data-hint="[^"]+"/, control);
     }
     const lane = channelLaneHtml(base);
-    assert.match(lane, /class="track-axis-canvas"[^>]* data-hint="Double-click: reset"/);
+    // The row's picture is a Figure's, which tells the footer where the pointer is itself (FigureOptions.hint); the
+    // markup's own control is the split between the two lanes.
+    assert.match(lane, /class="track-split"[^>]* data-hint="[^"]+"/);
 });
 
 test('the reference button sits in a multi-channel lane header or in a mono track\'s buttons', () => {

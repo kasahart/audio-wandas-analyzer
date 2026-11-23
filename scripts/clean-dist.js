@@ -31,7 +31,6 @@ const MANAGED_EXTENSIONS = [
 
 // src/ 対応のない build スクリプト生成物を保護する (dist からの相対パスで列挙)。
 const PROTECTED_RELATIVE = new Set([
-    path.join('webview', 'comparisonWaveform.js'),
     path.join('webview', 'comparisonRuntime.js'),
     path.join('webview', 'staticHost.js'),
 ]);

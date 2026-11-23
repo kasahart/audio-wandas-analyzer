@@ -21,6 +21,9 @@ async function removeAllTracks(page, act = 'click') {
     }
 }
 
+/** What a row's answers reply says of what was kept (the keys themselves are each host's own). */
+const kept=m=>({windowSize:m.windowSize,hopSize:m.hopSize,windowed:m.windowed,sampleRateHz:m.sampleRateHz,durationSeconds:m.durationSeconds,channels:m.channels.map(c=>({channelIndex:c.channelIndex,level:c.level,unit:c.unit,signal:typeof c.signal,image:typeof c.image}))});
+
 module.exports = async function auditAuto96k({browser,origin,root,compare}) {
     const rate=96000, frames=16*rate, bytes=Buffer.alloc(44+frames*2);
     bytes.write('RIFF');bytes.writeUInt32LE(bytes.length-8,4);bytes.write('WAVEfmt ',8);
@@ -31,11 +34,11 @@ module.exports = async function auditAuto96k({browser,origin,root,compare}) {
     const fixture=path.join(root,'test-results/generated-auto-96k.wav');fs.writeFileSync(fixture,bytes);
     const native=runPython(root, ['-c',[
         'import sys,json', 'sys.path.insert(0,"python-backend")',
-        'from analysis_engine import AnalysisEngine', 'from analysis_service import AnalysisService',
+        'from services.analysis_engine import AnalysisEngine', 'from services.analysis_service import AnalysisService',
         'service=AnalysisService(AnalysisEngine())',
         'label=service.engine.get_file(sys.argv[1]).frame.labels[0]',
         'profile={"schemaVersion":1,"channels":[{"channelIndex":0,"expectedLabel":label,"status":"calibrated","source":"manual","factor":10,"unit":"Pa","referenceValue":2e-5}]}',
-        'print(json.dumps({"plain":service.track_detail(sys.argv[1]),"calibrated":service.track_detail(sys.argv[1],calibration_profile=profile),"profile":profile},allow_nan=False))',
+        'print(json.dumps({"plain":service.track_answers(sys.argv[1]),"calibrated":service.track_answers(sys.argv[1],calibration_profile=profile),"profile":profile},allow_nan=False))',
     ].join('\n'),fixture],{cwd:root,encoding:'utf8',maxBuffer:16*1024*1024,env:{...process.env,MPLBACKEND:'Agg'}});
     assert.equal(native.status,0,native.stderr);
     const page=await browser.newPage();
@@ -47,11 +50,11 @@ module.exports = async function auditAuto96k({browser,origin,root,compare}) {
         await page.locator('input[data-action="browser-open-wav"]').setInputFiles(fixture);
         await page.locator('span[role="status"]').filter({hasText:S.browserReady.slice(0,S.browserReady.indexOf('{count}')).trim()}).waitFor({timeout:120000});
         // The lanes show each track's spectrogram under its waveform: its detail is asked for without a toggle.
-        await page.waitForFunction(()=>window.__auto96k.some(m=>m.type==='track-detail-result'||m.type==='track-detail-error'),undefined,{timeout:120000});
-        const result=await page.evaluate(()=>window.__auto96k.find(m=>m.type==='track-detail-result'||m.type==='track-detail-error'));
-        assert.equal(result.type,'track-detail-result',result.error);
-        assert.equal(result.channels[0].spectrogram.hopSize,2134);
-        compare(JSON.parse(native.stdout).plain.channels,result.channels,'auto96k.native/Pyodide');
+        await page.waitForFunction(()=>window.__auto96k.some(m=>m.type==='track-answers-result'||m.type==='track-detail-error'),undefined,{timeout:120000});
+        const result=await page.evaluate(()=>window.__auto96k.find(m=>m.type==='track-answers-result'||m.type==='track-detail-error'));
+        assert.equal(result.type,'track-answers-result',result.error);
+        assert.equal(result.hopSize,2134);
+        compare(kept(JSON.parse(native.stdout).plain),kept(result),'auto96k.native/Pyodide');
         assert.equal(await page.locator('audio').evaluateAll(xs=>xs.every(x=>x.paused)),true);
         await removeAllTracks(page);
         const expected=JSON.parse(native.stdout);
@@ -68,11 +71,11 @@ module.exports = async function auditAuto96k({browser,origin,root,compare}) {
             try {
                 const bytes=await (await fetch('./auto-96k-fixture.wav')).arrayBuffer();
                 await run({cmd:'load',sourceId:'calibrated.wav',bytes});
-                return await run({cmd:'track-detail',filePath:'/sources/calibrated.wav',trackIndex:0,analysisId:'calibrated',settingsSignature:'auto',calibrationProfile:profile});
+                return await run({cmd:'track-answers',filePath:'/sources/calibrated.wav',calibrationProfile:profile});
             } finally {worker.terminate();}
         },expected.profile);
-        compare(expected.calibrated.channels,calibrated.channels,'auto96k.calibrated.native/Pyodide');
-        console.log('Calibrated sparse auto-STFT native/Pyodide levels passed (factor 10, Pa, ref 20 µPa).');
+        compare(kept(expected.calibrated),kept(calibrated),'auto96k.calibrated.native/Pyodide');
+        console.log('Calibrated sparse auto-STFT native/Pyodide kept answers (settings, level unit and reference) passed (factor 10, Pa, ref 20 µPa).');
         console.log('16-second 96kHz mono auto-STFT native/Pyodide parity passed; input/memory limits retained.');
     } finally {await page.close();fs.rmSync(fixture,{force:true});}
 };

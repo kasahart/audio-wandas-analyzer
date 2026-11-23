@@ -3,7 +3,7 @@ import { SessionRequests, SourceResults } from '../../shared/analysis/analysisSe
 import { runAnalysisBatch } from '../../shared/analysis/analysisCoordinator';
 import { AnalysisClient, type AnalysisCancellationSignal } from '../../shared/analysis/analysisClient';
 import { userErrorText, type ScanResult, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
-import type { BrowserLimits, StageDetail } from '../../shared/protocol/generated/backendProtocolSchema';
+import type { BrowserLimits } from '../../shared/protocol/generated/backendProtocolSchema';
 import { createWorkerConnection } from './staticWorker';
 import type { PanelMessage } from '../../shared/protocol/panelMessages';
 import { hasPlayableAudio, isSupportedAudioFile } from '../../shared/utils/audioTarget';
@@ -46,7 +46,6 @@ export interface StaticHostDeps {
     URL: Pick<typeof URL, 'createObjectURL' | 'revokeObjectURL'>;
     setTimeout: typeof setTimeout;
     /** Files a scan must load before the Worker is replaced afterwards (20); tests lower it. */
-    restartAfterScans?: number;
 }
 
 function missingBootstrap(): never {
@@ -91,7 +90,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     const inboundListeners = new Set<(message: unknown) => void>();
     let loading = false;
     const audioWorker = createWorkerConnection({
-        Worker, setTimeout, sources, sourceGeneration, exclusive,
+        Worker, sources, sourceGeneration,
         showState: (state, quiet) => showPythonState(state, quiet),
         reportLacks: lacks => { browserWindow.__AWA_RUNTIME_LACKS__ = lacks; },
         cancelReanalysis: () => { reanalysisGeneration.advance(); },
@@ -144,10 +143,10 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         });
     }
     /**
-     * One entry-table file: loaded into the Worker only for its scan unless it is already a selected
+     * One file's step: the file is loaded into the Worker only for its scan unless it is already a selected
      * track, so a folder of any size never holds more than one extra file in Pyodide.
      */
-    async function scanEntryFile(path: string, region?: { start: number; end: number }, override?: Record<string, unknown>, stage?: string, detail?: StageDetail, reference?: ScanReference, spectrumBins?: boolean): Promise<ScanResult> {
+    async function scanEntryFile(path: string, stage: string, region?: { start: number; end: number }, override?: Record<string, unknown>, reference?: ScanReference): Promise<ScanResult> {
         const file = folder.get(path);
         if (!file) return { ok: false, reason: strings.entrySourceGone };
         const limit = browserLimits ?? await limits();
@@ -167,7 +166,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             };
             try {
                 const paired = reference && pairedFile ? { ...reference, filePath: await workerPath(reference.filePath, pairedFile) } : undefined;
-                const over = { ...(region ? { region } : {}), ...(stage ? { stage } : {}), ...(detail ? { detail } : {}), ...(paired ? { reference: paired } : {}), ...(spectrumBins ? { spectrumBins } : {}) };
+                const over = { stage, ...(region ? { region } : {}), ...(paired ? { reference: paired } : {}) };
                 return await analysisClient.scan({ filePath: await workerPath(path, file), recipe, ...over });
             } finally {
                 for (const into of loaded) await audioWorker.request({ cmd: 'unload', filePath: into }).catch(() => undefined);
@@ -343,12 +342,10 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             announce(strings.reportSaved + folder + '.zip');
         },
         entry: {
-            // The file's content: a recording copied over with the same size and time is another file (V1).
-            identity: async path => folderKeys.contentIdentity(path),
-            spec: () => exclusive(() => analysisClient.scanSpec()),
-            scan: (path, region, recipe, stage, detail, reference, spectrumBins) => scanEntryFile(path, region, recipe, stage, detail, reference, spectrumBins),
+            scan: (path, stage, region, recipe, reference) => scanEntryFile(path, stage, region, recipe, reference),
             // In turn with the scans: the values they kept are in the Worker that ran them.
-            combine: payload => exclusive(() => analysisClient.stageCombine(payload)),
+            // The figure service, in turn with the scans in the one Worker (which cannot cancel: a superseded draw runs out).
+            figure: (command, payload) => exclusive(() => analysisClient.figure(command, payload)),
             recipe: loadEntryRecipe,
             // The picked folder's CSV/TSV files are listed beside its recordings; the browser cannot reach the folder above.
             readFile: async path => {
@@ -362,12 +359,9 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                 if (!file) throw new Error(strings.entrySourceGone);
                 return new Uint8Array(await file.slice(0, length).arrayBuffer());
             },
-            // A folder's index, session and CSV in IndexedDB (they outgrow localStorage); the rest as before.
+            // A folder's session and CSV in IndexedDB (they outgrow localStorage); the rest as before.
             read: async key => (folderKeys.isFolderKey(key) ? folderStore.read(await folderKeys.tagged(key)) : readSaved(key)),
             write: async (key, value) => (folderKeys.isFolderKey(key) ? folderStore.write(await folderKeys.tagged(key), value) : save(key, value)),
-            // Pyodide's heap never shrinks, so after a folder scan the Worker is replaced and the selected tracks reload into it.
-            // A few files (a comparison region over a base group) leave Pyodide's heap as it was; a folder's worth does not.
-            afterScan: scanned => { if (scanned >= (deps.restartAfterScans ?? 20) && audioWorker.running && !audioWorker.recovering) audioWorker.replaceBehind(); },
         },
     };
     const controller = new ComparisonSessionController(ports);

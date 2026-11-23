@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
-import { stubStage } from './stubStage';
 import path from 'node:path';
 import { expect, settled, test, type Page } from './canvasAudit';
 import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
 import { FLAG_COLOR } from '../../shared/gui/roleColors';
+
 
 /** A `#rrggbb` colour as the browser computes it. */
 const rgb = (hex: string): string => `rgb(${[1, 3, 5].map(at => parseInt(hex.slice(at, at + 2), 16)).join(', ')})`;
@@ -24,11 +24,11 @@ async function answer(page: Page, view: Record<string, unknown>): Promise<Posted
             window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...file.result, stage: view } }, '*');
         }
         window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
-    }, { request, view: stubStage(view), files: scanned! });
+    }, { request, view: view, files: scanned! });
     return request;
 }
 
-test('the track view\'s steps mode draws every track as the chosen step\'s Frame, and its zoom asks for the part on screen', async ({ page }) => {
+test('the track view\'s steps mode draws every track as the chosen step\'s Frame, and a zoom of the spectrum overlay draws the part on screen with no scan of it (the figure service holds every value)', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
     await openEntry(page, scanned!, { recipe });
@@ -68,8 +68,9 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
     await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBeGreaterThan(1);
     // The track's line is in; the base group's files are counted as they come.
     await expect(stage).toHaveAttribute('data-pending', /^1\/\d+$/);
-    await answer(page, view);
-    await expect(stage).toHaveAttribute('data-pending', '');
+    // Every recording of the group is asked for, one request per channel the step is asked
+    // of, one after another: each answered as it comes.
+    await expect.poll(async () => { if ((await stage.getAttribute('data-pending')) !== '') await answer(page, view); return stage.getAttribute('data-pending'); }).toBe('');
     // Overlaid by default: the base group's median and the slotted track on one plot, the lanes out of the way.
     await expect(stage).toHaveAttribute('data-layout', 'overlay');
     await expect(bar).toHaveAttribute('data-drawn', '2');
@@ -82,54 +83,50 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
     await page.evaluate(() => {
         const w = window as unknown as { __hiddenPaints: string[] };
         w.__hiddenPaints = [];
-        for (const canvas of Array.from(document.querySelectorAll<HTMLCanvasElement>('canvas#ruler-canvas, canvas#spectrum-overlay-canvas'))) {
+        for (const canvas of Array.from(document.querySelectorAll<HTMLCanvasElement>('canvas#ruler-canvas, #spectrum-overlay-plot canvas'))) {
             const own = canvas.getContext.bind(canvas);
             canvas.getContext = ((...args: Parameters<HTMLCanvasElement['getContext']>) => { w.__hiddenPaints.push(canvas.id); return own(...args); }) as HTMLCanvasElement['getContext'];
         }
         window.dispatchEvent(new Event('resize'));
     });
-    await expect.poll(() => page.evaluate(() => document.querySelector('[data-stage-canvas="overlay"]') !== null)).toBe(true);
+    // The spectrum overlay and its Δ are one Figure on the new path (screens/compareOverlay.ts).
+    const figure = page.locator('[data-stage-figure] canvas[data-figure]');
+    type Seen = { waiting: boolean; headline: string; lanes: Array<{ id: string; range: { x: [number, number] } | null }> };
+    const seen = (): Promise<Seen> => figure.evaluate(canvas => (canvas as HTMLCanvasElement & { __figureInspect: () => Seen }).__figureInspect());
+    await expect.poll(async () => (await figure.count()) === 1).toBe(true);
     await settled(page);
     expect(await page.evaluate(() => (window as unknown as { __hiddenPaints: string[] }).__hiddenPaints)).toEqual([]);
-    // Δ on request, under the overlay.
+    // Δ on request, a lane under the overlay's.
     await page.locator('[data-action="stage-diff"]').click();
-    await expect(page.locator('[data-stage-diff]')).toBeVisible();
-    // The overlay is drawn at the height Δ leaves it, not stretched from the height it had alone: the pointer's
-    // marks fall on its lines rather than beside them.
-    const drawnAtShownSize = (): Promise<boolean> => page.locator('[data-stage-canvas="overlay"]').evaluate(canvas => {
+    await expect.poll(async () => { const now = await seen(); return !now.waiting && now.lanes.map(lane => lane.id).join(); }).toBe('overlay,delta');
+    // The Figure is drawn at the size it is shown at, not stretched from the size it had alone: the pointer's marks
+    // fall on its lines rather than beside them.
+    const drawnAtShownSize = (): Promise<boolean> => figure.evaluate(canvas => {
         const element = canvas as HTMLCanvasElement;
         return element.clientHeight > 0 && Math.abs(element.height - Math.round(element.clientHeight * devicePixelRatio)) <= 1;
     });
-    expect(await drawnAtShownSize()).toBe(true);
-    // A box dragged on the plot zooms in; once it settles, only the part on screen is asked for.
-    const plot = page.locator('[data-stage-canvas="overlay"]');
-    const box = (await plot.boundingBox())!;
-    await page.mouse.move(box.x + 52 + (box.width - 56) * 0.3, box.y + box.height * 0.2);
+    await expect.poll(drawnAtShownSize).toBe(true);
+    // A box dragged on the plot zooms in. The Figure draws the part on screen from every value the figure service
+    // holds (第 5 節; the second consequence of 第 1 節): no scan of the part on screen is asked for it.
+    const box = (await figure.boundingBox())!;
+    const scansBefore = (await stageScans(page)).length;
+    await expect(page.locator('[data-stage-figure-headline]')).not.toHaveText('');
+    await page.mouse.move(box.x + 56 + (box.width - 70) * 0.3, box.y + 10 + (box.height * 0.5) * 0.2);
     await page.mouse.down();
-    await page.mouse.move(box.x + 52 + (box.width - 56) * 0.6, box.y + box.height * 0.7, { steps: 5 });
+    await page.mouse.move(box.x + 56 + (box.width - 70) * 0.6, box.y + 10 + (box.height * 0.5) * 0.7, { steps: 5 });
     await page.mouse.up();
-    await expect.poll(async () => (await stageScans(page)).at(-1)?.detail?.x[0]).toBeGreaterThan(100);
-    // The track on screen is asked for first and drawn from its detail at once; the base group's recordings come after it.
-    expect((await stageScans(page)).at(-1)!.filePaths).toEqual([first]);
-    // As many points as the whole picture, at other frequencies: until the base has its detail too, Δ stays the whole pictures'.
-    const zoomed = { ...view, xs: [400, 500, 600], values: [-35, -31, -33] };
-    // The whole pictures' Δ is read once it is written, not while the headline is still being painted.
-    await expect(page.locator('[data-stage-diff-headline]')).not.toHaveText('');
-    const wholeDelta = await page.locator('[data-stage-diff-headline]').textContent();
-    await answer(page, zoomed);
-    await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBeGreaterThan(1);
-    expect((await stageScans(page)).at(-1)!.detail).toBeDefined();
-    await expect(bar).toHaveAttribute('data-detail-lines', '1');
-    await expect(page.locator('[data-stage-diff-headline]')).toHaveText(wholeDelta!);
-    await expect(bar).toHaveAttribute('data-detail', 'false');
-    await answer(page, zoomed);
-    await expect(bar).toHaveAttribute('data-detail', 'true');
-    // Side by side: every track in its lane again.
+    await expect.poll(async () => { const now = await seen(); return !now.waiting && (now.lanes[0].range?.x[0] ?? 0) > 100; }).toBe(true);
+    expect((await stageScans(page)).length, 'no scan of the part on screen').toBe(scansBefore);
+    // The Δ headline of the part on screen, in the readout's form.
+    await expect(page.locator('[data-stage-figure-headline]')).not.toHaveText('');
+    // Side by side: every track a lane of its own of the same Figure; the tracks' rows stay out of the way.
     await page.locator('[data-action="stage-layout"]').click();
     await expect(stage).toHaveAttribute('data-layout', 'lanes');
-    await expect(page.locator('#stacked-wrap')).toBeVisible();
-    // The step's plot in the lane carries none of the waveform view's cursor, loop or band: their layer stays out of sight.
-    await expect(page.locator('.track-waveform-overlay').first()).toBeHidden();
+    await expect(stage).toHaveAttribute('data-figure', 'true');
+    await expect(page.locator('#stacked-wrap')).toBeHidden();
+    await expect.poll(async () => { const now = await seen(); return !now.waiting && now.lanes.every(lane => lane.id.startsWith('own-')) && now.lanes.length; }).toBeGreaterThan(0);
+    // None of the waveform view's rows, with their cursor and loop lines, is in sight.
+    await expect(page.locator('#track-row-figure-0')).toBeHidden();
     // The HPF chip: the track as a time signal, drawn as its waveform in its lane.
     await bar.locator('.step-chip', { hasText: 'HPF' }).locator('[data-step-hold]').click();
     await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-0');
@@ -140,7 +137,7 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
     // Back to the waveform: the lanes and the ruler are as before.
     await page.locator('[data-action="content-waveform"]').click();
     await expect(stage).toBeHidden();
-    await expect(page.locator('.track-waveform-overlay').first()).toBeVisible();
+    await expect(page.locator('#track-row-figure-0')).toBeVisible();
     await expect(page.locator('#ruler-row')).toBeVisible();
     await expect(page.locator('#stacked-wrap')).toBeVisible();
 });
@@ -162,11 +159,15 @@ test('a two-channel recording is one lane in the steps view: its second channel 
     await expect(page.locator('.track-row .track-channel-lane-header').first()).toBeVisible();
     await page.locator('[data-action="content-stage"]').click();
     await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-input');
-    // A heatmap is drawn in the lanes (it has no overlay).
-    await answer(page, { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0.5, 1.5], ys: [100, 1000], matrix: [[-40, -30], [-50, -20]] });
-    await expect(page.locator('#stacked-wrap')).toBeVisible();
-    // The picture on the first lane; the second channel's lane and the channel names are out of the way.
-    await expect(lane(0)).toBeVisible();
+    // Side by side, the step's picture is a lane a recording of the comparison's Figure, not the tracks' rows.
+    await answer(page, { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000, 5000], values: [-40, -30, -50] });
+    await page.locator('[data-action="stage-layout"]').click();
+    await expect(page.locator('.track-stage')).toHaveAttribute('data-layout', 'lanes');
+    await expect(page.locator('#stacked-wrap')).toBeHidden();
+    // One lane for the recording, with its one line: no second lane for its second channel, and no channel names.
+    type Lanes = { waiting: boolean; lanes: Array<{ id: string; lines: unknown[] }> };
+    const drawn = (): Promise<Lanes> => page.locator('[data-stage-figure] canvas[data-figure]').evaluate(canvas => (canvas as HTMLCanvasElement & { __figureInspect: () => Lanes }).__figureInspect());
+    await expect.poll(async () => { const now = await drawn(); return !now.waiting && now.lanes.map(item => `${item.id.split('-')[0]}:${item.lines.length}`).join(); }).toBe('own:1');
     await expect(lane(1)).toBeHidden();
     await expect(page.locator('.track-row .track-channel-lane-header').first()).toBeHidden();
     await page.locator('[data-action="content-waveform"]').click();
@@ -304,7 +305,9 @@ test('a step that cannot run on these recordings says why: ＋ greys a 48 kHz-on
     await expect(bar.locator('.step-chip.is-invalid')).toHaveCount(1);
     // Marked in the failure's orange (R5), the one colour no role, difference or recording has.
     await expect(bar.locator('.step-chip.is-invalid')).toHaveCSS('border-top-color', rgb(FLAG_COLOR));
-    await expect.poll(async () => (await page.evaluate(() => (window as unknown as { __drawnTexts: string[] }).__drawnTexts)).join(' ')).toContain('boom on this file');
+    // The comparison draws nothing on the tracks' rows: its notice says wandas' reason.
+    await expect(page.locator('.track-stage [data-stage-message]')).toContainText('boom on this file');
+    if (process.env.AWA_SHOT_DIR) await page.locator('.track-stage').screenshot({ path: path.join(process.env.AWA_SHOT_DIR, 'message.png') });
 });
 
 test('a two-input recipe file opened from the Export menu becomes the step bar\'s chain, its cross-channel step paired with the base', async ({ page }) => {

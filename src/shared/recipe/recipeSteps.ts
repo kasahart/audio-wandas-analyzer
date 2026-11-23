@@ -469,12 +469,6 @@ export function brokenStep(recipe: RecipeDocument, limits?: number | StepLimits)
     return recipeSteps(recipe, limits).find(step => step.invalid !== undefined);
 }
 
-/** The Frame the chain would give, past a break too (what decides whether it has the 1/3-octave branch). */
-export function chainEnd(recipe: RecipeDocument, limits?: number | StepLimits): string {
-    const steps = recipeSteps(recipe, limits).filter(step => !step.bypassed && (step.invalid === undefined || step.reason?.kind === 'after'));
-    return steps.length ? steps[steps.length - 1].output : INPUT_FRAME;
-}
-
 /** The Frame the chain gives once its invalid steps are left out. */
 export function chainOutput(recipe: RecipeDocument, limits?: number | StepLimits): string {
     const valid = recipeSteps(recipe, limits).filter(step => step.invalid === undefined && !step.bypassed);
@@ -500,22 +494,6 @@ export function timeSignalStep(recipe: RecipeDocument, limits?: number | StepLim
         last = step;
     }
     return last;
-}
-
-/** The Recipe up to one of its steps, which becomes its output. */
-export function upToStep(recipe: RecipeDocument, stepId: string): RecipeDocument {
-    const copy = JSON.parse(JSON.stringify(recipe)) as RecipeDocument & { nodes: RecipeNode[]; output: string };
-    const keep = new Set<string>();
-    const pending = [stepId];
-    for (let id = pending.pop(); id !== undefined; id = pending.pop()) {
-        const node = copy.nodes.find(item => item.id === id);
-        if (!node || keep.has(id)) continue;
-        keep.add(id);
-        pending.push(...node.inputs);
-    }
-    copy.nodes = copy.nodes.filter(node => keep.has(node.id));
-    copy.output = stepId;
-    return copy;
 }
 
 /** An operation the step bar's ＋ offers at one place in the chain, and why it is off if it is. */

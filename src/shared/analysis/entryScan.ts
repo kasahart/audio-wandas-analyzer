@@ -1,6 +1,5 @@
-import { parseBackendResult, scanSpecOf, type ScanResult, type StageCombinePayload, type StageCombineResult, type StageDetail } from '../protocol/backendProtocol';
-import { isMetadataCandidate } from './entryMetadata';
-import { recipeKey } from '../recipe/recipeSteps';
+import type { FigureCommand, FigureRequestMessage, FigureResultMessage } from '../protocol/figureMessages';
+import { type BackendPayload, type BackendResult, type ScanResult } from '../protocol/backendProtocol';
 import { AUDIO_HEAD_BYTES, channelsFromHeader, type ChannelProbe } from './audioHeader';
 import type { RecipeDocument } from '../recipe/recipeSelection';
 
@@ -22,20 +21,12 @@ export interface EntryConditionTable {
     source?: string;
 }
 
-/** Webview → host: scan these files with the entry Recipe, in this order. */
-export interface EntryScanMessage {
-    type: 'entry-scan';
+/** Webview → host: the folder was opened. The host answers with its Recipe and the folder's stored session (`entry-conditions`); nothing of a file is read. */
+export interface EntryOpenMessage {
+    type: 'entry-open';
     requestId: string;
-    filePaths: string[];
-    /** The opened folder, below which metadata tables name recordings by relative path. */
+    /** The opened folder, which its session is stored under. */
     rootPath?: string;
-    /** The Recipe edited in the step bar; without it the host scans with the entry Recipe. */
-    recipe?: RecipeDocument;
-    /**
-     * Only what is stored for these files (same file, calibration and Recipe) comes back: opening a folder
-     * computes nothing until the user asks (「計算」).
-     */
-    cachedOnly?: boolean;
 }
 
 /** Webview → host: read each file's channel count from its header (no audio decoded), for the rows by channel. */
@@ -52,13 +43,8 @@ export interface EntryProbeCancelMessage {
 
 /** Host → webview: one file's header: its channels, unknown (a format read only by its decoder), or why it could not be read. */
 export type EntryProbePublication =
-    | { type: 'entry-probe-result'; requestId: string; filePath: string; channels?: number; durationS?: number; unknown?: true; error?: string }
+    | { type: 'entry-probe-result'; requestId: string; filePath: string; channels?: number; durationS?: number; sampleRate?: number; calibrated?: boolean; unknown?: true; error?: string }
     | { type: 'entry-probe-done'; requestId: string };
-
-/** Webview → host: stop the running entry scan after its current file; what it scanned stays. */
-export interface EntryScanCancelMessage {
-    type: 'entry-scan-cancel';
-}
 
 /** Webview → host: keep this condition table for the next session (null forgets it). */
 /** Seconds into each file; the comparison scans its files over a region of its own. */
@@ -74,23 +60,13 @@ export interface CompareScanMessage {
     filePaths: string[];
     region?: EntryRegion;
     recipe?: RecipeDocument;
-    /** A step of the Recipe (node id) whose Frame each result carries as `stage`. */
-    stage?: string;
-    /** Only the part of that Frame's picture on screen (a zoomed comparison), at its full resolution. */
-    detail?: StageDetail;
+    /**
+     * The step of the Recipe (node id) each result describes as `stage` (stage_view.py `describe`): what the step's
+     * result is, its events and the key of its kept answer, with no drawn point. Figures are the figure service's.
+     */
+    stage: string;
     /** The recording a cross-channel step (`step`) pairs each scanned one with (the base slot's), and its own Recipe. */
     reference?: ScanReference;
-    /** The Welch spectrum's every bin in each result too (spectrumBinsDb): a report's median and Δ are taken of them. */
-    spectrumBins?: boolean;
-}
-
-/**
- * Webview → host: a base group's median and a recording's difference from it (stage_combine.py), from the values
- * the scans of their pictures kept (each picture's `data`); `detail` draws only the part on screen.
- */
-export interface CompareCombineMessage extends StageCombinePayload {
-    type: 'compare-combine';
-    requestId: string;
 }
 
 export interface ScanReference {
@@ -120,29 +96,18 @@ export interface EntrySaveSessionMessage {
 
 export type ComparePublication =
     | { type: 'compare-scan-result'; requestId: string; filePath: string; result: ScanResult }
-    | { type: 'compare-scan-done'; requestId: string }
-    | { type: 'compare-combine-result'; requestId: string; result: StageCombineResult };
+    | { type: 'compare-scan-done'; requestId: string };
 
 export type EntryPublication =
     /** `metadataPath` is the listed file read as the metadata table; it is not scanned and gets no row. */
     | { type: 'entry-conditions'; requestId: string; table: EntryConditionTable | null; metadataPath?: string; recipe?: RecipeDocument;
         /** The folder's stored session and CSV, at open. */
         session?: Record<string, unknown>; csv?: { name: string; text: string } }
-    | { type: 'entry-scan-result'; requestId: string; filePath: string; result: ScanResult }
-    | { type: 'entry-scan-done'; requestId: string }
-    /** A file's calibration changed (its canonical path): what was scanned of it is of the old calibration. */
-    | { type: 'entry-calibration-changed'; filePath: string }
-    /** A file was written on disk (recorded again, replaced) while the panel names it: its scans are of the old version. */
+    /** A file's calibration changed (its canonical path): what was drawn of it is of the old calibration. */
+    | { type: 'entry-calibration-changed'; filePath: string; calibrated?: boolean }
+    /** A file was written on disk (recorded again, replaced) while the panel names it: its header and pictures are of the old version. */
     | { type: 'entry-source-changed'; filePath: string };
 
-/** Storage keys; a new layout gets a new suffix and the old key is simply never read again. */
-/**
- * v3: conditionId hashes the analysed sample range, not the region's rounded label (#768), and a result echoes the
- * region it was asked for (input.region). A v2 result holds an ID of the old form, which a new scan of the same
- * condition would never equal, so v2 is not read: every file is scanned once again.
- */
-export const ENTRY_SCAN_INDEX_KEY = 'awa.scanIndex.v3';
-export const ENTRY_CONDITIONS_KEY = 'awa.conditions.v1';
 export const ENTRY_SESSION_KEY = 'awa.session.v1';
 export const ENTRY_SESSION_CSV_KEY = 'awa.sessionCsv.v1';
 /** A folder's own key: one index and one session per opened folder, so a folder of 100,000 files does not rewrite another's. */
@@ -154,46 +119,27 @@ export const folderKey = (key: string, rootPath: string): string => `${key}:${ro
  * again) name themselves apart. compareScanId and compareScanAsker are the one place the two sides agree on it.
  */
 export const compareScanAsker = (requestId: string): string => requestId.replace(/-[^-]*$/, '');
-export const compareScanId = (asker: string, count: number): string => `${asker}-${count}`;
-/** Results kept per file: one per Recipe (a channel is one of the result's arrays), the most recent first. */
-const RECIPES_PER_FILE = 4;
-/** Results are written in batches of this many, so a 100-file scan stores a few times rather than 100. */
-const INDEX_WRITE_EVERY = 10;
-
-interface ScanIndexEntry {
-    /** The host's identity for the file when it was scanned: path, size, mtime, ctime and inode, or a content hash. */
-    identity: string;
-    /** What computed it besides the file, calibration and Recipe (the analysis spec and wandas' versions, scanSpecOf). */
-    spec: string;
-    /** The calibration the scan used, so a changed profile scans again. */
-    calibration: string;
-    /** The Recipe the result was scanned with (recipeKey). */
-    recipe?: string;
-    result: ScanResult;
-}
-type ScanIndex = Record<string, ScanIndexEntry[]>;
-
-/** Host-specific halves of the entry scan: how a file is identified, scanned and stored. */
+/** Host-specific halves of the entry and the comparison's scans: how a file's header is read, a file scanned, a session stored. */
 export interface EntryScanPorts {
-    /** A string that changes whenever the file's content may have; undefined never reuses a stored result. */
-    identity(filePath: string): Promise<string | undefined>;
-    /** The backend's analysis spec and wandas versions now (scanSpecOf's form); undefined never reuses a stored result. */
-    spec?(): Promise<string | undefined>;
-    calibration?(filePath: string): string;
-    scan(filePath: string, region?: EntryRegion, recipe?: RecipeDocument, stage?: string, detail?: StageDetail, reference?: ScanReference, spectrumBins?: boolean): Promise<ScanResult>;
-    /** A median and a difference of steps the backend's scans kept (stage-combine). */
-    combine?(payload: StageCombinePayload): Promise<StageCombineResult>;
+    /** Whether the file has a calibration now (its levels are in a physical unit); absent where the host has no calibration: every file is uncalibrated there. */
+    calibrated?(filePath: string): boolean;
+    scan(filePath: string, stage: string, region?: EntryRegion, recipe?: RecipeDocument, reference?: ScanReference): Promise<ScanResult>;
+    /**
+     * One request of the figure service (figure-draw / read / export / release / count), handed to the backend as it is,
+     * under the webview's request id (by which a superseded draw is cancelled: cancelFigure).
+     */
+    figure?<K extends FigureCommand>(command: K, payload: BackendPayload<K>, requestId: string): Promise<BackendResult<K>>;
+    /** Stops these figure requests if they still run (a superseded draw); the backend's own request table holds them. */
+    cancelFigure?(requestIds: readonly string[]): void;
     /** The entry Recipe the host scans with by default, shown in the step bar. */
     recipe?(): Promise<RecipeDocument>;
     /** The bytes of a listed file, for reading the CSV/TSV files among them as metadata tables. */
     readFile?(filePath: string): Promise<Uint8Array>;
     /** A file's first `length` bytes, for its header. */
     readHead?: (filePath: string, length: number) => Promise<Uint8Array>;
-    /** Stored values: the folder's index and session (large) may come from a file or IndexedDB, so a read may wait. */
+    /** Stored values: the folder's session and CSV (large) may come from a file or IndexedDB, so a read may wait. */
     read(key: string): unknown;
     write(key: string, value: unknown): void | PromiseLike<void>;
-    /** Runs once after the last file with how many were scanned, e.g. to give the browser's Worker its memory back. */
-    afterScan?(scanned: number): void | PromiseLike<void>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -213,26 +159,8 @@ export function isEntryConditionTable(value: unknown): value is EntryConditionTa
         && (value['source'] === undefined || typeof value['source'] === 'string');
 }
 
-function isScanResult(value: unknown): value is ScanResult {
-    try { parseBackendResult('scan', value); return true; } catch { return false; }
-}
-
-async function readIndex(ports: EntryScanPorts, rootPath: string): Promise<ScanIndex> {
-    const stored = await ports.read(folderKey(ENTRY_SCAN_INDEX_KEY, rootPath));
-    if (!isRecord(stored)) return {};
-    const index: ScanIndex = {};
-    for (const [filePath, entries] of Object.entries(stored)) {
-        if (!Array.isArray(entries)) continue;
-        // An entry stored before it named its spec is of no spec known: never reused.
-        const valid = entries.filter((entry): entry is ScanIndexEntry => isRecord(entry) && typeof entry['identity'] === 'string' && typeof entry['calibration'] === 'string' && typeof entry['spec'] === 'string'
-            && isScanResult(entry['result']) && entry['result'].ok);
-        if (valid.length) index[filePath] = valid;
-    }
-    return index;
-}
-
 /** The folder's stored session and CSV, as the webview saved them. */
-async function readSession(ports: EntryScanPorts, rootPath: string): Promise<{ session?: Record<string, unknown>; csv?: { name: string; text: string } }> {
+async function readSession(ports: Pick<EntryScanPorts, 'read'>, rootPath: string): Promise<{ session?: Record<string, unknown>; csv?: { name: string; text: string } }> {
     const session = await ports.read(folderKey(ENTRY_SESSION_KEY, rootPath));
     const csv = await ports.read(folderKey(ENTRY_SESSION_CSV_KEY, rootPath));
     return {
@@ -251,78 +179,18 @@ function reason(error: unknown): string {
     return text.split('\n')[0] || 'Scan failed';
 }
 
-/**
- * Publishes the entry Recipe, then one result per file in order: the stored one when the file and its
- * calibration are unchanged, otherwise a fresh scan (none with `cachedOnly`). The attribute CSV is the
- * user's pick, read by the webview; the host no longer looks for one. The stored index keeps the files of
- * this scan and, with `cachedOnly`, the rest it had, so it stays the size of one folder. Failures are
- * results too (`ok: false`), never kept, so the next scan tries the file again.
- */
-export async function runEntryScan(
-    ports: EntryScanPorts,
-    message: EntryScanMessage,
+/** Publishes the host's Recipe and the folder's stored session (what the user chose, the CSV picked): the answer to `entry-open`. */
+export async function runEntryOpen(
+    ports: Pick<EntryScanPorts, 'recipe' | 'read'>,
+    message: EntryOpenMessage,
     publish: (message: EntryPublication) => void | PromiseLike<unknown>,
-    isCurrent: () => boolean,
 ): Promise<void> {
-    const { requestId } = message;
     let standard: RecipeDocument | undefined;
-    try { standard = await ports.recipe?.(); } catch { /* The step bar then shows no chips; scans still use the host's Recipe. */ }
-    const used = recipeKey(message.recipe ?? standard);
-    // The analysis spec and wandas the backend computes with now: a result stored under others is not of them.
-    let spec: string | undefined;
-    try { spec = await ports.spec?.(); } catch { spec = undefined; }
-    // At open (stored results only) the folder's session comes back with them: what the user chose, the CSV picked.
-    const stored = message.cachedOnly ? await readSession(ports, message.rootPath ?? '') : {};
-    await publish({ type: 'entry-conditions', requestId, table: null, ...(standard ? { recipe: standard } : {}), ...stored });
-    const filePaths = message.filePaths.filter(filePath => !isMetadataCandidate(filePath));
-    const indexKey = folderKey(ENTRY_SCAN_INDEX_KEY, message.rootPath ?? '');
-    const index = await readIndex(ports, message.rootPath ?? '');
-    // Every stored result stays: a computation adds this Recipe's for its files, beside the other Recipes' (most recent first).
-    const kept: ScanIndex = { ...index };
-    let unsaved = 0;
-    let scanned = 0;
-    let completed = false;
-    const save = async (): Promise<void> => { unsaved = 0; await ports.write(indexKey, kept); };
-    try {
-        for (const filePath of filePaths) {
-            if (!isCurrent()) return;
-            let result: ScanResult;
-            try {
-                const identity = await ports.identity(filePath);
-                const calibration = ports.calibration?.(filePath) ?? '';
-                // The file as it is now (its size and time, or its content), its calibration and this Recipe: else it is not computed.
-                const previous = (index[filePath] ?? []).find(entry => entry.identity === identity && entry.calibration === calibration && entry.recipe === used && entry.spec === spec);
-                if (identity !== undefined && spec !== undefined && previous) {
-                    result = previous.result;
-                } else if (message.cachedOnly) {
-                    continue;
-                } else {
-                    scanned++;
-                    result = await ports.scan(filePath, undefined, message.recipe);
-                    if (result.ok && identity !== undefined) {
-                        const others = (kept[filePath] ?? []).filter(entry => entry.recipe !== used && entry.identity === identity);
-                        // Kept under the spec the result names it was computed with (not the one asked: a backend restarted meanwhile).
-                        kept[filePath] = [{ identity, calibration, recipe: used, spec: scanSpecOf(result), result }, ...others].slice(0, RECIPES_PER_FILE);
-                        if (++unsaved >= INDEX_WRITE_EVERY) await save();
-                    }
-                }
-            } catch (error) {
-                result = { ok: false, reason: reason(error) };
-            }
-            if (!isCurrent()) return;
-            await publish({ type: 'entry-scan-result', requestId, filePath, result });
-        }
-        if (!message.cachedOnly) await save();
-        completed = true;
-    } finally {
-        await ports.afterScan?.(scanned);
-    }
-    // Done only once the host has settled after the scan (a Web Worker restart), so whatever the table
-    // asks for next (a fixed Δ measured again) is not cut short by it.
-    if (completed) await publish({ type: 'entry-scan-done', requestId });
+    try { standard = await ports.recipe?.(); } catch { /* The step bar then shows no chips; the comparison still runs the host's Recipe. */ }
+    const stored = await readSession(ports, message.rootPath ?? '');
+    await publish({ type: 'entry-conditions', requestId: message.requestId, table: null, ...(standard ? { recipe: standard } : {}), ...stored });
 }
 
-/** Reads each file's header for its channel count, one file at a time; a file it cannot open is an error, not a stop. */
 export async function runEntryProbe(
     ports: EntryScanPorts,
     message: EntryProbeMessage,
@@ -336,56 +204,50 @@ export async function runEntryProbe(
         let probe: ChannelProbe;
         try { probe = read ? channelsFromHeader(await read(filePath, AUDIO_HEAD_BYTES), filePath) : { unknown: true }; } catch (error) { probe = { error: reason(error) }; }
         if (!isCurrent()) return;
-        await publish({ type: 'entry-probe-result', requestId: message.requestId, filePath, ...probe });
+        await publish({ type: 'entry-probe-result', requestId: message.requestId, filePath, ...probe, calibrated: ports.calibrated?.(filePath) ?? false });
     }
     await publish({ type: 'entry-probe-done', requestId: message.requestId });
 }
 
-/** Scans the comparison's files over its region, one at a time, without touching the stored index. */
+/** Scans the comparison's files over its region, one at a time. The values a scan keeps stay in the backend that ran it (the figure service draws from them). */
 export async function runCompareScan(
     ports: EntryScanPorts,
     message: CompareScanMessage,
     publish: (message: ComparePublication) => void | PromiseLike<unknown>,
     isCurrent: () => boolean,
 ): Promise<void> {
-    let scanned = 0;
-    try {
-        for (const filePath of message.filePaths) {
-            if (!isCurrent()) return;
-            let result: ScanResult;
-            try {
-                scanned++;
-                result = await ports.scan(filePath, message.region, message.recipe, message.stage, message.detail, message.reference, message.spectrumBins);
-            } catch (error) {
-                result = { ok: false, reason: reason(error) };
-            }
-            if (!isCurrent()) return;
-            await publish({ type: 'compare-scan-result', requestId: message.requestId, filePath, result });
+    for (const filePath of message.filePaths) {
+        if (!isCurrent()) return;
+        let result: ScanResult;
+        try {
+            result = await ports.scan(filePath, message.stage, message.region, message.recipe, message.reference);
+        } catch (error) {
+            result = { ok: false, reason: reason(error) };
         }
-        await publish({ type: 'compare-scan-done', requestId: message.requestId });
-    } finally {
-        // A step's pictures keep their values in the backend for the comparison's median and difference
-        // (stage-combine): the backend that holds them stays as it is.
-        if (message.stage === undefined) await ports.afterScan?.(scanned);
+        if (!isCurrent()) return;
+        await publish({ type: 'compare-scan-result', requestId: message.requestId, filePath, result });
     }
+    await publish({ type: 'compare-scan-done', requestId: message.requestId });
 }
 
-/** Answers a 'compare-combine': what stage-combine gives, or no difference when it cannot be taken. */
-export async function runCompareCombine(
+/**
+ * Answers a 'figure-request': the figure service's answer as it is, or that it failed. The host decides nothing of it
+ * (figure-design.md 第 6 節): which reply is current is the webview's answers/ to say.
+ */
+export async function runFigureRequest(
     ports: EntryScanPorts,
-    message: CompareCombineMessage,
-    publish: (message: ComparePublication) => void | PromiseLike<unknown>,
+    message: FigureRequestMessage,
+    publish: (message: FigureResultMessage) => void | PromiseLike<unknown>,
 ): Promise<void> {
-    const { type: _type, requestId, ...payload } = message;
-    let result: StageCombineResult;
+    const { requestId, command, payload } = message;
+    if (!ports.figure) { await publish({ type: 'figure-result', requestId, command, failed: 'no figure service' }); return; }
+    let reply: FigureResultMessage;
     try {
-        result = ports.combine ? await ports.combine(payload) : { ok: true };
-    } catch {
-        // A failure is answered as one (ok: false, nothing missing), never as a combination with nothing in it: the
-        // Δ then says it failed, not that the pictures cannot be compared.
-        result = { ok: false };
+        reply = { type: 'figure-result', requestId, command, result: await ports.figure(command, payload, requestId) };
+    } catch (error) {
+        reply = { type: 'figure-result', requestId, command, failed: reason(error) };
     }
-    await publish({ type: 'compare-combine-result', requestId, result });
+    await publish(reply);
 }
 
 export function isEntryRegion(value: unknown): value is EntryRegion {

@@ -2,10 +2,9 @@ import type { ChannelSummary } from '../../shared/analysis/analysisTypes';
 import type { UiStrings } from '../../shared/i18n/strings';
 import { channelsForResult, formatMeasuredLevel, uncalibratedUnits } from '../../shared/utils/format';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
-import { levelText as dbText } from '../plot/plotText';
+import { levelText as dbText } from '../shell/numberText';
 import { hintAttr } from './hintFooter';
 import type { ComparisonTrackState } from './types';
-import { levelKeyOf } from './figureModel';
 
 interface CalibrationSummary {
     text: string;
@@ -109,35 +108,4 @@ export function calibrationRequest(trackIndex: number, result: ComparisonTrackSt
             label: (channel && channel.label) || 'Channel ' + (channelIndex + 1),
         })),
     };
-}
-
-// More level references than the overlay has level axes would put incomparable dB values on one axis.
-export function hasIncompatibleLevelReferences(results: ComparisonTrackState[], levelAxes = 1): boolean {
-    const references = new Set<string>();
-    results.forEach(result => channelsForResult(result).forEach(function (channel: Channel) {
-        const measurement = measurementFor(channel);
-        if (!measurement) { return; }
-        // By level identity (figureModel.levelKeyOf, R1): unit, reference value and level reference name.
-        references.add(levelKeyOf({ unit: measurement.referenceUnit, ref: measurement.referenceValue, levelReferenceLabel: measurement.levelReferenceLabel }));
-    }));
-    return references.size > levelAxes;
-}
-
-export function applyOverlayCompatibility(document: Document, incompatible: boolean, message: string): void {
-    const wrap = document.getElementById('spectrum-overlay-wrap');
-    const canvas = document.getElementById('spectrum-overlay-canvas');
-    if (!wrap || !canvas) { return; }
-    canvas.setAttribute('data-calibration-hidden', incompatible ? 'true' : 'false');
-    canvas.style.visibility = incompatible ? 'hidden' : '';
-    let warning = wrap.querySelector('.calibration-overlay-warning');
-    if (!incompatible) {
-        if (warning) { warning.remove(); }
-        return;
-    }
-    if (!warning) {
-        warning = document.createElement('div');
-        warning.className = 'calibration-overlay-warning';
-        wrap.appendChild(warning);
-    }
-    warning.textContent = message;
 }

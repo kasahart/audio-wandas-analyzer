@@ -15,11 +15,14 @@ import soundfile as sf
 import wandas as wd
 from scipy.signal import ShortTimeFFT, get_window
 
-from analysis_engine import AnalysisEngine, compute_spectrogram
-from analysis_service import AnalysisService
-from analyzer import SPECTRUM_DISPLAY_POINT_LIMIT, normalize_stft_options
-from backend_errors import InputError
-from conftest import assert_not_drawn
+from conftest import cursor_lines, pair_lines
+from frames.analysis_spec import MIN_LEVEL_DB
+from services.analysis_engine import AnalysisEngine, compute_spectrogram
+from services.analysis_service import AnalysisService
+from services.analyzer import normalize_stft_options
+from services.answer_store import STORE
+from services.backend_errors import InputError
+from services.tracks_answers import ImageData
 
 
 def _write_sine_wav(path: Path, seconds: float = 0.5, sample_rate: int = 16000) -> None:
@@ -49,32 +52,24 @@ def test_known_tones_keep_physical_frequency_in_live_fft_and_cached_stft(tmp_pat
     for service, path in [(native, audio), (browser, Path("/sources/tones.wav"))]:
         for cached in [False, True]:
             if cached:
-                detail = service.track_detail(path, stft_options=options)
-                for tone, channel in zip(tones, detail["channels"], strict=False):
-                    spec = channel["spectrogram"]
-                    peak = np.argmax(spec["values"][len(spec["values"]) // 2])
-                    assert abs(peak * spec["maxFrequencyHz"] / (spec["frequencyBins"] - 1) - tone) <= (
-                        rate / 2 / 191 / 2 + rate / n_fft
-                    )
-            result = service.spectrum_slice(path, cursor_norm=0.5, stft_options=options)
-            cut = n_fft // 2 + 1 > SPECTRUM_DISPLAY_POINT_LIMIT
-            assert ("frequenciesHz" in result) == cut
-            if cut:
-                # Within the budget, and using much of it: fewer where the channels' extremes share a bin.
-                assert SPECTRUM_DISPLAY_POINT_LIMIT * 0.5 <= result["frequencyBins"] <= SPECTRUM_DISPLAY_POINT_LIMIT
-            else:
-                assert result["frequencyBins"] == n_fft // 2 + 1
+                kept = service.track_answers(path, stft_options=options)
+                for tone, channel in zip(tones, kept["channels"], strict=False):
+                    image = STORE.get(channel["image"])
+                    assert isinstance(image, ImageData)
+                    peak = int(np.argmax(image.values[:, image.values.shape[1] // 2]))
+                    assert abs(float(image.ys[peak]) - tone) <= rate / n_fft
+            result = cursor_lines(service, path, cursor_norm=0.5, stft_options=options)
+            # Every bin is kept: nothing is cut to be drawn (the figure service thins a line for its width).
+            assert result["frequencyBins"] == n_fft // 2 + 1
             for tone, channel in zip(tones, result["channels"], strict=False):
                 assert abs(_slice_frequencies(result)[np.argmax(channel["values"])] - tone) <= rate / n_fft / 2
 
     sf.write(audio, samples[:, 2], rate, subtype="PCM_16")
-    third = AnalysisService(AnalysisEngine()).spectrum_slice(audio, cursor_norm=0.5, stft_options=options)
+    third = cursor_lines(AnalysisService(AnalysisEngine()), audio, cursor_norm=0.5, stft_options=options)
     assert abs(_slice_frequencies(third)[np.argmax(third["channels"][0]["values"])] - tones[2]) <= rate / n_fft / 2
 
 
 def _slice_frequencies(result: Mapping[str, Any]) -> np.ndarray:
-    if "frequenciesHz" in result:
-        return np.asarray(result["frequenciesHz"])
     return np.linspace(0.0, result["maxFrequencyHz"], result["frequencyBins"])
 
 
@@ -88,76 +83,19 @@ def test_cursor_spectrum_keeps_a_tone_at_its_frequency_and_level(tmp_path: Path,
     options = {"nFft": n_fft, "overlapPercent": 75, "window": "hann"}
     service = AnalysisService(AnalysisEngine())
 
-    shown = service.spectrum_slice(audio, cursor_norm=0.5, stft_options=options)
-    full = service.spectrum_slice(audio, cursor_norm=0.5, stft_options=options, full_resolution=True)
+    full = cursor_lines(service, audio, cursor_norm=0.5, stft_options=options)
 
     frame = service.engine.get_analysis(audio, None)[1]
-    start = int(round(shown["windowStartNorm"] * frame.n_samples))
+    start = int(round(full["windowStartNorm"] * frame.n_samples))
     expected = np.asarray(frame[:, start : start + n_fft].fft(n_fft=n_fft, window="hann").dB).reshape(-1)
-    assert full["frequencyBins"] == n_fft // 2 + 1 and "frequenciesHz" not in full
+    assert full["frequencyBins"] == n_fft // 2 + 1
     assert full["maxFrequencyHz"] / (full["frequencyBins"] - 1) == pytest.approx(rate / n_fft)
-    np.testing.assert_allclose(full["channels"][0]["values"], expected, atol=1e-3)
-    assert shown["frequencyBins"] <= SPECTRUM_DISPLAY_POINT_LIMIT
-    values = np.asarray(shown["channels"][0]["values"])
+    # A level is never under the floor (stage_view.floored_db).
+    np.testing.assert_allclose(full["channels"][0]["values"], np.maximum(expected, MIN_LEVEL_DB), atol=1e-3)
+    values = np.asarray(full["channels"][0]["values"])
     peak = int(np.argmax(values))
-    assert abs(_slice_frequencies(shown)[peak] - 80.0) <= max(1.5, rate / n_fft / 2)
+    assert abs(_slice_frequencies(full)[peak] - 80.0) <= max(1.5, rate / n_fft / 2)
     assert abs(values[peak] - np.max(expected)) <= 0.5
-
-
-def test_cursor_spectrum_level_range_is_every_bins_not_the_row_cut_for_display(tmp_path: Path) -> None:
-    # Noise with one narrow notch-deep bin and one tone: the row cut to draw keeps fewer points than the FFT has bins;
-    # the slice's minDb / maxDb are still the ends of every bin of every channel's own row.
-    rate, n_fft = 48000, 16384
-    rng = np.random.default_rng(3)
-    times = np.arange(rate) / rate
-    noise = 0.01 * rng.standard_normal((2, rate))
-    noise[1] += 0.5 * np.sin(2 * np.pi * 3000 * times)
-    audio = tmp_path / "noise.wav"
-    sf.write(audio, noise.T, rate, subtype="FLOAT")
-    options = {"nFft": n_fft, "overlapPercent": 75, "window": "hann"}
-    service = AnalysisService(AnalysisEngine())
-
-    shown = service.spectrum_slice(audio, cursor_norm=0.5, stft_options=options)
-    full = service.spectrum_slice(audio, cursor_norm=0.5, stft_options=options, full_resolution=True)
-
-    assert "frequenciesHz" in shown and shown["frequencyBins"] < full["frequencyBins"]
-    for cut, whole in zip(shown["channels"], full["channels"], strict=True):
-        every = np.asarray(whole["values"])
-        assert cut["minDb"] == pytest.approx(float(every.min()))
-        assert cut["maxDb"] == pytest.approx(float(every.max()))
-        assert whole["minDb"] == pytest.approx(float(every.min()))
-        assert whole["maxDb"] == pytest.approx(float(every.max()))
-        # A row thinned by averaging to the points drawn loses the notch and the tone's top: not this range.
-        width = every.size // len(cut["values"])
-        averaged = every[: every.size // width * width].reshape(-1, width).mean(axis=1)
-        assert_not_drawn(cut["minDb"], float(averaged.min()))
-        assert_not_drawn(cut["maxDb"], float(averaged.max()))
-
-
-def test_a_cursor_slice_sends_its_every_bin_as_bins_only_when_its_row_is_not_cut(tmp_path: Path) -> None:
-    # R7: ``bins`` (x-whole) is what the webview reads; ``values`` (x-drawn) only what it draws. A row cut for display
-    # has no ``bins``; every other row (full resolution, short enough not to be cut, octave bands) sends them, the
-    # same numbers as its uncut values and as many as its bins.
-    rate = 48000
-    rng = np.random.default_rng(5)
-    audio = tmp_path / "noise.wav"
-    sf.write(audio, 0.01 * rng.standard_normal((rate, 2)), rate, subtype="FLOAT")
-    service = AnalysisService(AnalysisEngine())
-    wide = {"nFft": 16384, "overlapPercent": 75, "window": "hann"}
-    narrow = {"nFft": 1024, "overlapPercent": 75, "window": "hann"}
-
-    cut = service.spectrum_slice(audio, cursor_norm=0.5, stft_options=wide)
-    assert "frequenciesHz" in cut
-    assert all("bins" not in channel for channel in cut["channels"])
-    for every in [
-        service.spectrum_slice(audio, cursor_norm=0.5, stft_options=wide, full_resolution=True),
-        service.spectrum_slice(audio, cursor_norm=0.5, stft_options=narrow),
-        service.spectrum_slice(audio, cursor_norm=0.5, stft_options=narrow, bands_per_octave=3),
-    ]:
-        assert "frequenciesHz" not in every
-        for channel in every["channels"]:
-            assert len(channel["bins"]) == every["frequencyBins"]
-            assert channel["bins"] == channel["values"]
 
 
 def test_service_exposes_all_use_cases_without_server_loop(tmp_path: Path) -> None:
@@ -168,29 +106,14 @@ def test_service_exposes_all_use_cases_without_server_loop(tmp_path: Path) -> No
     stft_options = {"nFft": 256, "overlapPercent": 50, "window": "hann"}
 
     overview = service.analyze(audio, stft_options=stft_options)
-    detail = service.track_detail(
-        audio,
-        track_index=2,
-        analysis_id="analysis-1",
-        settings_signature="settings-1",
-        stft_options=stft_options,
-    )
-    spectrum = service.spectrum_slice(
-        audio,
-        cursor_norm=0.5,
-        track_index=2,
-        analysis_id="analysis-1",
-        settings_signature="settings-1",
-        stft_options=stft_options,
-    )
-    waveform_range = service.waveform_range(audio, start_norm=0.25, end_norm=0.75, point_count=128)
+    row = service.track_answers(audio, stft_options=stft_options)
+    spectrum = cursor_lines(service, audio, cursor_norm=0.5, stft_options=stft_options)
     wav_loop = service.export_wav_loop(audio, start_norm=0.25, end_norm=0.75)
     cached = engine.get_file(audio)
 
     assert overview["filePath"] == str(audio)
-    assert detail["channels"][0]["spectrogram"] is not None
+    assert row["channels"][0]["image"] and row["channels"][0]["signal"]
     assert spectrum["frequencyBins"] == len(spectrum["channels"][0]["values"])
-    assert waveform_range["channels"]
     exported, sample_rate = sf.read(io.BytesIO(base64.b64decode(wav_loop["wavBase64"])))
     assert sample_rate == wav_loop["sampleRate"]
     assert exported.size > 0
@@ -224,14 +147,12 @@ def test_replies_name_the_file_as_the_request_spelled_it(tmp_path: Path, monkeyp
     audio = "./linked//tone.wav"
     assert str(Path(audio).resolve()) != audio != str(Path(audio))
     service = AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000))
-    labels = {"track_index": 0, "analysis_id": "a", "settings_signature": "s"}
-
     overview = service.analyze(audio)
-    detail = service.track_detail(audio, **labels)
-    spectrum = service.spectrum_slice(audio, cursor_norm=0.5, **labels)
+    detail = service.track_answers(audio)
+    spectrum = cursor_lines(service, audio, cursor_norm=0.5)
     source = {"filePath": audio, "offsetSeconds": 0.0}
-    pair = service.pair_spectrum(
-        {**source, "channelIndex": 0}, [{**source, "channelIndex": 1}], stft_options=_PAIR_OPTIONS
+    pair = pair_lines(
+        service, {**source, "channelIndex": 0}, [{**source, "channelIndex": 1}], stft_options=_PAIR_OPTIONS
     )
 
     assert overview["filePath"] == detail["filePath"] == spectrum["filePath"] == audio
@@ -326,8 +247,8 @@ def test_pair_spectrum_recovers_a_known_filter(tmp_path: Path) -> None:
     audio = tmp_path / "system.wav"
     _write_pair_wav(audio, [excitation, lfilter(b, a, excitation)], rate)
 
-    result = AnalysisService(AnalysisEngine()).pair_spectrum(
-        _pair_source(audio, 0), [_pair_source(audio, 1)], stft_options=_PAIR_OPTIONS
+    result = pair_lines(
+        AnalysisService(AnalysisEngine()), _pair_source(audio, 0), [_pair_source(audio, 1)], stft_options=_PAIR_OPTIONS
     )
 
     response = result["responses"][0]
@@ -340,11 +261,13 @@ def test_pair_spectrum_recovers_a_known_filter(tmp_path: Path) -> None:
     reliable = coherence > 0.99
     assert reliable.sum() > 20
     gain = np.asarray(response["gainDb"], dtype=float)
-    phase = np.asarray(response["phaseRad"], dtype=float)
+    # The phase is kept in degrees (layer 1 converts; the webview multiplies nothing).
+    phase = np.radians(np.asarray(response["phaseDeg"], dtype=float))
     assert np.max(np.abs(gain[reliable] - 20 * np.log10(np.abs(expected[reliable])))) < 0.1
     phase_error = np.angle(np.exp(1j * (phase[reliable] - np.angle(expected[reliable]))))
     assert np.degrees(np.max(np.abs(phase_error))) < 1.0
-    assert response["axisLabel"] == "Gain [dB]"
+    # A gain between two channels of one unit is a plain ratio: its dB have no unit and no reference of their own.
+    assert response["gainLevel"][0] == "1"
     # Neither channel is calibrated: the pair says so (calibrated only when both sides are, R4).
     assert response["calibrationStatus"] == "uncalibrated"
     assert result["nFft"] == 1024 and result["hopLength"] == 512
@@ -362,8 +285,8 @@ def test_pair_spectrum_keeps_every_bin_at_its_own_frequency_so_a_narrow_notch_st
     audio = tmp_path / "notch.wav"
     _write_pair_wav(audio, [excitation, lfilter(b, a, excitation)], rate)
 
-    result = AnalysisService(AnalysisEngine()).pair_spectrum(
-        _pair_source(audio, 0), [_pair_source(audio, 1)], stft_options=_PAIR_OPTIONS
+    result = pair_lines(
+        AnalysisService(AnalysisEngine()), _pair_source(audio, 0), [_pair_source(audio, 1)], stft_options=_PAIR_OPTIONS
     )
 
     assert result["frequencyBins"] == result["nFft"] // 2 + 1
@@ -385,8 +308,8 @@ def test_pair_spectrum_averages_the_welch_segments_inside_the_range(tmp_path: Pa
     _write_pair_wav(audio, np.random.default_rng(7).standard_normal((2, rate)) * 0.1, rate)
     options = {"nFft": 1024, "overlapPercent": overlap, "window": "hann"}
 
-    result = AnalysisService(AnalysisEngine()).pair_spectrum(
-        _pair_source(audio, 0), [_pair_source(audio, 1)], stft_options=options
+    result = pair_lines(
+        AnalysisService(AnalysisEngine()), _pair_source(audio, 0), [_pair_source(audio, 1)], stft_options=options
     )
 
     from scipy.signal import coherence
@@ -413,13 +336,13 @@ def test_browser_pair_spectrum_does_not_reuse_a_reloaded_response(tmp_path: Path
         browser.engine.load(name, (tmp_path / name).read_bytes())
     reference = {"filePath": "/sources/reference.wav", "channelIndex": 0, "offsetSeconds": 0.0}
     response = {"filePath": "/sources/response.wav", "channelIndex": 0, "offsetSeconds": 0.0}
-    first = browser.pair_spectrum(reference, [response], stft_options=_PAIR_OPTIONS)
+    first = pair_lines(browser, reference, [response], stft_options=_PAIR_OPTIONS)
     # Same name and byte length, different samples.
     _write_pair_wav(tmp_path / "response.wav", [rng.standard_normal(rate * 2) * 0.1], rate)
     browser.engine.discard("/sources/response.wav")
     browser.engine.load("response.wav", (tmp_path / "response.wav").read_bytes())
 
-    second = browser.pair_spectrum(reference, [response], stft_options=_PAIR_OPTIONS)
+    second = pair_lines(browser, reference, [response], stft_options=_PAIR_OPTIONS)
 
     assert np.median(np.asarray(first["responses"][0]["coherence"], dtype=float)) > 0.99
     assert np.median(np.asarray(second["responses"][0]["coherence"], dtype=float)) < 0.5
@@ -435,16 +358,17 @@ def test_pair_spectrum_uses_offsets_and_the_requested_range(tmp_path: Path) -> N
     _write_pair_wav(response, [signal[rate:] * 0.5], rate)
     service = AnalysisService(AnalysisEngine())
 
-    aligned = service.pair_spectrum(
+    aligned = pair_lines(
+        service,
         _pair_source(reference, 0),
         [_pair_source(response, 0, offset=1.0)],
         start_seconds=1.5,
         end_seconds=3.5,
         stft_options=_PAIR_OPTIONS,
     )["responses"][0]
-    shifted = service.pair_spectrum(
-        _pair_source(reference, 0), [_pair_source(response, 0)], stft_options=_PAIR_OPTIONS
-    )["responses"][0]
+    shifted = pair_lines(service, _pair_source(reference, 0), [_pair_source(response, 0)], stft_options=_PAIR_OPTIONS)[
+        "responses"
+    ][0]
 
     assert (aligned["startSeconds"], aligned["endSeconds"]) == pytest.approx((1.5, 3.5))
     assert aligned["averages"] == (2 * rate - 1024) // 512 + 1
@@ -460,7 +384,8 @@ def test_pair_spectrum_reports_responses_it_cannot_average(tmp_path: Path) -> No
     _write_pair_wav(audio, np.random.default_rng(2).standard_normal((2, rate)), rate)
     service = AnalysisService(AnalysisEngine())
 
-    result = service.pair_spectrum(
+    result = pair_lines(
+        service,
         _pair_source(audio, 0),
         [_pair_source(audio, 1, offset=2.0), _pair_source(audio, 1, offset=0.95)],
         stft_options=_PAIR_OPTIONS,
@@ -469,7 +394,7 @@ def test_pair_spectrum_reports_responses_it_cannot_average(tmp_path: Path) -> No
     assert [response["status"] for response in result["responses"]] == ["no-overlap", "too-short"]
     assert all(response["gainDb"] == [] and response["averages"] == 0 for response in result["responses"])
     with pytest.raises(ValueError, match="channelIndex 2"):
-        service.pair_spectrum(_pair_source(audio, 0), [_pair_source(audio, 2)])
+        pair_lines(service, _pair_source(audio, 0), [_pair_source(audio, 2)])
 
 
 def test_pair_spectrum_resamples_responses_to_the_reference_rate(tmp_path: Path) -> None:
@@ -481,8 +406,11 @@ def test_pair_spectrum_resamples_responses_to_the_reference_rate(tmp_path: Path)
     _write_pair_wav(reference, [signal], 16000)
     _write_pair_wav(response, [resample_poly(signal, 2, 1)], 32000)
 
-    result = AnalysisService(AnalysisEngine()).pair_spectrum(
-        _pair_source(reference, 0), [_pair_source(response, 0)], stft_options=_PAIR_OPTIONS
+    result = pair_lines(
+        AnalysisService(AnalysisEngine()),
+        _pair_source(reference, 0),
+        [_pair_source(response, 0)],
+        stft_options=_PAIR_OPTIONS,
     )
 
     pair = result["responses"][0]
@@ -493,7 +421,7 @@ def test_pair_spectrum_resamples_responses_to_the_reference_rate(tmp_path: Path)
 
 
 def test_pair_spectrum_reuses_cached_pairs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import analysis_service
+    from services import analysis_service
 
     rate = 8000
     audio = tmp_path / "pair.wav"
@@ -503,8 +431,8 @@ def test_pair_spectrum_reuses_cached_pairs(tmp_path: Path, monkeypatch: pytest.M
     compute = analysis_service._compute_pair
     monkeypatch.setattr(analysis_service, "_compute_pair", lambda *args: calls.append(args) or compute(*args))
 
-    first = service.pair_spectrum(_pair_source(audio, 0), [_pair_source(audio, 1)], stft_options=_PAIR_OPTIONS)
-    second = service.pair_spectrum(_pair_source(audio, 0), [_pair_source(audio, 1)], stft_options=_PAIR_OPTIONS)
+    first = pair_lines(service, _pair_source(audio, 0), [_pair_source(audio, 1)], stft_options=_PAIR_OPTIONS)
+    second = pair_lines(service, _pair_source(audio, 0), [_pair_source(audio, 1)], stft_options=_PAIR_OPTIONS)
 
     assert len(calls) == 1
     assert second["responses"] == first["responses"]
@@ -531,14 +459,17 @@ def test_pair_spectrum_labels_transfer_levels_between_units(tmp_path: Path) -> N
     }
     source = {**_pair_source(audio, 0), "calibrationProfile": profile}
 
-    result = AnalysisService(AnalysisEngine()).pair_spectrum(
-        source, [{**_pair_source(audio, 1), "calibrationProfile": profile}], stft_options=_PAIR_OPTIONS
+    result = pair_lines(
+        AnalysisService(AnalysisEngine()),
+        source,
+        [{**_pair_source(audio, 1), "calibrationProfile": profile}],
+        stft_options=_PAIR_OPTIONS,
     )
 
     response = result["responses"][0]
     assert response["status"] == "ok"
-    assert response["axisLabel"].startswith("Transfer level [")
-    assert "Pa" in response["axisLabel"]
+    # The gain between two units is a level of their ratio: the kept line says the unit it is in.
+    assert response["gainLevel"][0] == "Pa*s^2/m"
 
 
 def test_browser_pair_spectrum_refuses_work_beyond_the_memory_budget(tmp_path: Path, monkeypatch) -> None:
@@ -556,17 +487,17 @@ def test_browser_pair_spectrum_refuses_work_beyond_the_memory_budget(tmp_path: P
         sources.append({"filePath": f"/sources/{name}", "channelIndex": 0, "offsetSeconds": 0.0})
 
     with pytest.raises(ValueError, match="memory budget"):
-        browser.pair_spectrum(sources[0], sources[1:2])
+        pair_lines(browser, sources[0], sources[1:2])
     # A loop range bounds the work, so the same pair fits once only a few seconds are averaged.
-    narrowed = browser.pair_spectrum(sources[0], sources[1:2], start_seconds=10.0, end_seconds=15.0)
+    narrowed = pair_lines(browser, sources[0], sources[1:2], start_seconds=10.0, end_seconds=15.0)
     assert narrowed["responses"][0]["status"] == "ok"
     # So does an offset that leaves only a few seconds of overlap, or a single bound.
-    shifted = browser.pair_spectrum(sources[0], [{**sources[1], "offsetSeconds": 25.0}])
+    shifted = pair_lines(browser, sources[0], [{**sources[1], "offsetSeconds": 25.0}])
     assert shifted["responses"][0]["status"] == "ok"
-    tail = browser.pair_spectrum(sources[0], sources[1:2], start_seconds=25.0)
+    tail = pair_lines(browser, sources[0], sources[1:2], start_seconds=25.0)
     assert tail["responses"][0]["status"] == "ok"
     # Thirty seconds at 48 kHz with the default settings is the common case and must fit.
-    result = browser.pair_spectrum(sources[1], sources[2:])
+    result = pair_lines(browser, sources[1], sources[2:])
     assert result["responses"][0]["status"] == "ok"
 
 

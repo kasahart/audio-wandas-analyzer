@@ -1,7 +1,8 @@
 import { isSpectrogramSettings } from '../analysis/savedSpectrogramSettings';
 import { isRecipeChain } from '../recipe/recipeSteps';
-import { isEntryRegion, type CompareCombineMessage, type CompareScanMessage, type EntrySaveSessionMessage, type EntryScanCancelMessage, type EntryScanMessage, type EntryProbeMessage, type EntryProbeCancelMessage, type SaveReportFolderMessage } from '../analysis/entryScan';
+import { isEntryRegion, type CompareScanMessage, type EntrySaveSessionMessage, type EntryOpenMessage, type EntryProbeMessage, type EntryProbeCancelMessage, type SaveReportFolderMessage } from '../analysis/entryScan';
 import type { BuildRecipePayload } from './backendProtocol';
+import { isFigureCancelMessage, isFigureRequestMessage, type FigureCancelMessage, type FigureRequestMessage } from './figureMessages';
 import { schemaViolation } from './schemaValidation';
 import type {
     ComparisonPanelReadyMessage,
@@ -15,9 +16,9 @@ import {
     isExportWavLoopMessage,
     isReleaseTrackDetailMessage,
     isRequestPairSpectrumMessage,
+    isRequestRegionPeakMessage,
     isRequestSpectrumSliceMessage,
     isRequestTrackDetailMessage,
-    isRequestWaveformRangeMessage,
     isSelectPythonEnvironmentMessage,
     isSelectTargetMessage,
     type AnalyzeSelectedFilesMessage,
@@ -25,12 +26,12 @@ import {
     type ExportReportOptionsMessage,
     type ExportWavLoopMessage,
     type PairSpectrumRequest,
+    type RegionPeakRequest,
     type SelectPythonEnvironmentMessage,
     type SelectionTargetKind,
     type SpectrumSliceRequest,
     type TrackDetailReleaseMessage,
     type TrackDetailRequest,
-    type WaveformRangeRequest,
 } from '../utils/audioTarget';
 
 export interface SelectTargetMessage {
@@ -53,22 +54,22 @@ export type PanelMessage =
     | ComparisonPanelReadyMessage
     | RequestReanalyzeMessage
     | UpdateSpectrogramSettingsMessage
-    | WaveformRangeRequest
     | TrackDetailRequest
     | TrackDetailReleaseMessage
     | SpectrumSliceRequest
     | PairSpectrumRequest
+    | RegionPeakRequest
     | ExportWavLoopMessage
     | ExportReportOptionsMessage
     | SaveRecipeMessage
     | ShowInfoMessage
-    | EntryScanMessage
-    | EntryScanCancelMessage
+    | EntryOpenMessage
     | EntryProbeMessage
     | EntryProbeCancelMessage
     | EntrySaveSessionMessage
     | CompareScanMessage
-    | CompareCombineMessage
+    | FigureRequestMessage
+    | FigureCancelMessage
     | SaveReportFolderMessage
     | ConfigureCalibrationMessage;
 
@@ -108,13 +109,10 @@ function isSaveRecipeMessage(value: unknown): value is SaveRecipeMessage {
     return analysis['stftOptions'] === undefined && schemaViolation('BuildRecipePayload', analysis) === null;
 }
 
-function isEntryScanMessage(value: unknown): value is EntryScanMessage {
-    if (!hasType(value, 'entry-scan')) { return false; }
+function isEntryOpenMessage(value: unknown): value is EntryOpenMessage {
+    if (!hasType(value, 'entry-open')) { return false; }
     const message = value as Record<string, unknown>;
-    return typeof message['requestId'] === 'string' && Array.isArray(message['filePaths'])
-        && message['filePaths'].every(filePath => typeof filePath === 'string' && filePath.length > 0)
-        && (message['rootPath'] === undefined || typeof message['rootPath'] === 'string')
-        && (message['recipe'] === undefined || isRecipeChain(message['recipe']));
+    return typeof message['requestId'] === 'string' && (message['rootPath'] === undefined || typeof message['rootPath'] === 'string');
 }
 
 function isEntryProbeMessage(value: unknown): value is EntryProbeMessage {
@@ -134,20 +132,9 @@ function isCompareScanMessage(value: unknown): value is CompareScanMessage {
     const message = value as Record<string, unknown>;
     return typeof message['requestId'] === 'string' && (message['region'] === undefined || isEntryRegion(message['region'])) && Array.isArray(message['filePaths'])
         && (message['recipe'] === undefined || isRecipeChain(message['recipe']))
-        && (message['stage'] === undefined || typeof message['stage'] === 'string')
+        && typeof message['stage'] === 'string'
         && (message['reference'] === undefined || isScanReference(message['reference']))
-        && (message['spectrumBins'] === undefined || typeof message['spectrumBins'] === 'boolean')
         && message['filePaths'].every(filePath => typeof filePath === 'string' && filePath.length > 0);
-}
-
-function isCompareCombineMessage(value: unknown): value is CompareCombineMessage {
-    if (!hasType(value, 'compare-combine')) { return false; }
-    const message = value as Record<string, unknown>;
-    const key = (item: unknown): boolean => typeof item === 'string' && item.length > 0;
-    return typeof message['requestId'] === 'string' && Array.isArray(message['base']) && message['base'].length > 0 && message['base'].every(key)
-        && (message['compare'] === undefined || message['compare'] === null || key(message['compare']))
-        && (message['detail'] === undefined || message['detail'] === null || (typeof message['detail'] === 'object' && !Array.isArray(message['detail'])))
-        && (message['read'] === undefined || (typeof message['read'] === 'object' && message['read'] !== null && !Array.isArray(message['read'])));
 }
 
 const SAFE_NAME = /^(?!\.{1,2}$)[^\\/:*?"<>|\u0000-\u001f]+$/u;
@@ -182,21 +169,21 @@ export function parsePanelMessage(value: unknown): PanelMessage | undefined {
         case 'request-reanalyze': return isRequestReanalyzeMessage(value) ? value : undefined;
         case 'update-spectrogram-settings':
             return isUpdateSpectrogramSettingsMessage(value) ? value : undefined;
-        case 'request-waveform-range': return isRequestWaveformRangeMessage(value) ? value : undefined;
         case 'request-track-detail': return isRequestTrackDetailMessage(value) ? value : undefined;
         case 'release-track-detail': return isReleaseTrackDetailMessage(value) ? value : undefined;
         case 'request-spectrum-slice': return isRequestSpectrumSliceMessage(value) ? value : undefined;
         case 'request-pair-spectrum': return isRequestPairSpectrumMessage(value) ? value : undefined;
+        case 'request-region-peak': return isRequestRegionPeakMessage(value) ? value : undefined;
         case 'export-wav-loop': return isExportWavLoopMessage(value) ? value : undefined;
         case 'export-report-options': return isExportReportOptionsMessage(value) ? value : undefined;
         case 'save-recipe': return isSaveRecipeMessage(value) ? value : undefined;
-        case 'entry-scan': return isEntryScanMessage(value) ? value : undefined;
-        case 'entry-scan-cancel': return { type: 'entry-scan-cancel' };
+        case 'entry-open': return isEntryOpenMessage(value) ? value : undefined;
         case 'entry-probe': return isEntryProbeMessage(value) ? value : undefined;
         case 'entry-probe-cancel': return { type: 'entry-probe-cancel' };
         case 'entry-save-session': return isEntrySaveSessionMessage(value) ? value : undefined;
         case 'compare-scan': return isCompareScanMessage(value) ? value : undefined;
-        case 'compare-combine': return isCompareCombineMessage(value) ? value : undefined;
+        case 'figure-request': return isFigureRequestMessage(value) ? value : undefined;
+        case 'figure-cancel': return isFigureCancelMessage(value) ? value : undefined;
         case 'save-report-folder': return isSaveReportFolderMessage(value) ? value : undefined;
         case 'configure-calibration': return isConfigureCalibrationMessage(value) ? value : undefined;
         case 'show-info': {

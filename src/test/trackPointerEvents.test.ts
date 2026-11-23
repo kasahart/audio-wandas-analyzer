@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
-import { keyRouterFor } from '../webview/runtime/keyRouter';
+import { keyRouterFor } from '../webview/shell/keyRouter';
 import { attachTrackPointerListeners, plotUnderPointer, type PlotSelectors } from '../webview/runtime/trackPointerEvents';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';

@@ -61,11 +61,11 @@ npm run verify:e2e
 | コマンド登録 / VS Code 連携 | `src/extension/index.ts` |
 | ComparisonPanel の外枠 / HTML コンテナ | `src/webview/panels/ComparisonPanel.ts` |
 | Webview の操作ロジック | `src/webview/runtime/` |
-| 波形描画パイプライン | `src/webview/waveform/waveformRenderer.ts` |
+| 図を描く | `src/webview/figure/figure.ts`、`src/webview/charts/`、`python-backend/figures/` |
 | 共有データ契約 | `src/shared/analysis/analysisTypes.ts` |
-| 全体解析バックエンド | `python-backend/analyzer.py` |
-| 波形デシメーション | `python-backend/decimator.py` |
-| 高解像度の範囲解析 | `python-backend/analysis_service.py` (`waveform_range`) |
+| 全体解析バックエンド | `python-backend/services/analyzer.py` |
+| 描く点の間引き | `python-backend/figures/thinning.py` |
+| Tracks の図のために取り置く答え | `python-backend/services/analysis_service.py`、`python-backend/services/tracks_answers.py` |
 | TypeScript ユニットテスト | `src/test/` |
 | Webview ブラウザスモークテスト | `src/test/uiSmoke/` |
 | VS Code E2E | `src/e2e/` |
@@ -116,14 +116,14 @@ python3 -m http.server 8080 --directory browser-dist
 
 ## 7. Webview 周りの注意点
 
-- `src/webview/waveform/waveformRenderer.ts` が比較波形描画の single source of truth です。
-- `npm run compile` で `scripts/build-webview.js` が走り、`dist/webview/comparisonWaveform.js` と `dist/webview/comparisonRuntime.js` が再生成されます。
+- どの図も、1 つの部品 Figure（`src/webview/figure/figure.ts`）が、図のサービス（`python-backend/figures/`）の絵から描きます。
+- `npm run compile` で `scripts/build-webview.js` が走り、`dist/webview/comparisonRuntime.js` が再生成されます。
 - ユーザー向け GUI アクションを追加・変更したら、`src/shared/gui/guiTriggerabilityInventory.ts` の在庫定義と対応する回帰カバレッジも合わせて更新します。
 - 実ブラウザでしか出ない不具合は、jsdom だけに頼らず `npm run test:ui` を使って確認します。
 
 ## 8. Python / バックエンドのメモ
 
-- DSP ロジックを作り直す前に、`python-backend/analyzer.py`, `decimator.py`, `analysis_service.py` / `analysis_engine.py` の既存の `wandas` ベース実装を優先してください。
+- DSP ロジックを作り直す前に、`python-backend/services/` (`analyzer.py`, `analysis_service.py`, `analysis_engine.py`) の既存の `wandas` ベース実装を優先してください。
 - Python テストは `python-backend/test_*.py` としてモジュールの近くにあります。
 - extension host とバックエンドの境界は、子プロセスの標準入出力を使う JSON 通信です。境界は小さく、明示的に保ちます。
 

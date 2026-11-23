@@ -24,7 +24,7 @@
 
 ## Also in the box
 
-- **Many files:** the table shows a value per file (such as A-weighted Leq) to sort, filter and group, and takes an attribute CSV (anomaly scores, conditions…) to narrow down the candidates.
+- **Many files:** the table lists each file's length, sample rate and calibration to sort, filter and group, and takes an attribute CSV (anomaly scores, conditions…) to narrow down the candidates. Nothing is analysed until you pick the recordings to compare.
 - **Reference track:** transfer function and coherence from one track to the others.
 - **Calibration** to Pa, m/s² or V, with levels in dB SPL (VS Code).
 - **Bundled recipes**, including loudness and roughness.
@@ -49,7 +49,7 @@
 If that button does not appear (an untrusted workspace, or a `.venv` already there), or to use an environment of your own, install the packages into it and run **Audio Analyzer: Select Python Environment**:
 
 ```bash
-pip install "wandas[psychoacoustic,effects]>=0.13.0,<0.14.0" "numpy>=2.0.2" "scipy>=1.13" "soundfile>=0.12"
+pip install "wandas[psychoacoustic,effects]>=0.13.2,<0.14.0" "numpy>=2.0.2" "scipy>=1.13" "soundfile>=0.12"
 ```
 
 Files and folders can also be opened from the **Audio Analyzer** view in the Activity Bar (or by dropping them on it), or with **Audio Analyzer: Analyze File or Folder**.

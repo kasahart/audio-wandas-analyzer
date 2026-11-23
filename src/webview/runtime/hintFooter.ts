@@ -102,13 +102,18 @@ export function attachHoverHints(doc: Document, footer: HintFooter): void {
     });
 }
 
-export function attachCanvasFocusHint(canvas: HTMLElement, footer: HintFooter, text: string): void {
-    canvas.addEventListener('focus', function () {
-        footer.show(text);
+/**
+ * The footer says `text` while an element of `root` matching `selector` has the keyboard's focus (a Tracks row's
+ * canvas: the keys that move its time cursor). One listener on `root`, so elements made later are covered too.
+ */
+export function attachFocusHint(root: HTMLElement, selector: string, footer: HintFooter, text: string): void {
+    const matches = (target: EventTarget | null): boolean => !!(target as Element | null)?.matches?.(selector);
+    root.addEventListener('focusin', function (e) {
+        if (matches(e.target)) footer.show(text);
     });
-    // A click elsewhere blurs the canvas after the new target's hint is already showing.
-    canvas.addEventListener('blur', function () {
-        footer.clearIfShowing(text);
+    // A click elsewhere takes the focus after the new target's hint is already showing.
+    root.addEventListener('focusout', function (e) {
+        if (matches(e.target)) footer.clearIfShowing(text);
     });
 }
 

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { isNewPath } from './helpers/newPath';
 import test from 'node:test';
 
 /**
@@ -19,7 +20,8 @@ const webview = path.resolve(__dirname, '..', '..', 'src', 'webview');
 /** The shared plot gestures themselves. */
 const SHARED: Record<string, string> = {
     'runtime/trackPointerEvents.ts': 'the plots\' pointer listeners and their ← / → key context',
-    'runtime/keyRouter.ts': 'the one window key listener every key context goes through',
+    // Moved to shell/ so the old plots and the Figure share it.
+    'shell/keyRouter.ts': 'the one window key listener every key context goes through',
     'runtime/plotInteraction.ts': 'the click a drag (a box zoom) ends with is not passed on: a plot\'s own click is its `tap`',
 };
 
@@ -30,15 +32,15 @@ const SHARED: Record<string, string> = {
  * `*:event` is an event named in a loop over names (`for (const type of [...]) view.addEventListener(type, ...)`).
  */
 const NOT_PLOTS: Record<string, { sites: readonly string[]; why: string }> = {
-    'rangePopover.ts': { sites: ['applyButton:click', 'autoButton:click', 'closeButton:click', 'doc:mousedown'], why: 'a press outside the axis range popover closes it; its Apply, Auto and close buttons' },
+    'shell/rangePopover.ts': { sites: ['applyButton:click', 'autoButton:click', 'closeButton:click', 'doc:mousedown'], why: 'a press outside the axis range popover closes it; its Apply, Auto and close buttons' },
     'runtime/comparisonRuntime.ts': {
         sites: ['btn:click', 'document.getElementById(\'spectrum-section-header\')?:click', 'document:dblclick', 'loopTimeDisplayEl:click', 'tracksWrapper:pointerdown', 'document:pointermove', 'document:pointerup', 'document:pointercancel', 'selectionLayout:click', 'resizer:pointerdown', 'document:pointermove', 'document:pointerup', 'document:pointercancel'],
         why: 'the Python setup button, the folded spectrum header, a panel edge double-clicked to fold it (target.closest of the edge), the loop time copied, the waveform/spectrogram split (.track-split) and the side panel\'s edge dragged, the folder selection\'s buttons',
     },
     'runtime/entryRuntime.ts': { sites: ['query(\'.entry-bar\'):dblclick', 'screen:click', 'document:mouseover', 'document:pointerdown', 'screen:dragover', 'screen:drop', 'body:dblclick'], why: 'the entry table\'s rows and bar (double-click a row or the bar, a row lights its lane, a press outside its popovers, the screen\'s buttons and menus, files dropped on the screen)' },
     'runtime/helpOverlay.ts': { sites: ['openButton:mousedown', 'openButton:click', 'overlay:click'], why: 'the help button keeps the focus where it was; it opens the help, and its backdrop or × closes it' },
-    'runtime/hintFooter.ts': { sites: ['doc:mousemove', 'doc:mouseover', 'doc:mouseout', 'canvas:focus', 'canvas:blur'], why: 'the footer names what is under the pointer or focused (data-hint), on every element' },
-    'runtime/offsetInlineEditor.ts': { sites: ['input:keydown', 'input:blur', 'wrapper:dblclick', 'wrapper:click'], why: 'the track offset\'s text field, opened or reset on its value' },
+    'runtime/hintFooter.ts': { sites: ['doc:mousemove', 'doc:mouseover', 'doc:mouseout', 'root:focusin', 'root:focusout'], why: 'the footer names what is under the pointer (data-hint), on every element, and a focused Tracks row\'s keys' },
+    'runtime/offsetInlineEditor.ts': { sites: ['input:keydown', 'input:blur', 'wrapper:mousedown', 'wrapper:click'], why: 'the track offset\'s text field: a click opens it, a double click\'s second press (the browser\'s detail 2) takes that back and resets the offset' },
     'runtime/pairSpectrumPanel.ts': { sites: ['divider?:pointerdown', 'this.doc:pointermove', 'this.doc:pointerup', 'this.doc:pointercancel'], why: 'the divider between the power spectrum and the pair view dragged' },
     'runtime/roleChip.ts': { sites: ['root:click', 'root:keydown', 'root:pointerdown'], why: 'a role chip\'s menu' },
     'runtime/separatorKeys.ts': { sites: ['document:focusin'], why: 'a focused resize edge says its value' },
@@ -64,7 +66,7 @@ const NOT_PLOTS: Record<string, { sites: readonly string[]; why: string }> = {
  * window, with the pointer on no plot (the plot layer comes first and takes the keys over one).
  */
 const KEY_CONTEXTS: Record<string, { layers: readonly string[]; why: string; offPlots?: string }> = {
-    'rangePopover.ts': { layers: ['popover'], why: 'Esc closes the axis range popover' },
+    'shell/rangePopover.ts': { layers: ['popover'], why: 'Esc closes the axis range popover' },
     'runtime/comparisonRuntime.ts': { layers: ['lanes'], why: 'Esc leaves the maximized spectrum; the lanes\' shortcuts (shortcuts.ts) run here', offPlots: 'zoomIn / zoomOut / resetZoom: the lanes\' time axis, and the toolbar\'s zoom buttons' },
     'runtime/entryRuntime.ts': { layers: ['entry'], why: 'the entry table\'s keys (Esc closes its innermost popover, form or list)' },
     'runtime/globalKeyboardEvents.ts': { layers: ['lanes'], why: 'the lanes\' cursor, playback and shortcut keys' },
@@ -89,7 +91,12 @@ const NAMED = /(['"`])((?:mouse|pointer|touch|gesture)[a-z]+|drag[a-z]*|drop|whe
 function sources(dir: string, base = dir): string[] {
     return readdirSync(dir).flatMap(name => {
         const full = path.join(dir, name);
-        return statSync(full).isDirectory() ? sources(full, base) : name.endsWith('.ts') ? [path.relative(base, full).split(path.sep).join('/')] : [];
+        if (statSync(full).isDirectory()) return sources(full, base);
+        const rel = path.relative(base, full).split(path.sep).join('/');
+        // The new figure path's own code is held by its own rules (helpers/newPath.ts): the Figure's pointer and keys by
+        // ESLint (rule C: only src/webview/figure/ takes them) and figureComponent.test.ts (its R13 cases, through the
+        // page's one arbitration; its keys), not this scan of the old plots.
+        return name.endsWith('.ts') && !isNewPath(`src/webview/${rel}`) ? [rel] : [];
     });
 }
 
@@ -219,14 +226,64 @@ test('every plot that acts on a press that stayed put (plotInteraction\'s tap) a
         });
     });
     const receivers = new Set(taps.map(item => item.file));
-    for (const file of ['runtime/comparisonRuntime.ts', 'runtime/trackStageGestures.ts', 'runtime/entryDistributionPane.ts', 'runtime/entrySidePlots.ts']) assert.ok(receivers.has(file), `${file}'s tap is found`);
+    // No screen hands the shared gestures a tap any more (the time ruler has none; a Figure's press is its own, through
+    // the same arbitration): the rule holds whatever is given one again.
+    void receivers;
     // The arbitration is plotInteraction's alone (docs/display-rules.md R13): a click acts at once, the second press of
     // the browser's double click (detail 2) takes back what its first did, and no one waits a click out with a timer,
     // so a double click slower than any wait can never leave a single click's selection.
-    const shared = read('runtime/plotInteraction.ts');
-    const fix = 'Fix: a click acts at once in plotInteraction.ts release(), and the second press of a double click takes it back; never a wait (R13).';
+    // The arbitration moved to figure/pressArbiter.ts: plotInteraction.ts and the Figure both use it.
+    const shared = read('figure/pressArbiter.ts');
+    assert.match(read('runtime/plotInteraction.ts'), /from '\.\.\/figure\/pressArbiter'/u, 'plotInteraction.ts arbitrates its presses through the page\'s one arbitration');
+    const fix = 'Fix: a click acts at once in pressArbiter.ts clickReleased(), and the second press of a double click takes it back; never a wait (R13).';
     assert.match(shared, /if \(!first \|\| first\.at !== presses\.count\) return;\s*presses\.click = null;\s*first\.takeBack\(\);/u, `the second press of a double click takes back its first. ${fix}`);
     assert.match(shared, /const takeBack = typeof action === 'function' \? action\(\) : undefined;/u, `a tap acts at once. ${fix}`);
     assert.doesNotMatch(shared, /setTimeout|DOUBLE_CLICK_MS/u, `the shared gestures wait a click out. ${fix}`);
     for (const { file, body } of taps) assert.doesNotMatch(body, /setTimeout|DOUBLE_CLICK|CLICK_WAIT|\.detail/u, `${file}: a tap that waits out a double click, or tells its second press apart, itself (R13: a click acts at once)`);
+});
+
+/**
+ * The clean-up promise of the shared gestures (docs/plot-layers.md): attachPlotInteraction, attachTrackPointerListeners
+ * and a key router's `add` each return a disposer that takes off every listener they added. A caller that drops it
+ * leaves listeners on the document and the window that nothing can take off, answering for a plot or a lane torn down.
+ * So every call keeps it: assigned (`const off = …`, `this.detach = …`), returned (`return …`, an arrow's body),
+ * pushed or passed on (`list.push(…)`), or one branch of a choice (`keyWindow ? … : …`).
+ */
+const DISPOSING_CALL = /\b(?:attachPlotInteraction|attachTrackPointerListeners)\s*\(|\b(?:keyRouterFor\([^()]*\)|router|keys)\s*\.\s*add\s*\(/g;
+
+/** What comes before a call, with comments left out: the token that says whether its result is kept. */
+function keptBy(source: string, at: number): string | null {
+    const before = source.slice(0, at).replace(/\/\/[^\n]*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '').trimEnd();
+    const token = /(=>|return|[=?:(,[])$/.exec(before);
+    return token ? token[1] : null;
+}
+
+/** Each call of the three that drops its disposer, as `file:line`. */
+function droppedDisposers(file: string, source: string): string[] {
+    return [...source.matchAll(DISPOSING_CALL)]
+        .filter(match => !/^\s*(?:export\s+)?function\b/.test(source.slice(source.lastIndexOf('\n', match.index) + 1, match.index)))
+        .filter(match => keptBy(source, match.index) === null)
+        .map(match => `${file}:${source.slice(0, match.index).split('\n').length}`);
+}
+
+test('the disposer check finds a call that drops its disposer, and passes one kept, returned or pushed', () => {
+    assert.deepEqual(droppedDisposers('x.ts', [
+        "attachPlotInteraction(surface, doc, '.plot', deps);",
+        "    keyRouterFor(window).add({ layer: 'help', keydown });",
+        "const off = attachPlotInteraction(surface, doc, '.plot', deps);",
+        "this.detach = attachPlotInteraction(surface, doc, '.plot', deps);",
+        "return attachTrackPointerListeners(surface, doc, keys, handlers);",
+        "const gestures = (s: string): Off => attachPlotInteraction(root, doc, s, deps);",
+        "holdForPage(keyRouterFor(window).add({ layer: 'lanes', keydown }));",
+        "alsoTakeOff(keys.add({ layer: 'plot', keydown }));",
+        "const off = view ? keyRouterFor(view).add(context) : () => undefined;",
+        'export function attachTrackPointerListeners(surface: Surface): Off {',
+    ].join('\n')), ['x.ts:1', 'x.ts:2']);
+});
+
+test('no caller drops the disposer of attachPlotInteraction, attachTrackPointerListeners or a key router\'s add: each is kept or returned (clean-up promise)', () => {
+    const calls = sources(webview).flatMap(file => [...read(file).matchAll(DISPOSING_CALL)].map(() => file));
+    // The check looks at every call there is: the plots' owners and the key contexts of the page.
+    assert.ok(calls.length >= 15, `found only ${calls.length} calls`);
+    assert.deepEqual(sources(webview).flatMap(file => droppedDisposers(file, read(file))), []);
 });

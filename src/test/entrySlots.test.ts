@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-    channelRowKey, comparedKeys, emptySlots, firstFreeCompareSlot, recordingColor, restoredSlots, roleKey, roleSlot, slotFiles, slotsForFiles, slotsOfFile, trackChanges, withoutFile, withSlot,
+    channelRowKey, comparedKeys, settledKey, emptySlots, firstFreeCompareSlot, recordingColor, restoredSlots, roleKey, roleSlot, slotFiles, slotsForFiles, slotsOfFile, trackChanges, withoutFile, withSlot,
 } from '../webview/runtime/entrySlots';
 import { ownColor, ROLE_COLORS } from '../shared/gui/roleColors';
 
@@ -49,6 +49,18 @@ test('a key taken before the file\'s channels were known moves to its ch 1 row o
     assert.equal(channelRowKey('/b.wav', keys), null);
     assert.equal(channelRowKey('/a.wav#ch2', keys), null);
     assert.equal(channelRowKey('/c.wav', keys), null);
+});
+
+test('a key follows its file once the channels are known, and a channel the file no longer has goes nowhere', () => {
+    const keys = new Set(['/a.wav#ch1', '/a.wav#ch2', '/b.wav']);
+    const channels = new Map([['/a.wav', 2], ['/b.wav', 1], ['/bad.wav', 0]]);
+    assert.equal(settledKey('/a.wav', keys, channels), '/a.wav#ch1', 'taken before the channels were known');
+    assert.equal(settledKey('/a.wav#ch2', keys, channels), '/a.wav#ch2');
+    assert.equal(settledKey('/b.wav#ch1', keys, channels), '/b.wav', 'rewritten with one channel: its ch 1 is the file');
+    assert.equal(settledKey('/b.wav#ch2', keys, channels), null, 'rewritten with one channel: ch 2 is gone, ch 1 does not stand for it');
+    assert.equal(settledKey('/a.wav#ch3', keys, channels), null);
+    assert.equal(settledKey('/c.wav#ch2', keys, channels), '/c.wav#ch2', 'not read yet: kept');
+    assert.equal(settledKey('/bad.wav#ch2', keys, channels), '/bad.wav#ch2', 'no rows to go to: kept');
 });
 
 test('a recording beside the table is drawn in its role\'s colour, else its track\'s own, else the first own colour (R5)', () => {

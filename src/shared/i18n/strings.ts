@@ -62,7 +62,6 @@ export interface UiStrings {
     roleChoose: string;
     stageChooseRoles: string;
     stageLayoutOverlay: string;
-    compareFixedHint: string;
     hintContentStage: string;
     btnSpectrogramSettingsTitle: string;
     btnSpectrumSettingsTitle: string;
@@ -108,6 +107,12 @@ export interface UiStrings {
     reanalyzingStft: string;
     /** A lane whose file changed on disk after it was analysed: nothing more is asked of it until it is analysed again. */
     sourceChangedLane: string;
+    /** A row whose answers are over what the backend keeps: it draws nothing and says so. */
+    rowTooLarge: string;
+    /** A row's spectrogram lane of a recording shorter than the STFT's window (the FFT size was set for longer ones). */
+    rowTooShort: string;
+    /** A row's picture the figure service could not draw, in the rows' shared readout. */
+    rowDrawFailed: string;
     reanalyzeChanged: string;
     reanalyzeChangedHint: string;
     reanalyzingChanged: string;
@@ -129,22 +134,15 @@ export interface UiStrings {
     entryColFile: string;
     entryColCondition: string;
     entryColLeq: string;
-    entryColBandLevel: string;
-    entryColPeak: string;
     entryOpen: string;
     entryBaseGroup: string;
     entryBase: string;
-    entryCount: string;
     trackNoAudio: string;
-    entryCsvGroupSize: string;
     /** The entry CSV's column of what the base group left out of its set, with why. */
     entryCsvGroupLeft: string;
     entrySourceGone: string;
     entryFolderLevel: string;
-    compareKeyHold: string;
-    compareKeyBack: string;
     comparePlay: string;
-    compareDelta: string;
     stepNeedBelow: string;
     stepNeedPow2: string;
     compareReport: string;
@@ -153,39 +151,14 @@ export interface UiStrings {
     stageBaseAggregate: string;
     stageBaseEach: string;
     stageBaseList: string;
-    reportBase: string;
-    reportCompare: string;
-    reportDiff: string;
     reportCsv: string;
-    reportBaseLeq: string;
-    reportLevelReference: string;
-    reportBaseLevelReference: string;
-    reportBandDelta: string;
-    reportRegion: string;
-    reportSummary: string;
-    reportStepsLegend: string;
     reportRegionStart: string;
     reportRegionEnd: string;
-    reportWhole: string;
     reportDefinitions: string;
-    defLeq: string;
-    defSpectrum: string;
-    defThirdOct: string;
-    defChannels: string;
-    defBase: string;
-    defDelta: string;
-    defRegion: string;
-    defHeadline: string;
-    defHeadlineEdges: string;
+    reportFigure: string;
     reportGroupFiles: string;
-    reportSpecVersion: string;
     reportSaved: string;
-    /** While the report's files are measured for every spectrum bin, before it is written. */
-    reportMeasuring: string;
-    /** A report not written because some of its files could not be measured: which, and why. */
-    reportCannotMeasure: string;
-    /** The recordings or the chain changed while a report was measured: it is not written of what was not asked. */
-    reportChanged: string;
+    reportReady: string;
     stepRegion: string;
     stepAll: string;
     stepMetrics: string;
@@ -194,11 +167,6 @@ export interface UiStrings {
     stepApply: string;
     stepRecipeWarning: string;
     compareNotEntry: string;
-    comparePending: string;
-    /** A held Δ whose files' every bin could not be measured (a failure that may pass: asked again after the pause). */
-    heldBinsFailed: string;
-    compareBaseEntryRegion: string;
-    compareSelfBase: string;
     stepRecipeName: string;
     stepPresetButton: string;
     stepPresetEdited: string;
@@ -326,8 +294,6 @@ export interface UiStrings {
     dsReasonUnreadable: string;
     dsCsvRow: string;
     dsReason: string;
-    dsCompute: string;
-    hintCompute: string;
     dsComputing: string;
     dsUncomputed: string;
     dsRowSlot: string;
@@ -384,11 +350,31 @@ export interface UiStrings {
     /** Rows whose level is of another reference than the value axis's: left off it. */
     dsDistApart: string;
     dsDistAll: string;
-    dsDerivedRemove: string;
+    /** The value select with no CSV column of numbers; the distribution's place with no CSV, or none of its columns of numbers. */
+    dsValueNone: string;
+    dsDistNoCsv: string;
+    dsDistNoNumber: string;
+    /** The entry table's columns of a file's own information (its header's, and whether it is calibrated). */
+    entryColDuration: string;
+    entryColRate: string;
+    entryColRateTitle: string;
+    entryColCalibration: string;
+    /** The table's CSV: the columns after the picked CSV's own. */
+    entryCsvSlot: string;
+    entryCsvMemo: string;
+    entryCsvExcluded: string;
+    entryCalibrated: string;
+    entryUncalibrated: string;
     dsBaseNarrowed: string;
     dsBaseFewer: string;
     dsBaseOtherUnits: string;
     dsBaseFailed: string;
+    /** A recording whose step's values are over what is kept (the answers' budget): left out, with why. */
+    dsBaseTooLarge: string;
+    /** The comparison's headline when a recording on the Figure is too large to draw. */
+    stageFigureTooLarge: string;
+    /** After the name of a recording drawn on no line because it is in another unit or reference. */
+    stageLeftOtherReference: string;
     dsBaseMissing: string;
     dsBasePending: string;
     /** A base group's recordings left out because their value is of an earlier chain or calibration. */
@@ -402,7 +388,6 @@ export interface UiStrings {
     /** The report's column of the value the table shows (`{value}`: its name, no reference: each cell names its row's own). */
     reportShownValue: string;
     reportBaseDefinition: string;
-    reportDerived: string;
     dsExportNotes: string;
     dsExportTable: string;
     toolbarMore: string;
@@ -454,9 +439,6 @@ export interface UiStrings {
     entryScanCancel: string;
     entryMinutes: string;
     entrySeconds: string;
-    reportChain: string;
-    reportChainCurrent: string;
-    reportChainPrevious: string;
     stepNotDrawable: string;
     stepOpenCompare: string;
     axisGain: string;
@@ -492,6 +474,12 @@ export interface UiStrings {
     /** A plot's readout where the pointer is over a gap of the line and no point with a value is within reach (R7): answered, no value; a blank readout is a read still on its way. */
     plotNoValue: string;
     stageTooLarge: string;
+    /** A figure that did not fit beside the others being computed, asked twice. */
+    stageBusy: string;
+    /** The spectrum overlay's PNG or CSV (the new path): the answers changed since the picture, nothing written, drawn again. */
+    stageExportChanged: string;
+    /** No picture of the overlay to write yet. */
+    stageExportNone: string;
     stageCombineFailed: string;
     stageNoDeltaRate: string;
     stageNoDeltaUnit: string;
@@ -507,16 +495,12 @@ export interface UiStrings {
     stageEventOutButton: string;
     stageEventInButton: string;
     stageEventsUsed: string;
+    stageEventsNoAnswer: string;
     stageMaxDelta: string;
-    compareLevelsAt: string;
     compareHintPlot: string;
     compareHintAxis: string;
     compareDiffShow: string;
     compareDiffHide: string;
-    hintDiffToggle: string;
-    stepHeldWithout: string;
-    stepHeldRow: string;
-    stepHeldNoRow: string;
     outside192: string;
     outsideMedian: string;
     outsideDelta: string;
@@ -526,7 +510,6 @@ export interface UiStrings {
     stepClose: string;
     stepOctave: string;
     stepFrameHint: string;
-    slotEmpty: string;
     axisFrequency: string;
     /** The level axis while uncalibrated; `{label}` is wandas' level reference ("dBFS", "dB re 1 input unit"). */
     axisLevelUncal: string;
@@ -538,17 +521,11 @@ export interface UiStrings {
     legendHeadline: string;
     legendLeak: string;
     legendLine: string;
-    compareNoSignificant: string;
     stepNeedAbove: string;
     stepNeedInteger: string;
     stepNeedValue: string;
     hintSpectrogram: string;
-    compareRefuseFix: string;
-    fixBasePending: string;
     compareRefuseSlot: string;
-    entryLeqUncalibrated: string;
-    hintLeqUncalibrated: string;
-    hintLeqUncalibratedRaw: string;
     hintSpectrogramGroup: string;
     screenHelpTitle: string;
     /** The footer button that opens the help. */
@@ -557,21 +534,11 @@ export interface UiStrings {
     /** The help's first lines: the app's flow in three steps, one per line. */
     helpFlow: string;
     screenHelpSymbols: string;
-    hintOverview: string;
-    hintBaseCard: string;
-    hintSlotCard: string;
     hintRegionMark: string;
-    hintCompareMark: string;
     hintStepChip: string;
     hintEntryMaximize: string;
     hintRowPlay: string;
     hintRowStop: string;
-    compareSingleBase: string;
-    /** No recording counted in the base group, each left out with why ({left}: " · 1 failed …"). */
-    compareEmptyBase: string;
-    compareRegionDiffers: string;
-    /** The base's levels are in another unit, reference or calibration than the compared file's: no Δ. */
-    compareUnitDiffers: string;
     helpRowStepKeys: string;
     helpRowStepBypass: string;
     helpRowStepUndo: string;
@@ -596,7 +563,6 @@ export interface UiStrings {
     helpCompareSlot: string;
     helpCompareBase: string;
     helpCompareZoom: string;
-    helpCompareFix: string;
     helpComparePlay: string;
     helpCompareEsc: string;
     helpCompareLayoutKey: string;
@@ -604,13 +570,14 @@ export interface UiStrings {
     helpCompareDiff: string;
     ariaWaveformCanvas: string;
     ariaSpectrogramCanvas: string;
+    /** A Tracks row's one canvas on the Figure path: its waveform over its spectrogram. */
+    ariaRowCanvas: string;
     ariaStageOverlayCanvas: string;
     ariaStageDiffCanvas: string;
     ariaStageLaneCanvas: string;
     ariaResizeTrackHeight: string;
     ariaResizeSpectrumHeight: string;
     ariaResizeSidebar: string;
-    ariaEntryOverview: string;
     helpRowStepDrag: string;
     helpRowZoomKeys: string;
     playbackTimePrefix: string;
@@ -730,6 +697,7 @@ export interface UiStrings {
     announceExportCsvFailed: string;
     exportPngBusy: string;
     exportPngDone: string;
+    exportPngPartial: string;
     exportCsvBusy: string;
     exportCsvDone: string;
     /** {count} channels the export had to leave out, named in {names}. */
@@ -788,8 +756,6 @@ export interface UiStrings {
     hintDoubleClickResetZoom: string;
     hintRectZoomDrag: string;
     hintSpectrumPlot: string;
-    hintSpectrumDbAxis: string;
-    hintSpectrumFreqAxis: string;
     hintWaveformAmplitudeAxis: string;
     hintSpectrogramFrequencyAxis: string;
     hintSpectrogramColorbar: string;
@@ -927,7 +893,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         roleChoose: 'Role',
         stageChooseRoles: 'Choose recordings to compare: their chips in the legend',
         stageLayoutOverlay: 'Overlay',
-        compareFixedHint: 'Fixed: the difference is now the └ Δ row of the table (Esc to see it)',
         hintContentStage: 'Compare the tracks through an analysis: build it from wandas steps and see every track at any step, overlaid',
         btnSpectrogramSettingsTitle: 'Spectrogram settings',
         btnSpectrumSettingsTitle: 'Frequency analysis settings (shared with the spectrogram)',
@@ -971,6 +936,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         settingsApplyHint: 'These recompute when you press Apply; the display below changes as you type.',
         reanalyzingStft: 'Recomputing STFT…',
         sourceChangedLane: 'The file changed after it was analysed',
+        rowTooLarge: 'Too long to draw',
+        rowTooShort: 'Shorter than the FFT size: choose a smaller one (⚙)',
+        rowDrawFailed: '— (could not be drawn)',
         reanalyzeChanged: 'Analyse again',
         reanalyzeChangedHint: 'The file changed on disk after it was analysed: analyse the tracks again',
         reanalyzingChanged: 'Analysing again…',
@@ -992,21 +960,14 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         entryColFile: 'File',
         entryColCondition: 'Cond. {n}',
         entryColLeq: 'Leq A-weighted',
-        entryColBandLevel: '{band} level',
-        entryColPeak: 'Δ max band',
         entryOpen: 'Open Compare',
         entryBaseGroup: 'Base group',
         entryBase: 'Base',
-        entryCount: '{count} files',
         trackNoAudio: 'No playback: this track has no decoded audio.',
-        entryCsvGroupSize: 'Base group n',
         entryCsvGroupLeft: 'Base group left out',
         entrySourceGone: 'The file is no longer listed',
         entryFolderLevel: 'Folder {n}',
-        compareKeyHold: 'hold 1–3 swap',
-        compareKeyBack: 'Esc table',
         comparePlay: 'Play',
-        compareDelta: 'Δ = compare − base',
         stepNeedBelow: 'Must be below {max}',
         stepNeedPow2: 'A power of two from 64 to {max}',
         compareReport: 'Export (comparison folder)',
@@ -1015,36 +976,14 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stageBaseAggregate: 'Aggregate: the median at each point',
         stageBaseEach: 'Not aggregated: each recording\'s waveform as is',
         stageBaseList: 'Show in the table',
-        reportBase: 'base',
-        reportCompare: 'compare',
-        reportDiff: 'delta',
         reportCsv: 'report',
-        reportBaseLeq: 'Base Leq A-weighted',
-        reportLevelReference: 'Level reference',
-        reportBaseLevelReference: 'Base level reference',
-        reportBandDelta: 'Δ {band} dB',
-        reportRegion: 'Region s',
-        reportSummary: 'summary',
-        reportStepsLegend: 'bands: filled = headline, outlined = leak into the neighbour',
         reportRegionStart: 'Start s',
         reportRegionEnd: 'End s',
-        reportWhole: 'whole',
         reportDefinitions: 'definitions',
-        defLeq: 'A-weighted RMS over the region, 20·log10(rms / ref); ref is the channel calibration (1 = full scale, so an uncalibrated file reads below 0 dB).',
-        defSpectrum: 'Welch power spectrum (wandas welch, n_fft {n_fft}, {window} window) in dB re the channel ref; the entry table power-averages its bins into 192 log-spaced points from 20 Hz to Nyquist (a point narrower than one bin is interpolated), so a narrow peak reads lower there with a longer n_fft. The figures, the base\'s median and Δ take every bin, and only the drawn line is decimated: per log-spaced bucket, its lowest and highest bin.',
-        defHeadline: 'The headline lists up to three bands whose |Δ| is larger than both neighbours, beyond chance (3 MAD of the base condition\'s other files, at least 1.5 dB) and where the louder of base and compare is within {within} dB of the loudest band, largest |Δ| first, each with both levels; or it says "no clear difference". A band beside such a peak with the same sign is the peak\'s leak through the band filters, drawn as an outline and not listed.',
-        defHeadlineEdges: 'In a step\'s spectrogram or cepstrogram, a column whose STFT frames are centred less than n_fft / 2 from the start or end of the signal reads the padding beyond it (its window sticks out of the signal): it is drawn, but never named in the headline.',
-        defRegion: 'Every metric skips the first and last 0.15 s of the file, where the Recipe\'s filters ring; the Recipe\'s time slice is the region actually measured.',
-        defThirdOct: 'wandas noct_spectrum (n = 3), bands from 25 Hz up to 0.88 × Nyquist, in dB; a band centred outside the Recipe\'s filter passband is left empty.',
-        defChannels: 'Channels are combined by their power mean (10·log10 of the mean of 10^(L/10)).',
-        defBase: 'The file in slot 0, or else the median per bin and band of the other files of the compared file\'s condition.',
-        defDelta: 'compare − base, in dB, bin by bin and band by band; Δ max band is the 1/3-octave band with the largest |Δ|.',
+        reportFigure: 'figure',
         reportGroupFiles: 'Base group files',
-        reportSpecVersion: 'Spec version',
         reportSaved: 'Report saved: ',
-        reportMeasuring: 'Measuring {count} files for the report…',
-        reportCannotMeasure: 'No report: {files} could not be measured ({why})',
-        reportChanged: 'No report: the recordings or the steps changed while it was measured. Press Report again',
+        reportReady: 'Report made: ',
         stepRegion: 'Region',
         stepAll: 'all',
         stepMetrics: 'Metrics',
@@ -1053,10 +992,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepApply: 'Apply',
         stepRecipeWarning: 'The saved recipe could not be read; the standard one is used.',
         compareNotEntry: '≠ table',
-        comparePending: 'computing…',
-        heldBinsFailed: 'could not be measured: {files} ({why}); asked again shortly',
-        compareBaseEntryRegion: 'base = table region',
-        compareSelfBase: '≠ same file',
         stepRecipeName: 'Standard',
         stepPresetButton: 'Recipe: {name}',
         stepPresetEdited: '{name} (edited)',
@@ -1174,8 +1109,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsReasonUnreadable: 'Unreadable',
         dsCsvRow: 'CSV row {n}',
         dsReason: 'Reason',
-        dsCompute: 'Compute {n} files · about {time}',
-        hintCompute: 'Compute the chosen value for the recordings in the table (its filters applied)',
         dsComputing: 'Computing {done} / {n}',
         dsUncomputed: 'Not computed {n} ch',
         dsRowSlot: 'Put in a slot: 0 base, 1–3 compare (keys 0–3)',
@@ -1231,11 +1164,25 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsDistGroups: '{n} groups',
         dsDistApart: '{n} on another reference, not drawn',
         dsDistAll: 'All',
-        dsDerivedRemove: 'Delete this fixed difference',
+        dsValueNone: 'No number column',
+        dsDistNoCsv: 'Pick a CSV to draw the distribution of its number columns.',
+        dsDistNoNumber: 'This CSV has no column of numbers.',
+        entryColDuration: 'Length [s]',
+        entryColRate: 'fs [Hz]',
+        entryColRateTitle: 'Sample rate',
+        entryColCalibration: 'Calibration',
+        entryCsvSlot: 'Slot',
+        entryCsvMemo: 'Memo',
+        entryCsvExcluded: 'Excluded',
+        entryCalibrated: 'Calibrated',
+        entryUncalibrated: 'Uncalibrated',
         dsBaseNarrowed: ' (within {filters})',
         dsBaseFewer: ' · {n} without ch {ch} left out',
         dsBaseOtherUnits: ' · {n} of another level reference left out',
         dsBaseFailed: ' · {n} failed left out',
+        dsBaseTooLarge: ' · {n} too large left out',
+        stageFigureTooLarge: '— too large to draw: {n}',
+        stageLeftOtherReference: ' (not drawn: another unit or reference)',
         dsBaseMissing: ' · {n} not computed yet',
         dsBasePending: ' · {n} still computing',
         dsBaseStale: ' · {n} of an earlier chain left out',
@@ -1246,7 +1193,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportMemo: 'Memo',
         reportShownValue: 'Shown: {value}',
         reportBaseDefinition: 'Base definition',
-        reportDerived: 'Fixed Δ (D)',
         dsExportNotes: 'Memos and exclusions as CSV',
         dsExportTable: 'The table as CSV',
         toolbarMore: 'More zoom tools: box zoom, zoom to the selection, follow the cursor',
@@ -1298,9 +1244,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         entryScanCancel: 'Cancel',
         entryMinutes: '{n} min',
         entrySeconds: '{n} s',
-        reportChain: 'Chain',
-        reportChainCurrent: 'current (the Recipe in this folder)',
-        reportChainPrevious: 'previous chain',
         stepNotDrawable: 'This step cannot be shown ({frame})',
         stepOpenCompare: 'Put files in slots 1–3 to compare them at this step.',
         axisGain: 'Gain [dB]',
@@ -1328,6 +1271,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stageNoDelta: '— (Δ only between pictures of one kind on the same axes)',
         plotNoValue: '— (no value here)',
         stageTooLarge: '— (too much data to take the median and Δ at full resolution)',
+        stageBusy: '— (busy with other figures: change the view to try again)',
+        stageExportChanged: 'Not written: the data changed since the picture. It is drawn again; export again.',
+        stageExportNone: 'Nothing to write yet: the spectrum overlay is not drawn.',
         stageCombineFailed: '— (the median and Δ could not be computed: the backend failed)',
         stageNoDeltaRate: '— (no sample-by-sample Δ between recordings at different sample rates)',
         stageNoDeltaUnit: '— (no Δ between recordings in different units or calibrations)',
@@ -1343,16 +1289,12 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stageEventOutButton: 'Leave out event #{n}',
         stageEventInButton: 'Put back event #{n}',
         stageEventsUsed: 'Used {used}/{total}',
+        stageEventsNoAnswer: 'No events answer',
         stageMaxDelta: 'largest Δ {at} {delta}',
-        compareLevelsAt: '{at} base {base} / compare {compare}',
         compareHintPlot: 'Drag: zoom into the box / Ctrl+Wheel: zoom / Shift+Wheel, swipe sideways: scroll / + −: zoom / Double-click: reset zoom',
         compareHintAxis: 'Double-click: set the range of this axis',
         compareDiffShow: 'Show Δ',
         compareDiffHide: 'Hide Δ',
-        hintDiffToggle: 'Show the difference (compare − base) under the overlay, or hide it again',
-        stepHeldWithout: 'without {step}',
-        stepHeldRow: '{what} · {file}',
-        stepHeldNoRow: 'Pick a row (click it) to see what the step does to it.',
         outside192: '192 points',
         outsideMedian: 'group median',
         outsideDelta: 'Δ',
@@ -1362,7 +1304,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepClose: 'Hide details',
         stepOctave: '1/3 oct',
         stepFrameHint: 'wandas {op}',
-        slotEmpty: 'empty',
         axisFrequency: 'Frequency [Hz]',
         axisLevelUncal: 'Level, uncalibrated [{label}]',
         axisLevelCal: 'Level [{label}]',
@@ -1372,36 +1313,22 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         legendHeadline: '1/3 oct headline',
         legendLeak: 'leak',
         legendLine: 'per point',
-        compareNoSignificant: 'no clear difference',
         stepNeedAbove: 'Must be above {min}',
         stepNeedInteger: 'Must be a whole number',
         stepNeedValue: 'Enter a value (the field is empty)',
         hintSpectrogram: 'Average spectrum (n_fft, window): the curves of the comparison; hold to show the spectrograms instead',
-        compareRefuseFix: 'D: no Δ to fix ({why}). Put a file in slot 0 on the table, or wait for the scan.',
-        fixBasePending: 'the base group\'s values over the region are still being measured',
         compareRefuseSlot: 'Slot {n} is empty: fill it on the table (1–3 on a row).',
-        entryLeqUncalibrated: 'uncalibrated',
-        hintLeqUncalibrated: 'Uncalibrated: 0 dB is the file\'s full scale, so levels read below 0. Calibrate to read sound pressure.',
-        hintLeqUncalibratedRaw: 'Uncalibrated: 0 dB is 1 raw input unit, not a physical level. Calibrate to read sound pressure.',
         hintSpectrogramGroup: 'Hold to show spectrograms; with a group as the base there is no single file to show, so put a file in slot 0',
         screenHelpTitle: 'Help',
         helpOpen: '? Help',
         hintHelpOpen: 'How to use, keys and symbols (? / F1)',
         helpFlow: 'Open files or a folder; listen and look on the tracks\nCompare: pick the base and the recordings to compare (legend chips, keys 0–3)\nClick a step to see its result; ＋ adds a wandas step; then Export',
-        screenHelpSymbols: '☐ / ☑ (first column)\ta row\'s file off / on a track (T, or Enter / Space on it); the head\'s ⊟: some of them\n● ■ ◆ (on a step)\ta step\'s output: a time signal / an image / a spectrum\ndistribution\tthe chosen value per group: bars, a dot per recording when a group has few, a tick per recording below them\ndrag on it\ta range of the value: a chip that narrows the table (× or Esc takes it off)\n┃ (coloured)\ta row with a role, in the role\'s colour\n┆ (blue, dashed)\tthe base: the median of a group\n0–3\tthe roles: 0 the base, 1–3 the recordings to compare (keys 0–3 on a row, or the legend chips in Compare)\n└ Δ\ta difference fixed with D, under the row it was fixed on\nfilled / outlined step\ta headline band / its leak into the neighbouring band filter\nstrip\tthe table\'s rows as 1/3-octave levels (row = recording, bright = loud)\nblue\tbase\nyellow / purple / magenta\tcompare 1 / 2 / 3 (badge and line)\ngreen\tΔ (compare − base), not good or bad\norange\ta step that cannot run, or a recording that could not be read',
-        hintOverview: 'Every file\'s 1/3-octave levels: one row per file, brighter is louder; the frame is the rows on screen',
-        hintBaseCard: '0: the base the compared file is measured against',
-        hintSlotCard: 'Tap to compare this file; hold to swap it in until released',
+        screenHelpSymbols: '☐ / ☑ (first column)\ta row\'s file off / on a track (T, or Enter / Space on it); the head\'s ⊟: some of them\n● ■ ◆ (on a step)\ta step\'s output: a time signal / an image / a spectrum\ndistribution\tthe chosen value per group: bars, a dot per recording when a group has few, a tick per recording below them\ndrag on it\ta range of the value: a chip that narrows the table (× or Esc takes it off)\n┃ (coloured)\ta row with a role, in the role\'s colour\n0–3\tthe roles: 0 the base, 1–3 the recordings to compare (keys 0–3 on a row, or the legend chips in Compare)\nblue\tbase\nyellow / purple / magenta\tcompare 1 / 2 / 3 (badge and line)\ngreen\tΔ (compare − base), not good or bad\norange\ta step that cannot run, or a recording that could not be read',
         hintRegionMark: 'The comparison uses another region than the table; click to go back to it',
-        hintCompareMark: 'No Δ to read against this base',
         hintStepChip: 'A step of the scan Recipe; ⚙ changes its settings',
         hintEntryMaximize: 'Widen the table to the whole window (⤢) or back into the side panel (⤡); a double click on this bar, or dragging the panel\'s edge past 60 % of the window, does the same. Esc shrinks it',
         hintRowPlay: 'Play this file alone (shown as a track)',
         hintRowStop: 'Stop',
-        compareSingleBase: 'n=1',
-        compareEmptyBase: 'no base{left}',
-        compareRegionDiffers: '≠ region',
-        compareUnitDiffers: '≠ level reference',
         helpRowStepKeys: 'step bar: press a step to see its Frame in the comparison, hold it to see what it does, ＋ adds a wandas operation, Delete on a step removes it',
         helpRowStepBypass: 'step bar: M on a step bypasses it (kept in place, skipped), M again brings it back',
         helpRowStepUndo: 'step bar: undo and redo its edits (↶ ↷)',
@@ -1416,8 +1343,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowResizeKeys: 'on a focused resize edge: move it (Shift: faster; Home / End: smallest / largest)',
         helpRowStepMenuEnter: 'in ＋\'s filter: add the first operation listed',
         helpEntryRows: 'move between rows',
-        helpEntrySlot: 'put the row in a slot (hold: its Δ spectrum)',
-        helpEntryBase: 'with the pointer off the plots: make the row the base; on the base row, back to the group median (hold: show Δ). Over a plot, 0 shows all of that plot',
+        helpEntrySlot: 'put the row in a slot',
+        helpEntryBase: 'with the pointer off the plots: make the row the base; on the base row, back to the group median. Over a plot, 0 shows all of that plot',
         helpEntryOpen: 'open the slotted rows in Compare',
         helpEntryPlay: 'play the row\'s recording',
         helpEntryTrack: 'show the row\'s file as a track, or take it off (as its ☐ / ☑)',
@@ -1426,7 +1353,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpCompareSlot: 'tap: compare that slot; hold: compare it until released',
         helpCompareBase: 'switch the base between the file in slot 0 and the group median',
         helpCompareZoom: 'zoom the horizontal axis in / out / back to all of it',
-        helpCompareFix: 'fix the comparison as a row of the table',
         helpComparePlay: 'play the compared recording (▶ in the legend: any of them)',
         helpCompareEsc: 'close a setting, then go back to where Compare was opened from (the tracks or the table)',
         helpCompareLayoutKey: 'Overlay / One lane per track',
@@ -1434,13 +1360,13 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpCompareDiff: 'show the difference (compare − base) under the overlay',
         ariaWaveformCanvas: '{file} · {channel} · waveform',
         ariaSpectrogramCanvas: '{file} · {channel} · spectrogram',
+        ariaRowCanvas: '{file} · {channel} · waveform and spectrogram',
         ariaStageOverlayCanvas: 'Compare: the tracks at the step shown',
         ariaStageDiffCanvas: 'Compare: the difference (compare − base)',
         ariaStageLaneCanvas: 'Compare: {file}',
         ariaResizeTrackHeight: 'Track height',
         ariaResizeSpectrumHeight: 'Spectrum panel height',
         ariaResizeSidebar: 'Width of the file list',
-        ariaEntryOverview: '1/3-octave levels of the listed rows',
         helpRowStepDrag: 'step bar: drag a step to move it (the region stays where it is)',
         helpRowZoomKeys: 'zoom in / out / reset',
         playbackTimePrefix: '▶',
@@ -1556,6 +1482,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         announceExportCsvFailed: 'CSV export failed: no spectrum data at cursor',
         exportPngBusy: 'Exporting PNG…',
         exportPngDone: 'PNG exported: {name}',
+        exportPngPartial: 'PNG exported with rows that are not drawn (each says why in the image): {name}',
         exportCsvBusy: 'Exporting CSV…',
         exportCsvDone: 'CSV exported: {name}',
         exportCsvOmitted: '{count} spectrum(s) left out of the CSV: they could not be computed at the cursor ({names})',
@@ -1613,8 +1540,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintDoubleClickResetZoom: 'Double-click: reset zoom',
         hintRectZoomDrag: 'Drag: zoom into the box / Alt+Drag: loop region / Shift+Drag: shift track in time',
         hintSpectrumPlot: 'Drag: zoom into the box / Double-click: reset zoom / ← →: step through frequency bins',
-        hintSpectrumDbAxis: 'Double-click: set the dB range',
-        hintSpectrumFreqAxis: 'Double-click: set the frequency range',
         hintWaveformAmplitudeAxis: 'Double-click: set the amplitude range',
         hintSpectrogramFrequencyAxis: 'Double-click: set the frequency range',
         hintSpectrogramColorbar: 'Double-click: set the colour scale (dB)',
@@ -1749,7 +1674,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         roleChoose: '役割',
         stageChooseRoles: '比べる録音を選ぶ：凡例のチップで',
         stageLayoutOverlay: '重ねる',
-        compareFixedHint: '差を表の └ Δ 行として残しました（Esc で一覧）',
         hintContentStage: '比較解析：wandas の手順を組んで、どの段でもトラックどうしを重ねて比べる',
         btnSpectrogramSettingsTitle: 'スペクトログラム設定',
         btnSpectrumSettingsTitle: '周波数解析の設定（スペクトログラムと共通）',
@@ -1793,6 +1717,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         settingsApplyHint: 'ここは「適用」で再計算します。下の表示は入力するとすぐ変わります',
         reanalyzingStft: 'STFT を再計算中…',
         sourceChangedLane: 'ファイルが解析の後に変わりました',
+        rowTooLarge: '長すぎて描けません',
+        rowTooShort: 'FFT サイズより短い録音です。小さいサイズを選んでください（⚙）',
+        rowDrawFailed: '—（描けませんでした）',
         reanalyzeChanged: '解析し直す',
         reanalyzeChangedHint: 'ファイルが解析の後に書き換えられました。トラックを解析し直します',
         reanalyzingChanged: '解析し直しています…',
@@ -1814,21 +1741,14 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         entryColFile: 'ファイル',
         entryColCondition: '条件 {n}',
         entryColLeq: 'Leq A特性',
-        entryColBandLevel: '{band} レベル',
-        entryColPeak: 'Δ最大帯域',
         entryOpen: '比較解析を開く',
         entryBaseGroup: '基準群',
         entryBase: '基準',
-        entryCount: '{count} 件',
         trackNoAudio: '再生できません: このトラックには復号済みの音声がありません',
-        entryCsvGroupSize: '基準群 n',
         entryCsvGroupLeft: '基準群から除外',
         entrySourceGone: 'ファイルが一覧から外れました',
         entryFolderLevel: 'フォルダ階層{n}',
-        compareKeyHold: '1–3 長押しで入れ替え',
-        compareKeyBack: 'Esc 一覧へ',
         comparePlay: '再生',
-        compareDelta: 'Δ = 比較 − 基準',
         stepNeedBelow: '{max} 未満にしてください',
         stepNeedPow2: '64〜{max} の 2 の冪にしてください',
         compareReport: '書き出し（比較フォルダ）',
@@ -1837,36 +1757,14 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stageBaseAggregate: '集約：点ごとの中央値',
         stageBaseEach: '集約なし：各ファイルの波形をそのまま描画',
         stageBaseList: '一覧で見る',
-        reportBase: '基準',
-        reportCompare: '比較',
-        reportDiff: '差',
         reportCsv: '報告',
-        reportBaseLeq: '基準 Leq A特性',
-        reportLevelReference: 'レベル基準',
-        reportBaseLevelReference: '基準 レベル基準',
-        reportBandDelta: 'Δ {band} dB',
-        reportRegion: '区間 s',
-        reportSummary: '要約',
-        reportStepsLegend: '帯域：塗り＝見出し、枠＝隣への漏れ',
         reportRegionStart: '開始 s',
         reportRegionEnd: '終了 s',
-        reportWhole: '全区間',
         reportDefinitions: '定義',
-        defLeq: '区間の A 特性 RMS を 20·log10(rms / ref) で dB にした値。ref はチャンネルの校正値（1 = フルスケール。校正していないファイルは 0 dB より小さくなる）。',
-        defSpectrum: 'Welch パワースペクトル（wandas welch、n_fft {n_fft}、{window} 窓）。dB はチャンネルの ref 基準。表では、ビンを 20 Hz〜ナイキストの対数間隔の 192 点にパワー平均でまとめる（1 ビンより狭い点は補間）ので、細いピークは n_fft を長くすると低く出る。図・基準の中央値・Δ は全ビンで取り、描く線だけを間引く（対数間隔の区間ごとに最小と最大のビン）。',
-        defHeadline: '見出しは、|Δ| が両隣の帯域より大きく、偶然の範囲（基準の条件の他のファイルの 3 MAD（中央絶対偏差）、最小 1.5 dB）を超え、基準と比較の大きい方が最大の帯域から {within} dB 以内の帯域を、|Δ| の大きい順に 3 つまで、両方のレベルで出す。無ければ「有意な差なし」と出す。その山の隣で同じ符号の帯域は、帯域フィルタへの漏れなので枠だけで描き、見出しには出さない。',
-        defHeadlineEdges: '手順のスペクトログラム・ケプストログラムでは、STFT のフレームの中心が信号の先頭・末尾から n_fft / 2 未満の列は、窓が信号からはみ出して外側の詰め物を読むので、描くが見出しには選ばない。',
-        defRegion: 'どの指標も、手順のフィルタが響くファイルの最初と最後の 0.15 s を除いて測る。手順の time slice は実際に測った区間。',
-        defThirdOct: 'wandas noct_spectrum（n = 3）。25 Hz から 0.88 × ナイキストまでの帯域の dB。中心が手順のフィルタの通過帯域の外にある帯域は空欄。',
-        defChannels: 'チャンネルはパワー平均でまとめる（10^(L/10) の平均を 10·log10）。',
-        defBase: 'スロット 0 のファイル。無ければ、比較するファイルと同じ条件の他のファイルの、ビンごと・帯域ごとの中央値。',
-        defDelta: '比較 − 基準（dB、ビンごと・帯域ごと）。Δ最大帯域は |Δ| が最大の 1/3 oct 帯域。',
+        reportFigure: '図',
         reportGroupFiles: '基準群ファイル',
-        reportSpecVersion: '解析仕様版',
         reportSaved: '報告を保存しました: ',
-        reportMeasuring: '報告のために {count} ファイルを計算しています…',
-        reportCannotMeasure: '報告できません: {files} を計算できませんでした（{why}）',
-        reportChanged: '報告していません: 測定中に録音か手順が変わりました。もう一度「報告に」を押してください',
+        reportReady: '報告を作りました: ',
         stepRegion: '区間',
         stepAll: '全体',
         stepMetrics: '指標',
@@ -1875,10 +1773,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepApply: '適用',
         stepRecipeWarning: '保存していたレシピを読めないため、標準のレシピを使います。',
         compareNotEntry: '≠ 一覧',
-        comparePending: '計算中…',
-        heldBinsFailed: '計算できませんでした: {files}（{why}）。少し後でもう一度計算します',
-        compareBaseEntryRegion: '基準 = 一覧の区間',
-        compareSelfBase: '≠ 同じファイル',
         stepRecipeName: '標準',
         stepPresetButton: 'レシピ: {name}',
         stepPresetEdited: '{name}（変更あり）',
@@ -1996,8 +1890,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsReasonUnreadable: '読めない',
         dsCsvRow: 'CSV {n} 行目',
         dsReason: '理由',
-        dsCompute: '計算 {n} 本 · 約 {time}',
-        hintCompute: '選んでいる値を、表に出ている録音で計算する（絞り込みのとおり）',
         dsComputing: '計算中 {done} / {n}',
         dsUncomputed: '未計算 {n} ch',
         dsRowSlot: 'スロットに入れる：0 基準・1–3 比較（キー 0–3）',
@@ -2053,11 +1945,25 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsDistGroups: '{n} 群',
         dsDistApart: '{n} 件は別の基準のため描かない',
         dsDistAll: '全体',
-        dsDerivedRemove: 'この固定した差を消す',
+        dsValueNone: '数の列なし',
+        dsDistNoCsv: 'CSV を選ぶと、数の列の分布を描きます。',
+        dsDistNoNumber: 'この CSV には数の列がありません。',
+        entryColDuration: '長さ [s]',
+        entryColRate: 'fs [Hz]',
+        entryColRateTitle: '標本化周波数',
+        entryColCalibration: '校正',
+        entryCsvSlot: 'スロット',
+        entryCsvMemo: 'メモ',
+        entryCsvExcluded: '除外',
+        entryCalibrated: '校正済み',
+        entryUncalibrated: '未校正',
         dsBaseNarrowed: '（{filters} に絞った中で）',
         dsBaseFewer: ' · ch {ch} のない {n} 本は除外',
         dsBaseOtherUnits: ' · 基準の違う {n} 本は除外',
         dsBaseFailed: ' · 失敗した {n} 本は除外',
+        dsBaseTooLarge: ' · 大きすぎる {n} 本は除外',
+        stageFigureTooLarge: '— 大きすぎて描けない録音：{n} 本',
+        stageLeftOtherReference: '（単位か基準が違うので描いていません）',
         dsBaseMissing: ' · 未計算 {n} 本',
         dsBasePending: ' · 計算中 {n} 本',
         dsBaseStale: ' · 前の手順の {n} 本は除外',
@@ -2068,7 +1974,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportMemo: 'メモ',
         reportShownValue: '表示中の値: {value}',
         reportBaseDefinition: '基準の定義',
-        reportDerived: '固定した差（D）',
         dsExportNotes: 'メモと除外を CSV に書き出す',
         dsExportTable: '表を CSV に書き出す',
         toolbarMore: 'ほかのズーム：矩形ズーム、選択範囲にズーム、追従',
@@ -2120,9 +2025,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         entryScanCancel: '中止',
         entryMinutes: '{n} 分',
         entrySeconds: '{n} 秒',
-        reportChain: '手順',
-        reportChainCurrent: '現在の手順（同じフォルダの Recipe）',
-        reportChainPrevious: '前の手順',
         stepNotDrawable: 'この手順の結果は表示できません（{frame}）',
         stepOpenCompare: '行の 1–3 を押すと、この手順の結果を比べられます',
         axisGain: '利得 [dB]',
@@ -2150,6 +2052,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stageNoDelta: '— 差は同じ種類・同じ軸の結果どうしでだけ出せます',
         plotNoValue: '— ここに値はありません',
         stageTooLarge: '— データが多すぎて、元の分解能で中央値と差を出せません',
+        stageBusy: '— ほかの図の計算で混んでいます。表示を変えるとやり直します',
+        stageExportChanged: '書き出していません。図を描いた後でデータが変わりました。描き直したので、もう一度書き出してください。',
+        stageExportNone: 'まだ書き出せません。スペクトルの重ね図が描かれていません。',
         stageCombineFailed: '— 中央値と差を計算できませんでした（バックエンドのエラー）',
         stageNoDeltaRate: '— サンプリング周波数が違う録音どうしは、サンプルごとの差を出せません',
         stageNoDeltaUnit: '— 単位や校正が違う録音どうしは、差を出せません',
@@ -2165,16 +2070,12 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stageEventOutButton: 'イベント #{n} を外す',
         stageEventInButton: 'イベント #{n} を戻す',
         stageEventsUsed: '使用 {used}/{total}',
+        stageEventsNoAnswer: 'イベントの答えなし',
         stageMaxDelta: '最大 Δ {at} {delta}',
-        compareLevelsAt: '{at} 基準 {base} / 比較 {compare}',
         compareHintPlot: 'ドラッグ: 囲んだ範囲にズーム / Ctrl+ホイール: ズーム / Shift+ホイール・横スワイプ: 横にスクロール / + −: ズーム / ダブルクリック: ズームをリセット',
         compareHintAxis: 'ダブルクリック: この軸の範囲を設定',
         compareDiffShow: '差も表示',
         compareDiffHide: '差を隠す',
-        hintDiffToggle: '重ね描きの下に差（比較 − 基準）を出す。もう一度押すと隠す',
-        stepHeldWithout: '{step} なし',
-        stepHeldRow: '{what} · {file}',
-        stepHeldNoRow: '行を選ぶと（クリック）、その行で手順の効果を見せます。',
         outside192: '192 点',
         outsideMedian: '群の中央値',
         outsideDelta: 'Δ',
@@ -2184,7 +2085,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepClose: '詳しくを閉じる',
         stepOctave: '1/3 oct',
         stepFrameHint: 'wandas {op}',
-        slotEmpty: '空き',
         axisFrequency: '周波数 [Hz]',
         axisLevelUncal: 'レベル 未校正 [{label}]',
         axisLevelCal: 'レベル [{label}]',
@@ -2194,36 +2094,22 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         legendHeadline: '1/3 oct 見出し',
         legendLeak: '漏れ',
         legendLine: '点ごとの差',
-        compareNoSignificant: '有意な差なし',
         stepNeedAbove: '{min} より大きくしてください',
         stepNeedInteger: '整数にしてください',
         stepNeedValue: '値を入れてください（欄が空）',
         hintSpectrogram: '平均スペクトルの設定（FFT 長・窓）。長押しでスペクトログラム',
-        compareRefuseFix: 'D：残せる差がありません（{why}）。一覧でスロット 0 にファイルを入れるか、一括計算が終わるのを待ってください',
-        fixBasePending: '基準群の区間の値がまだ計算中です',
         compareRefuseSlot: 'スロット {n} は空です。一覧の行で 1–3 を押して入れてください',
-        entryLeqUncalibrated: '未校正',
-        hintLeqUncalibrated: '未校正：0 dB はファイルのフルスケールなので、値は 0 より小さくなる。音圧として読むには校正が要る。',
-        hintLeqUncalibratedRaw: '未校正：0 dB は生の入力値 1 であり、物理量のレベルではない。音圧として読むには校正が要る。',
         hintSpectrogramGroup: '長押しでスペクトログラム。基準が群のときは 1 本のファイルが無いので、スロット 0 にファイルを入れる',
         screenHelpTitle: 'ヘルプ',
         helpOpen: '? ヘルプ',
         hintHelpOpen: '使い方・キー・記号（? / F1）',
         helpFlow: 'ファイルかフォルダを開き、トラックで聴いて見る\n比較解析：基準と比べる録音を選ぶ（凡例のチップ、キー 0–3）\n手順を押すとその段の結果。＋ で wandas の処理を足し、書き出す',
-        screenHelpSymbols: '☐ / ☑（先頭の列）\t行のファイルがトラックにない / ある（T、またはそこで Enter / Space）。見出しの ⊟ は一部だけ\n● ■ ◆（手順の上）\t手順の出力の種類：時間波形 / 画像 / スペクトル\n分布\t選んだ値の群ごとの分布。棒、録音が少ない群は 1 本ずつの点、下に 1 本ずつの目盛\n分布のドラッグ\t値の範囲。表を絞るチップになる（× か Esc で外す）\n┃（色付き）\t役割のある行。役割の色\n┆（青の破線）\t基準。群の中央値\n0–3\t役割。0 が基準、1–3 が比べる録音（行でキー 0–3、または比較解析の凡例のチップ）\n└ Δ\tD で固定した差。固定した行の下に出る\n塗りの帯 / 枠の帯\t見出しの帯域 / その隣の帯域フィルタへの漏れ\n俯瞰帯\t表の行の 1/3 oct（行＝録音、明るい＝大きい）\n青\t基準\n黄 / 紫 / 赤紫\t比較 1 / 2 / 3（番号・線）\n緑\tΔ（比較 − 基準）。良し悪しではない\n橙\t実行できない手順、読めなかった録音',
-        hintOverview: '全ファイルの 1/3 oct。1 行が 1 ファイル、明るいほど大きい。枠は表に見えている行',
-        hintBaseCard: '0: 比較するファイルの基準',
-        hintSlotCard: 'クリックで比較、長押しの間だけ入れ替え',
+        screenHelpSymbols: '☐ / ☑（先頭の列）\t行のファイルがトラックにない / ある（T、またはそこで Enter / Space）。見出しの ⊟ は一部だけ\n● ■ ◆（手順の上）\t手順の出力の種類：時間波形 / 画像 / スペクトル\n分布\t選んだ値の群ごとの分布。棒、録音が少ない群は 1 本ずつの点、下に 1 本ずつの目盛\n分布のドラッグ\t値の範囲。表を絞るチップになる（× か Esc で外す）\n┃（色付き）\t役割のある行。役割の色\n0–3\t役割。0 が基準、1–3 が比べる録音（行でキー 0–3、または比較解析の凡例のチップ）\n青\t基準\n黄 / 紫 / 赤紫\t比較 1 / 2 / 3（番号・線）\n緑\tΔ（比較 − 基準）。良し悪しではない\n橙\t実行できない手順、読めなかった録音',
         hintRegionMark: '比較の区間が一覧と違う。押すと一覧の区間に戻す',
-        hintCompareMark: 'この基準とは差を出せない（形が違う）',
         hintStepChip: '一覧の計算に使う手順。⚙ で設定',
         hintEntryMaximize: '表をウィンドウ全体に広げる（⤢）／左パネルに戻す（⤡）。このバーのダブルクリック、パネルの端をウィンドウの 6 割より先までドラッグしても同じ。Esc で縮める',
         hintRowPlay: 'このファイルだけを再生（トラックにも表示）',
         hintRowStop: '止める',
-        compareSingleBase: 'n=1',
-        compareEmptyBase: '基準なし{left}',
-        compareRegionDiffers: '≠ 区間',
-        compareUnitDiffers: '≠ レベル基準',
         helpRowStepKeys: '手順バー: 手順を押すとその結果、長押しでその手順あり／なし、＋ で wandas の操作を足す、手順で Delete で外す',
         helpRowStepBypass: '手順バー: 手順で M を押すとバイパス（残したまま飛ばす）、もう一度で戻す',
         helpRowStepUndo: '手順バー: 編集を元に戻す／やり直す（↶ ↷）',
@@ -2238,8 +2124,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowResizeKeys: 'フォーカスした境界で: 動かす（Shift: 大きく、Home / End: 最小 / 最大）',
         helpRowStepMenuEnter: '＋ の絞り込みで: 先頭の操作を足す',
         helpEntryRows: '行を移動',
-        helpEntrySlot: '行をスロットに入れる（長押しの間は Δ スペクトル）',
-        helpEntryBase: 'マウスがグラフの上にないとき: 行を基準にする。基準の行でもう一度押すと群の中央値へ（長押しの間は Δ を表示）。グラフの上では 0 はそのグラフを全体に戻す',
+        helpEntrySlot: '行をスロットに入れる',
+        helpEntryBase: 'マウスがグラフの上にないとき: 行を基準にする。基準の行でもう一度押すと群の中央値へ。グラフの上では 0 はそのグラフを全体に戻す',
         helpEntryOpen: 'スロットの行を比較解析で開く',
         helpEntryPlay: '行の録音を再生',
         helpEntryTrack: '行のファイルをトラックに表示・解除（行の ☐ / ☑ と同じ）',
@@ -2248,7 +2134,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpCompareSlot: '押して比較を切り替え、長押しの間だけ入れ替え',
         helpCompareBase: '基準をスロット 0 のファイル ⇄ 群の中央値で切り替え',
         helpCompareZoom: '横軸をズームイン / アウト / 全体に戻す',
-        helpCompareFix: '比較を一覧の行として固定',
         helpComparePlay: '比べている録音を再生（凡例の ▶ でどれでも）',
         helpCompareEsc: '設定を閉じる → 比較解析を開いた画面（トラックか一覧）へ',
         helpCompareLayoutKey: '重ねる / トラックごとに並べる',
@@ -2256,13 +2141,13 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpCompareDiff: '重ね描きの下に差（比較 − 基準）を出す',
         ariaWaveformCanvas: '{file} · {channel} · 波形',
         ariaSpectrogramCanvas: '{file} · {channel} · スペクトログラム',
+        ariaRowCanvas: '{file} · {channel} · 波形とスペクトログラム',
         ariaStageOverlayCanvas: '比較解析: 表示中の手順でのトラック',
         ariaStageDiffCanvas: '比較解析: 差（比較 − 基準）',
         ariaStageLaneCanvas: '比較解析: {file}',
         ariaResizeTrackHeight: 'トラックの高さ',
         ariaResizeSpectrumHeight: 'スペクトル欄の高さ',
         ariaResizeSidebar: 'ファイル一覧の幅',
-        ariaEntryOverview: '表の行の 1/3 オクターブレベル',
         helpRowStepDrag: '手順バー: 手順をドラッグして並べ替え（区間は動かせない）',
         helpRowZoomKeys: 'ズームイン / アウト / リセット',
         playbackTimePrefix: '▶',
@@ -2378,6 +2263,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         announceExportCsvFailed: 'CSV 出力失敗：カーソル位置にスペクトルデータがありません',
         exportPngBusy: 'PNG を書き出し中…',
         exportPngDone: 'PNG を書き出しました: {name}',
+        exportPngPartial: '描けていない行を含む PNG を書き出しました（理由は画像の中に書いてあります）: {name}',
         exportCsvBusy: 'CSV を書き出し中…',
         exportCsvDone: 'CSV を書き出しました: {name}',
         exportCsvOmitted: 'カーソル位置のスペクトルを計算できなかった {count} 件を CSV から除きました ({names})',
@@ -2435,8 +2321,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintDoubleClickResetZoom: 'ダブルクリック: ズームをリセット',
         hintRectZoomDrag: 'ドラッグ: 囲んだ範囲にズーム / Alt+ドラッグ: ループ区間 / Shift+ドラッグ: トラックの時間をずらす',
         hintSpectrumPlot: 'ドラッグ: 囲んだ範囲にズーム / ダブルクリック: ズームをリセット / ← →: 周波数ビンを移動',
-        hintSpectrumDbAxis: 'ダブルクリック: dB 範囲を設定',
-        hintSpectrumFreqAxis: 'ダブルクリック: 周波数範囲を設定',
         hintWaveformAmplitudeAxis: 'ダブルクリック: 振幅範囲を設定',
         hintSpectrogramFrequencyAxis: 'ダブルクリック: 周波数範囲を設定',
         hintSpectrogramColorbar: 'ダブルクリック: カラースケール (dB) を設定',

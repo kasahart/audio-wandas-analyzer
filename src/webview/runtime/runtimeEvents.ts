@@ -1,4 +1,3 @@
-import type { RectZoomSelection } from './types';
 
 export interface SpectrumZoomSnapshot {
     specFreqStart: number;
@@ -14,7 +13,6 @@ export interface WaveformZoomSnapshot {
     zoomEnd: number;
     amplitudeZoomMinNorm: number;
     amplitudeZoomMaxNorm: number;
-    rectZoomSelection: RectZoomSelection | null;
 }
 
 export interface SpectrumSliceTiming {

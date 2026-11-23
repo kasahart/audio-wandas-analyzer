@@ -5,8 +5,10 @@ import { join } from 'node:path';
 import { renderComparisonDocument } from '../../webview/panels/comparisonDocument';
 import { DEFAULT_SPECTROGRAM_SETTINGS } from '../../shared/analysis/analysisTypes';
 import { buildUiSmokeHtml } from './buildHtml';
+import { drawnRow, hoverLane, laneOf, pointOnLane, rowFigure, ROW_SPECTROGRAM, ROW_WAVE, seenFigure } from './tracksFigures';
 import { getStrings } from '../../shared/i18n/strings';
-import { LIGHT_ROLE_COLORS } from '../../shared/gui/roleColors';
+import { LIGHT_OWN_COLORS, LIGHT_ROLE_COLORS } from '../../shared/gui/roleColors';
+
 
 // The Worker posts `{requestId, result}`; the fixture lines carry `requestId` beside the result fields.
 function workerFixture(entry: { command: string; response: Record<string, unknown> }) {
@@ -67,18 +69,16 @@ function staticWorkerInit(detail: 'spectrogram' | 'none' = 'spectrogram'): strin
         window.Worker = class {
             terminate() {}
             postMessage(command) {
-                if (command.cmd === 'track-detail') window.__detailAsks = (window.__detailAsks ?? 0) + 1;
+                if (command.cmd === 'track-answers') window.__rowAsks = (window.__rowAsks ?? 0) + 1;
                 const result = command.cmd === 'load' ? { filePath: '/sources/' + command.sourceId }
                     : command.cmd === 'limits' ? { maxInputBytes: 16777216, maxSources: 8, maxTotalInputBytes: 67108864, maxExportBytes: 33554432 }
                     : ['unload', 'clear', 'export-plan'].includes(command.cmd) ? {}
-                    : command.cmd === 'scan' ? { ok: true, conditionId: 'c', input: { id: 'i', fs: 16000, channels: [0], durationS: 2, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true },
-                        leqDbA: [-20], peakHz: [1000], spectrumDb: [[-20]], thirdOctDb: [[-23]], crest: [1.4], specVersion: 1, wandasVersion: '0.9.0', elapsedMs: 1 }
+                    // A row's answers (the keys its Figure is drawn from): with detail 'none', a valid answer with no channel.
+                    : command.cmd === 'track-answers' && ${detail === 'none'} ? { filePath: command.filePath, channels: [], sampleRateHz: 16000, durationSeconds: 2, windowSize: 1024, hopSize: 256, windowed: false, calibrationSignature: '', analysisRevision: 1, sourceVersion: command.sourceVersion ?? '', stftSignature: '' }
+                    : command.cmd === 'scan' ? { ok: true, input: { id: 'i', fs: 16000, channels: [0], durationS: 2, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true },
+                        stage: { frame: 'NOctFrame', kind: 'bar', xs: [25], values: [-40] }, specVersion: 1, wandasVersion: '0.9.0', elapsedMs: 1 }
                     : { ...fixtures.find(entry => entry.command === command.cmd)?.response, filePath: command.filePath,
-                        ...(command.cmd === 'analyze' ? { channelCount: 1, channels: [{ label: 'Channel 1', peakAbsolute: 1, fullScale: true, sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS',
-                            waveform: { min: [-1], max: [1], samples: [0], absolutePeak: 1 }, spectrogram: null }] } : {}),
-                        // A track's detail is its channels' spectrograms, as the real worker sends them; with detail 'none' it is a
-                        // valid answer with no channels, which the page keeps as the answer under its key and asks no more.
-                        ...(command.cmd === 'track-detail' && ${detail === 'spectrogram'} ? { channels: fixtures.find(entry => entry.command === 'analyze' && entry.response.channels.some(channel => channel.spectrogram)).response.channels } : {}) };
+                        ...(command.cmd === 'analyze' ? { channelCount: 1, ...(${detail === 'none'} ? { durationSeconds: 2, sampleCount: 32000 } : {}), channels: [{ label: 'Channel 1', peakAbsolute: 1, fullScale: true, sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS' }] } : {}) };
                 queueMicrotask(() => this.onmessage({ data: { requestId: command.requestId, result } }));
             }
         };`;
@@ -88,7 +88,7 @@ function staticWorkerInit(detail: 'spectrogram' | 'none' = 'spectrogram'): strin
 async function openStaticPage(page: Page, extraInit = '', detail: 'spectrogram' | 'none' = 'spectrogram'): Promise<void> {
     const init = staticWorkerInit(detail) + extraInit;
     const html = renderComparisonDocument({ mode: 'results', results: [], spectrogramSettings: DEFAULT_SPECTROGRAM_SETTINGS }, {
-        waveformScriptUri: './comparisonWaveform.js', runtimeScriptUri: './comparisonRuntime.js', hostScriptUri: './staticHost.js', cspSource: "'self'", language: 'en', appVersion: '0.0.0',
+        runtimeScriptUri: './comparisonRuntime.js', hostScriptUri: './staticHost.js', cspSource: "'self'", language: 'en', appVersion: '0.0.0',
     });
     await page.route('http://awa.test/**', async route => {
         const name = new URL(route.request().url()).pathname.slice(1);
@@ -137,19 +137,16 @@ test('static page: with a track shown the page comes to rest, so settled() can b
         + 'make the stand-in answer every command as the real worker would (a lane waits on its track\'s detail until it is answered, with or without a spectrogram), or settled() waits its whole 10 s wherever a track is shown').toBe(true);
 });
 
-test('static page: a detail answered with no spectrogram is asked once, and the lane says there is none', async ({ page }) => {
-    // What the lanes write, by canvas.
-    await openStaticPage(page, `window.__drawnText = []; { const fill = CanvasRenderingContext2D.prototype.fillText;
-        CanvasRenderingContext2D.prototype.fillText = function (text, x, y) { window.__drawnText.push({ id: this.canvas.id, text: String(text) }); return fill.apply(this, arguments); }; }`, 'none');
+test('static page: a row\'s answers that came with nothing to draw are asked once, and the row says so', async ({ page }) => {
+    await openStaticPage(page, '', 'none');
     await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: tinyWav() });
     await expect(page.locator('.track-row')).toHaveCount(1);
-    const fix = 'A valid answer without a spectrogram is the answer under its key (docs/display-rules.md R3): record it as the answer store\'s empty state (detail.empty(trackDetailKey(...)) in comparisonRuntime.ts) and ask only when detail.ask(key) says so';
-    expect(await settled(page), `the page kept working with one track shown: its lane asks for its detail again on every frame. ${fix}`).toBe(true);
+    const fix = 'A valid answer with nothing to draw is the answer under what it was asked for (screens/trackRows.ts keeps it as the recording\'s `whole`): the rows ask again only when the analysis, the settings or the file\'s version change';
+    expect(await settled(page), `the page kept working with one track shown: its row asks for its answers again on every frame. ${fix}`).toBe(true);
     await settled(page);
-    expect(await page.evaluate(() => (window as typeof window & { __detailAsks?: number }).__detailAsks), `the track's detail was asked more than once. ${fix}`).toBe(1);
-    // Its last word is that there is none, not "Loading".
-    const written = await page.evaluate(() => (window as typeof window & { __drawnText: Array<{ id: string; text: string }> }).__drawnText.filter(entry => entry.id.startsWith('track-spec-canvas-0')).map(entry => entry.text));
-    expect(written.at(-1), `the spectrogram lane of a track whose detail came without a spectrogram must say so. ${fix}`).toBe(getStrings('en').spectrogramNone);
+    expect(await page.evaluate(() => (window as typeof window & { __rowAsks?: number }).__rowAsks), `the row's answers were asked more than once. ${fix}`).toBe(1);
+    // Its last word is that there is nothing it can draw, not "Loading".
+    await expect(page.locator('.track-row-says').first(), `a row whose answers came with nothing to draw must say so. ${fix}`).toHaveText(getStrings('en').rowTooLarge);
 });
 
 test('static page: the empty view offers the samples, which load as three tracks, and then is no longer offered', async ({ page }) => {
@@ -537,8 +534,8 @@ async function getPostedActionTypes(page: Page): Promise<string[]> {
             .filter((type) => type !== 'comparison-panel-test-snapshot'
                 && type !== 'comparison-panel-ready'
                 && type !== 'request-spectrum-slice'
-                // The lanes fetch the waveform they draw at their width: data, not an action.
-                && type !== 'request-waveform-range');
+                // The cursor spectrum's Figure asks the figure service for its picture: data, not an action.
+                && type !== 'figure-request');
     });
 }
 
@@ -589,48 +586,44 @@ test('spectrogram settings apply posts a reanalyze request', async ({ page }) =>
     expect(stft).toMatchObject({ nFft: 1024, overlapPercent: 50 });
 });
 
-test('a lane shows the waveform over its spectrogram on one time axis, split by a drag', async ({ page }) => {
+test('a row shows the waveform over its spectrogram on one time axis, split by a drag', async ({ page }) => {
     await loadUi(page);
-    const wave = page.locator('#track-canvas-0');
-    const spec = page.locator('#track-spec-canvas-0');
-    await expect(wave).toBeVisible();
-    await expect(spec).toBeVisible();
-    const box = async () => ({ wave: (await wave.boundingBox())!, spec: (await spec.boundingBox())! });
-    const before = await box();
-    // Both plots span the same time: the spectrogram's colour bar is in its corner, not beside it (R13).
-    expect(before.wave.x).toBeCloseTo(before.spec.x, 0);
-    expect(before.spec.y).toBeGreaterThan(before.wave.y + before.wave.height - 1);
-    expect(before.spec.width).toBeCloseTo(before.wave.width, 0);
+    const row = rowFigure(0);
+    const lanes = async () => { const seen = await drawnRow(page); return { wave: laneOf(seen, ROW_WAVE).frame, spec: laneOf(seen, ROW_SPECTROGRAM).frame }; };
+    const before = await lanes();
+    // Both plots span the same time: the spectrogram's colour bar takes room beside both, not beside it alone (R13).
+    expect(before.wave.left).toBe(before.spec.left);
+    expect(before.spec.top).toBeGreaterThan(before.wave.top + before.wave.height - 1);
+    expect(before.spec.width).toBe(before.wave.width);
     // Hovering either plot moves the same cursor time. Each shows the time of the point it reads (R7): the
     // spectrogram its STFT frame's, the waveform its sample's; so the waveform is hovered where that frame is, found
     // from the time the waveform reads at the pointer's place (the lanes start at 0 s).
-    type Noted = HTMLElement & { __plotRead?: { at?: number } | null };
-    const readAt = (plot: typeof wave): Promise<number | undefined> => plot.evaluate(canvas => (canvas as Noted).__plotRead?.at);
-    const across = before.wave.width / 2;
-    await page.mouse.move(before.wave.x + across, before.wave.y + before.wave.height / 2);
+    const readAt = async (): Promise<number | undefined> => (await seenFigure(page, row)).mark?.x;
+    await hoverLane(page, row, ROW_WAVE, 0.5);
     await settled(page);
-    const sampleAt = await readAt(wave);
-    await page.mouse.move(before.spec.x + across, before.spec.y + before.spec.height / 2);
+    const sampleAt = await readAt();
+    await hoverLane(page, row, ROW_SPECTROGRAM, 0.5);
     await settled(page);
     const fromSpec = await page.locator('#cursor-display').textContent();
-    const frameAt = await readAt(spec);
+    const frameAt = await readAt();
     expect(sampleAt).toBeGreaterThan(0);
     expect(frameAt).toBeDefined();
-    await page.mouse.move(before.wave.x + across * frameAt! / sampleAt!, before.wave.y + before.wave.height / 2);
+    await hoverLane(page, row, ROW_WAVE, 0.5 * frameAt! / sampleAt!);
     await settled(page);
     expect(await page.locator('#cursor-display').textContent()).toBe(fromSpec);
-    // A click on the spectrogram gives the lane the keys: → moves the cursor.
-    await spec.click({ position: { x: before.wave.width / 4, y: before.spec.height / 2 } });
-    await expect(spec).toBeFocused();
+    // A click on the spectrogram gives the row the keys: → moves the cursor.
+    const quarter = await pointOnLane(page, row, ROW_SPECTROGRAM, 0.25);
+    await page.mouse.click(quarter.x, quarter.y);
+    await expect(page.locator(row)).toBeFocused();
     await page.mouse.move(0, 0);
     await settled(page);
     const clicked = await page.locator('#cursor-display').textContent();
     await page.keyboard.press('Shift+ArrowRight');
     await expect(page.locator('#cursor-display')).not.toHaveText(clicked ?? '');
     // A drag zooms into its box on both lanes, as on every plot: the hint says so over each (R13).
-    await page.mouse.move(before.wave.x + before.wave.width / 3, before.wave.y + before.wave.height / 2);
+    await hoverLane(page, row, ROW_WAVE, 1 / 3);
     await expect(page.locator('#hint-footer')).toContainText(getStrings('en').hintRectZoomDrag);
-    await page.mouse.move(before.spec.x + before.wave.width / 3, before.spec.y + before.spec.height / 2);
+    await hoverLane(page, row, ROW_SPECTROGRAM, 1 / 3);
     await expect(page.locator('#hint-footer')).toContainText(getStrings('en').hintRectZoomDrag);
 
     const split = page.locator('.track-split').first();
@@ -639,8 +632,8 @@ test('a lane shows the waveform over its spectrogram on one time axis, split by 
     await page.mouse.down();
     await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2 + 30, { steps: 4 });
     await page.mouse.up();
-    await expect.poll(async () => (await wave.boundingBox())!.height).toBeGreaterThan(before.wave.height + 20);
-    const after = await box();
+    await expect.poll(async () => (await lanes()).wave.height).toBeGreaterThan(before.wave.height + 20);
+    const after = await lanes();
     expect(after.wave.height + after.spec.height).toBeCloseTo(before.wave.height + before.spec.height, 0);
     // Dragged to the top, the waveform keeps room for its axis.
     const moved = (await split.boundingBox())!;
@@ -648,15 +641,15 @@ test('a lane shows the waveform over its spectrogram on one time axis, split by 
     await page.mouse.down();
     await page.mouse.move(moved.x + moved.width / 2, moved.y - 400, { steps: 4 });
     await page.mouse.up();
-    await expect.poll(async () => (await wave.boundingBox())!.height).toBeLessThan(after.wave.height);
-    expect((await wave.boundingBox())!.height).toBeGreaterThanOrEqual(39);
+    await expect.poll(async () => (await lanes()).wave.height).toBeLessThan(after.wave.height);
+    expect((await lanes()).wave.height).toBeGreaterThanOrEqual(39);
 
-    // 比較解析 gives the lane to its plot: the spectrogram and the split hide.
+    // 比較解析 gives the row to its plot: the row's Figure and the split hide.
     await page.locator('#toolbar [data-action="content-stage"]').click();
-    await expect(spec).toBeHidden();
+    await expect(page.locator('#track-row-figure-0')).toBeHidden();
     await expect(split).toBeHidden();
     await page.locator('#toolbar [data-action="content-waveform"]').click();
-    await expect(spec).toBeVisible();
+    await expect(page.locator('#track-row-figure-0')).toBeVisible();
 });
 
 test('static page opens a folder through the File System Access picker without the input upload prompt', async ({ page }) => {
@@ -678,14 +671,14 @@ test('the cursor readout is labelled and follows a loop drag to where it was rel
     await loadUi(page);
     await expect(page.locator('#cursor-display')).toHaveAttribute('aria-label', getStrings('en').toolbarCursorLabel);
     await expect(page.locator('#toolbar .tb-label', { hasText: getStrings('en').toolbarCursorLabel })).toBeVisible();
-    const wave = (await page.locator('#track-canvas-0').boundingBox())!;
-    const y = wave.y + wave.height / 2;
+    await drawnRow(page);
+    const from = await pointOnLane(page, rowFigure(0), ROW_WAVE, 0.2), to = await pointOnLane(page, rowFigure(0), ROW_WAVE, 0.6);
     const readout = page.locator('#cursor-display');
-    await page.mouse.move(wave.x + wave.width * 0.2, y);
+    await page.mouse.move(from.x, from.y);
     await settled(page);
     const atPress = await readout.textContent();
     await page.mouse.down();
-    await page.mouse.move(wave.x + wave.width * 0.6, y, { steps: 6 });
+    await page.mouse.move(to.x, to.y, { steps: 6 });
     // While dragging the readout is the pointer's time, not the time pressed.
     await expect(readout).not.toHaveText(atPress ?? '');
     await page.mouse.up();
@@ -695,19 +688,19 @@ test('the cursor readout is labelled and follows a loop drag to where it was rel
     await page.mouse.move(0, 0);
     await settled(page);
     await expect(readout).not.toHaveText(released ?? '');
-    await page.mouse.move(wave.x + wave.width * 0.6, y);
+    await page.mouse.move(to.x, to.y);
     await settled(page);
     await expect(readout).toHaveText(released ?? '');
 });
 
 test('after a box zoom the cursor readout is the time under the pointer in the zoomed view', async ({ page }) => {
     await loadUi(page);
-    const wave = (await page.locator('#track-canvas-0').boundingBox())!;
-    const y = wave.y + wave.height / 2;
+    await drawnRow(page);
+    const from = await pointOnLane(page, rowFigure(0), ROW_WAVE, 0.2, 0.8), to = await pointOnLane(page, rowFigure(0), ROW_WAVE, 0.6, 0.2);
     const readout = page.locator('#cursor-display');
-    await page.mouse.move(wave.x + wave.width * 0.2, y - 20);
+    await page.mouse.move(from.x, from.y);
     await page.mouse.down();
-    await page.mouse.move(wave.x + wave.width * 0.6, y + 20, { steps: 6 });
+    await page.mouse.move(to.x, to.y, { steps: 6 });
     await settled(page);
     const dragged = await readout.textContent();
     await page.mouse.up();
@@ -715,7 +708,7 @@ test('after a box zoom the cursor readout is the time under the pointer in the z
     await settled(page);
     const released = await readout.textContent();
     await page.mouse.move(0, 0);
-    await page.mouse.move(wave.x + wave.width * 0.6, y + 20);
+    await page.mouse.move(to.x, to.y);
     await settled(page);
     await expect(readout).toHaveText(released ?? '');
 });
@@ -734,18 +727,40 @@ test('the track\'s … menu stays open through repeated ±10 ms nudges', async (
     await expect(menu).not.toHaveAttribute('open', '');
 });
 
-test('a theme switched while open repaints the lanes: the colour bar\'s strip takes the light background', async ({ page }) => {
+test('a click on a lane\'s offset opens its field at once; a double click resets the offset to 0 and leaves no field (R13)', async ({ page }) => {
+    await loadUi(page);
+    const menu = page.locator('#track-row-0 details.track-more');
+    await menu.locator('summary').click();
+    await menu.locator('[data-action="offset-up"]').click();
+    await menu.locator('summary').click();
+    await expect(menu).not.toHaveAttribute('open', '');
+    const offset = page.locator('#track-row-0 .track-offset-val');
+    await expect(offset).toContainText('0.010');
+    const box = await offset.boundingBox();
+    if (!box) throw new Error('the offset is not on screen');
+    const x = box.x + box.width / 2, y = box.y + box.height / 2;
+    // A click: the field is there when the click has been told, with no wait of the page's own.
+    await page.mouse.click(x, y);
+    expect(await page.evaluate(() => !!document.querySelector('#track-row-0 .track-offset-input'))).toBe(true);
+    await page.locator('#track-row-0 .track-offset-input').press('Escape');
+    await expect(offset).toContainText('0.010');
+    // A double click, as the browser tells it (the second press's detail 2): the offset back to 0, no field open.
+    await page.mouse.dblclick(x, y);
+    await settled(page);
+    await expect(page.locator('#track-row-0 .track-offset-input')).toHaveCount(0);
+    await expect(offset).toBeHidden();
+});
+
+test('a theme switched while open repaints the rows: the waveform\'s line takes the light theme\'s colour', async ({ page }) => {
     await page.setContent(buildUiSmokeHtml().replace(/<body([^>]*)>/, '<body$1 data-theme-kind="dark">'), { waitUntil: 'domcontentloaded' });
-    const spec = page.locator('#track-spec-canvas-0');
-    await expect(spec).toBeVisible();
-    // A pixel of the colour bar's backing, before its name: the lane's background, over the picture.
-    const strip = () => spec.evaluate((canvas: HTMLCanvasElement) => {
-        const [x, y] = (canvas.dataset.plotColourBar ?? '0 0').split(' ').map(Number);
-        return Array.from(canvas.getContext('2d')!.getImageData(x + 1, y + 1, 1, 1).data.slice(0, 3));
-    });
-    await expect.poll(async () => (await strip())[0]).toBeLessThan(60);
+    // (A Figure's axes and texts are greys read on either theme; a recording's line is in its role's colour of the theme.)
+    const line = async (): Promise<string | undefined> => (await seenFigure(page, rowFigure(0)).catch(() => null))?.lanes[0]?.lines[0]?.colour.toLowerCase();
+    await drawnRow(page);
+    const dark = await line();
+    expect(dark).toBeTruthy();
     await page.evaluate(() => document.body.setAttribute('data-theme-kind', 'light'));
-    await expect.poll(async () => (await strip())[0]).toBeGreaterThan(200);
+    await expect.poll(line).toBe(LIGHT_OWN_COLORS[0]);
+    expect(dark).not.toBe(LIGHT_OWN_COLORS[0]);
 });
 
 test('the runtime\'s own body classes do not repaint the lanes or redraw the role chips; a theme change does', async ({ page }) => {
@@ -766,7 +781,7 @@ test('the runtime\'s own body classes do not repaint the lanes or redraw the rol
 
 test('High Contrast Light gives the entry table\'s role colours the light set the canvases use', async ({ page }) => {
     await page.setContent(buildUiSmokeHtml().replace(/<body([^>]*)>/, '<body$1 class="vscode-high-contrast vscode-high-contrast-light">'), { waitUntil: 'domcontentloaded' });
-    await expect(page.locator('#track-spec-canvas-0')).toBeVisible();
+    await expect(page.locator(rowFigure(0))).toBeVisible();
     const vars = await page.evaluate(() => {
         const style = getComputedStyle(document.body);
         return ['--entry-base', '--entry-compare', '--entry-slot-2', '--entry-slot-3'].map(name => style.getPropertyValue(name).trim());

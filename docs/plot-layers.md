@@ -1,25 +1,28 @@
 # Plot layers: who decides what on a chart
 
-Every chart in the webview is made by the same four layers. Each layer decides one kind of thing and takes the rest
-from the layer before it. If you know which layer owns a decision, you know which file to change and which test
-will stop you from deciding it somewhere else.
+Every chart on screen is a Figure of the figure path: the chart's declaration (`src/webview/charts/`) goes to the
+figure service (`python-backend/figures/`), which answers with one picture, and the Figure (`src/webview/figure/`)
+draws it and writes the point the service read. That path, its rules and its tests are described in
+[figure-design.md](figure-design.md) and `python-backend/figures/README.md`; which chart is
+declared where is in [figure-list.md](figure-list.md). There is no other way a
+chart is drawn: the old plot component, the webview's reads of full data and the backend's own step pictures are
+gone (stages 6 and 8 of the redesign).
 
-The rules the layers exist to keep are in [display-rules.md](display-rules.md). The table of every value a chart
-shows is [plot-contracts.md](plot-contracts.md); how to change it is in
+This page describes the parts around the Figure that every screen still shares. If you know which part owns a
+decision, you know which file to change and which test will stop you from deciding it somewhere else.
+
+The rules the parts exist to keep are in [display-rules.md](display-rules.md). The table of the values shown outside
+a figure (headers, the entry table, the report) is [plot-contracts.md](plot-contracts.md); how to change it is in
 [plot-contracts-guide.md](plot-contracts-guide.md).
 
-## The layers
+## The parts
 
-| Layer | File | Decides | Does not |
+| Part | File | Decides | Does not |
 | --- | --- | --- | --- |
 | 1. Answer store | `src/webview/runtime/answerStore.ts`, `answerTypes.ts` | What the host answered, under which key, and whether it is still right: pending, ready, empty, failed, missing. How long a failure stands and when it is asked again. | Decide what a figure draws of an answer. |
-| 2. Figure model | `src/webview/runtime/figureModel.ts` | What a figure draws of its answers and what it writes: the axes, their names, their ranges, the calibration word, which files a figure counts. The same for the screen, the report PNGs and the CSVs. | Keep anything between calls, or hold an answer. |
-| 3. Plot component | `src/webview/runtime/stagePanes.ts` (`paintOverlay`, `paintStage`) | How a picture is drawn on a canvas, and how the pointer and the arrow keys read it. | Make an axis name or a range: it takes only the figure model's (`FigureNames`, `FigureRange`). Read a number from what it draws. |
-| 4. Full read | `src/webview/runtime/fullRead.ts`, `wholeAnswers.ts` | Where the numbers a user reads come from: the data before it was thinned, held by the webview (`localLine`, `localCells`) or by the backend (`fetchedSource`). | Draw. |
-
-A chart's own module (for example `comparePanes.ts`, `pairSpectrum.ts`, `entryDistribution.ts`) sits on top: it asks
-the answer store for answers, asks the figure model for names and ranges, builds the layers to draw
-(`StageLayer`: a picture, a colour and its full data) and calls the plot component.
+| 2. Figure model | `src/webview/runtime/figureModel.ts` | The words the screens write outside a figure: a heading's count and why a recording was left out (as the figure service counted them), a median's calibration, a CSV column's title, a typed range's ends. | Keep anything between calls, or hold an answer. Decide which recordings a figure counts, its axes or its ranges: those are the figure service's. |
+| 3. Figure | `src/webview/figure/`, `python-backend/figures/` | What a picture holds (the service) and how it is drawn, read and zoomed (the Figure). | Hold a value: the Figure draws points and writes the one point the service read. |
+| 4. Drawn points | `python-backend/figures/thinning.py`, `FigureDrawn` in the generated protocol types | Which numbers are points thinned to be drawn: they are made in one file and drawn in one folder. | Reach a readout, a range, a count or a file. |
 
 ## Layer 1: the answer store
 
@@ -42,134 +45,150 @@ When a failed answer is asked again is the store's alone. A reader that wants to
 with `whenFailureEnds(key, ready)`: the store tells every subscriber of that key at the moment its hold
 (`FAILED_RETRY_MS`) ends, once, from one timer of its own, and the read made then asks again. A reader waiting on an
 answer on its way subscribes with `whenSettled`; an ask replaced before it was sent hands its readers on
-(`supersede`). So an answer source (a file that calls a maker of `answerStore.ts`, or `fetchedSource` /
-`fullSource('fetched', …)`) keeps no timer, no list of waiting readers and no wake of its own. The test
+(`supersede`). So an answer source (a file that calls a maker of `answerStore.ts`) keeps no timer, no list of waiting readers and no wake of its own. The test
 "no answer source schedules with a timer of its own" in `src/test/answerStoreBoundary.test.ts` finds any
 `setTimeout`, `setInterval`, `requestAnimationFrame`, `setImmediate` or `requestIdleCallback` in an answer source by
 what the call resolves to (an alias or `window.setTimeout` too), not by its name, and fails. A screen that is also an
 answer source and times its own drawing or gathering (not a failure) is listed in `SCHEDULING_OWNERS` with what its
-timers are for; that list only shrinks. A stand-in drawn while a picture is asked for (the cursor spectrum's
-spectrogram column before its slice comes) reads through `pendingSource(request)`: its reads stay pending, tied to the
-request it waits on (`createPendingRequests` in `answerStore.ts`, one per slot). Its readers are told when that request
-is answered and let go when a newer request in the slot supersedes it; there is no separate stand-in source
-(`overlaySpectrumPainter.test.ts` › "the cursor spectrum's stand-in waits on the slice request it was drawn for…"). The behaviour is held by `answerStore.test.ts` › "a failed answer's readers
-are told exactly when its hold ends…" and `fullRead.test.ts` › "a failed full read is asked again exactly when the
-store's hold ends…". If the test
+timers are for; that list only shrinks. The behaviour is held by `answerStore.test.ts` › "a failed answer's readers
+are told exactly when its hold ends…". If the test
 names your new collection and it holds no answers (a gesture's state, a canvas's drawing), list it in
 `src/test/answerBoundaryAllowlist.ts` as `notAnswer` with what it holds. Never add an `unmigrated` entry.
 
 ## Layer 2: the figure model
 
-The figure model is pure. It turns answers into what a figure shows: `FigureNames` (axis names with quantity, unit
-and reference), `FigureRange` (an axis or colour range) and `FigureSet` (which files are in a figure and which were
-left out, with why). These types are branded and made only in `figureModel.ts`, and `paintOverlay` accepts nothing
-else, so an axis name or a range built elsewhere does not compile. `src/test/figureModel.test.ts` checks the rest. It follows the axis builders, the range rules and the
-level-identity functions from every use to their declaration (so an import under another name is found), looks for
-the level strings read off any object, and keeps a short list of code shapes that have been bugs. Each place that
-may still do one of these is listed by name in its `ALLOWED`, with why; a new place fails and the message says what
-to do. The code shapes are matched as text and can be written around: they are a net for known mistakes, not a proof.
+The figure model is pure. It turns what the backend answered into the words a screen writes outside a figure:
+`FigureSet` (the count of a figure's set and who was left out with why, made by `countedSet` from the counts the
+figure service returned, `python-backend/figures/members.py`), the calibration of a median, and the title of a CSV
+column. Which recordings are counted is not decided here, and a figure's own axis names and ranges are not made here: the figure service decides the ranges
+from the answers before any thinning (`python-backend/figures/ranges.py`) and the Figure names the axes from the
+picture's quantity, unit and reference (`src/webview/figure/axisNames.ts`). `src/test/figureModel.test.ts` follows
+the axis builders, the range rules and the level-identity functions from every use to their declaration (so an import
+under another name is found) and keeps a short list of code shapes that have been bugs. Each place that may still do
+one of these is listed by name in its `ALLOWED`, with why; a new place fails and the message says what to do. The
+code shapes are matched as text and can be written around: they are a net for known mistakes, not a proof.
 
-A range is always set from the full data: a picture's `valueRange` (the backend takes it of every value before
-thinning) or, for a picture the webview makes of values it holds whole, `heldValueRange` in `fullRead.ts`. The
-points drawn never set a range.
+## Layer 3: the Figure
 
-## Layer 3: the plot component
+One component draws every chart (`src/webview/figure/figure.ts`), from one picture of the figure service. The points
+of a picture are **points thinned to be drawn**; the readout under the pointer, the point an arrow key steps to and a
+Δ headline are answers of the service (`python-backend/figures/pick.py`, `headline.py`), read from the answers before
+any thinning. The Figure holds no list of points and picks none. Its header comment lists the rules it follows.
 
-`paintOverlay` draws `StageLayer`s. Each layer has:
+### The gestures' clean-up promise
 
-- `view`: the picture (`StageView`). Its `values`, `matrix`, waveform envelope and events are **points thinned to be
-  drawn**. Their type is `Drawn`.
-- `full`: the layer's full data (a `FullSource`). It is required. A layer with no full data gets `NO_FULL_DATA`, reads
-  no number, and is marked on its canvas so that every UI smoke test fails.
+A Figure attaches and removes its own listeners. The gestures of what is not a Figure (the Tracks' time ruler, the
+rows' loop and move drags) are attached with `attachPlotInteraction` (plotInteraction.ts), which builds on
+`attachTrackPointerListeners` (trackPointerEvents.ts) and adds key contexts with a key router's `add` (keyRouter.ts).
+Each of the three returns a disposer. Calling it takes off every listener the call added (on the surface, the
+document and the window) and its key context, so none of them fires again and none holds the plot. Calling it twice
+does nothing.
 
-The readout under the pointer, the point an arrow key steps to, and the Δ headline are read through `full`, never
-from `view`.
+- The owner of a surface keeps the disposer and calls it when it tears the surface down, or before it attaches the
+  gestures again.
+- An owner that lives as long as the page passes the disposer on as its own `dispose` (a popover, the step bar,
+  the entry screen, the comparison mode). The page root holds what is left (`holdForPage` in comparisonRuntime.ts):
+  the page is not torn down while it is shown.
+- The key router's own two window listeners belong to the window. Every bundle of the page shares them.
 
-## Layer 4: full data, and the two number types
+Why: a listener on the document or the window outlives the element it was for. A plot rebuilt without the old
+disposer called answers the pointer and the keys twice, once for a plot no longer on screen.
 
-Two types in `src/shared/provenance.ts` say where a number came from:
+Tests:
+- `src/test/plotGestures.test.ts` › no caller drops the disposer of attachPlotInteraction, attachTrackPointerListeners or a key router's add: each is kept or returned (clean-up promise)
+- `src/test/plotGestures.test.ts` › the disposer check finds a call that drops its disposer, and passes one kept, returned or pushed
+- `src/test/plotInteraction.test.ts` › after its disposer runs no listener of a plot's gestures fires: every one added on the surface, the document and the window is taken off, and its key context too (clean-up promise)
+- `src/test/plotInteraction.test.ts` › a key context added to the router sees no key once its disposer runs (clean-up promise)
 
-- **`Whole`**: a value of the full data. Readouts, headlines and exports take only `Whole`. A plain `number` is not a
-  `Whole`. It is made only in `fullRead.ts` (a full read's points; arrays the caller holds every value of) and
-  `wholeAnswers.ts` (backend fields the protocol says are taken of every value).
-- **`Drawn`**: a point thinned to be drawn. It is not a `number`: it cannot be added, compared, formatted or passed
-  where a number is wanted. Only drawing modules turn it into a number, through `src/shared/drawnPoints.ts`, to
-  place it on a canvas. Outside them, an array of drawn points and the places they sit at (a picture's `xs`, `ys`)
-  are not counted, indexed, iterated or spread either: how many points were drawn and where the first and the last
-  sit belong to the thinning. An extent, a count or a value comes from the source (the picture's source axis,
-  `valueRange`, the full data). `src/test/provenanceBoundary.test.ts` (rule 5) fails on such a read.
+## Layer 4: drawn points stay where they are drawn
 
-Which arrays are `Drawn` is stated once, in `python-backend/protocol_schema.py` (`"x-drawn": True`), and generated
-into the TypeScript protocol types. So "a number a user reads never comes from thinned points" is checked by the
-compiler for every value, and `src/test/provenanceBoundary.test.ts` checks the few things the compiler cannot (who
-may mint, who may unwrap, casts and coercions).
+A point thinned to be drawn is not an answer. Two thin types keep it from being used as one, and nothing else is
+needed, because drawn points no longer leave the figure path:
 
-The backend has no such types. There, `scripts/check_decimation_flow.py` follows thinned values through the Python
-code and fails where one becomes a number that is sent.
+- **Python: `Drawn` and `DrawnImage`** (`python-backend/figures/thinning.py`). Thinning returns one of them, and only
+  `figures/picture.py` takes it and puts its points into the picture (`wire_points`). The range, the pick, the
+  headline and the counts are computed from the answers and never receive one. `scripts/check_figure_imports.py`
+  (rule B) fails on either name, or on `wire_points`, anywhere else.
+- **TypeScript: `FigureDrawn`** (generated into `src/shared/protocol/generated/backendProtocolSchema.ts` from the
+  schema's `"x-drawn": True`). It is not a `number`: it cannot be added, compared or formatted. Only
+  `src/webview/figure/` may import it (ESLint `no-restricted-imports`), and there it becomes a place on the canvas.
+
+Every other number the webview holds is a plain `number` the backend answered: a readout, a headline, a confirmed
+range, a count, a region's peak. None of them is computed in the webview.
 
 ### The backend reads a Frame in one place
 
-`stage_view.read_frame(frame)` is the only function that interprets a wandas Frame for the comparison. For each
-Frame kind it returns a `FrameReading`: the values at full resolution with the channels combined, and the axes they
-are on (each value's x; an image's rows; for a sound signal its start time and sample rate instead of an array of
-times).
+`read_frame(frame)` in `python-backend/frames/stage_view.py` is the only function that interprets a wandas Frame for
+the comparison. For each Frame kind it returns a `FrameReading`: the values at full resolution with the channels
+combined, and the axes they are on (each value's x; an image's rows; for a sound signal its start time and sample
+rate instead of an array of times; a trigger's events).
 
-- The drawn picture (`stage_view`, whole or zoomed) is thinned from that reading.
-- The full data kept for readouts, medians and differences (`stage_combine.StageData`) is that reading plus the
-  picture's template and the recording's calibration.
-- The x of a value is asked in one place: `stage_view.reading_axis(reading)` (and `x_at(reading, index)`), which the
-  drawing code and `stage_combine.read_points` both use. So a drawn point and the point read under the pointer have
-  the same x.
+- `describe(frame, reading)` says in words what the step's result is (`StageView`: the Frame, the kind of figure,
+  the axes, the quantity and unit, a pair, a trigger's events by number and time). A scan answers with it, and the
+  screen makes the figure's declaration from it. It holds no point.
+- `services/stage_combine.py` keeps the reading under a key (`StageData` in `STORE`), with the description and the
+  recording's calibration. The description names the key (`data`).
+- `transport/figure_answers.py` hands the kept reading to the figure service as an answer. The service draws,
+  ranges and reads it (`python-backend/figures/`).
 
-- Every picture carries the axes of its source data, `xSource` (and an image's `ySource`), made in one place:
-  `stage_view.source_axis` of the reading, before thinning and whatever part is drawn (a median's or a Δ's of the
-  common part `stage_combine._aligned` combined). The webview decides the whole view's range and which pictures share
-  an axis from these alone; a picture's drawn `xs` / `ys` are only painted (display rules R2).
-
-Do not read a Frame's `data`, `freqs` or `times` in a view function or in `stage_combine.py`, and do not compute a
-time or frequency from a count or a fraction: use `x_at`.
-`python-backend/test_drawn_x_is_source_x.py` checks every Frame kind and every thinning routine against the Frame's
-own axis (display rules R2).
+Do not read a Frame's `data`, `freqs` or `times` anywhere else, and do not compute a time or a frequency from a
+count or a fraction: the reading carries each value's x.
 
 ### Adding a new Frame kind
 
-A Frame kind is drawn in four places, all in `python-backend/stage_view.py`, and five tests ask for it. Do the steps
-in this order; each test named fails until its step is done, and its message names the step.
+A Frame kind is supported in three places of `python-backend/frames/stage_view.py`, and four tests ask for it. Do
+the steps in this order; each test named fails until its step is done, and its message names the step.
 
 1. **Read it.** Add a branch to `_read_frame` (called through `read_frame`) that returns its `FrameReading`: its
    values with the channels combined, and its axes. Take every array of the Frame with `_taken`, before any
-   arithmetic, so it is float64. If its values are not one of the reading modes `reading_axis` knows, add the mode
-   there too, so `x_at` gives each value's x.
-2. **Draw it.** Add a branch to `_stage_view` that returns its picture (a `_<kind>_view` function): `kind` (`line`,
-   `bar` or `heatmap`), `x`, `quantity`, `unit`, and the thinned points, all taken from the reading, never from the
-   Frame. Thin with a function listed in `SOURCES` (`scripts/check_decimation_flow.py`) and in `decimators` of
-   `python-backend/drawn_points_contract.json`; a new thinning function goes in both.
-   `stage_view` gives every picture its source axes (`with_source_axes`); a picture made elsewhere calls it too.
+   arithmetic, so it is float64. Use one of the reading modes there are (a line, bands, an image, a signal, events):
+   the figure service then draws, ranges and reads it with the rules of that mode. A new mode is a change to the
+   figure service (`transport/figure_answers.py` and `python-backend/figures/`), not only to this file.
+2. **Describe it.** Add a branch to `describe` that returns its words: `kind` (`line`, `bar` or `heatmap`), `x`,
+   `quantity`, `unit`, all taken from the Frame's names and the reading, with no point of the data.
 3. **List it.** Add the class to `STAGE_FRAME_TYPES` (and to `CHART_FRAME_TYPES` when it is drawn as a line, bars or an
-   image of its own values). The operation catalogue reads this list to say which steps the app draws: run
-   `python python-backend/operation_catalog.py --write` to regenerate `src/shared/recipe/generated/wandasOperations.ts`.
-   If it is drawn as an image, add its name to `IMAGE_FRAMES` in `src/webview/runtime/trackStageMode.ts`, so it
-   stays in its track's lane.
+   image of its own values). The operation catalogue reads this list to say which steps the app draws: in
+   `python-backend/`, run `python -m services.operation_catalog --write` to regenerate
+   `src/shared/recipe/generated/wandasOperations.ts`. If it is drawn as an image, add its name to `IMAGE_FRAMES` in
+   `src/webview/runtime/trackStageMode.ts`, so it stays in its track's lane.
 4. **Write its fixture.** Add it to `_kinds` in `python-backend/test_stage_view_kinds.py` and run
    `python python-backend/test_stage_view_kinds.py --write`, which writes `src/test/fixtures/stageViewKinds.json`.
-   The plot contract (`plotContract.spec.ts`) and the readout transitions (`readoutTransitions.test.ts`) draw every
-   kind in it, so the new one gets the same gestures and readouts as every plot.
-5. **Check its x.** Add it to `_KINDS` and `_source` in `python-backend/test_drawn_x_is_source_x.py`, so its drawn x
-   is checked against the Frame's own axis, whole, zoomed, as a median and as a Δ.
+   The plot contract (`plotContract.spec.ts`) and the readout transitions (`readoutTransitions.spec.ts`) show every
+   kind in it, so the new one gets the same gestures and readouts as every figure.
+5. **Check its numbers.** Add it to `_KINDS` in `python-backend/test_frame_reading.py`, so every array of its reading
+   is checked to be float64.
 
 The tests that ask: `test_stage_view.py` › `test_every_wandas_frame_is_drawn` (a wandas Frame class not in
-`STAGE_FRAME_TYPES`), `test_drawn_x_is_source_x.py` › `test_every_drawn_frame_kind_is_covered` (a kind missing from
-`_KINDS`), `test_operation_catalog.py` › `test_the_generated_typescript_is_current` (the catalogue not regenerated),
-`src/test/stageViewKinds.test.ts` (a kind a step can give that the fixture does not hold), and
+`STAGE_FRAME_TYPES`), `test_operation_catalog.py` › `test_the_generated_typescript_is_current` (the catalogue not
+regenerated), `src/test/stageViewKinds.test.ts` (a kind a step can give that the fixture does not hold), and
 `test_frame_reading.py` (an array of its reading not in float64).
+
+### The backend's folders
+
+`python-backend/` holds two entries and four folders, and a module imports only the folders below its own
+(`scripts/check_figure_imports.py`, rule F, run by verify):
+
+| Folder | Holds | May import |
+| --- | --- | --- |
+| `backend_server.py`, `browser_service.py` | The two entries: the extension's NDJSON server and the browser's Pyodide service. | every folder |
+| `transport/` | The protocol (`protocol_schema.py`), the validation and routing of a request (`command_dispatch.py`), the figure service's answers (`figure_answers.py`). | `figures`, `services`, `frames` |
+| `figures/` | The figure service: one picture of a figure from its answers. | `frames`, wandas |
+| `services/` | Scans, the analysis engine and service, the kept answers, Recipes, the operation catalogue. | `frames`, wandas |
+| `frames/` | Reading a wandas Frame (`stage_view.py`), level identity, the fixed values of an analysis. | wandas |
+
+The entries stay in `python-backend/` itself because Python resolves imports from the folder of the script it is
+started with: started there, they find the four folders with no path set up.
 
 ## Where to make a change
 
 | You want to | Change | The check that will tell you if you put it elsewhere |
 | --- | --- | --- |
 | Cache or key an answer differently | `answerStore.ts` | `answerStoreBoundary.test.ts` |
-| Change an axis name, a range rule, or which files a figure counts | `figureModel.ts` | `figureModel.test.ts`, and the compiler (`FigureNames`, `FigureRange`) |
-| Change how something is drawn or how the pointer picks a point | `stagePanes.ts` | `plotContracts.test.ts` (drawing surfaces) |
-| Show a new number read from the data | a `FullSource` in `fullRead.ts`, or an adapter in `wholeAnswers.ts` | the compiler (`Whole`), `provenanceBoundary.test.ts` |
-| Send a new thinned array from the backend | `protocol_schema.py` with `x-drawn` | the compiler (`Drawn`), `check_decimation_flow.py` |
-| Draw a new Frame kind in the comparison, or change how a Frame's values or axes are taken | `read_frame` in `python-backend/stage_view.py` | `test_drawn_x_is_source_x.py` (it names a kind it does not cover) |
+| Change which recordings a figure counts | `python-backend/figures/members.py` | `test_figures_service.py`, `test_figures_members_*.py` |
+| Change a heading's words, or a title written outside a figure | `figureModel.ts` | `figureModel.test.ts`, `figureSetOnly.test.ts` |
+| Change a figure's range rule, the point a read reads, or the points drawn | `python-backend/figures/` (`ranges.py`, `pick.py`, `thinning.py`) | `test_figures_*.py`, `scripts/check_figure_imports.py` |
+| Change how a picture is drawn, zoomed or written | `src/webview/figure/` | `figureComponent.test.ts`, `src/test/uiSmoke/figure*.spec.ts` |
+| Show a new number read from the data | an answer of the backend's: the figure service for a figure, a command of `AnalysisService` for a single number | `test_figures_*.py`, `protocolSchema.test.ts` |
+| Send a new thinned array from the backend | `figures/thinning.py` (a `Drawn`), sent by `figures/picture.py`; `x-drawn` in a `Figure…` definition of `protocol_schema.py` | `scripts/check_figure_imports.py` (rule B), ESLint (`FigureDrawn`) |
+| Draw a new Frame kind in the comparison, or change how a Frame's values or axes are taken | `read_frame` and `describe` in `python-backend/frames/stage_view.py` | `test_stage_view.py`, `test_frame_reading.py` |
+| Move a backend module, or import one folder from another | the table of folders above | `scripts/check_figure_imports.py` (rule F) |

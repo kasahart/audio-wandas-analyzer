@@ -79,7 +79,6 @@ test('extension-host-path smoke fixture uses real playback and lazy stereo slice
 
     assert.match(previewHtml, /data:audio\/wav;base64,/);
     assert.match(previewHtml, /"channelCount":2/);
-    assert.match(previewHtml, /"spectrogram":null/);
     assert.doesNotMatch(previewHtml, /window\.__comparisonPreviewDemo = true;/);
     assert.match(smokeHtml, /request-spectrum-slice/);
     assert.match(smokeHtml, /window\.postMessage\(uiSmokeSpectrumResponse\(message\), '\*'\)/);

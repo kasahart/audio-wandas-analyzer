@@ -1,8 +1,8 @@
 /**
  * The entry table's dataset: one row per recording and channel, its attributes from the CSV the user picked
- * (read and matched by asd-insight's rules, asdData.ts), its subfolders, and the values computed from its
- * sound (per channel, never averaged over channels). Which column groups the rows, which value is shown, the
- * filters and the order are the user's; this module only answers them. Pure, so it is unit-tested.
+ * (read and matched by asd-insight's rules, asdData.ts), its subfolders, and what its header says (length,
+ * sample rate, calibration). No value is computed from its sound. Which column groups the rows, which CSV value
+ * is shown, the filters and the order are the user's; this module only answers them. Pure, so it is unit-tested.
  */
 import type { ScanResult } from '../protocol/backendProtocol';
 import { csvFile } from '../utils/csv';
@@ -88,41 +88,54 @@ export interface DatasetRow {
     attributes?: DataRow;
     /** The recording's subfolders below the opened folder, outermost first. */
     folders: string[];
+    /** What the file's header says of it, and whether it is calibrated (as the host says): read, never computed. */
+    info?: FileInfo;
+}
+
+/**
+ * A file's own information: its length and sample rate (its header's) and whether it has a calibration, with the
+ * word the screen writes for that (`calibration`: what its cell shows and a filter's check list matches).
+ */
+export interface FileInfo { durationS?: number; sampleRate?: number; calibrated?: boolean; calibration?: string }
+/** The columns of a file's own information. */
+export type InfoId = 'duration' | 'fs' | 'calibration';
+export const INFO_COLUMNS: readonly InfoId[] = ['duration', 'fs', 'calibration'];
+export const isInfo = (column: string): column is InfoId => (INFO_COLUMNS as readonly string[]).includes(column);
+/** A row's number in an information column (its length in seconds, its sample rate in Hz); null where the header did not say, and for the calibration (a word, not a number). */
+export const infoNumber = (row: DatasetRow, column: InfoId): number | null => (column === 'duration' ? row.info?.durationS : column === 'fs' ? row.info?.sampleRate : undefined) ?? null;
+/** A row's text in an information column, as a filter matches it: the number as it is, the calibration's word ('' where not known). */
+export function infoText(row: DatasetRow, column: InfoId): string {
+    if (column === 'calibration') return row.info?.calibration ?? '';
+    const number = infoNumber(row, column);
+    return number === null ? '' : String(number);
 }
 
 export const rowKey = (filePath: string, ch: number, channels: number | undefined): string => ((channels ?? 1) > 1 ? `${filePath}#ch${ch}` : filePath);
 export const fileOfKey = (key: string): string => key.replace(/#ch\d+$/, '');
 
-/** Rows by channel: the channels a result says, else those its header said (`headers`), else one row with ch unknown. */
-export function datasetRows(filePaths: readonly string[], rootPath: string, attributes: ReadonlyMap<string, DataRow>, results: Results, headers: ReadonlyMap<string, number> = new Map()): DatasetRow[] {
+/** Rows by channel: the channels a file's header said (`headers`), else one row with ch unknown. */
+export function datasetRows(filePaths: readonly string[], rootPath: string, attributes: ReadonlyMap<string, DataRow>, headers: ReadonlyMap<string, number> = new Map(), infoOf?: (filePath: string) => FileInfo | undefined): DatasetRow[] {
     return filePaths.flatMap(filePath => {
-        const result = results.get(filePath);
-        const channels = result?.ok && result.input ? result.input.channels.length : headers.get(filePath);
+        const channels = headers.get(filePath);
         const relative = recordingKey(filePath, rootPath);
         const folders = relative.split('/').slice(0, -1);
         const name = relative.slice(relative.lastIndexOf('/') + 1);
+        const info = infoOf?.(filePath);
         return Array.from({ length: channels ?? 1 }, (_, index) => ({
-            key: rowKey(filePath, index + 1, channels), filePath, name, ch: index + 1, channels, attributes: attributes.get(filePath), folders,
+            key: rowKey(filePath, index + 1, channels), filePath, name, ch: index + 1, channels, attributes: attributes.get(filePath), folders, ...(info ? { info } : {}),
         }));
     });
 }
 
-/** A value column: a numeric CSV column, or one computed from the sound per channel. */
-export type ValueId = `csv:${string}` | 'leq' | 'peak' | 'crest' | `band:${number}`;
+/** A value column: a numeric CSV column, or none (no CSV, or none of its columns is of numbers). The entry computes no value. */
+export type ValueId = `csv:${string}` | 'none';
 /** A grouping: a CSV column, a subfolder level, the channel, or none. */
 export type GroupId = `csv:${string}` | `folder:${number}` | 'ch' | 'none';
 
-export const isComputed = (value: ValueId): boolean => !value.startsWith('csv:');
-
-export function valueOf(row: DatasetRow, value: ValueId, results: Results): number | null {
+/** A row's number in a column of numbers: a CSV column's cell, or a file's information (its length, its sample rate). */
+export function valueOf(row: DatasetRow, value: ValueId | InfoId): number | null {
     if (value.startsWith('csv:')) return finiteNumber(row.attributes?.[value.slice(4)] ?? '');
-    const result = results.get(row.filePath);
-    if (!result?.ok) return null;
-    const index = row.ch - 1;
-    if (value === 'leq') return result.leqDbA?.[index] ?? null;
-    if (value === 'peak') return result.peakHz?.[index] ?? null;
-    if (value === 'crest') return result.crest?.[index] ?? null;
-    return result.thirdOctDb?.[index]?.[Number(value.slice(5))] ?? null;
+    return isInfo(value) ? infoNumber(row, value) : null;
 }
 
 export function groupOf(row: DatasetRow, group: GroupId): string {
@@ -133,35 +146,50 @@ export function groupOf(row: DatasetRow, group: GroupId): string {
 }
 
 /** A column of the table to filter by: the name, a grouping, or a value. */
-export type ColumnId = 'name' | GroupId | ValueId;
+export type ColumnId = 'name' | GroupId | ValueId | InfoId;
 
 export type DatasetFilter =
     | { column: ColumnId; kind: 'values'; values: string[] }
-    | { column: ColumnId; kind: 'range'; low: number; high: number };
+    | { column: ColumnId; kind: 'range'; low: number; high: number; closed?: boolean };
+
+/** A range of a value: from `low` up to, not including, `high`; `closed`: the values on `high` too. */
+export interface ValueRange { low: number; high: number; closed?: boolean }
+
+/**
+ * Whether a range takes a value: the one rule of a selected range, as a distribution's bin takes its values (the
+ * figure service applies the same: python-backend/figures/members.py rows_picked), so the table narrowed to a picked
+ * bar holds exactly the rows the bar counts. A range picked up to the top of its axis is `closed` (the last bin holds
+ * the top).
+ */
+export function inValueRange(value: number, range: ValueRange): boolean {
+    return value >= range.low && (value < range.high || (range.closed === true && value <= range.high));
+}
 
 /** What a row's values are read from: the recordings' results. */
 export type Results = ReadonlyMap<string, ScanResult>;
 
 /** A row's text in a column, as a filter's check list shows and matches it (numbers as they read in the CSV). */
-export function textOf(row: DatasetRow, column: ColumnId, results: Results): string {
+export function textOf(row: DatasetRow, column: ColumnId): string {
     if (column === 'name') return row.name;
-    if (column === 'ch' || column === 'none' || column.startsWith('folder:') || column.startsWith('csv:')) return groupOf(row, column as GroupId);
-    const value = valueOf(row, column as ValueId, results);
-    return value === null ? '' : String(value);
+    if (isInfo(column)) return infoText(row, column);
+    return groupOf(row, column);
 }
 
-export function passes(row: DatasetRow, filter: DatasetFilter, results: Results): boolean {
-    if (filter.kind === 'values') return filter.values.includes(textOf(row, filter.column, results));
-    const value = valueOf(row, filter.column as ValueId, results);
-    return value !== null && value >= filter.low && value <= filter.high;
+export function passes(row: DatasetRow, filter: DatasetFilter): boolean {
+    if (filter.kind === 'values') return filter.values.includes(textOf(row, filter.column));
+    const value = valueOf(row, filter.column as ValueId | InfoId);
+    return value !== null && inValueRange(value, filter);
 }
+
+/** What the table is ordered by: the name, the channel, a file's information, the grouping or the value chosen. */
+export type SortColumn = 'name' | 'ch' | InfoId | 'group' | 'value';
 
 export interface DatasetView {
     rows: DatasetRow[];
     group: GroupId;
     value: ValueId;
     filters: readonly DatasetFilter[];
-    sort: { column: 'name' | 'ch' | 'group' | 'value'; descending: boolean };
+    sort: { column: SortColumn; descending: boolean };
     excluded: ReadonlySet<string>;
 }
 
@@ -169,9 +197,9 @@ export interface DatasetView {
 const natural = new Intl.Collator(undefined, { numeric: true }).compare;
 
 /** The rows not excluded and through every filter, in their own order. */
-export function filteredRows(view: Pick<DatasetView, 'rows' | 'filters' | 'excluded'>, results: Results): DatasetRow[] {
+export function filteredRows(view: Pick<DatasetView, 'rows' | 'filters' | 'excluded'>): DatasetRow[] {
     if (!view.filters.length && !view.excluded.size) return view.rows.slice();
-    return view.rows.filter(row => !view.excluded.has(row.key) && view.filters.every(filter => passes(row, filter, results)));
+    return view.rows.filter(row => !view.excluded.has(row.key) && view.filters.every(filter => passes(row, filter)));
 }
 
 /** Each name's place in natural order, kept between sorts while the names stay: a sort then compares numbers, not text. */
@@ -191,11 +219,13 @@ function nameRanks(rows: readonly DatasetRow[]): ReadonlyMap<string, number> {
 }
 
 /** The rows on screen: not excluded, through every filter, in the chosen order (ties by name, then channel). */
-export function visibleRows(view: DatasetView, results: Results): DatasetRow[] {
-    const rows = filteredRows(view, results);
+export function visibleRows(view: DatasetView): DatasetRow[] {
+    const rows = filteredRows(view);
     const by = view.sort.column;
     const rank = nameRanks(rows);
-    const keyOf = (row: DatasetRow, place: number): string | number | null => (by === 'name' ? place : by === 'ch' ? row.ch : by === 'group' ? groupOf(row, view.group) : valueOf(row, view.value, results));
+    const keyOf = (row: DatasetRow, place: number): string | number | null => (by === 'name' ? place : by === 'ch' ? row.ch : by === 'group' ? groupOf(row, view.group)
+        // (The calibration is a word: the calibrated before the uncalibrated, those not known last.)
+        : by === 'calibration' ? (row.info?.calibrated === undefined ? null : row.info.calibrated ? 0 : 1) : valueOf(row, by === 'value' ? view.value : by));
     const sign = view.sort.descending ? -1 : 1;
     const keyed = rows.map(row => {
         const place = rank.get(row.name);
@@ -213,9 +243,9 @@ export function visibleRows(view: DatasetView, results: Results): DatasetRow[] {
 }
 
 /** A column's distinct texts over the rows (not excluded), with how many rows have each, for a filter's check list. */
-export function columnValues(rows: readonly DatasetRow[], column: ColumnId, results: Results): Array<[string, number]> {
+export function columnValues(rows: readonly DatasetRow[], column: ColumnId): Array<[string, number]> {
     const counts = new Map<string, number>();
-    for (const row of rows) { const text = textOf(row, column, results); counts.set(text, (counts.get(text) ?? 0) + 1); }
+    for (const row of rows) { const text = textOf(row, column); counts.set(text, (counts.get(text) ?? 0) + 1); }
     return [...counts.entries()].sort(([a], [b]) => natural(a, b));
 }
 
@@ -269,4 +299,21 @@ export function annotatedCsv(csv: DatasetCsv | null, match: CsvMatch | null, fil
         lines = [['audio_file', 'memo', 'excluded'], ...filePaths.map(filePath => [recordingKey(filePath, rootPath), memoOf(filePath), excludedOf(filePath)])];
     }
     return csvFile(lines[0], lines.slice(1));
+}
+
+/**
+ * 「表を CSV に書き出す」: the table's every row (a channel a row) with its file's own information, the picked CSV's
+ * columns, the slot it is in, its memo and whether it is left out (1). No analysis value: the entry computes none.
+ */
+export function tableCsv(rows: readonly DatasetRow[], attributes: readonly string[],
+    labels: { file: string; ch: string; duration: string; rate: string; calibration: string; slot: string; memo: string; excluded: string },
+    slotOf: (key: string) => string, memo: ReadonlyMap<string, string>, excluded: ReadonlySet<string>): string {
+    const number = (value: number | null): string => (value === null ? '' : String(value));
+    return csvFile(
+        [labels.file, labels.ch, labels.duration, labels.rate, labels.calibration, ...attributes, labels.slot, labels.memo, labels.excluded],
+        rows.map(row => [
+            [...row.folders, row.name].join('/'), String(row.ch), number(infoNumber(row, 'duration')), number(infoNumber(row, 'fs')), row.info?.calibration ?? '',
+            ...attributes.map(column => row.attributes?.[column] ?? ''), slotOf(row.key), memo.get(row.key) ?? '', excluded.has(row.key) ? '1' : '',
+        ]),
+    );
 }

@@ -15,9 +15,9 @@ export function openOffsetEditor(
     currentMs: number,
     labels: OffsetEditorLabels,
     onCommit: (offsetMs: number | null) => void,
-): void {
+): () => void {
     if (isOffsetEditorOpen(span)) {
-        return;
+        return () => undefined;
     }
     const input = doc.createElement('input');
     input.type = 'number';
@@ -58,10 +58,9 @@ export function openOffsetEditor(
         }
     });
     input.addEventListener('blur', commitEdit);
+    /** Closes the editor without committing, as Escape does. */
+    return () => { close(); };
 }
-
-/** A single click waits this long so that a double-click (reset to 0) can cancel opening the editor. */
-export const OFFSET_EDIT_OPEN_DELAY_MS = 200;
 
 export interface OffsetEditingHooks {
     trackIndexFromElement(element: HTMLElement): number | null;
@@ -70,45 +69,49 @@ export interface OffsetEditingHooks {
     onEdited(trackIndex: number, offsetMs: number | null): void;
 }
 
+/**
+ * A lane's offset label follows the plots' click rule (docs/display-rules.md R13, "クリックはすぐに動きます"): a click
+ * opens the editor at once, and the second press of a double click takes that opening back (the editor closes and
+ * nothing it would have changed is committed) and resets the offset to 0. The browser decides what a double click is
+ * (the press's `detail` 2, at whatever interval the OS sets); no timer of ours waits to tell a click from one, so a
+ * slow double click resets as a quick one does.
+ */
 export function attachOffsetEditing(
     wrapper: HTMLElement,
     doc: Document,
     labels: OffsetEditorLabels,
     hooks: OffsetEditingHooks,
 ): void {
-    let openTimer: ReturnType<typeof setTimeout> | null = null;
-    function cancelPendingOpen(): void {
-        if (openTimer !== null) {
-            clearTimeout(openTimer);
-        }
-        openTimer = null;
-    }
-    wrapper.addEventListener('dblclick', function (e) {
-        const target = eventTarget(e);
-        if (!target.classList.contains('track-offset-val')) {
+    /** The editor the last click opened, while its double click's second press may still take it back. */
+    let opened: { trackIndex: number; takeBack(): void } | null = null;
+    // Taken on the way down (capture), before the lanes see the press and before it moves the focus (which would
+    // commit the editor on blur): the second press lands on the editor, or beside it, not on the label it hid.
+    wrapper.addEventListener('mousedown', function (e) {
+        const first = opened;
+        opened = null;
+        if (!first || e.detail < 2) {
             return;
         }
-        cancelPendingOpen();
-        const idx = hooks.trackIndexFromElement(target);
-        if (idx !== null) {
-            hooks.onReset(idx);
-        }
-    });
+        e.preventDefault();
+        first.takeBack();
+        hooks.onReset(first.trackIndex);
+    }, true);
     wrapper.addEventListener('click', function (e) {
         const span = eventTarget(e);
-        if (!span.classList.contains('track-offset-val')) {
+        // The second click of a double click is no click: its press already took the first one back.
+        if (!span.classList.contains('track-offset-val') || e.detail > 1) {
             return;
         }
         const idx = hooks.trackIndexFromElement(span);
         if (idx === null || isOffsetEditorOpen(span)) {
             return;
         }
-        cancelPendingOpen();
-        openTimer = setTimeout(function () {
-            openTimer = null;
-            openOffsetEditor(doc, span, hooks.currentOffsetMs(idx), labels, function (offsetMs) {
-                hooks.onEdited(idx, offsetMs);
-            });
-        }, OFFSET_EDIT_OPEN_DELAY_MS);
+        let settled = false;
+        const close = openOffsetEditor(doc, span, hooks.currentOffsetMs(idx), labels, function (offsetMs) {
+            settled = true;
+            if (opened?.trackIndex === idx) opened = null;
+            hooks.onEdited(idx, offsetMs);
+        });
+        opened = { trackIndex: idx, takeBack: () => { if (!settled) close(); } };
     });
 }

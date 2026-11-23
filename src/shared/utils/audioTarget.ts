@@ -1,4 +1,3 @@
-import type { StageRead } from '../protocol/backendProtocol';
 /** Mirrors `wandas.supported_formats()` of the pinned wandas; test_typescript_extension_list_matches_wandas in python-backend/test_browser_service.py keeps them equal. */
 export const SUPPORTED_AUDIO_FILE_EXTENSIONS = new Set(['.wav', '.flac', '.ogg', '.oga', '.opus', '.mp3', '.aiff', '.aif', '.au', '.snd', '.caf', '.rf64', '.w64', '.csv']);
 /** The same extensions without the leading dot, as VS Code open-dialog filters expect. */
@@ -66,49 +65,6 @@ export function isAnalyzeSelectedFilesMessage(message: unknown): message is Anal
         && candidate.filePaths.every((filePath) => typeof filePath === 'string');
 }
 
-export interface WaveformRangeRequest {
-    type: 'request-waveform-range';
-    requestId: string;
-    trackIndex: number;
-    filePath: string;
-    startNorm: number;
-    endNorm: number;
-    points: number;
-    /**
-     * The version of the file the asking track was drawn from (its analysis's sourceVersion). The backend refuses a
-     * file changed since (stale-source), so an answer is never of another version than the picture it is drawn over.
-     * Named by every request (undefined only for a host that gives no version).
-     */
-    sourceVersion: string | undefined;
-    /** A plot's readout (R7): only the samples it reads (full_read.py), never an envelope. */
-    read?: StageRead;
-}
-
-/** A plot readout's read (StageRead): a window or place of finite numbers. */
-export function isStageReadLike(value: unknown): value is StageRead {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-    const x = (value as Record<string, unknown>)['x'];
-    return Array.isArray(x) && x.length >= 1 && x.length <= 2 && x.every(item => typeof item === 'number' && Number.isFinite(item));
-}
-
-export function isRequestWaveformRangeMessage(message: unknown): message is WaveformRangeRequest {
-    if (!message || typeof message !== 'object') {
-        return false;
-    }
-    const m = message as Record<string, unknown>;
-    return (
-        m['type'] === 'request-waveform-range' &&
-        typeof m['requestId'] === 'string' &&
-        typeof m['trackIndex'] === 'number' &&
-        typeof m['filePath'] === 'string' && m['filePath'].length > 0 &&
-        typeof m['startNorm'] === 'number' &&
-        typeof m['endNorm'] === 'number' &&
-        typeof m['points'] === 'number' &&
-        (m['sourceVersion'] === undefined || typeof m['sourceVersion'] === 'string') &&
-        (m['read'] === undefined || isStageReadLike(m['read']))
-    );
-}
-
 export interface TrackDetailRequest {
     type: 'request-track-detail';
     requestId: string;
@@ -122,14 +78,22 @@ export interface TrackDetailRequest {
      * Named by every request (undefined only for a host that gives no version).
      */
     sourceVersion: string | undefined;
-    /** A zoomed lane's time window (fractions of the file): its spectrogram from the frames in it (R3). Absent for the whole file. */
+    /** The time on screen (fractions of the file): the automatic settings give that window its own STFT (R3). Absent for the whole file. */
     startNorm?: number;
     endNorm?: number;
-    /** A lane zoomed up its frequency axis: its spectrogram from the FFT bins in this band, in Hz (R3). Absent for every frequency. */
-    lowHz?: number;
-    highHz?: number;
-    /** A plot's readout (R7): only the real cells it reads (full_read.py), never the lane's averaged ones. */
-    read?: StageRead;
+    /**
+     * The row's answers are kept by key for the figure service (the backend's `track-answers`): the reply
+     * (`track-answers-result`) names each channel's kept samples and kept STFT levels and carries no value of them.
+     * The word is how the spectrogram's frequency axis is drawn, which the kept levels are of.
+     */
+    answers: 'log' | 'linear';
+    /** With `answers`, false: the samples alone (the row shows no spectrogram). */
+    spectrogram?: boolean;
+    /**
+     * True: the whole file's extents alone (each channel's `signalExtent` and `imageExtent`), for a recording that
+     * takes part in the rows' linked scale and is not on screen: its samples and levels are not kept.
+     */
+    extents?: boolean;
 }
 
 export function isRequestTrackDetailMessage(message: unknown): message is TrackDetailRequest {
@@ -146,10 +110,10 @@ export function isRequestTrackDetailMessage(message: unknown): message is TrackD
         typeof m['filePath'] === 'string' && m['filePath'].length > 0 &&
         (m['startNorm'] === undefined && m['endNorm'] === undefined
             || typeof m['startNorm'] === 'number' && typeof m['endNorm'] === 'number' && m['startNorm'] < m['endNorm']) &&
-        (m['lowHz'] === undefined && m['highHz'] === undefined
-            || typeof m['lowHz'] === 'number' && typeof m['highHz'] === 'number' && m['lowHz'] >= 0 && m['lowHz'] < m['highHz']) &&
         (m['sourceVersion'] === undefined || typeof m['sourceVersion'] === 'string') &&
-        (m['read'] === undefined || isStageReadLike(m['read']))
+        (m['answers'] === 'log' || m['answers'] === 'linear') &&
+        (m['spectrogram'] === undefined || typeof m['spectrogram'] === 'boolean') &&
+        (m['extents'] === undefined || typeof m['extents'] === 'boolean')
     );
 }
 
@@ -169,10 +133,12 @@ export interface SpectrumSliceRequest {
     sourceVersion: string | undefined;
     /** Absent for the FFT spectrum. */
     bandsPerOctave?: SpectrumBandsPerOctave;
-    /** Every FFT bin (the CSV export) instead of a row cut for display. */
-    fullResolution?: true;
-    /** For a plot's readout (R7): every bin of a slice drawn cut for display; it neither cancels nor is cancelled by the cursor's own. */
-    read?: true;
+    /**
+     * The answers are kept by key for the figure service (the backend's `cursor-answers`): the reply
+     * (`cursor-answers-result`) names each channel's kept line and carries no value of it. The word is how the
+     * frequency axis is drawn, which the kept line is of.
+     */
+    answers: 'log' | 'linear';
 }
 
 export type SpectrumBandsPerOctave = 1 | 3;
@@ -191,9 +157,8 @@ export function isRequestSpectrumSliceMessage(message: unknown): message is Spec
         typeof m['filePath'] === 'string' && m['filePath'].length > 0 &&
         typeof m['cursorNorm'] === 'number' &&
         (m['bandsPerOctave'] === undefined || m['bandsPerOctave'] === 1 || m['bandsPerOctave'] === 3) &&
-        (m['fullResolution'] === undefined || m['fullResolution'] === true) &&
         (m['sourceVersion'] === undefined || typeof m['sourceVersion'] === 'string') &&
-        (m['read'] === undefined || m['read'] === true)
+        (m['answers'] === 'log' || m['answers'] === 'linear')
     );
 }
 
@@ -220,6 +185,12 @@ export interface PairSpectrumRequest {
     /** Global seconds; absent bounds average the whole overlap. */
     startSeconds?: number;
     endSeconds?: number;
+    /**
+     * The answers are kept by key for the figure service (the backend's `pair-answers`): the reply
+     * (`pair-answers-result`) names each response's three kept lines and carries no value of them. The word is how
+     * the frequency axis is drawn, which the kept lines are of.
+     */
+    answers: 'log' | 'linear';
 }
 
 function isPairSourceRef(value: unknown): value is PairSourceRef {
@@ -249,8 +220,45 @@ export function isRequestPairSpectrumMessage(message: unknown): message is PairS
         typeof m['settingsSignature'] === 'string' &&
         isPairSourceRef(m['reference']) &&
         Array.isArray(m['responses']) && m['responses'].every(isPairSourceRef) &&
-        isOptionalFinite(m['startSeconds']) && isOptionalFinite(m['endSeconds'])
+        isOptionalFinite(m['startSeconds']) && isOptionalFinite(m['endSeconds']) &&
+        (m['answers'] === 'log' || m['answers'] === 'linear')
     );
+}
+
+/** One recording's channels and the stretch of it (the file's 0..1) a region's peak is taken over. */
+export interface RegionPeakSourceRef {
+    filePath: string;
+    /** The channels (from 0); none names every channel of the recording. */
+    channels: number[];
+    startNorm: number;
+    endNorm: number;
+    /** The version of the file the asking track was drawn from (PairSourceRef.sourceVersion). */
+    sourceVersion: string | undefined;
+}
+
+/**
+ * The largest |sample| of these recordings' channels over their stretches, from every sample: one answer of the
+ * backend's (AnalysisService.region_peak), where a new trigger's level starts.
+ */
+export interface RegionPeakRequest {
+    type: 'request-region-peak';
+    requestId: string;
+    sources: RegionPeakSourceRef[];
+}
+
+export function isRequestRegionPeakMessage(message: unknown): message is RegionPeakRequest {
+    if (!message || typeof message !== 'object') return false;
+    const m = message as Record<string, unknown>;
+    const source = (value: unknown): boolean => {
+        if (!value || typeof value !== 'object') return false;
+        const of = value as Record<string, unknown>;
+        return typeof of['filePath'] === 'string' && of['filePath'].length > 0
+            && Array.isArray(of['channels']) && of['channels'].every(channel => Number.isInteger(channel) && (channel as number) >= 0)
+            && typeof of['startNorm'] === 'number' && Number.isFinite(of['startNorm']) && typeof of['endNorm'] === 'number' && Number.isFinite(of['endNorm'])
+            && (of['sourceVersion'] === undefined || typeof of['sourceVersion'] === 'string');
+    };
+    return m['type'] === 'request-region-peak' && typeof m['requestId'] === 'string' && m['requestId'].length > 0
+        && Array.isArray(m['sources']) && m['sources'].length > 0 && m['sources'].every(source);
 }
 
 export interface TrackDetailReleaseMessage {

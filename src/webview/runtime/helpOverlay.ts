@@ -6,13 +6,15 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { eventTarget } from './domAdapter';
 import { setHint } from './hintFooter';
-import { isTextEntryTarget, keyRouterFor } from './keyRouter';
+import { isTextEntryTarget, keyRouterFor } from '../shell/keyRouter';
 import { HELP_SECTIONS, type HelpView, type KeyRow } from './shortcuts';
 
 export interface Help {
     open(view: HelpView): void;
     close(): boolean;
     isOpen(): boolean;
+    /** Takes off its key context (keyRouter's clean-up promise), for an owner that tears it down. */
+    dispose(): void;
 }
 
 function keyRows(rows: readonly KeyRow[], strings: UiStrings): string {
@@ -104,7 +106,7 @@ export function installHelpOverlay(document: Document, window: Pick<Window, 'add
         else return false;
         return true;
     }
-    keyRouterFor(window).add({
+    const removeKeys = keyRouterFor(window).add({
         layer: 'help',
         keydown(event) {
             const toggle = event.key === '?' || event.key === 'F1';
@@ -125,5 +127,5 @@ export function installHelpOverlay(document: Document, window: Pick<Window, 'add
             return true;
         },
     });
-    return { open, close, isOpen: () => !overlay.hidden };
+    return { open, close, isOpen: () => !overlay.hidden, dispose: removeKeys };
 }

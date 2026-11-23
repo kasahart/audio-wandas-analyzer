@@ -24,6 +24,13 @@ export class WaveformView {
     amplitudeMin = -1;
     amplitudeMax = 1;
     private amplitudeSet = false;
+    /**
+     * The amplitude range given on a row (typed on its axis, or zoomed into), as given: in that row's own values, with
+     * its unit. Every row of that unit shows exactly these numbers (a blank end is the row's own automatic end); a row
+     * of another unit keeps its automatic range. The peak-normalized window above is kept beside it for the state the
+     * panel reports, and is no row's range while this is set.
+     */
+    private given: { unit: string; min: number | null; max: number | null } | null = null;
 
     timeRange(): NormalizedRange {
         return { start: this.start, end: this.end };
@@ -106,6 +113,15 @@ export class WaveformView {
         this.amplitudeMin = -1;
         this.amplitudeMax = 1;
         this.amplitudeSet = false;
+        this.given = null;
+    }
+
+    setAmplitudeGiven(unit: string, min: number | null, max: number | null): void {
+        this.given = { unit, min, max };
+    }
+
+    amplitudeGiven(): { unit: string; min: number | null; max: number | null } | null {
+        return this.given;
     }
 
     /** Peak-normalized values at the lane's top and bottom edges as currently drawn. */
@@ -116,7 +132,7 @@ export class WaveformView {
     }
 
     isAmplitudeZoomed(): boolean {
-        return this.amplitudeSet || this.amplitudeMin > -0.999999 || this.amplitudeMax < 0.999999;
+        return this.given !== null || this.amplitudeSet || this.amplitudeMin > -0.999999 || this.amplitudeMax < 0.999999;
     }
 
     canvasYToAmplitude(y: number, height: number): number {

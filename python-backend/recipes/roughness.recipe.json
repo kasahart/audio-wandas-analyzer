@@ -12,7 +12,7 @@
     {
       "id": "node-0",
       "operation": "wandas.audio.roughness_dw",
-      "version": 1,
+      "version": 2,
       "inputs": [
         "input-0"
       ],
