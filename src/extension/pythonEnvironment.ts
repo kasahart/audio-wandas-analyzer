@@ -42,9 +42,9 @@ const REQUIRED_PACKAGES = [
     {
         modules: ['wandas', 'mosqito', 'librosa'],
         distribution: 'wandas',
-        requirement: 'wandas[psychoacoustic,effects]>=0.13.2,<0.14.0',
-        minimum: [0, 13, 2],
-        maximum: [0, 14, 0],
+        requirement: 'wandas[psychoacoustic,effects]>=0.14.0,<0.15.0',
+        minimum: [0, 14, 0],
+        maximum: [0, 15, 0],
     },
 ] as const;
 const INSTALL_TIMEOUT_MS = 20 * 60 * 1000;

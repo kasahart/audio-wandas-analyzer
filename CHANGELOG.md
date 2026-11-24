@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Updated to wandas 0.14.0 (#818).
 - Compare (browser version): when the region does not fit one recording (it ends after the file), the figure no longer blanks and says "Computing…" every 5 seconds. A scan that fails because the request does not fit the file is not asked again until the file, its calibration, the Recipe or the region changes; an unreadable file is still tried again (#815).
 
 ## 0.0.17
