@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -42,8 +42,11 @@ for (const file of tracked) {
 }
 
 const CODE = /\.(ts|js|mjs|cjs|py|json|toml|ya?ml|sh|ps1)$/;
+const committed = new Set(execFileSync('git', ['ls-files'], { cwd: repoRoot, encoding: 'utf8' }).split('\n'));
+// Only the project's folders and committed files are read: a file a tool drops at the root (CI's .mcp.json) may not be readable.
+const SOURCE_FOLDER = /^(src|python-backend|scripts|browser|runtime|\.github)\//;
 // This file is left out: its own list would make every name it allows look like code.
-const codeWords = new Set(tracked.filter(file => CODE.test(file) && file !== 'src/test/docNames.test.ts')
+const codeWords = new Set(tracked.filter(file => CODE.test(file) && file !== 'src/test/docNames.test.ts' && (SOURCE_FOLDER.test(file) || committed.has(file)) && existsSync(path.join(repoRoot, file)))
     .flatMap(file => readFileSync(path.join(repoRoot, file), 'utf8').match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []));
 
 interface Named { doc: string; line: number; name: string; kind: 'path' | 'code' }
