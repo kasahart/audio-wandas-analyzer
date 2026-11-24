@@ -368,9 +368,11 @@ def test_a_failed_compared_recording_of_a_known_level_is_still_the_target() -> N
     picture = _draw(service, _spec(["s", "t", "c"], ["d"], {"d": "failed"}, d=FS_LEVEL))
     assert _excluded(picture) == {"s": "other-reference", "t": "other-reference", "d": "failed"}
     assert set(_line(picture, "overlay", "base")["values"]) == {-45.0}  # type: ignore[index]
-    # Of another reference than every base recording: nothing of the base is drawn, said as it is.
+    # Of a level no answer is in (the file's, where the step's answers are in another unit: a loudness in sone): no
+    # target of it; the base is matched as with nothing compared and drawn.
     other = _draw(service, _spec(["a", "b", "c"], ["d"], {"d": "failed"}, d=SPL_LEVEL), generation=2)
-    assert _excluded(other) == {"a": "other-reference", "b": "other-reference", "c": "other-reference", "d": "failed"}
+    assert _excluded(other) == {"d": "failed"}
+    assert set(_line(other, "overlay", "base")["values"]) == {-45.0}  # type: ignore[index]
 
 
 def test_a_too_large_compared_recording_leaves_the_base_drawn() -> None:

@@ -11,15 +11,17 @@ identity and axis, it decides two sets and counts them (第 1 節の第 2 の表
 The identity it matches against (合わせる先) is the compared recording's (the line declared with role ``compare1``,
 else the first ``compare…``), never the first member's; with nothing compared, the most common identity of the
 usable answers, a tie going to the one declared first (仕様 2). A compared recording whose answer can be had no more
-(failed for good, too large, no such channel) is matched by its level as the spec declares it, else as with nothing
-compared among the recordings with a role; the median's channel count is then the most common of that identity.
+(failed for good, too large, no such channel) is matched by its level as the spec declares it when an answer is of
+it, else as with nothing compared among the recordings with a role; the median's channel count is then the most
+common of that identity.
 
 The reasons, in the order they are tried:
 
 0. a key compared as a channel its file does not have (the spec's ``channel`` and ``channels``): ``no-channel``,
    whatever its state (no answer of it can be had);
 1. a key whose level is known (its answer's, or the spec's ``level``) and is of another identity than a known target:
-   ``other-reference``, whatever its state (a recording known to differ is said to differ while pending);
+   ``other-reference``, whatever its state (a recording known to differ is said to differ while pending), but for a
+   key failed or too large, which says that;
 2. not usable: its state (``pending``, ``stale``, ``failed``, ``evicted``);
 3. usable, but the service holds no answer under it: ``evicted``; holds another version of it: ``version``;
 4. no target identity yet (the compared answer is pending, stale or evicted): ``no-identity``. A compared
@@ -186,9 +188,13 @@ def _target(spec: FigureSpec, found: Mapping[str, AnyAnswer | None], lanes: tupl
     held = list(held_by.values())
     # The compared recording can be had no more (a region past its end, too large, no such channel): rather than
     # drawing nothing, the figure is matched against its level as the screen knows it (仕様 2: the compared
-    # recording is the target), or, with none known, as one with nothing compared, of the recordings with a role
-    # (the base and the compared ones) before any other line's.
+    # recording is the target) when an answer is of it, or else as one with nothing compared, of the recordings
+    # with a role (the base and the compared ones) before any other line's.
     known = spec.keys[compared].level if compared is not None else None
+    # The level the screen declares is its file's: of a step in another unit (a loudness in sone) none of the answers
+    # is of it, so it is no target then.
+    if known is not None and not any(answer.identity == known for answer in held):
+        known = None
     if known is None:
         roles = {
             key
@@ -223,7 +229,9 @@ def _shown_reason(
         return "no-channel"
     answer = found.get(key)
     known = answer.identity if entry.state == "usable" and answer is not None else entry.level
-    if target is not None and known is not None and known != target:
+    # A recording that failed for good or is too large says so: its level is the file's as the screen knows it, which
+    # need not be its step's (a loudness), and no answer of it is to come whatever its reference.
+    if target is not None and known is not None and known != target and entry.state not in ("failed", "too-large"):
         return "other-reference"
     if entry.state != "usable":
         return cast(Reason, entry.state)

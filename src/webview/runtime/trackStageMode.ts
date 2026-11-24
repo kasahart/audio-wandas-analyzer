@@ -658,9 +658,11 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // recordings and the whole pictures before the zoom's detail, the region's metrics before the base group's
         // detail. No spec supersedes another on every repaint, which would leave both unfinished.
         let asking = false;
-        // A failure that stands is an answer (a region past the file's end): nothing is on its way for it, so the
-        // step is not waited for (its region and trigger lanes are not held back); one asked again is missing then.
-        const lacks = (wanted: StageSpec, paths: readonly string[]): boolean => paths.some(path => source.result(wanted, path) === undefined && source.failure(wanted, path) === undefined);
+        // A failure for good is an answer (a region past the file's end, lasting): nothing is on its way for it, so the
+        // step is not waited for (its region and trigger lanes are not held back). One asked again after the pause is
+        // still waited for, as keyOf declares it pending.
+        const lasting = (wanted: StageSpec, path: string): boolean => { const found = source.answer(wanted, path); return found.state === 'failed' && found.retryAt === Infinity; };
+        const lacks = (wanted: StageSpec, paths: readonly string[]): boolean => paths.some(path => source.result(wanted, path) === undefined && !lasting(wanted, path));
         const want = (wanted: StageSpec, paths: readonly string[]): boolean => {
             const lacking = lacks(wanted, paths);
             if (lacking && !asking) asking = source.ensure(wanted, paths);
@@ -694,7 +696,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             // The picture's own values are what its axis is grouped and named by (a gain: its pair's unit ratio, R1).
             track.input = pictureLevelOf(coarse(track.filePath), track.input);
         }
-        const picture = tracks.map(track => coarse(track.filePath)).find((view): view is StageView => !!view) ?? null;
+        // The tracks' first, else a base recording's (a group base whose only track is a compared recording that
+        // failed for good: its base is still drawn, of the step's kind).
+        const picture = [...tracks.map(track => track.filePath), ...files].map(path => coarse(path)).find((view): view is StageView => !!view) ?? null;
         // Before any picture is in, the step's Frame says whether it is an image: the comparison is shown at once,
         // computing, rather than the lanes until the first file is in.
         const frameShown = id === INPUT_STAGE ? INPUT_FRAME : steps.find(step => step.id === id)?.output;
