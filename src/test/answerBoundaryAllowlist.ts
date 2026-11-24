@@ -34,6 +34,7 @@ export const NOT_ANSWERS: Record<string, Listed> = {
     'src/webview/runtime/playbackController.ts#listeners': notAnswer('playback change listeners'),
     'src/webview/runtime/runtimeEvents.ts#listeners': notAnswer('runtime event listeners'),
     'src/webview/runtime/staticHost.ts#inboundListeners': notAnswer('host message listeners'),
+    'src/webview/runtime/staticHost.ts#waiting': notAnswer('the Worker tasks waiting their turn (loads, scans, figure requests), not their answers'),
     'src/webview/panels/ComparisonPanel.ts#testMessageDisposables': notAnswer('test bridge listeners per panel, to dispose'),
 
     // ── What is on screen: canvases, drawings, marks, zoom and gestures ──
