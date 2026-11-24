@@ -164,6 +164,13 @@ def main() -> int:
         print(problem, file=sys.stderr)
     if problems:
         print(f"check_figure_imports: {len(problems)} problem(s)", file=sys.stderr)
+        print(
+            "Rules: docs/figure-design.md 第 2 節 (A: numpy only in the five rule files; B: Drawn only where it "
+            "is made and sent; F: a folder imports only the folders below it, 第 8 節 table). Fix: move the code to "
+            "the folder or rule file that owns it, or ask the answer from the layer below; never widen the lists "
+            "in this script without changing that doc.",
+            file=sys.stderr,
+        )
         return 1
     print("check_figure_imports: figures/ imports and Drawn names follow rules A, B and F")
     return 0

@@ -19,6 +19,7 @@ interface GuiFeatureInventoryModule {
 }
 
 interface GuiTriggerabilityAuditModule {
+    FIXES: Record<string, string>;
     collectWebviewActionIdsFromSource(source: string): string[];
     verifyGuiTriggerability(repoRoot: string): {
         missingCommands: string[];
@@ -108,6 +109,7 @@ test('GUI triggerability audit stays aligned with commands, webview actions, and
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const audit = require('../../scripts/verify-gui-triggerability.js') as GuiTriggerabilityAuditModule;
     const report = audit.verifyGuiTriggerability(process.cwd());
+    const fixes = Object.entries(report).filter(([, values]) => values.length > 0).map(([label]) => `${label}: ${audit.FIXES[label]}`);
 
     assert.deepEqual(report, {
         missingCommands: [],
@@ -123,5 +125,13 @@ test('GUI triggerability audit stays aligned with commands, webview actions, and
         featuresWithoutRegressionCoverage: [],
         invalidRegressionLayers: [],
         invalidCoverageDebt: [],
-    });
+    }, `Rule: every user-facing GUI feature has a reachable entry point, visible feedback and a real regression layer (AGENTS.md §6).\n${fixes.join('\n')}`);
+});
+
+test('every kind of finding of the GUI triggerability audit says how to fix it', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const audit = require('../../scripts/verify-gui-triggerability.js') as GuiTriggerabilityAuditModule;
+    const kinds = Object.keys(audit.verifyGuiTriggerability(process.cwd())).sort();
+    assert.deepEqual(Object.keys(audit.FIXES).sort(), kinds, 'Fix: give the new kind of finding its line in FIXES in scripts/verify-gui-triggerability.js (what it means and what to change).');
+    for (const [kind, fix] of Object.entries(audit.FIXES)) assert.match(fix, /Fix: /, kind);
 });

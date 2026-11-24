@@ -107,7 +107,7 @@ test('no plot names an axis through gui-core\'s drawValueAxis or fittedAxisTitle
         return statSync(full).isDirectory() ? files(full) : name.endsWith('.ts') ? [full] : [];
     });
     const using = files(webview).filter(file => /\b(?:drawValueAxis|fittedAxisTitle)\b/u.test(readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/gu, '')));
-    assert.deepEqual(using.map(file => path.relative(webview, file)), []);
+    assert.deepEqual(using.map(file => path.relative(webview, file)), [], 'Rule: docs/display-rules.md R4, an axis name keeps its quantity and its unit. Fix: name the axis with fitAxisTitle (src/webview/figure/axisTitle.ts), never gui-core\'s drawValueAxis or fittedAxisTitle.');
 });
 
 test('a range popover names its axis as the plot does: the plot\'s own axis name, never words of its own (R4)', () => {
@@ -168,5 +168,5 @@ test('no absolute level falls back to a bare "dB" unit anywhere in src (a defaul
     });
     for (const site of Object.keys(RATIOS)) assert.ok(files.some(file => readFileSync(file, 'utf8').includes(site.slice(site.indexOf(': ') + 2))), `RATIOS lists a line that is gone: ${site}`);
     assert.ok(files.some(file => file.includes(`${path.sep}shared${path.sep}utils${path.sep}`)) && files.some(file => file.includes(`${path.sep}extension${path.sep}`)), 'shared utils and the extension are walked');
-    assert.deepEqual(found, []);
+    assert.deepEqual(found, [], 'Rule: docs/display-rules.md R4, a dB names its reference. Fix: write the level with its reference (the unit and reference the backend sent, e.g. dB SPL, dBFS); a true ratio in dB (a gain, a Δ) goes in RATIOS in this file with why.');
 });

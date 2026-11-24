@@ -144,6 +144,8 @@ trackDurRatio  = durationSeconds / globalSpanSec
 
 ## 5. Conventions
 
+A check that guards a rule (a structural test, a lint script, a verify step) fails with a message a newcomer can act on: `Rule:` the rule and where it is written (a doc and its section, e.g. docs/display-rules.md R4), then `Fix:` what to change and in which file. A bare list or `expected true` is not enough.
+
 Line endings: every text file is LF in the repository and in every checkout, on every OS (`.gitattributes`, which overrides `core.autocrlf`), so tests compare files byte for byte and never normalise `\r\n`; a file that must be CRLF is named in `.gitattributes` with its reason.
 
 ### TypeScript
