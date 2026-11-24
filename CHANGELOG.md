@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Compare: box-zooming into the waveforms no longer freezes the page for a moment (about 0.2 s with three recordings, up to 0.8 s with six) while the zoomed view is computed. The waveform shown stretched in the meantime is painted the fast way, as the finished one is (#819).
 - Compare (browser version): when the region does not fit one recording (it ends after the file), the figure no longer blanks and says "Computing…" every 5 seconds. A scan that fails because the request does not fit the file is not asked again until the file, its calibration, the Recipe or the region changes; an unreadable file is still tried again (#815).
 
 ## 0.0.17
