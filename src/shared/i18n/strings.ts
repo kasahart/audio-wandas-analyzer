@@ -377,6 +377,8 @@ export interface UiStrings {
     stageLeftOtherReference: string;
     /** After the name of a recording drawn on no line because it could not be computed (a region past its end). */
     stageLeftFailed: string;
+    /** The comparison panel when no recording could be computed for the step (each failed for good). */
+    stageNothingComputed: string;
     dsBaseMissing: string;
     dsBasePending: string;
     /** A base group's recordings left out because their value is of an earlier chain or calibration. */
@@ -1186,6 +1188,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stageFigureTooLarge: '— too large to draw: {n}',
         stageLeftOtherReference: ' (not drawn: another unit or reference)',
         stageLeftFailed: ' (not drawn: could not be computed)',
+        stageNothingComputed: 'No recording could be computed here (for example, the region is past the end of the files)',
         dsBaseMissing: ' · {n} not computed yet',
         dsBasePending: ' · {n} still computing',
         dsBaseStale: ' · {n} of an earlier chain left out',
@@ -1968,6 +1971,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stageFigureTooLarge: '— 大きすぎて描けない録音：{n} 本',
         stageLeftOtherReference: '（単位か基準が違うので描いていません）',
         stageLeftFailed: '（計算できなかったので描いていません）',
+        stageNothingComputed: 'ここで計算できた録音がありません（区間がファイルの終わりより後ろなど）',
         dsBaseMissing: ' · 未計算 {n} 本',
         dsBasePending: ' · 計算中 {n} 本',
         dsBaseStale: ' · 前の手順の {n} 本は除外',

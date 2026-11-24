@@ -184,3 +184,57 @@ test('an export of the spectrum overlay superseded or left by its Figure is hand
     await settled(page);
     expect(errors, 'no rejection left unhandled').toEqual([]);
 });
+
+/**
+ * A region past the end of the compared recording (#817), the base a group of the table's rows that are not tracks:
+ * the only track on screen is the compared recording, whose scan fails for good. The base is still drawn, of the
+ * step's kind (its group's pictures), rather than the panel saying the step cannot be shown.
+ */
+test('a region past the end of the compared recording, the base a group of rows that are not tracks: the base is drawn and the step is not said to be undrawable (#817)', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    test.setTimeout(120_000);
+    const { first } = await open(page, () => SPECTRUM);
+    const tracks = await page.locator('.track-stage').getAttribute('data-channels');
+    expect(tracks?.split(',').length, 'the base group is asked for beside the one track').toBeGreaterThan(1);
+    const bar = page.locator('.track-stage-bar');
+    const before = (await stageScans(page)).length;
+    // 区間 from ＋, then the average spectrum over it.
+    await bar.locator('[data-action="step-insert"][data-after="node-1"]').click();
+    await bar.locator('.step-menu-item[data-op="wandas.frame.time_slice"]').click();
+    await bar.locator('[data-step-region-param="start"]').fill('0.5');
+    await bar.locator('[data-step-region-param="end"]').fill('1.5');
+    await bar.locator('[data-step-region-param="end"]').press('Enter');
+    await expect(page.locator('.track-stage')).toHaveAttribute('data-region', '0.50–1.50');
+    await bar.locator('[data-step-hold="node-2"]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)).toMatchObject({ region: { start: 0.5, end: 1.5 }, stage: 'node-2' });
+    // The compared recording (the one track) is shorter than the region: its scan fails for good; the base group's
+    // recordings are answered, as they are asked (one after another).
+    const done = new Set<string>();
+    const answerRegion = async (): Promise<void> => {
+        for (const request of (await stageScans(page)).slice(before)) {
+            if (done.has(request.requestId)) continue;
+            done.add(request.requestId);
+            await page.evaluate(({ request, files, first, stage }) => {
+                for (const filePath of request.filePaths) {
+                    const file = files.find(item => item.filePath === filePath)!;
+                    const result = filePath === first ? { ok: false, reason: 'region ends after the file (5.000 s)', lasting: true } : { ...file.result, stage };
+                    window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result }, '*');
+                }
+                window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
+            }, { request, files: scanned!, first, stage: SPECTRUM });
+        }
+    };
+    await expect.poll(async () => { await answerRegion(); return page.locator('.track-stage').getAttribute('data-pending'); }, { timeout: 30_000 }).toBe('');
+    // The base is drawn (the compared recording has no line), and the panel does not say the step cannot be shown.
+    type Seen = { waiting: boolean; lanes: Array<{ lines: Array<{ id: string }> }> };
+    await expect.poll(async () => {
+        await answerRegion();
+        const figure = page.locator(FIGURE);
+        if (!(await figure.count())) return null;
+        const seen = await figure.evaluate(canvas => (canvas as HTMLCanvasElement & { __figureInspect: () => Seen }).__figureInspect());
+        return seen.waiting ? null : seen.lanes[0]?.lines.map(line => line.id);
+    }, { timeout: 30_000 }).toEqual(['base']);
+    const message = page.locator('[data-stage-message]');
+    await expect(message).not.toContainText(STR.stepNotDrawable.split('(')[0].trim());
+    await expect(message).not.toContainText(STR.stepCannotShow.split(':')[0].trim());
+});

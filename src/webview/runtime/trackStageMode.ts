@@ -722,7 +722,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const imagesOnFigure = (picture ? picture.kind === 'heatmap' : waiting && IMAGE_FRAMES.has(frameShown ?? ''));
         // A trigger's events: each event of each recording a line of the Figure over the time from its
         // trigger, once some recording's events are in (the tracks stay under them, marked).
-        const eventPaths = [...new Set([...(comparePath ? [comparePath] : []), ...tracks.map(track => track.filePath)])];
+        // The base's recordings too: a group base whose only track is a compared recording that failed for good still
+        // draws its events.
+        const eventPaths = [...new Set([...(comparePath ? [comparePath] : []), ...tracks.map(track => track.filePath), ...allowed])];
         const eventsOnFigure = overlay && !!picture?.events && eventPaths.some(path => !!source.view(specFor(path), path)?.events?.length);
         // Not overlaid (「One lane per track」): the same lines, sounds and events, a lane a recording on
         // screen of the same Figure, as the images are (the tracks' own rows are not drawn on).
@@ -810,7 +812,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             // Nothing the Figure draws yet: the files on their way (how many are in), or why there is no picture (a
             // trigger that found no event, a step whose Frame is not drawn).
             leaveFigure();
-            say(waiting ? pending?.label ?? '' : emptyStageText(strings, picture));
+            // No picture and nothing on its way because every file failed for good (a region past each file's end):
+            // said so, not that the step cannot be drawn.
+            const failedAll = !picture && !waiting && files.some(path => lasting(specFor(path), path));
+            say(waiting ? pending?.label ?? '' : failedAll ? strings.stageNothingComputed : emptyStageText(strings, picture));
         }
         // Under a trigger's events (or the word that there are none yet): each recording as the trigger takes it.
         if (!marked || !triggerShown) return;

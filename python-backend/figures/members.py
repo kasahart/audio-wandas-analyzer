@@ -25,7 +25,7 @@ The reasons, in the order they are tried:
 2. not usable: its state (``pending``, ``stale``, ``failed``, ``evicted``);
 3. usable, but the service holds no answer under it: ``evicted``; holds another version of it: ``version``;
 4. no target identity yet (the compared answer is pending, stale or evicted): ``no-identity``. A compared
-   recording that failed or has not the channel is no target: the figure is matched as one with nothing compared;
+   recording failed for good, too large or without the channel is matched as the paragraph above says;
 5. of another identity: ``other-reference``;
 6. (``combined`` only) of another channel count than the compared answer's (both said): ``other-channels``;
 7. (``combined`` only) on another axis: ``other-axis``.
@@ -179,6 +179,18 @@ class _Target:
     channels: int | None = None
 
 
+def _role_keys(lanes: tuple[LaneSpec, ...]) -> set[str]:
+    """The keys of the lines with a role: the base's and the compared recordings'."""
+    return {
+        key
+        for lane in lanes
+        if lane.kind != "bins"
+        for line in lane.lines
+        if line.role is not None
+        for key in ((line.key,) if line.key is not None else ()) + line.base
+    }
+
+
 def _target(spec: FigureSpec, found: Mapping[str, AnyAnswer | None], lanes: tuple[LaneSpec, ...]) -> _Target:
     compared = _compared_key(lanes)
     if compared is not None and not _cannot_be_had(spec, compared):
@@ -196,21 +208,18 @@ def _target(spec: FigureSpec, found: Mapping[str, AnyAnswer | None], lanes: tupl
     if known is not None and not any(answer.identity == known for answer in held):
         known = None
     if known is None:
-        roles = {
-            key
-            for lane in lanes
-            if lane.kind != "bins"
-            for line in lane.lines
-            if line.role is not None
-            for key in ((line.key,) if line.key is not None else ()) + line.base
-        }
-        among = [answer for key, answer in held_by.items() if key in roles] if compared is not None else []
+        among = [answer for key, answer in held_by.items() if key in _role_keys(lanes)] if compared is not None else []
         # Nothing compared: the most common identity of the usable answers, a tie to the one declared first.
         pool = among or held
         if not pool:
             return _Target()
         known = cast(LevelIdentity, _most_common([answer.identity for answer in pool]))
-    alike = [answer for answer in held if answer.identity == known]
+    # Its axis and channel count of the recordings with a role first, as its identity (a line drawn behind them
+    # does not decide what the base's median is of).
+    roles_held = [answer for key, answer in held_by.items() if key in _role_keys(lanes)] if compared is not None else []
+    alike = [answer for answer in roles_held if answer.identity == known] or [
+        answer for answer in held if answer.identity == known
+    ]
     if not alike:
         return _Target(known)
     # Its axis likewise among the answers of that identity; with a compared recording that cannot be had, the

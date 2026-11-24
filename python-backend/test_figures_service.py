@@ -403,6 +403,19 @@ def test_with_the_compared_recording_failed_and_no_level_known_the_base_wins_ove
     assert set(_line(picture, "overlay", "base")["values"]) == {-40.0}  # type: ignore[index]
 
 
+def test_with_the_compared_recording_failed_lines_behind_do_not_decide_the_median_channel_count() -> None:
+    answers = _known()
+    answers["a"] = replace(answers["a"], channels=1)
+    answers["b"] = replace(answers["b"], channels=1)
+    spec = _spec(["a", "b"], ["d"], {"d": "failed"})
+    for key in "opq":
+        answers[key] = replace(_answer(key, _flat(-20)), channels=2)
+        spec["lanes"][0]["lines"].insert(0, {"id": f"{key}.wav", "of": {"key": key}, "role": None})
+        spec["keys"].insert(0, {"key": key, "state": "usable", "version": f"v-{key}"})
+    picture = _draw(FigureService(Source(answers), CombineOps()), spec)
+    assert set(_line(picture, "overlay", "base")["values"]) == {-45.0}  # type: ignore[index]
+
+
 # --- Holdings, generations and ids --------------------------------------------------------------------------------
 
 
