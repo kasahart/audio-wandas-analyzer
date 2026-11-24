@@ -216,6 +216,11 @@ export interface FigureOptions {
     lineStyle?: (line: FigureLineName) => { colour: string; width: number };
     /** What the readout calls a bins lane (its group's name); its id by default. */
     laneLabel?: (lane: string) => string;
+    /**
+     * Whose a lane of lines is, written in its corner as an image lane's recording is (「One lane per track」: a lane a
+     * recording, which the lanes' colours alone did not tell apart); nothing for a lane it gives nothing for.
+     */
+    laneTitle?: (lane: string) => string | undefined;
     /** What is written at a guide line (a trigger's level: its value and unit, the screen's words); nothing by default. */
     guideLabel?: (lane: string, guide: { axis: 'x' | 'y'; at: number; id?: string }) => string | undefined;
     /** The name of a bins lane's axis across: its table column's, the user's own words (its key by default). */
@@ -457,6 +462,22 @@ export function tickNameAt(px: number, frame: Box, above: Box | undefined, below
 }
 const ROLE_COLOURS: Record<string, string> = { base: '#9aa0a6', compare1: '#e8710a', compare2: '#1a73e8', compare3: '#188038' };
 const OTHER_COLOUR = '#7f7f7f';
+
+/** Whose a lane is (an image's recording, a recording's own lane of lines): its name on a dark tag in the lane's corner, with its colour. */
+function paintLaneTitle(ctx: CanvasRenderingContext2D, frame: { left: number; top: number; width: number }, title: string, colour: string): void {
+    ctx.save();
+    ctx.font = '11px sans-serif';
+    const wide = Math.min(frame.width - 12, ctx.measureText(title).width + 16);
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(frame.left + 4, frame.top + 4, wide, 16);
+    ctx.fillStyle = colour;
+    ctx.fillRect(frame.left + 4, frame.top + 4, 3, 16);
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(title, frame.left + 12, frame.top + 12, wide - 12);
+    ctx.restore();
+}
 /** The lines at a lane's ticks, under its lines: faint, so no line of the data is mistaken for one. */
 const GRID_COLOUR = 'rgba(255, 255, 255, 0.08)';
 /**
@@ -1196,7 +1217,7 @@ export function createFigure(options: FigureOptions): Figure {
      */
     const layerKeyOf = (seen: FigureInspection, views: readonly LaneView[], ratio: number): string => JSON.stringify([
         numberOf(last), keptCount, size.width, size.height, ratio, seen.waiting, seen.mapped, seen.failure,
-        views.map(view => [view.id, scaleKey(view), paletteOf(view.lane), options.laneLabel?.(view.id) ?? null, options.imageUnder?.(view.id) ?? null, gridOf(view.frame), wholeOf(view, 'x')]),
+        views.map(view => [view.id, scaleKey(view), paletteOf(view.lane), options.laneLabel?.(view.id) ?? null, options.laneTitle?.(view.id) ?? null, options.imageUnder?.(view.id) ?? null, gridOf(view.frame), wholeOf(view, 'x')]),
         // (Of the lines in their declared order and their own style: which is read, so drawn last and wider, is the
         // layer's own name, not its key.)
         seen.lanes.map(({ order: _order, ...lane }) => ({
@@ -1293,19 +1314,7 @@ export function createFigure(options: FigureOptions): Figure {
                 const title = options.laneLabel?.(lane.id);
                 if (title) {
                     const own = viewed.lane.image;
-                    const chip = options.lineStyle?.({ id: own.line, ...(own.role !== undefined ? { role: own.role } : {}), key: own.key })?.colour ?? ROLE_COLOURS[own.role ?? ''] ?? OTHER_COLOUR;
-                    ctx.save();
-                    ctx.font = '11px sans-serif';
-                    const wide = Math.min(frame.width - 12, ctx.measureText(title).width + 16);
-                    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-                    ctx.fillRect(frame.left + 4, frame.top + 4, wide, 16);
-                    ctx.fillStyle = chip;
-                    ctx.fillRect(frame.left + 4, frame.top + 4, 3, 16);
-                    ctx.fillStyle = '#fff';
-                    ctx.textAlign = 'left';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText(title, frame.left + 12, frame.top + 12, wide - 12);
-                    ctx.restore();
+                    paintLaneTitle(ctx, frame, title, options.lineStyle?.({ id: own.line, ...(own.role !== undefined ? { role: own.role } : {}), key: own.key })?.colour ?? ROLE_COLOURS[own.role ?? ''] ?? OTHER_COLOUR);
                 }
             }
             ctx.strokeStyle = '#555';
@@ -1427,6 +1436,9 @@ export function createFigure(options: FigureOptions): Figure {
                 for (const tick of lane.xTicks) ctx.fillRect(Math.round(tick.px), frame.top, 1, frame.height);
                 for (const px of gridOf(frame)) ctx.fillRect(px, frame.top, 1, frame.height);
             }
+            // Whose lane of lines it is, where the screen names it (a recording's own lane), as an image lane's.
+            const owner = !lane.bins && !lane.image ? options.laneTitle?.(lane.id) : undefined;
+            if (owner) paintLaneTitle(ctx, frame, owner, lane.lines[0]?.colour ?? OTHER_COLOUR);
             // Where a trigger's events used were cut: shaded, under the guide lines.
             ctx.fillStyle = 'rgba(255, 255, 255, 0.07)';
             for (const span of lane.spans ?? []) if (span.right > span.left) ctx.fillRect(span.left, frame.top, span.right - span.left, frame.height);

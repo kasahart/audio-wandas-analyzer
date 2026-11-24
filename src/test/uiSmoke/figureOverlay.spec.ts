@@ -537,6 +537,17 @@ test('「One lane per track」 shows the same lines a lane a recording on the on
     const stop = await openComparison(page);
     const overlaid = await seen(page);
     const stage = page.locator('.track-stage');
+    // What the page's Figure writes from here on (each lane's name in its corner).
+    await page.evaluate(() => {
+        const held = window as unknown as { __laneTexts: string[] };
+        held.__laneTexts = [];
+        // eslint-disable-next-line @typescript-eslint/unbound-method -- kept to be called on the context it was asked of (own.call below)
+        const own = CanvasRenderingContext2D.prototype.fillText;
+        CanvasRenderingContext2D.prototype.fillText = function (this: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth?: number): void {
+            if (this.canvas.isConnected) held.__laneTexts.push(String(text));
+            if (maxWidth === undefined) own.call(this, text, x, y); else own.call(this, text, x, y, maxWidth);
+        };
+    });
     await page.locator('[data-action="stage-layout"]').click();
     await expect(stage).toHaveAttribute('data-layout', 'lanes');
     // The same Figure, a lane a recording (the base's, then the compared one), each its own line; no Δ lane.
@@ -556,6 +567,9 @@ test('「One lane per track」 shows the same lines a lane a recording on the on
     for (const lane of now.lanes) expect(lane.frame.height).toBeGreaterThan(80);
     expect(now.lanes[1].frame.top).toBeGreaterThanOrEqual(now.lanes[0].frame.top + now.lanes[0].frame.height);
     await expect(page.locator('.track-stage-bar')).toHaveAttribute('data-drawn', '2');
+    // Each lane says whose it is, as a spectrogram's lane does: the lanes' colours alone did not tell them apart.
+    const written = await page.evaluate(() => (window as unknown as { __laneTexts: string[] }).__laneTexts);
+    for (const name of ['base.wav', 'compare.wav']) expect(written.some(text => text.startsWith(name)), `a lane is named ${name}; written: ${written.join(' | ')}`).toBe(true);
     // R7: the pointer on the compared recording's lane reads its own line, by the recording's name.
     const read = await hover(page, await highest(page, 'own-compare1'));
     expect(read.mark!.lane).toBe('own-compare1');
