@@ -14,6 +14,9 @@ const unmigrated = (why: string): Listed => ({ kind: 'unmigrated', why });
 /** How many listed places still keep answers outside the store (kind unmigrated): it only goes down. */
 export const UNMIGRATED_CEILING = 11;
 
+/** How many answer sources may keep timers of their own (SCHEDULING_OWNERS): it only goes down. */
+export const SCHEDULING_OWNERS_CEILING = 2;
+
 /**
  * The collections outside answerStore.ts that outlive a call and hold no answer (answerStoreBoundary.test.ts), each
  * with what it holds instead. The list only shrinks: a cache of answers is never added here, it is moved onto the store.

@@ -50,7 +50,7 @@ answer on its way subscribes with `whenSettled`; an ask replaced before it was s
 `setTimeout`, `setInterval`, `requestAnimationFrame`, `setImmediate` or `requestIdleCallback` in an answer source by
 what the call resolves to (an alias or `window.setTimeout` too), not by its name, and fails. A screen that is also an
 answer source and times its own drawing or gathering (not a failure) is listed in `SCHEDULING_OWNERS` with what its
-timers are for; that list only shrinks. The behaviour is held by `answerStore.test.ts` › "a failed answer's readers
+timers are for; that list only shrinks (`SCHEDULING_OWNERS_CEILING`). The behaviour is held by `answerStore.test.ts` › "a failed answer's readers
 are told exactly when its hold ends…". If the test
 names your new collection and it holds no answers (a gesture's state, a canvas's drawing), list it in
 `src/test/answerBoundaryAllowlist.ts` as `notAnswer` with what it holds. Never add an `unmigrated` entry.
