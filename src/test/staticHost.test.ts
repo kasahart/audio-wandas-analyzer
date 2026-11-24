@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createStaticHost, type StaticHostDeps } from '../webview/runtime/staticHost';
+import { createStaticHost, LONG_TASK_MS, AFTER_LONG_TASK_MS, type StaticHostDeps } from '../webview/runtime/staticHost';
 import { withoutResponseEnvelope } from '../shared/protocol/schemaValidation';
 import type { WebviewHostApi } from '../webview/runtime/types';
 import { getStrings, type UiStrings } from '../shared/i18n/strings';
@@ -792,4 +792,62 @@ test('a report folder downloads as one zip named after the folder', async () => 
     await flush();
     for (const element of app.elements.slice(anchors)) if (element.tag === 'a') downloads.push((element as unknown as { download: string }).download);
     assert.deepEqual(downloads, ['entry-scan_20261022-070509.zip']);
+});
+
+/** A folder of three recordings, opened for the comparison: its scans and figure requests go to the one Worker. */
+function comparisonFolder() {
+    const app = harness();
+    app.served['./recipes/entry-scan.recipe.json'] = { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'signal', kind: 'frame' }], nodes: [], output: 'input-0' };
+    const folderPicker = app.elements.find(element => element.tag === 'input' && 'webkitdirectory' in element.attributes)!;
+    const file = (path: string) => ({ size: 4, name: path.split('/').pop()!, webkitRelativePath: path, arrayBuffer: async () => new TextEncoder().encode('RIFF').buffer });
+    folderPicker.files = [file('rec/a.wav'), file('rec/b.wav'), file('rec/c.wav')];
+    folderPicker.onchange!();
+    const worker = () => app.workers.at(-1)!;
+    const commands = () => worker().commands.filter(command => command.cmd === 'scan' || command.cmd === 'figure-draw');
+    const scanOf = (name: string) => commands().find(command => command.cmd === 'scan' && String(command.filePath).endsWith(name));
+    const draw = (requestId: string) => app.host.postMessage({ type: 'figure-request', requestId, command: 'figure-draw', payload: { figureId: 'f', requestNumber: 1 } });
+    const scan = (requestId: string, names: string[]) => app.host.postMessage({ type: 'compare-scan', requestId, stage: 'input-0', filePaths: names.map(name => `/sources/rec/${name}`) });
+    return { app, worker, commands, scanOf, draw, scan };
+}
+
+test('a figure request goes ahead of the scans still waiting for the Worker, never of the one running', { timeout: SETTLE_LIMIT_MS }, async () => {
+    const { worker, commands, scanOf, draw, scan } = comparisonFolder();
+    scan('track-stage-1', ['a.wav']);
+    await settle(() => !!scanOf('a.wav'));
+    // Another asker's scan waits behind a.wav's; then the comparison's Figure asks for a picture.
+    scan('entry-hold-1', ['c.wav']);
+    for (let turn = 0; turn < 20; turn++) await flush();
+    draw('figure-1');
+    for (let turn = 0; turn < 20; turn++) await flush();
+    assert.deepEqual(commands().map(command => command.cmd), ['scan'], 'the scan running is not interrupted');
+    worker().reply(scanOf('a.wav')!);
+    await settle(() => commands().length >= 2);
+    assert.deepEqual(commands().map(command => command.cmd), ['scan', 'figure-draw'], 'the picture is drawn before c.wav is scanned');
+});
+
+test('after a long scan the next file waits a moment, so the draw its answer asks for comes first (Web: a comparison is drawn as its files come in)', { timeout: SETTLE_LIMIT_MS }, async () => {
+    const { app, worker, commands, scanOf, draw, scan } = comparisonFolder();
+    scan('track-stage-1', ['a.wav', 'b.wav']);
+    await settle(() => !!scanOf('a.wav'));
+    // a.wav's scan is a long one.
+    await new Promise(resolve => setTimeout(resolve, LONG_TASK_MS + 50));
+    worker().reply(scanOf('a.wav')!);
+    await settle(() => app.received.some(message => message.type === 'compare-scan-result'));
+    // The comparison draws what is in (a few frames later in the page).
+    await new Promise(resolve => setTimeout(resolve, AFTER_LONG_TASK_MS / 3));
+    draw('figure-1');
+    await settle(() => commands().some(command => command.cmd === 'figure-draw'));
+    worker().reply(commands().find(command => command.cmd === 'figure-draw')!);
+    await settle(() => !!scanOf('b.wav'));
+    assert.deepEqual(commands().map(command => command.cmd), ['scan', 'figure-draw', 'scan'], 'a.wav is drawn before b.wav is computed');
+});
+
+test('after a short scan the next file does not wait', { timeout: SETTLE_LIMIT_MS }, async () => {
+    const { worker, scanOf, scan } = comparisonFolder();
+    scan('track-stage-1', ['a.wav', 'b.wav']);
+    await settle(() => !!scanOf('a.wav'));
+    worker().reply(scanOf('a.wav')!);
+    const replied = Date.now();
+    await settle(() => !!scanOf('b.wav'));
+    assert.ok(Date.now() - replied < AFTER_LONG_TASK_MS, 'b.wav is asked for at once');
 });

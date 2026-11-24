@@ -47,7 +47,7 @@ numpy を使えるのは、この 5 つのファイルだけです（決まり A
 
 ## 守ること
 
-- `figures/` が import してよいのは、標準ライブラリ、`figures`、`frames`（Frame の読み方）、wandas だけです。`services/`、`transport/`、入口は import しません。`scripts/check_figure_imports.py` が verify の中で確かめます。
+- `figures/` が import してよいのは、標準ライブラリ、`figures`、`frames`（Frame の読み方）、wandas、wandas-extras だけです。numpy は 5 つの規則のファイル（`members.py`、`ranges.py`、`thinning.py`、`pick.py`、`headline.py`）だけが使えます。`services/`、`transport/`、入口は import しません。`scripts/check_figure_imports.py` が verify の中で確かめます。
 - `Drawn` と `DrawnImage` の名前が出てよいのは `thinning.py` と `picture.py` だけです（同じ検査）。範囲、読む点、見出し、件数の関数は `Drawn` を受け取りません。
 - 第 1 節の 5 種類のほかの計算（平均、中央値、差、dB への変換など）を、ここに書きません。要るときは 1 層目に足します。
 

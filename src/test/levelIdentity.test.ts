@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { levelIdentityOf } from '../webview/runtime/comparePanes';
+import { levelIdentityOf } from '../webview/runtime/figureModel';
 
 interface Side { unit: string; ref: number; label: string; status: string }
 const CASES = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'src', 'test', 'fixtures', 'levelIdentityCases.json'), 'utf8')) as Array<{ why: string; a: Side; b: Side; same: boolean }>;

@@ -9,6 +9,12 @@ By the files' import statements and names alone (ast), never their behaviour:
   them) and ``figures/picture.py`` (the only receiver); ``wire_points``, the one way out of either, likewise, and
   so do the fields that hold their points (``_xs``, ``_values``, ``_cells`` …, read off the two classes), so a
   thinning function's result cannot be opened anywhere else. No file outside figures/ names any of them.
+- R: a Frame's arrays and the ways to take them (``data``, ``freqs``, ``times``, ``quefrencies``, ``dB``,
+  ``dBA``, ``magnitude``, ``power``, ``phase``, ``to_numpy``, ``compute``, also through ``getattr`` with the name
+  written out) are read only by ``frames/stage_view.py``
+  (``read_frame``) and by the services listed in ``FRAME_READERS`` with what they read them for
+  (docs/plot-layers.md, "The backend reads a Frame in one place"). By attribute name: an expression named like one
+  that is not a Frame's is listed in ``NOT_FRAME_ARRAYS``.
 - F: the dependency goes one way. ``frames/`` imports no other folder of the backend; ``services/`` imports only
   ``frames``; ``transport/`` imports ``frames``, ``services`` and ``figures``; none of them imports an entry
   (``backend_server``, ``browser_service``: the only modules of python-backend/ itself).
@@ -47,6 +53,20 @@ BELOW = {
     "services": frozenset({"frames", "services"}),
     "transport": frozenset({"frames", "services", "figures", "transport"}),
 }
+#: A Frame's arrays: read only by frames/stage_view.py's read_frame, and by FRAME_READERS (rule R).
+FRAME_ARRAYS = frozenset(
+    {"data", "freqs", "times", "quefrencies", "dB", "dBA", "magnitude", "power", "phase", "to_numpy", "compute"}
+)
+#: The services that read their own Frames for answers outside the comparison and the figure service (rule R).
+FRAME_READERS = {
+    "frames/stage_view.py": "read_frame: the one reading for the comparison and the figure service",
+    "services/analysis_service.py": "the Tracks rows' samples and STFT levels, the region peak, the WAV export",
+    "services/analyzer.py": "a recording's summary: each channel's peak, raw and calibrated",
+    "services/calibration_profile.py": "the calibration's peak check of the source samples",
+    "services/scan_service.py": "the scan's power mean of a step's channels",
+}
+#: Expressions named like a Frame's array that are not a Frame's (rule R).
+NOT_FRAME_ARRAYS = {"events.times": "an EventsAnswer's event times (transport/figure_answers.py), already read"}
 #: Every folder and entry of the backend a module could import: what rule F is about.
 OWN = frozenset({"frames", "services", "figures", "transport", "backend_server", "browser_service"})
 
@@ -108,6 +128,14 @@ def _numpy_from_elsewhere(tree: ast.AST) -> list[int]:
     ]
 
 
+def _frame_array(node: ast.AST) -> str:
+    """The Frame array an attribute or a ``getattr`` call reads (rule R)."""
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    assert isinstance(node, ast.Call) and isinstance(node.args[1], ast.Constant)
+    return str(node.args[1].value)
+
+
 def check(backend: Path = BACKEND) -> list[str]:
     figures = backend / "figures"
     problems: list[str] = []
@@ -149,6 +177,27 @@ def check(backend: Path = BACKEND) -> list[str]:
                         f"{where}:{node.lineno}: reads {node.attr}, a field of the drawn points "
                         "(only figures/thinning.py, picture.py may; take the number of the answer instead; rule B)"
                     )
+        frame_reader = relative.as_posix() in FRAME_READERS or relative.parts[0] in ("tests", "batch")
+        if not frame_reader and not path.name.startswith("test_"):
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Attribute)
+                    and isinstance(node.ctx, ast.Load)
+                    and node.attr in FRAME_ARRAYS
+                    and ast.unparse(node) not in NOT_FRAME_ARRAYS
+                ) or (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == "getattr"
+                    and len(node.args) > 1
+                    and isinstance(node.args[1], ast.Constant)
+                    and node.args[1].value in FRAME_ARRAYS
+                ):
+                    problems.append(
+                        f"{where}:{node.lineno}: reads .{_frame_array(node)} of a Frame (only frames/stage_view.py "
+                        "read_frame reads a Frame for the comparison and the figure service; take its FrameReading; "
+                        "rule R)"
+                    )
         allowed = BELOW.get(relative.parts[0])
         if allowed is not None and not path.name.startswith("test_"):
             for line, module in _imported(tree, relative.parts[0]):
@@ -164,8 +213,17 @@ def main() -> int:
         print(problem, file=sys.stderr)
     if problems:
         print(f"check_figure_imports: {len(problems)} problem(s)", file=sys.stderr)
+        print(
+            "Rules: docs/figure-design.md 第 2 節 (A: numpy only in the five rule files; B: Drawn only where it "
+            "is made and sent; F: a folder imports only the folders below it, 第 8 節 table). Fix: move the code to "
+            "the folder or rule file that owns it, or ask the answer from the layer below; never widen the lists "
+            "in this script without changing that doc. R: a Frame is read by frames/stage_view.py read_frame "
+            "(docs/plot-layers.md, 'The backend reads a Frame in one place'); a service that reads its own Frames "
+            "for an answer outside the comparison is listed in FRAME_READERS with what for.",
+            file=sys.stderr,
+        )
         return 1
-    print("check_figure_imports: figures/ imports and Drawn names follow rules A, B and F")
+    print("check_figure_imports: figures/ imports, Drawn names and Frame reads follow rules A, B, F and R")
     return 0
 
 

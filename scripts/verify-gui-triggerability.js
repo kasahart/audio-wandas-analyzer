@@ -163,32 +163,36 @@ function hasFailures(report) {
     return Object.values(report).some((values) => Array.isArray(values) && values.length > 0);
 }
 
-function printReport(report) {
-    const lines = [
-        ['missingCommands', report.missingCommands],
-        ['unexpectedCommands', report.unexpectedCommands],
-        ['missingWebviewActions', report.missingWebviewActions],
-        ['unexpectedWebviewActions', report.unexpectedWebviewActions],
-        ['missingShortcuts', report.missingShortcuts],
-        ['unexpectedShortcuts', report.unexpectedShortcuts],
-        ['orphanScopedCommands', report.orphanScopedCommands],
-        ['orphanWebviewActions', report.orphanWebviewActions],
-        ['orphanScopedShortcuts', report.orphanScopedShortcuts],
-        ['unknownFeatureTriggers', report.unknownFeatureTriggers],
-        ['featuresWithoutRegressionCoverage', report.featuresWithoutRegressionCoverage],
-        ['invalidRegressionLayers', report.invalidRegressionLayers],
-        ['invalidCoverageDebt', report.invalidCoverageDebt],
-    ];
+const INVENTORY = 'src/shared/gui/guiTriggerabilityInventory.ts';
+/** What each kind of finding means and how to fix it (AGENTS.md §6, "GUI triggerability audit boundary"). */
+const FIXES = {
+    missingCommands: `in the inventory but not contributed by package.json. Fix: remove it from ${INVENTORY} (its id list and the triggers of the feature that names it), or contribute the command.`,
+    unexpectedCommands: `contributed by package.json but not in the inventory. Fix: add it to GUI_TRIGGERABILITY_SCOPED_COMMAND_IDS (user-facing) or GUI_TRIGGERABILITY_EXCLUDED_COMMAND_IDS (debug only) in ${INVENTORY}.`,
+    missingWebviewActions: `in the inventory but no data-action under src/webview/ has it. Fix: remove it from GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS and from the triggers of the feature that names it in ${INVENTORY}.`,
+    unexpectedWebviewActions: `a data-action under src/webview/ that the inventory does not list. Fix: add it to GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS and to a feature in ${INVENTORY}.`,
+    missingShortcuts: `in the inventory but not a row of src/webview/runtime/shortcuts.ts. Fix: remove it from GUI_TRIGGERABILITY_SCOPED_SHORTCUTS and from the triggers of the feature that names it in ${INVENTORY}.`,
+    unexpectedShortcuts: `a shortcut row of src/webview/runtime/shortcuts.ts that the inventory does not list. Fix: add it to GUI_TRIGGERABILITY_SCOPED_SHORTCUTS and to a feature in ${INVENTORY}.`,
+    orphanScopedCommands: `a user-facing command no feature names. Fix: add it to the triggers of a feature in GUI_TRIGGERABILITY_FEATURES (${INVENTORY}).`,
+    orphanWebviewActions: `a data-action no feature names. Fix: add it to the triggers of a feature in GUI_TRIGGERABILITY_FEATURES (${INVENTORY}).`,
+    orphanScopedShortcuts: `a shortcut no feature names. Fix: add it to the triggers of a feature in GUI_TRIGGERABILITY_FEATURES (${INVENTORY}).`,
+    unknownFeatureTriggers: `a feature names a trigger that is not a known command, data-action or shortcut. Fix: correct the trigger's id in ${INVENTORY}.`,
+    featuresWithoutRegressionCoverage: `a feature with no real regression layer. Fix: give it regressionLayers (node:test, ui-smoke or vscode-e2e) with the test that reaches it, or coverageDebt { issue: '#123', reason } while one is written (${INVENTORY}).`,
+    invalidRegressionLayers: `a regression layer that is not node:test, ui-smoke or vscode-e2e ('planned' is not a layer). Fix: name the real layer, or use coverageDebt { issue, reason } (${INVENTORY}).`,
+    invalidCoverageDebt: `coverageDebt without an issue ('#123' or an issue URL) or a reason. Fix: give both (${INVENTORY}).`,
+};
 
-    for (const [label, values] of lines) {
-        if (values.length === 0) {
+function printReport(report) {
+    for (const [label, fix] of Object.entries(FIXES)) {
+        const values = report[label];
+        if (!values || values.length === 0) {
             continue;
         }
-        console.error(`${label}:`);
+        console.error(`${label}: ${fix}`);
         for (const value of values) {
             console.error(`  - ${value}`);
         }
     }
+    console.error('\nRule: every user-facing GUI feature has a reachable entry point, visible feedback and a real regression layer (AGENTS.md §6).');
 }
 
 if (require.main === module) {
@@ -203,6 +207,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+    FIXES,
     collectWebviewActionIdsFromSource,
     verifyGuiTriggerability,
 };
