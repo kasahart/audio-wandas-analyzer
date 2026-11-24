@@ -454,7 +454,7 @@ def scan_cached(
         "calibrationStatus": status,
         "fullScale": full_scale,
         "channelCalibration": [resolved.channels[index].status for index in selected],
-        # The region as it was asked for, its ends exact: the webview's sameCondition reads it through regionKey.
+        # The region as it was asked for, its ends exact, so a reader keys it as it was sent (compareBasics.regionKey).
         "region": None if region is None else {"start": float(region["start"]), "end": float(region["end"])},
     }
     if reference is not None:
