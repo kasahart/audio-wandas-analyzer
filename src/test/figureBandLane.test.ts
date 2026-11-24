@@ -252,3 +252,46 @@ test('the Figure says a picture was busy twice, apart from too large and failed'
     busy.answer(busy.posted[1], 'busy');
     assert.deepEqual([figure.inspect().waiting, figure.inspect().failure, figure.inspect().readout], [false, 'busy', 'busy']);
 });
+
+test('a thinned signal shown stretched while the range zoomed into waits for its own picture is painted as pixels, not stroked (six took 650 ms)', () => {
+    const page = figurePage();
+    // A canvas that notes what is painted: each stroke's segments, and the images put.
+    const painted = { longStrokes: 0, puts: 0 };
+    let segments = 0;
+    const context = new Proxy<Record<string, unknown>>({}, {
+        get(stored, prop) {
+            if (prop === 'lineTo') return () => { segments += 1; };
+            if (prop === 'beginPath' || prop === 'moveTo') return () => { if (prop === 'beginPath') segments = 0; };
+            if (prop === 'stroke') return () => { if (segments > 100) painted.longStrokes += 1; segments = 0; };
+            if (prop === 'putImageData') return () => { painted.puts += 1; };
+            if (prop === 'createImageData') return (width: number, height: number) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) });
+            if (prop === 'measureText') return () => ({ width: 0 });
+            if (prop === 'getLineDash') return () => [];
+            if (prop === 'createLinearGradient') return () => ({ addColorStop: () => undefined });
+            if (typeof prop === 'string' && prop in stored) return stored[prop];
+            return typeof prop === 'string' && ['lineWidth', 'strokeStyle', 'fillStyle', 'font', 'textAlign', 'textBaseline', 'globalAlpha'].includes(prop) ? undefined : () => undefined;
+        },
+        set(stored, prop, value) { if (typeof prop === 'string') stored[prop] = value; return true; },
+    });
+    page.window.HTMLCanvasElement.prototype.getContext = (() => context) as never;
+    const figure = page.figure(undefined, SIZE);
+    figure.show(SPEC, null);
+    const first = page.draws()[0];
+    const reply = picture(first.message.payload as FigureDrawPayload, 'p1');
+    // Each signal thinned as the service does: its lowest and highest sample a bucket, two points a pixel of 600.
+    const xs = Array.from({ length: 1200 }, (_, at) => (at / 1199) * 4);
+    const zigzag = (scale: number): number[] => xs.map((_, at) => (at % 2 ? scale : -scale));
+    (reply.lanes ?? [])[0].lines = [
+        { id: 'cmp', role: 'compare1', key: 'rec', xs, values: zigzag(0.7) },
+        { id: 'base', role: 'base', key: 'ref', xs, values: zigzag(0.5) },
+    ] as never;
+    first.answer(reply);
+    assert.equal(painted.longStrokes, 0, 'the whole range: painted as pixels');
+    assert.ok(painted.puts > 0);
+    // Zoomed to 1 … 2 s: the picture of 0 … 4 s is shown stretched there, half a point a pixel, until 1 … 2 s's comes.
+    painted.puts = 0;
+    figure.show(SPEC, { x: [1, 2] });
+    assert.ok(page.draws().length > 0, 'the zoomed range is asked for');
+    assert.equal(painted.longStrokes, 0, 'stretched while it waits, still painted as pixels. Fix: a band line thinned at its own picture\'s range is dense (src/webview/figure/denseLine.ts isThinnedAsDrawn)');
+    assert.ok(painted.puts > 0, 'the stretched lines are put as an image');
+});
