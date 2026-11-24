@@ -12,8 +12,8 @@ The identity it matches against (合わせる先) is the compared recording's (t
 else the first ``compare…``), never the first member's; with nothing compared, the most common identity of the
 usable answers, a tie going to the one declared first (仕様 2). A compared recording whose answer can be had no more
 (failed for good, too large, no such channel) is matched by its level as the spec declares it when an answer is of
-it, else as with nothing compared among the recordings with a role; the median's channel count is then the most
-common of that identity.
+it, else as with nothing compared among the recordings with a role; the median's axis and channel count are then
+the most common of that identity among the recordings with a role, else among all.
 
 The reasons, in the order they are tried:
 

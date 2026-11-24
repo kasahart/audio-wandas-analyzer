@@ -1157,3 +1157,29 @@ test('a region past the end of the compared recording leaves its line out, says 
     // A standing failure is an answer: the headline keeps the region.
     await expect(page.locator('[data-stage-headline]')).toContainText(`${STR.stepRegion} 0.50–1.50 s`);
 });
+
+test('a region past the end of every recording says that none could be computed, not that the step cannot be shown (#817)', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    await openComparison(page, 'en', scanned, true);
+    const root = page.locator('.track-stage');
+    const bar = page.locator('.track-stage-bar');
+    await bar.locator('[data-action="step-insert"][data-after="node-1"]').click();
+    await bar.locator('.step-menu-item[data-op="wandas.frame.time_slice"]').click();
+    await bar.locator('[data-step-region-param="start"]').fill('0.5');
+    await bar.locator('[data-step-region-param="end"]').fill('1.5');
+    await bar.locator('[data-step-region-param="end"]').press('Enter');
+    await expect(root).toHaveAttribute('data-region', '0.50–1.50');
+    await bar.locator('[data-step-hold="node-2"]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)).toMatchObject({ region: { start: 0.5, end: 1.5 }, stage: 'node-2' });
+    const request = (await stageScans(page)).at(-1)!;
+    await page.evaluate(request => {
+        for (const filePath of request.filePaths) {
+            window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ok: false, reason: 'region ends after the file (5.000 s)', lasting: true } }, '*');
+        }
+        window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
+    }, request);
+    const message = page.locator('.track-stage [data-stage-message]');
+    await expect(message).toHaveText(STR.stageNothingComputed);
+    await expect(message).not.toContainText(STR.stepNotDrawable.split('{frame}')[0].trim());
+});
