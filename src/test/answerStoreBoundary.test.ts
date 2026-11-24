@@ -13,7 +13,7 @@ import path from 'node:path';
 import test from 'node:test';
 import ts from 'typescript';
 import { ANSWER_DECLARATIONS, answerProgram, findAnswerWrites, findFileKeysWithoutVersion, findFilelessKeys, findHeldCollections, findLatestAnswers, findScheduling, isAnswerSource, type HeldCollection } from './answerBoundary';
-import { FILELESS_KEYS, LATEST_ANSWERS, NOT_ANSWER_WRITES, NOT_ANSWERS, SCHEDULING_OWNERS, UNMIGRATED_CEILING, type Listed } from './answerBoundaryAllowlist';
+import { FILELESS_KEYS, LATEST_ANSWERS, NOT_ANSWER_WRITES, NOT_ANSWERS, SCHEDULING_OWNERS, SCHEDULING_OWNERS_CEILING, UNMIGRATED_CEILING, type Listed } from './answerBoundaryAllowlist';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const STORE = new Set(['src/webview/runtime/answerStore.ts', 'src/webview/runtime/answerTypes.ts']);
@@ -140,6 +140,9 @@ test('no answer source schedules with a timer of its own: when a failed answer i
         'An answer source (a maker of answerStore.ts, or a fetched full source) keeps no timer: a failed read resumes through the store\'s whenFailureEnds, a pending one through whenSettled');
     assert.deepEqual(Object.keys(SCHEDULING_OWNERS).filter(file => !timed.has(file)), [], 'an entry that matches nothing any more is taken off SCHEDULING_OWNERS (the list only shrinks)');
     for (const [entry, reason] of Object.entries(SCHEDULING_OWNERS)) assert.ok(reason.why.trim().length >= 12, `${entry} says what its timers are for`);
+    const owners = Object.keys(SCHEDULING_OWNERS).length;
+    assert.ok(owners <= SCHEDULING_OWNERS_CEILING, `Rule: SCHEDULING_OWNERS only shrinks (docs/plot-layers.md, the answer store). ${owners} answer sources keep timers, more than the ${SCHEDULING_OWNERS_CEILING} allowed. Fix: take the new entry off SCHEDULING_OWNERS and wait through the store (whenFailureEnds for a failure, whenSettled for a pending answer), or move the timer out of the answer source.`);
+    assert.equal(SCHEDULING_OWNERS_CEILING, owners, `SCHEDULING_OWNERS is down to ${owners}: lower SCHEDULING_OWNERS_CEILING in src/test/answerBoundaryAllowlist.ts to it.`);
     // The region peaks are an answer source: the rule holds them.
     for (const file of ['src/webview/runtime/regionPeak.ts']) {
         const source = checked.getSourceFile(path.join(repoRoot, file));

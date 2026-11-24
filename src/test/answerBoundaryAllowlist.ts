@@ -157,6 +157,9 @@ export const LATEST_ANSWERS: Record<string, Listed> = {
  * when a failed answer is asked again is the store's (whenFailureEnds, `retried`). The list only shrinks; a new answer
  * source with a timer is not added here, it moves its timing onto the store.
  */
+/** How many answer sources may keep timers of their own (SCHEDULING_OWNERS): it only goes down. */
+export const SCHEDULING_OWNERS_CEILING = 2;
+
 export const SCHEDULING_OWNERS: Record<string, Listed> = {
     'src/webview/runtime/comparisonRuntime.ts': notAnswer('the comparison screen: frames for painting and focus, a range request gathered while scrolling, an export waiting on its pictures'),
     'src/webview/runtime/pairSpectrumPanel.ts': notAnswer('the pair panel: a request gathered while the pointer moves (PAIR_REQUEST_DELAY_MS); its retry is the store\'s `retried`'),
