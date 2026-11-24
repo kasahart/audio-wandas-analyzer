@@ -80,7 +80,7 @@ Web host（`staticHost.ts`）は port 実装と組み立てを持ち、Worker �
 で、基準と作業中の全 production source の到達元・ファイル数・非空行数を比較できる。
 型 import と build の明示 root を含む source closure であり、全行実行や機能同等性の割合ではない。
 HTML/CSS は所在する TS に含め、tests、vendor、生成物、docs、build/dev tools、設定とデータ asset は除外する。
-`verify` は shallow checkout でも動く現状監査を実行する。
+CI（`.github/workflows/ci.yml`）が shallow checkout でも動く現状監査を実行する（`npm run verify` には入っていない）。
 
 基準は共有 31 / 全体 61 ファイル (50.82%)、非空行 10,394 / 15,960 (65.13%)。
 80% は目標であり達成済みではない。native 専用の Python 環境管理、コマンド登録、Panel、
@@ -119,7 +119,7 @@ flowchart LR
 
 ### 1. 単一ファイル解析
 
-1 件の音声ファイルを選択し、その場で解析して表示する最短導線です。内部では `runAnalysis()` を 1 回だけ呼び、返ってきた `AnalysisResult` を `AnalysisResultWithError[]` の 1 要素配列として `ComparisonPanel.show()` に渡します。したがって UI 上は比較パネルでも、実際には単一トラックの詳細閲覧として振る舞います。
+1 件の音声ファイルを選択し、その場で解析して表示する最短導線です。内部では `runAnalysisBatch`（`src/shared/analysis/analysisCoordinator.ts`、`src/extension/analysisOrchestrator.ts` から呼ぶ）を 1 ファイルで呼び、返ってきた `AnalysisResult` を `AnalysisResultWithError[]` の 1 要素配列として `panelController.ts` が `ComparisonPanel.show()` に渡します。したがって UI 上は比較パネルでも、実際には単一トラックの詳細閲覧として振る舞います。
 
 ### 2. 比較ビュー
 
@@ -129,7 +129,7 @@ flowchart LR
 - フォルダを選択し、配下の対応音声ファイル群をツリーから逐次チェックして比較対象を増減させる
 - 単一ファイルを開いたあと、ツールバーから別のファイルまたはフォルダを開いて同じパネルを再利用する
 
-ディレクトリ入力では、まず extension 側が `DirectoryTreeNode[]` を構築し、ComparisonPanel を選択モードで開きます。初期状態ではトラックは空です。Webview から返った選択済みファイル一覧を extension 側で再検証したあとに `runAnalysis()` をファイルごとに繰り返し、成功トラックと失敗トラックを含む `AnalysisResultWithError[]` を同じ選択モード panel に再注入します。これによりツリーを閉じずに、右側の比較トラックだけを即時更新できます。
+ディレクトリ入力では、まず extension 側が `DirectoryTreeNode[]` を構築し、ComparisonPanel を選択モードで開きます。初期状態ではトラックは空です。Webview から返った選択済みファイル一覧を extension 側で再検証したあとに 選択したファイルで `runAnalysisBatch` を呼び、成功トラックと失敗トラックを含む `AnalysisResultWithError[]` を同じ選択モード panel に再注入します。これによりツリーを閉じずに、右側の比較トラックだけを即時更新できます。
 
 ## コンポーネント責務
 
@@ -176,7 +176,7 @@ flowchart LR
 責務:
 
 - stdin の NDJSON リクエストを検証し、`AnalysisService` に渡す
-- 共通コマンド（analyze、track-answers、release-track-detail、region-peak、cursor-answers、pair-answers、export-wav-loop、build-recipe、scan）を dispatch する
+- `transport/protocol_schema.py` の `COMMANDS` にあるコマンド（analyze、scan、track-answers、figure-draw などの図のサービスの命令を含む）を検証して dispatch する
 - request ID 付きの結果または error を stdout に返す
 - 起動通知・heartbeat・request ごとの実行開始通知 (started) と stderr の診断を提供する
 
@@ -260,7 +260,7 @@ flowchart LR
 
 `stepBar.ts` は状態とイベントの配線だけを持ち、中身は同じフォルダのモジュールに分かれる: `stepBarModel.ts`（StepBarState・scan が走らせるレシピ・チェーンの並び）、`stepLabels.ts`（チップ名と走れない理由）、`stepChips.ts`（チップの行）、`stepMenu.ts`（＋のメニューと絞り込み。打つたびに描き直すのは一覧だけ）、`stepForm.ts`（⚙ のフォームとその検査）、`stepHistory.ts`（↶ ↷）、`stepGestures.ts`（タップ・長押し・ドラッグ）。トラック表示の「ステップ」モードも同様に `trackStageMode.ts` が配線、`trackStageModel.ts` が状態と scan の指定、`trackStagePainter.ts` が描画を持つ。
 
-手順バーは scan の Recipe の手順をチップで並べる。標準の Recipe はホストが `entry-conditions` で送る（`recipes/entry-scan.recipe.json`）。⚙ のフォームの項目は `recipeSteps.ts` の `STEP_PARAMS`（wandas の操作の一覧 `WANDAS_OPERATIONS` から作る）。標本化周波数に対して走れない手順のチップは赤くなり、理由を書く（`stepLabels.ts`）。編集した Recipe はフォルダのセッションに残る（`entrySession.ts`）。
+手順バーは scan の Recipe の手順をチップで並べる。標準の Recipe はホストが `entry-conditions` で送る（`python-backend/recipes/entry-scan.recipe.json`）。⚙ のフォームの項目は `recipeSteps.ts` の `STEP_PARAMS`（wandas の操作の一覧 `WANDAS_OPERATIONS` から作る）。標本化周波数に対して走れない手順のチップは赤くなり、理由を書く（`stepLabels.ts`）。編集した Recipe はフォルダのセッションに残る（`entrySession.ts`）。
 
 ### 7.5 報告の出口（PR 6）
 
@@ -288,8 +288,8 @@ flowchart LR
 
 責務:
 
-- `AnalysisResult`、`AnalysisResultWithError`、`DirectoryTreeNode` など、Extension Host と Webview の境界で共有する型を定義する
-- Python バックエンドの JSON 契約と TypeScript 側のデータ構造を同期させる
+- `AnalysisResult` など Python バックエンドの JSON 契約の型は `python-backend/transport/protocol_schema.py` から `src/shared/protocol/generated/` に生成され（verify が生成物のずれを止める）、ここは再公開するだけ
+- `AnalysisResultWithError`、`DirectoryTreeNode`、校正の型など、Extension Host と Webview の境界で共有する残りの型を定義する
 
 設計上のポイント:
 
@@ -380,7 +380,6 @@ src/
     panelSession.ts         パネルと Webview の間のポートと選択状態
     targetDiscovery.ts      対象ファイル／ディレクトリの選択とツリー構築
     exportFlows.ts          WAV / PNG / CSV の書き出し
-    recipeFlow.ts           Recipe の実行
     calibrationStore.ts     CalibrationStore: 校正プロファイルの保存・revision・変更通知
     calibrationPanelRuntime.ts CalibrationPanels: 前面パネルへの校正コマンド（configureCalibration）
     folderStore.ts          フォルダ単位のスキャン索引・セッションの保存

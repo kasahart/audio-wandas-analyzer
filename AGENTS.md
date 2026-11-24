@@ -17,7 +17,7 @@ VS Code extension that analyzes audio files. The extension host is TypeScript; t
 User picks audio file
   → src/extension/extensionContributions.ts (command handler; wired up in index.ts)
   → AnalysisClient → PythonBackendServer (persistent child process, NDJSON IPC)
-  → python-backend/backend_server.py → command_dispatch.py → AnalysisService
+  → python-backend/backend_server.py → transport/command_dispatch.py → AnalysisService
   → src/webview/panels/ComparisonPanel.ts renders Webview
 ```
 
@@ -54,7 +54,7 @@ Node 22 (`.nvmrc`, `engines.node`) and Python 3.11 are the supported versions (m
 
 ## 3. Canonical commands — the completion bar
 
-**An agent's work is "done" only when `npm run verify` exits 0.** This is the single source of truth for correctness. `scripts/verify.mjs` (plain Node, runs on Windows/macOS/Linux) lists every step: compile, ESLint, Webview pattern lint, generated protocol types, single-source check, skills-copy check, GUI triggerability audit, node:test, ruff, pyright, pytest.
+**An agent's work is "done" only when `npm run verify` exits 0.** This is the single source of truth for correctness. `scripts/verify.mjs` (plain Node, runs on Windows/macOS/Linux) lists every step in its `lanes`: compile, ESLint, Webview pattern lint, generated protocol types, single-source check, skills-copy check, GUI triggerability audit, node:test, ruff check, ruff format --check, pyright, the figure service import check (`scripts/check_figure_imports.py`), pytest, and the skip gate (`scripts/test-skips.mjs`). Other docs point here instead of copying this list.
 
 pytest opt-ins: `AWA_SLOW=1` runs the slow operation-catalog probe (CI sets it on Linux); `AWA_PERF=1` holds wall-clock budgets in pytest, node:test and the Playwright smoke, which are otherwise only reported. Without its variable an opt-in test is deselected, not skipped.
 
@@ -165,7 +165,7 @@ Line endings: every text file is LF in the repository and in every checkout, on 
 ### Charts
 
 - Every chart follows the numbered rules in [docs/display-rules.md](docs/display-rules.md). A change that decides a new rule adds it there with the test that checks it; `src/test/displayRules.test.ts` fails when a listed test is missing or any rule is marked 未.
-- A figure (every chart on screen) is one picture of the figure service put on screen by the Figure; its values are held by the figure service's tests (`python-backend/test_figures_*.py`) and the Figure's (`src/test/figureComponent.test.ts`, `src/test/uiSmoke/plotContract.spec.ts`), not by the contract table. The contract table (`src/test/plotContracts/charts/<chart>.ts`, one file per chart, rendered to [docs/plot-contracts.md](docs/plot-contracts.md)) lists what the screens write themselves: the numbers of the track headers, the toolbar, the tables and the files written. `src/test/plotContracts.test.ts` fails when a function of `runtime/` or `shared/` that writes a number (`toFixed`… or a `VALUE_HELPERS` call) or a numeric protocol field (`schema.ts`) is missing from it; when a row's source disagrees with what its functions read; when a named test or function does not exist; or when the gaps differ from each chart's `knownGaps` or from `GAP_CEILING`, which only goes down. Regenerate the doc with `npm run compile && node dist/test/plotContracts/render.js`. See [docs/plot-contracts-guide.md](docs/plot-contracts-guide.md).
+- A figure (every chart on screen) is one picture of the figure service put on screen by the Figure; its values are held by the figure service's tests (`python-backend/test_figures_*.py`) and the Figure's (`src/test/figureComponent.test.ts`, `src/test/uiSmoke/plotContract.spec.ts`), not by the contract table. The contract table (`src/test/plotContracts/charts/<chart>.ts`, one file per chart, rendered to [docs/plot-contracts.md](docs/plot-contracts.md)) lists what the screens write themselves: the numbers of the track headers, the toolbar, the tables and the files written. `src/test/plotContracts.test.ts` fails when a function of `runtime/` or `shared/` that writes a number (`toFixed`… or a `VALUE_HELPERS` call) or a numeric protocol field (`schema.ts`) is missing from it; when a named test or function does not exist; or when the gaps differ from each chart's `knownGaps` or from `GAP_CEILING`, which only goes down. Regenerate the doc with `npm run compile && node dist/test/plotContracts/render.js`. See [docs/plot-contracts-guide.md](docs/plot-contracts-guide.md).
 - A number a user reads comes from the full data, never from points thinned to draw. The webview holds no measured data: every number it writes is one the backend answered. Points thinned to be drawn exist only in a figure's picture: Python `Drawn` / `DrawnImage` are made in `python-backend/figures/thinning.py` and sent by `figures/picture.py` alone (`scripts/check_figure_imports.py`, rule B), and the generated TypeScript type `FigureDrawn` cannot be computed with and is imported by `src/webview/figure/` alone (ESLint). The backend's folders import one way: entries → `transport/` → `figures/`, `services/` → `frames/` (same script, rule F). Which layer decides what: [docs/plot-layers.md](docs/plot-layers.md).
 - Adding a chart, a number a user reads, or a canvas/SVG: read [docs/plot-contracts-guide.md](docs/plot-contracts-guide.md) first. It says what the contract tests will ask of you (rows, `NOT_CHART_VALUES`, `surfaces.ts`, proof tests with `assertNotDrawn` / `assert_not_drawn`, `scripts/check_test_proofs.py`).
 - Adding a kind of figure to the new path (the figure service and the Figure component): read [docs/figure-kinds-guide.md](docs/figure-kinds-guide.md). It lists the steps as they were done for the heatmap, the time signal and the distribution.
@@ -190,7 +190,7 @@ Every browser layer runs in a pinned locale, never the machine's: headless Chrom
 
 - `scripts/verify-gui-triggerability.js` compares the declared GUI inventory against:
   - contributed VS Code commands in `package.json`
-  - `data-action` buttons in `src/webview/runtime/comparisonRuntime.ts`
+  - `data-action` buttons in any `src/webview/**/*.ts` (a literal attribute or a `setAttribute('data-action', …)` call)
   - shortcut rows exported from `src/webview/runtime/shortcuts.ts`
 - The source of truth for the inventory lives in `src/shared/gui/guiTriggerabilityInventory.ts`
 - Scope is **user-facing GUI features only**
@@ -208,6 +208,7 @@ Every browser layer runs in a pinned locale, never the machine's: headless Chrom
 
 1. **Read this file before any non-trivial change.**
 2. **Don't create new files** unless the task genuinely requires it. Prefer editing existing files. No new markdown docs unless the user asks.
+   A doc names files and code only as they are now: `src/test/docNames.test.ts` fails on a backticked path or a camelCase or snake_case name in AGENTS.md, the READMEs, `.github/` or `docs/` that is not in the repository. When you move or rename something, fix the docs in the same change.
 3. **Read-only paths**: `dist/`, `.venv/`, `node_modules/`, `.vscode-test/`, `.worktrees/`. Never edit or stage them.
 4. **Completion bar**: `npm run verify` must pass before claiming the task is done. If you can't run it, say so explicitly — don't claim success.
 5. **No comments restating what the code does.** No multi-paragraph docstrings. No "added for issue #X" notes.
@@ -220,4 +221,4 @@ Every browser layer runs in a pinned locale, never the machine's: headless Chrom
 
 - **Claude Code**: also read [CLAUDE.md](CLAUDE.md). It documents the available `wandas-*` skills and `.claude/settings.json` permissions.
 - **Codex**: also read [CODEX.md](CODEX.md). It documents the project `.codex/config.toml`, repo skills under `.agents/skills/`, and the worktree edit hook.
-- **GitHub Copilot**: also read [.github/copilot-instructions.md](.github/copilot-instructions.md). It restates the completion bar and the waveform-mirror invariant in a form Copilot picks up automatically.
+- **GitHub Copilot**: also read [.github/copilot-instructions.md](.github/copilot-instructions.md). It restates the completion bar in a form Copilot picks up automatically.

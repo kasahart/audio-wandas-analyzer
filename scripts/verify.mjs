@@ -3,8 +3,8 @@
 // An agent's task is not done until this script exits 0. Plain Node, so it runs the same on Windows.
 //
 // Runs: tsc compile, ESLint, Webview pattern lint, generated protocol types, single-source consistency,
-// agent skills copy, GUI triggerability audit, node:test, ruff check + format --check, pyright, the backend's
-// drawn-points flow check, the figure service import check, pytest, and the skip gate (in CI, CI=true, a test that
+// agent skills copy, GUI triggerability audit, node:test, ruff check + format --check, pyright, the figure service
+// import check, pytest, and the skip gate (in CI, CI=true, a test that
 // skips fails unless scripts/test-skip-allowlist.json lists it: scripts/test-skips.mjs).
 //   AWA_VERIFY_BROWSER=1  also checks the browser runtime assets and Worker/native parity
 //   AWA_SLOW=1            also runs the slow pytest checks (the operation catalog's probe); CI sets it
@@ -85,9 +85,9 @@ const lanes = [
         // Configured in pyproject.toml ([tool.pyright]); --pythonpath points it at the interpreter verify runs. pyright
         // needs that interpreter's absolute path: given a bare command (`python3`) it finds no site-packages.
         ['pyright', ...py('-m', 'pyright', '--pythonpath', () => pythonExecutable())],
-        // What the backend thins to draw (min/max per bucket, block averages) never becomes a number it sends (R1, R2).
         // The figure service's folder rules (figure-design.md 第 2 節 A, B, F): what figures/ imports, numpy only
-        // in the five rule files, the name Drawn only where it is made and received.
+        // in the five rule files, the name Drawn only where it is made and received, so what the backend thins to
+        // draw never becomes a number it sends (R1, R2).
         ['figure service imports and Drawn (scripts/check_figure_imports.py)', ...py('scripts/check_figure_imports.py')],
         ['pytest', ...py('-m', 'pytest', 'python-backend', ...pytestArgs, ...pytestSkipArgs(pytestSkips)), { after: 'tsc compile' }],
         ['skipped tests (in CI only those scripts/test-skip-allowlist.json lists)', ...node('scripts/test-skips.mjs', 'check', `node:test=${nodeSkips}`, `pytest=${pytestSkips}`), { after: 'node:test' }],
