@@ -2,7 +2,7 @@
 // Do not edit; run `python -m services.operation_catalog --write` in python-backend/.
 import type { CatalogFrame, CatalogOperation } from '../recipeCatalog';
 
-export const WANDAS_VERSION = "0.13.2";
+export const WANDAS_VERSION = "0.14.0";
 
 export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
     {

@@ -21,8 +21,8 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 # The Recipe is written by the Analyzer's wandas: the same range as its own dependency (pyproject.toml).
-REQUIRES_WANDAS = (0, 13, 2)
-BEFORE_WANDAS = (0, 14, 0)
+REQUIRES_WANDAS = (0, 14, 0)
+BEFORE_WANDAS = (0, 15, 0)
 HERE = Path(__file__).resolve().parent
 
 

@@ -97,8 +97,8 @@ function readme(input: BatchInput, count: number, channels: ReadonlyArray<number
 - run_recipe.py: wandas の公開 API だけで、targets.csv の録音に Recipe を順に掛けます。
 - アプリの中では何も実行していません。
 
-実行（wandas 0.13.2 以上と、WDF の保存に使う wandas[io]）
-  pip install -U "wandas[io]>=0.13.2"
+実行（wandas 0.14.0 以上と、WDF の保存に使う wandas[io]）
+  pip install -U "wandas[io]>=0.14.0"
   python run_recipe.py --root "${root}" --out outputs --jobs 4
 
 結果
@@ -115,8 +115,8 @@ Contents
 - run_recipe.py: applies the Recipe to every recording in targets.csv, with the wandas public API only.
 - Nothing was run in the app.
 
-Run (wandas 0.13.2 or later, with wandas[io] for saving WDF)
-  pip install -U "wandas[io]>=0.13.2"
+Run (wandas 0.14.0 or later, with wandas[io] for saving WDF)
+  pip install -U "wandas[io]>=0.14.0"
   python run_recipe.py --root "${known || '<the recordings folder>'}" --out outputs --jobs 4
 
 Results
