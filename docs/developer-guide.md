@@ -58,11 +58,11 @@ npm run verify:e2e
 
 | Task | Main files |
 | --- | --- |
-| Register commands / wire VS Code actions | `src/extension/index.ts` |
+| Register commands / wire VS Code actions | `src/extension/extensionContributions.ts` (commands, menus), `src/extension/index.ts` (activation, wiring) |
 | Comparison panel shell / HTML container | `src/webview/panels/ComparisonPanel.ts` |
 | Webview interaction logic | `src/webview/runtime/` |
 | Drawing a figure | `src/webview/figure/figure.ts`, `src/webview/charts/`, `python-backend/figures/` |
-| Shared data contracts | `src/shared/analysis/analysisTypes.ts` |
+| Shared data contracts | `python-backend/transport/protocol_schema.py` (generated into `src/shared/protocol/generated/`), `src/shared/analysis/analysisTypes.ts` |
 | Full-file backend analysis | `python-backend/services/analyzer.py` |
 | Thinning the points drawn | `python-backend/figures/thinning.py` |
 | The answers kept for the Tracks figures | `python-backend/services/analysis_service.py`, `python-backend/services/tracks_answers.py` |

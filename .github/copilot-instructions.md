@@ -4,7 +4,7 @@
 
 ## Completion bar
 
-A change is only finished when `npm run verify` exits 0. `scripts/verify.mjs` lists its steps: `tsc` compile and Webview bundles, ESLint, Webview pattern lint, generated protocol types, single-source check, `.claude/skills` copy check, GUI triggerability audit, `node:test`, `ruff check` / `ruff format --check`, and `pytest`.
+A change is only finished when `npm run verify` exits 0. Its steps are the `lanes` of `scripts/verify.mjs`, listed in AGENTS.md §3.
 
 `npm run lint` (ESLint, `eslint.config.mjs`) is part of verify; fix findings rather than disabling rules; source files may not use non-null assertions (`!`).
 
@@ -34,9 +34,9 @@ Never suggest edits to these directories — they are generated, vendored, or en
 - `.vscode-test/`
 - `.worktrees/`
 
-## Webview waveform pipeline
+## Webview bundles and figures
 
-`src/webview/waveform/waveformRenderer.ts` is the single source of truth for the comparison panel's waveform rendering. `scripts/build-webview.js` (run automatically by `npm run compile`) bundles tsc's output with esbuild into an IIFE and emits `dist/webview/comparisonWaveform.js`, which the Webview loads via `<script src>`. Do not hand-edit the generated file.
+`scripts/build-webview.js` (run by `npm run compile`) bundles the Webview with esbuild into `dist/webview/comparisonRuntime.js` and `dist/webview/staticHost.js`. Do not hand-edit them; edit the TypeScript under `src/webview/`. Every figure is drawn by one component, `src/webview/figure/figure.ts`, from a picture of the figure service (`python-backend/figures/`); see AGENTS.md §5 Charts.
 
 ## GUI completion
 

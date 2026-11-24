@@ -177,7 +177,7 @@
 |---|---|---|---|
 | A. 答えは 1 層目の演算の結果だけ | 2 層目に書いてよい計算は第 1 節の 5 種類だけ | `figures/` の中で numpy を使えるファイルを、5 種類の規則のファイルに限る（import の検査） | 規則のファイルの中に答えの計算を書くこと。これはレビューと、わざと誤りを入れるテスト（第 9 節）で止める |
 | B. 描く用の点は答えと型を分ける | Python では、間引いた配列は `Drawn` 型に包む。`Drawn` を作れるのは間引きのファイルだけ。受け取れるのは絵を組み立てるファイルだけ。確定範囲、読む点、見出し、件数の関数は `Drawn` を受け取らない。TypeScript は描く用の点の型を `figure/` の外に公開しない | Python は型検査（このリポジトリが verify で使っている検査器をそのまま使う）と、`Drawn` の名前が出てよいファイルを調べる短い検査。TypeScript は ESLint | 型を外して配列を取り出すこと。取り出せる関数を 1 つに限り、検査で呼び出し元を限る |
-| C. 1 図 = 1 部品、絵を作るのは 2 層目だけ | 描く、目盛り、読み値、クリック、キー、ズームは Figure 部品が受け持つ。個々の図は配線を書かない。3 層目は絵を作らない | Canvas とポインターのコードは `figure/` の中だけ（ESLint） | |
+| C. 1 図 = 1 部品、絵を作るのは 2 層目だけ | 描く、目盛り、読み値、クリック、キー、ズームは Figure 部品が受け持つ。個々の図は配線を書かない。3 層目は絵を作らない | Canvas とポインターのコードは `figure/` の中だけ（ESLint。表の新しいフォルダだけを調べる） | `src/webview/runtime/` に残る Canvas とポインターのコード。そこで Canvas に描くファイルは `scripts/lint-webview-patterns.js` の `CANVAS_DRAWING_FILES` に名前で載せる |
 | D. 1 つの規則の実装は 1 か所 | 同じ規則を 2 つの言語や 2 つの経路に書かない | レビューと、両方の言語が読む共有のテストデータ | |
 | E. 返事は要求と結び付ける | 返事は絵の id と要求の番号を持つ。Figure は、いまの絵への、いちばん新しい要求への返事だけを使う | 順序を入れ替えるテスト | |
 | F. 依存は一方向 | フォルダが層を表す。import できる向きを決める | ESLint の標準の規則と、Python の短いスクリプト | ファイルの置き場所だけを見る。中身は見ない |
@@ -436,14 +436,15 @@ wandas にまだ無い 1 層目の演算（録音をまたぐ中央値、レベ�
 | `src/webview/shell/` | 文字列、数の書き方、DOM の小道具、ポップオーバー | なし |
 | `python-backend/figures/` | 図のサービス。第 5 節の 3 つの手順。規則ごとに 1 ファイル（`members`、`ranges`、`thinning`、`pick`、`headline`）と、絵を組み立てる `picture`。答えを引くインターフェース | `frames`、wandas と wandas-extras の演算。numpy を使えるのは、第 1 節の 5 種類の計算のファイルだけ |
 | `python-backend/frames/` | Frame の種類ごとに、値・軸・量・単位・基準を取り出す。算術をしない | wandas |
-| `python-backend/services/` | 走査、解析エンジン（`analysis_engine.py`）、答えの保持。図以外の処理もここ。手順の組み立てと操作の一覧（`recipe_builder.py`、`operation_catalog.py`）、WAV の書き出し、環境の確認、一括実行（`batch/run_recipe.py`） | `frames`、wandas と wandas-extras の演算 |
+| `python-backend/services/` | 走査、解析エンジン（`analysis_engine.py`）、答えの保持。図以外の処理もここ。手順の組み立てと操作の一覧（`recipe_builder.py`、`operation_catalog.py`）、WAV の書き出し、環境の確認 | `frames`、wandas と wandas-extras の演算 |
+| `python-backend/batch/` | 一括実行のスクリプト（`run_recipe.py`）。書き出したレシピの束に入り、アナライザーの外で wandas だけで動く | wandas だけ（`scripts/check_figure_imports.py` の対象外） |
 | `python-backend/transport/` | 要求の振り分け（`command_dispatch.py`）、プロトコルの定義（`protocol_schema.py`）、図のサービスへ答えを渡す所（`figure_answers.py`） | `figures`、`services` |
 | `python-backend/` の直下 | プロセスの入口（`backend_server.py`、Web 版の `browser_service.py`） | `transport` |
 
 守り方は次のとおりです。
 
 - TypeScript は ESLint の標準の規則（`no-restricted-imports`）をフォルダごとに設定します（`eslint.config.mjs`）。Python はフォルダ間の import を調べる短いスクリプト（`scripts/check_figure_imports.py`）を verify に入れています。どちらもファイルの場所だけを見ます。保証するのは置き場所と依存の向きだけです。中身が責務に合っているかは、型（第 2 節の B）、レビュー、わざと誤りを入れるテストで守ります。
-- Canvas に描くコードとポインターを受け取るコードは `figure/` の中だけに置きます。
+- Canvas に描くコードとポインターを受け取るコードは `figure/` の中だけに置きます。ESLint が調べるのは上の表の新しいフォルダだけで、画面ごとに分ける前の `runtime/` には、まだ Canvas とポインターのコードがあります。
 - `src/webview/runtime/` には、画面ごとに分ける前の画面のコードがあります。上の表のフォルダは `runtime/` を import できません。
 - `src/shared/` は、プロトコルの型と、拡張機能と webview が共有する型・定数・手順の定義を置く場所です。測定値の算術と図の判断（集まり、範囲、間引き、読む点、見出し）は置きません。
 

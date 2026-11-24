@@ -166,7 +166,8 @@ regenerated), `src/test/stageViewKinds.test.ts` (a kind a step can give that the
 ### The backend's folders
 
 `python-backend/` holds two entries and four folders, and a module imports only the folders below its own
-(`scripts/check_figure_imports.py`, rule F, run by verify):
+(`scripts/check_figure_imports.py`, rule F, run by verify). Beside them, `batch/` (the batch runner a Recipe bundle
+carries, which imports only wandas), `recipes/` (Recipe files) and `tests/` (test helpers) are outside rule F:
 
 | Folder | Holds | May import |
 | --- | --- | --- |
