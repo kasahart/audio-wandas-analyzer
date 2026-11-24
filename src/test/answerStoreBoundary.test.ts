@@ -142,7 +142,7 @@ test('no answer source schedules with a timer of its own: when a failed answer i
     for (const [entry, reason] of Object.entries(SCHEDULING_OWNERS)) assert.ok(reason.why.trim().length >= 12, `${entry} says what its timers are for`);
     const owners = Object.keys(SCHEDULING_OWNERS).length;
     assert.ok(owners <= SCHEDULING_OWNERS_CEILING, `Rule: SCHEDULING_OWNERS only shrinks (docs/plot-layers.md, the answer store). ${owners} answer sources keep timers, more than the ${SCHEDULING_OWNERS_CEILING} allowed. Fix: take the new entry off SCHEDULING_OWNERS and wait through the store (whenFailureEnds for a failure, whenSettled for a pending answer), or move the timer out of the answer source.`);
-    assert.equal(SCHEDULING_OWNERS_CEILING, owners, `SCHEDULING_OWNERS is down to ${owners}: lower SCHEDULING_OWNERS_CEILING in src/test/answerBoundaryAllowlist.ts to it.`);
+    assert.equal(SCHEDULING_OWNERS_CEILING, owners, `Rule: SCHEDULING_OWNERS only shrinks, and its ceiling follows it down (docs/plot-layers.md, the answer store). It is down to ${owners}. Fix: lower SCHEDULING_OWNERS_CEILING in src/test/answerBoundaryAllowlist.ts to ${owners}.`);
     // The region peaks are an answer source: the rule holds them.
     for (const file of ['src/webview/runtime/regionPeak.ts']) {
         const source = checked.getSourceFile(path.join(repoRoot, file));
