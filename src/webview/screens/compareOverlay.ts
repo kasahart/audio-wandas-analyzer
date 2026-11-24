@@ -11,7 +11,7 @@
  * The Figure lives while the overlay is shown: hidden, it is disposed (its holdings released, 第 6 節); shown again,
  * a new one is made.
  */
-import { compareOverlay, DELTA_LANE, eventKey, eventLine, imageLaneLine, isBaseLine, OVERLAY_LANE, OVERLAY_LINE, type CompareOverlayInputs } from '../charts/compareOverlay';
+import { compareOverlay, DELTA_LANE, eventKey, eventLine, imageLaneLine, isBaseLine, OVERLAY_LANE, OVERLAY_LINE, OWN_LANE, type CompareOverlayInputs } from '../charts/compareOverlay';
 import { secondsText } from '../shell/numberText';
 import type { ExportDropReason, FigureAnswers } from '../answers/figureRequests';
 import { answersLetGo } from '../answers/figureKeys';
@@ -249,6 +249,9 @@ export function createCompareOverlayScreen(deps: CompareOverlayDeps): CompareOve
             lineStyle: styleOfLine,
             // An image lane is named by its recording (the lanes are not overlaid: each says whose it is).
             laneLabel: lane => { const line = imageLaneLine(lane); return line ? nameOfLine({ id: line }) : lane; },
+            // So is a recording's own lane of lines (「One lane per track」): the lanes' colours alone did not say whose
+            // each is (a recording of no slot is grey, as every other one is).
+            laneTitle: lane => (lane.startsWith(OWN_LANE('')) ? nameOfLine({ id: lane.slice(OWN_LANE('').length) }) : undefined),
             // A zoom undone shows the whole recording's lines at once, as the widest picture drew them, while the
             // picture of the whole range is on its way (it took 0.5 to 0.7 s, and the plot stood empty but for the
             // zoomed part stretched).
