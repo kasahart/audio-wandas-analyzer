@@ -165,10 +165,13 @@ export function createStageSource(prefix: string, post: (message: CompareScanMes
             if (publication.type === 'compare-scan-result' && request && basis !== undefined) {
                 const { key, spec } = request.meta;
                 const answer = fileKey(key, publication.filePath, basis);
-                // A step that cannot run on the file (failedStep) is its answer; any other failure (the file unreadable
-                // for now, the backend restarted) may pass: it stands for the store's pause and is then asked again.
+                // A step that cannot run on the file (failedStep) is its answer. A request that does not fit the file
+                // (lasting: a region past its end) fails the same way until the key changes, so it is not asked again;
+                // any other failure (the file unreadable for now, the backend restarted) may pass: it stands for the
+                // store's pause and is then asked again. Asking again is a scan, which holds the figure's reads in
+                // the browser build, so a lasting failure asked every pause made the figure blink.
                 if (publication.result.ok || publication.result.failedStep) answers.ready(answer, publication.result, { identity: stageIdentity(spec, publication.filePath, publication.result, basis) });
-                else answers.fail(answer, publication.result.reason);
+                else answers.fail(answer, publication.result.reason, publication.result.lasting === true);
             }
             if (publication.type === 'compare-scan-done') requests.settle(publication.requestId);
             changed();

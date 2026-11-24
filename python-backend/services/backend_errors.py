@@ -128,6 +128,28 @@ def error_kind(error: BaseException) -> str:
     return INVALID_INPUT if isinstance(error, InputError) else ANALYSIS_FAILED
 
 
+def lasting_failure(error: BaseException) -> bool:
+    """Whether asking again for the same file and request fails the same way: the request does not fit the file
+    (invalid input or analysis settings) at every link of the ``raise ... from`` chain. A link that may pass (memory,
+    an unreadable or stale file) or a fault (an exception that is no InputError and no settings error) is not lasting,
+    even under an InputError that wraps it."""
+    if error_kind(error) not in (INVALID_INPUT, ANALYSIS_SETTINGS):
+        return False
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, InputError):
+            if current.code != INPUT_ERROR or current.kind not in (INVALID_INPUT, ANALYSIS_SETTINGS):
+                return False
+        elif _link_kind(current) != ANALYSIS_SETTINGS:
+            return False
+        current = (
+            current.__cause__ if current.__cause__ is not None or current.__suppress_context__ else current.__context__
+        )
+    return True
+
+
 def error_payload(error: BaseException) -> dict[str, str]:
     code = error.code if isinstance(error, InputError) else INTERNAL_ERROR
     return {"code": code, "kind": error_kind(error), "message": str(error) or type(error).__name__}

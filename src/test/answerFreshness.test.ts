@@ -32,6 +32,27 @@ test('a step picture that failed for a passing reason is no picture for the paus
     assert.deepEqual(posted[1].filePaths, ['/a.wav']);
 });
 
+test('a scan the request does not fit (a region past the file) is not asked again; a new region is', () => {
+    let now = 0;
+    const posted: Array<{ requestId?: string; filePaths?: string[] }> = [];
+    let redraws = 0;
+    const stages = createStageSource('t', message => posted.push(message), () => { redraws += 1; }, () => '', () => now);
+    const spec = { key: 'region 6-8', message: { stage: 's1' } };
+    stages.ensure(spec, ['/short.wav']);
+    const requestId = posted[0].requestId ?? '';
+    stages.handle({ type: 'compare-scan-result', requestId, filePath: '/short.wav', result: { ok: false, reason: 'region ends after the file (5.000 s)', lasting: true } } as { type: string });
+    stages.handle({ type: 'compare-scan-done', requestId } as { type: string });
+    assert.equal(stages.view(spec, '/short.wav'), null, 'drawn as no picture');
+    assert.equal(stages.failure(spec, '/short.wav'), 'region ends after the file (5.000 s)', 'its reason is said');
+    const before = redraws;
+    now += FAILED_RETRY_MS * 10;
+    // Each scan holds the figure's reads in the browser build (it drew empty, "Computing…"): asked every pause, it blinked.
+    assert.equal(stages.ensure(spec, ['/short.wav']), false, 'not asked again however long it stands');
+    assert.equal(posted.length, 1);
+    assert.equal(redraws, before, 'nobody is woken to ask again');
+    assert.equal(stages.ensure({ key: 'region 1-2', message: { stage: 's1' } }, ['/short.wav']), true, 'another region is another request');
+});
+
 test('a rescan that failed is not the version the pictures were taken of; one still running keeps it', () => {
     const scans = new Map<string, ScanResult>([['/a.wav', { ok: true, input: { id: 'v1' } } as ScanResult]]);
     const basisOf = stageBasis(path => scans.get(path));

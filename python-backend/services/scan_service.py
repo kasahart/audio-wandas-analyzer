@@ -45,7 +45,7 @@ from frames import analysis_spec as spec
 from frames.level_identity import level_identity
 from frames.stage_view import StageView, channel_unit, describe, read_frame
 from services.analyzer import has_full_scale
-from services.backend_errors import InputError
+from services.backend_errors import InputError, lasting_failure
 from services.calibration_profile import CalibrationStatus, resolve_calibration_profile
 from services.stage_combine import STORE, stage_data
 
@@ -103,6 +103,9 @@ class ScanResult(TypedDict):
     #: ``data`` key) and nothing is combined of them; the comparison says the base is too large.
     stageDataTooLarge: NotRequired[bool]
     failedStep: NotRequired[str]
+    #: With ``ok: false``: the request does not fit this file (its region, channels or Recipe), so asking again
+    #: for the same file version, calibration, Recipe and region gives the same answer. Other failures may pass.
+    lasting: NotRequired[bool]
 
 
 class StepFailure(InputError):
@@ -765,6 +768,8 @@ def scan(
         result: ScanResult = {"ok": False, "reason": _first_line(error)}
         if isinstance(error, StepFailure):
             result["failedStep"] = error.step
+        elif lasting_failure(error):
+            result["lasting"] = True
     finally:
         # Files opened only for the scan are not kept: a 100-file scan must not hold 100 frames.
         if cached is not None and not was_cached:

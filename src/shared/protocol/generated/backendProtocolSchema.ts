@@ -2943,6 +2943,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "failedStep": {
                     "type": "string"
+                },
+                "lasting": {
+                    "type": "boolean"
                 }
             },
             "additionalProperties": false
@@ -3828,6 +3831,7 @@ export interface ScanResult {
     stage?: StageView;
     stageDataTooLarge?: boolean;
     failedStep?: string;
+    lasting?: boolean;
 }
 
 export interface BackendErrorPayload {
