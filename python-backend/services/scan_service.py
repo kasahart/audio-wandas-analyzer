@@ -45,7 +45,7 @@ from frames import analysis_spec as spec
 from frames.level_identity import level_identity
 from frames.stage_view import StageView, channel_unit, describe, read_frame
 from services.analyzer import has_full_scale
-from services.backend_errors import InputError
+from services.backend_errors import ANALYSIS_SETTINGS, INPUT_ERROR, INVALID_INPUT, InputError
 from services.calibration_profile import CalibrationStatus, resolve_calibration_profile
 from services.stage_combine import STORE, stage_data
 
@@ -103,6 +103,9 @@ class ScanResult(TypedDict):
     #: ``data`` key) and nothing is combined of them; the comparison says the base is too large.
     stageDataTooLarge: NotRequired[bool]
     failedStep: NotRequired[str]
+    #: With ``ok: false``: the request does not fit this file (its region, channels or Recipe), so asking again
+    #: for the same file version, calibration, Recipe and region gives the same answer. Other failures may pass.
+    lasting: NotRequired[bool]
 
 
 class StepFailure(InputError):
@@ -690,6 +693,14 @@ def _stage_result(
     return result
 
 
+def _lasting(error: BaseException) -> bool:
+    """Whether the failure is of the request on this file, so asking again would fail the same way. A file that
+    could not be read, a memory budget, a stale version or a fault in the backend may pass."""
+    return (
+        isinstance(error, InputError) and error.code == INPUT_ERROR and error.kind in (INVALID_INPUT, ANALYSIS_SETTINGS)
+    )
+
+
 def _first_line(error: BaseException) -> str:
     text = str(error).strip()
     line = text.splitlines()[0] if text else type(error).__name__
@@ -765,6 +776,8 @@ def scan(
         result: ScanResult = {"ok": False, "reason": _first_line(error)}
         if isinstance(error, StepFailure):
             result["failedStep"] = error.step
+        elif _lasting(error):
+            result["lasting"] = True
     finally:
         # Files opened only for the scan are not kept: a 100-file scan must not hold 100 frames.
         if cached is not None and not was_cached:

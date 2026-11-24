@@ -1258,6 +1258,9 @@ DEFINITIONS: dict[str, Schema] = {
             "stageDataTooLarge": {"type": "boolean"},
             # With ``ok: false``: the Recipe step (node id) that failed on this file.
             "failedStep": {"type": "string"},
+            # With ``ok: false``: the request does not fit this file (region, channels, Recipe); asking again for
+            # the same file version, calibration, Recipe and region fails the same way, so it is not asked again.
+            "lasting": {"type": "boolean"},
         },
     },
     # Codes and kinds from backend_errors.py; hosts branch on the code and word the user's summary from the

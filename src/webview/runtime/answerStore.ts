@@ -117,7 +117,8 @@ export interface AnswerStore<T> {
     empty(key: AnswerKey, identity?: AnswerIdentity): void;
     /**
      * The answer failed (and why, when the host said): it reads as failed until FAILED_RETRY_MS have passed, then is
-     * asked again; `lasting` (asking again cannot mend it: the file changed since its track was analysed) keeps the
+     * asked again; `lasting` (asking again cannot mend it: the file changed since its track was analysed, or the
+     * request does not fit the file, as a region past its end) keeps the
      * failure until the key is forgotten or the store cleared, and nobody is told to ask again.
      */
     fail(key: AnswerKey, reason?: string, lasting?: boolean): void;

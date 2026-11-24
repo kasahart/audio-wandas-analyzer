@@ -165,6 +165,7 @@ def test_scan_input_takes_its_unit_reference_and_label_from_wandas(tmp_path: Pat
     assert _scan(service, wav, calibration=first_only) == {
         "ok": False,
         "reason": "Selected channels have different units or level references; scan them separately",
+        "lasting": True,
     }
 
 
@@ -275,27 +276,31 @@ def test_scan_selects_channels_and_applies_calibration(tmp_path: Path) -> None:
     assert mixed == {
         "ok": False,
         "reason": "Selected channels have different units or level references; scan them separately",
+        "lasting": True,
     }
 
 
 @pytest.mark.parametrize(
-    ("payload", "message"),
+    ("payload", "message", "lasting"),
     [
-        ({"region": {"start": 1.5, "end": 1.0}}, "region must satisfy"),
-        ({"region": {"start": 0.0, "end": 5.0}}, "region ends after the file"),
-        ({"region": {"start": 0.0, "end": 0.2}}, "Region is too short"),
-        ({"channels": [2]}, "channels must be distinct"),
-        ({"recipe": spectrum_recipe(RecipeSource(1, RATE), n_fft=1024)}, "time signal"),
-        ({"recipe": {"schema": "wandas.recipe", "version": 2}}, ""),
+        ({"region": {"start": 1.5, "end": 1.0}}, "region must satisfy", True),
+        ({"region": {"start": 0.0, "end": 5.0}}, "region ends after the file", True),
+        ({"region": {"start": 0.0, "end": 0.2}}, "Region is too short", True),
+        ({"channels": [2]}, "channels must be distinct", True),
+        ({"recipe": spectrum_recipe(RecipeSource(1, RATE), n_fft=1024)}, "time signal", True),
+        # A Recipe wandas cannot load is a fault, not the user's request on this file: it may pass.
+        ({"recipe": {"schema": "wandas.recipe", "version": 2}}, "", False),
     ],
 )
-def test_scan_failures_are_one_line_results(tmp_path: Path, payload: dict, message: str) -> None:
+def test_scan_failures_are_one_line_results(tmp_path: Path, payload: dict, message: str, lasting: bool) -> None:
     service = AnalysisService(AnalysisEngine())
     path = _write(tmp_path / "tone.wav", [_sine(1000, 0.5)])
 
     result = _scan(service, path, **payload)
 
-    assert set(result) == {"ok", "reason"} and result["ok"] is False
+    # The request does not fit the file: asking again for the same file and request fails the same way (lasting),
+    # so the screen does not ask again every few seconds (a region past the file's end made the comparison blink).
+    assert result == {"ok": False, "reason": result["reason"], **({"lasting": True} if lasting else {})}
     assert message in result["reason"] and "\n" not in result["reason"]
 
 
@@ -305,7 +310,10 @@ def test_scan_reports_unreadable_files(tmp_path: Path) -> None:
     broken.write_bytes(b"RIFF\x24\x00\x00\x00WAVEfmt ")
 
     assert _scan(service, str(broken))["reason"].startswith("Unable to read audio")
-    assert _scan(service, str(tmp_path / "missing.wav"))["reason"].startswith("Audio file not found")
+    missing = _scan(service, str(tmp_path / "missing.wav"))
+    assert missing["reason"].startswith("Audio file not found")
+    # A file that cannot be read now may be readable later (put back, finished writing): it is asked again.
+    assert "lasting" not in missing and "lasting" not in _scan(service, str(broken))
 
 
 def test_scan_keeps_only_frames_that_were_already_open(tmp_path: Path) -> None:
