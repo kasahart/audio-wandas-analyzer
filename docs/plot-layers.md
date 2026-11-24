@@ -135,7 +135,7 @@ Do not read a Frame's `data`, `freqs` or `times` anywhere else in the comparison
 compute a time or a frequency from a count or a fraction: the reading carries each value's x. A few services read
 their own Frames for answers outside the comparison (the Tracks rows, a recording's summary, calibration, the scan's
 power mean); `scripts/check_figure_imports.py` lists them in `FRAME_READERS` with what for (rule R, run by verify), and
-fails on a Frame read anywhere else.
+fails on a Frame read anywhere else (by the array and method names it lists, `FRAME_ARRAYS`).
 
 ### Adding a new Frame kind
 

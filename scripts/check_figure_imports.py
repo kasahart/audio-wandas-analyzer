@@ -9,7 +9,9 @@ By the files' import statements and names alone (ast), never their behaviour:
   them) and ``figures/picture.py`` (the only receiver); ``wire_points``, the one way out of either, likewise, and
   so do the fields that hold their points (``_xs``, ``_values``, ``_cells`` …, read off the two classes), so a
   thinning function's result cannot be opened anywhere else. No file outside figures/ names any of them.
-- R: a Frame's arrays (``data``, ``freqs``, ``times``, ``dB``, ``dBA``) are read only by ``frames/stage_view.py``
+- R: a Frame's arrays and the ways to take them (``data``, ``freqs``, ``times``, ``quefrencies``, ``dB``,
+  ``dBA``, ``magnitude``, ``power``, ``phase``, ``to_numpy``, ``compute``, also through ``getattr`` with the name
+  written out) are read only by ``frames/stage_view.py``
   (``read_frame``) and by the services listed in ``FRAME_READERS`` with what they read them for
   (docs/plot-layers.md, "The backend reads a Frame in one place"). By attribute name: an expression named like one
   that is not a Frame's is listed in ``NOT_FRAME_ARRAYS``.
@@ -52,7 +54,9 @@ BELOW = {
     "transport": frozenset({"frames", "services", "figures", "transport"}),
 }
 #: A Frame's arrays: read only by frames/stage_view.py's read_frame, and by FRAME_READERS (rule R).
-FRAME_ARRAYS = frozenset({"data", "freqs", "times", "dB", "dBA"})
+FRAME_ARRAYS = frozenset(
+    {"data", "freqs", "times", "quefrencies", "dB", "dBA", "magnitude", "power", "phase", "to_numpy", "compute"}
+)
 #: The services that read their own Frames for answers outside the comparison and the figure service (rule R).
 FRAME_READERS = {
     "frames/stage_view.py": "read_frame: the one reading for the comparison and the figure service",
@@ -124,6 +128,14 @@ def _numpy_from_elsewhere(tree: ast.AST) -> list[int]:
     ]
 
 
+def _frame_array(node: ast.AST) -> str:
+    """The Frame array an attribute or a ``getattr`` call reads (rule R)."""
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    assert isinstance(node, ast.Call) and isinstance(node.args[1], ast.Constant)
+    return str(node.args[1].value)
+
+
 def check(backend: Path = BACKEND) -> list[str]:
     figures = backend / "figures"
     problems: list[str] = []
@@ -173,10 +185,18 @@ def check(backend: Path = BACKEND) -> list[str]:
                     and isinstance(node.ctx, ast.Load)
                     and node.attr in FRAME_ARRAYS
                     and ast.unparse(node) not in NOT_FRAME_ARRAYS
+                ) or (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == "getattr"
+                    and len(node.args) > 1
+                    and isinstance(node.args[1], ast.Constant)
+                    and node.args[1].value in FRAME_ARRAYS
                 ):
                     problems.append(
-                        f"{where}:{node.lineno}: reads .{node.attr} of a Frame (only frames/stage_view.py read_frame "
-                        "reads a Frame for the comparison and the figure service; take its FrameReading; rule R)"
+                        f"{where}:{node.lineno}: reads .{_frame_array(node)} of a Frame (only frames/stage_view.py "
+                        "read_frame reads a Frame for the comparison and the figure service; take its FrameReading; "
+                        "rule R)"
                     )
         allowed = BELOW.get(relative.parts[0])
         if allowed is not None and not path.name.startswith("test_"):

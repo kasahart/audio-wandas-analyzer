@@ -33,6 +33,16 @@ WRONG = {
         "imports services",
     ),
     "a Frame read in figures/": ("figures/headline.py", "def _x(frame):\n    return frame.freqs\n", "reads .freqs"),
+    "a cepstrum's axis read in figures/": (
+        "figures/pick.py",
+        "def _q(frame):\n    return frame.quefrencies\n",
+        "reads .quefrencies",
+    ),
+    "a Frame taken whole by getattr in figures/": (
+        "figures/ranges.py",
+        "def _v(frame):\n    return getattr(frame, 'to_numpy')()\n",
+        "reads .to_numpy",
+    ),
     "a Frame read in transport/": (
         "transport/figure_answers.py",
         "def _v(frame):\n    return frame.data\n",
