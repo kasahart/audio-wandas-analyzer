@@ -304,7 +304,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // (On an event's line of a trigger's, what a click on it does.)
         hint: where => { if (where) deps.hint(where !== 'plot' ? strings.compareHintAxis : figureEvent ? (figureEvent.out ? strings.stageEventClickIn : strings.stageEventClickOut) : strings.compareHintPlot); },
         // The UI's strings, by the names the Figure's words have (figure.ts FigureWords).
-        answers: deps.figures, words: { ...strings, range: rangePopoverStrings(strings) }, leftOtherReference: strings.stageLeftOtherReference, label: strings.ariaStageOverlayCanvas, ...(deps.ResizeObserver ? { ResizeObserver: deps.ResizeObserver } : {}),
+        answers: deps.figures, words: { ...strings, range: rangePopoverStrings(strings) }, leftOtherReference: strings.stageLeftOtherReference, leftFailed: strings.stageLeftFailed, label: strings.ariaStageOverlayCanvas, ...(deps.ResizeObserver ? { ResizeObserver: deps.ResizeObserver } : {}),
         // The Figure's range goes with the comparison's zoom it was set under: a zoom of every plot back to the whole
         // (WHOLE_ZOOM: a step or the region changed, the comparison opened) puts another window in its place.
         zoom: () => state.window,
@@ -658,7 +658,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // recordings and the whole pictures before the zoom's detail, the region's metrics before the base group's
         // detail. No spec supersedes another on every repaint, which would leave both unfinished.
         let asking = false;
-        const lacks = (wanted: StageSpec, paths: readonly string[]): boolean => paths.some(path => source.result(wanted, path) === undefined);
+        // A failure that stands is an answer (a region past the file's end): nothing is on its way for it, so the
+        // step is not waited for (its region and trigger lanes are not held back); one asked again is missing then.
+        const lacks = (wanted: StageSpec, paths: readonly string[]): boolean => paths.some(path => source.result(wanted, path) === undefined && source.failure(wanted, path) === undefined);
         const want = (wanted: StageSpec, paths: readonly string[]): boolean => {
             const lacking = lacks(wanted, paths);
             if (lacking && !asking) asking = source.ensure(wanted, paths);
@@ -892,7 +894,11 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 // version the earlier answer's, so the picture stays and its line is not read until the new one comes.
                 const earlier = answer.state === 'ready' ? undefined : source.previous(wanted, path);
                 const data = answer.state === 'ready' ? answer.value.data : earlier?.stage?.data;
-                const freshness = data && earlier ? 'stale' : answer.state === 'ready' && !data ? 'failed' : answer.state;
+                // The compared recording's failure that is asked again after the pause (not lasting) is on its way:
+                // pending, so the figure keeps waiting for it rather than matching without it until the retry and
+                // back (members.py matches without a compared recording that failed for good: a region past its end).
+                const passing = answer.state === 'failed' && answer.retryAt !== undefined && answer.retryAt !== Infinity && path === comparePath;
+                const freshness = data && earlier ? 'stale' : answer.state === 'ready' && !data ? 'failed' : passing ? 'pending' : answer.state;
                 // What its levels are in: the earlier scan's for a stale one, else as the paint knows it (the step's own
                 // scan, else its track, else the table's answer).
                 const level = (data && earlier ? earlier.input : undefined) ?? at.levelOf(path);
