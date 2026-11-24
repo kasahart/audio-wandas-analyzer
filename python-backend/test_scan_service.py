@@ -15,6 +15,7 @@ from browser_service import create_service
 from frames import analysis_spec as spec
 from services.analysis_engine import AnalysisEngine, file_version
 from services.analysis_service import AnalysisService
+from services.backend_errors import InputError, MemoryBudgetError, lasting_failure
 from services.recipe_builder import RecipeSource, spectrum_recipe
 from services.scan_service import scan_plans, welch_params
 from services.stage_combine import STORE, StageData
@@ -302,6 +303,52 @@ def test_scan_failures_are_one_line_results(tmp_path: Path, payload: dict, messa
     # so the screen does not ask again every few seconds (a region past the file's end made the comparison blink).
     assert result == {"ok": False, "reason": result["reason"], **({"lasting": True} if lasting else {})}
     assert message in result["reason"] and "\n" not in result["reason"]
+
+
+@pytest.mark.parametrize(
+    ("cause", "lasting"),
+    [
+        (MemoryError(), False),
+        (MemoryBudgetError("over budget"), False),
+        (RuntimeError("backend fault"), False),
+        (InputError("does not fit"), True),
+    ],
+)
+def test_a_failure_wrapped_in_an_input_error_is_as_lasting_as_its_cause(cause: Exception, lasting: bool) -> None:
+    # As the pair step with a short base wraps whatever failed (scan_cached): memory and faults may pass.
+    try:
+        try:
+            raise cause
+        except Exception as error:
+            raise InputError(f"The base recording gives only 0.33 s of this region: {error}") from error
+    except InputError as wrapped:
+        assert lasting_failure(wrapped) is lasting
+
+
+def test_a_pair_step_that_ran_out_of_memory_on_a_short_base_is_asked_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from services import scan_service
+
+    service = AnalysisService(AnalysisEngine())
+    noise = np.random.default_rng(5).standard_normal((2, 2 * RATE)) * 0.1
+    alike = _write(tmp_path / "alike.wav", [noise[0] + noise[1]])
+    brief = _write(tmp_path / "brief.wav", [noise[0][: RATE // 3]])
+    coherence = json.loads(json.dumps(ENTRY_RECIPE))
+    coherence["nodes"][2] = {**coherence["nodes"][2], "operation": "wandas.audio.coherence", "version": 2}
+    coherence["nodes"][2]["params"] = {"$type": "map", "entries": []}
+    reference = {"filePath": brief, "step": "node-2", "recipe": coherence}
+    apply_step = scan_service.apply_step
+
+    def out_of_memory(plan: object, current: object) -> object:
+        if any(node.operation == "wandas.audio.coherence" for node in plan.nodes):  # type: ignore[attr-defined]
+            raise MemoryError
+        return apply_step(plan, current)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(scan_service, "apply_step", out_of_memory)
+    refused = _scan(service, alike, recipe=coherence, stage="node-2", reference=reference)
+
+    assert refused["ok"] is False and "base recording" in refused["reason"] and "lasting" not in refused
 
 
 def test_scan_reports_unreadable_files(tmp_path: Path) -> None:
