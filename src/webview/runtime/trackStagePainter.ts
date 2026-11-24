@@ -7,7 +7,8 @@ import { secondsSpanText } from '../shell/numberText';
 import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { ROLE_COLORS } from '../../shared/gui/roleColors';
-import { type LegendItem, type LevelInput } from './comparePanes';
+import { type LegendItem } from './comparePanes';
+import type { LevelInput } from './figureModel';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 
 /** A recording on screen as the comparison has it: its own colour and what its levels are in. */

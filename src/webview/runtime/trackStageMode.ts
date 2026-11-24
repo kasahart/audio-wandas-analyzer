@@ -34,7 +34,8 @@ import { pairLevelFrame, pictureLevelOf, type ExclusionReason, type FigureSet } 
 import { zoomNormalizedRange, ZOOM_IN_FACTOR } from './waveformInteraction';
 import { keyRouterFor } from '../shell/keyRouter';
 import { COMPARE_KEYS, keyAction } from './shortcuts';
-import { legendHtml, type LegendItem, type LevelInput } from './comparePanes';
+import { legendHtml, type LegendItem } from './comparePanes';
+import type { LevelInput } from './figureModel';
 import { regionLabel } from './compareBasics';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { INPUT_FRAME } from '../../shared/recipe/recipeCatalog';
