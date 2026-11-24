@@ -4,6 +4,8 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Compare (browser version): when the region does not fit one recording (it ends after the file), the figure no longer blanks and says "Computing…" every 5 seconds. A scan that fails because the request does not fit the file is not asked again until the file, its calibration, the Recipe or the region changes; an unreadable file is still tried again (#815).
+
 ## 0.0.17
 
 - Tracks: an Alt+drag on a row shows the loop region from its first move and while it is dragged, as before the figures were rebuilt (#805), instead of the zoom box; the loop is still set when the mouse is let go (#811).
