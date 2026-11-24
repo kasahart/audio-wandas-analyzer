@@ -27,6 +27,25 @@ export function isDense(points: ReadonlyArray<Point | null>): boolean {
 }
 
 /**
+ * Whether a line of `xs` and `values` (null: a gap) was thinned to several points a pixel (DENSE_POINTS_PER_PX) as
+ * its picture drew it: at the picture's own range across (`across`, linear), `width` CSS px wide. A picture shown
+ * stretched on a range zoomed into (while the range's own is on its way) has fewer points a pixel there, yet is the
+ * same up-and-down line: stroked, it costs what a dense line does (six took 650 ms), so it is painted here too.
+ */
+export function isThinnedAsDrawn(xs: readonly number[], values: ReadonlyArray<number | null>, across: readonly [number, number] | null, width: number): boolean {
+    if (!across || !(across[1] > across[0]) || !(width > 0)) return false;
+    let count = 0, low = Infinity, high = -Infinity;
+    for (let at = 0; at < xs.length; at += 1) {
+        const value = values[at], x = xs[at];
+        if (value === null || value === undefined || x < across[0] || x > across[1]) continue;
+        count += 1;
+        if (x < low) low = x;
+        if (x > high) high = x;
+    }
+    return count > 2 && count >= DENSE_POINTS_PER_PX * Math.max(1, (width * (high - low)) / (across[1] - across[0]));
+}
+
+/**
  * Where a capsule (the segment from a to b, widened by `r` all round) crosses the vertical line at `x`: its top and
  * bottom, or null where it does not. All in one measure (device px).
  */

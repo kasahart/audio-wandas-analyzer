@@ -32,7 +32,7 @@
  * - Web (spec 4): during a long computation the readout says so, nothing is read, and a click does nothing; after it
  *   the pointer's place is read once.
  */
-import { isDense, paintDenseLines, pixelOf, type DenseLine } from './denseLine';
+import { isDense, isThinnedAsDrawn, paintDenseLines, pixelOf, type DenseLine } from './denseLine';
 import type { ExportDropReason, FigureRequests } from '../answers/figureRequests';
 import { keysChange, unusableKeys } from '../answers/figureKeys';
 import type { FigureDrawResult, FigureExportResult, FigureMembers, FigurePoint, FigureReadPayload, FigureReadResult, FigureSpec, FigureView } from '../answers/protocol';
@@ -1080,7 +1080,7 @@ export function createFigure(options: FigureOptions): Figure {
     const imageAcross = (image: DrawnImage): number => Math.abs((image.columnEdges.at(-1) ?? 0) - image.columnEdges[0]);
     /** A picture came: an image of the answer a lane keeps under is kept when it reaches at least as far across as the one kept. */
     /** The lines kept under (lineUnder), by lane and line: the answer they are of and their points as the picture gave them. */
-    const lineUnders = new Map<string, { key: string | undefined; xs: readonly number[]; values: ReadonlyArray<number | null> }>();
+    const lineUnders = new Map<string, { key: string | undefined; xs: readonly number[]; values: ReadonlyArray<number | null>; across: readonly [number, number] | null }>();
     const lineAcross = (xs: readonly number[]): number => (xs.length ? Math.abs(xs[xs.length - 1] - xs[0]) : 0);
     /** The stretches (px) of a lane's frame a line drawn from `first` to `last` (px; none: null) leaves without it. */
     const uncovered = (frame: { left: number; width: number }, ends: [number, number] | null): Array<[number, number]> => {
@@ -1092,20 +1092,20 @@ export function createFigure(options: FigureOptions): Figure {
         return out;
     };
     /** Where a line's kept points are drawn under it now: the stretches its own points leave, where the kept ones reach. */
-    const lineUnderOf = (lane: LaneView, line: PictureLane['lines'][number]): { xs: readonly number[]; values: ReadonlyArray<number | null>; spans: Array<[number, number]> } | null => {
+    const lineUnderOf = (lane: LaneView, line: PictureLane['lines'][number]): { xs: readonly number[]; values: ReadonlyArray<number | null>; across: readonly [number, number] | null; spans: Array<[number, number]> } | null => {
         const kept = options.lineUnder ? lineUnders.get(`${lane.id} ${line.id}`) : undefined;
         if (!kept || kept.key !== line.key || kept.xs === line.xs || !kept.xs.length) return null;
         const ends: [number, number] | null = line.xs.length ? [xPx(lane, line.xs[0]), xPx(lane, line.xs[line.xs.length - 1])] : null;
         const from = xPx(lane, kept.xs[0]), to = xPx(lane, kept.xs[kept.xs.length - 1]);
         const spans = uncovered(lane.frame, ends).map(([left, right]): [number, number] => [Math.max(left, from), Math.min(right, to)]).filter(([left, right]) => right > left);
-        return spans.length ? { xs: kept.xs, values: kept.values, spans } : null;
+        return spans.length ? { xs: kept.xs, values: kept.values, across: kept.across, spans } : null;
     };
     const keepUnder = (picture: Picture): void => {
         if (options.lineUnder) for (const lane of picture.lanes) {
             if (lane.image || lane.bins) continue;
             for (const line of lane.lines) {
                 const name = `${lane.id} ${line.id}`, had = lineUnders.get(name);
-                if (!had || had.key !== line.key || lineAcross(line.xs) >= lineAcross(had.xs)) { lineUnders.set(name, { key: line.key, xs: line.xs, values: line.values }); keptCount += 1; }
+                if (!had || had.key !== line.key || lineAcross(line.xs) >= lineAcross(had.xs)) { lineUnders.set(name, { key: line.key, xs: line.xs, values: line.values, across: lane.range?.x ?? null }); keptCount += 1; }
             }
         }
         if (!options.imageUnder) return;
@@ -1371,12 +1371,15 @@ export function createFigure(options: FigureOptions): Figure {
                         return value === null || value === undefined || px < left - frame.width || px > right + frame.width ? null : [px, viewed.y.yOf(value)];
                     }) : [],
                 }));
-                return { line, unders };
+                // (Thinned as its picture drew it, at the picture's own range across: so still while that picture is shown
+                // stretched on a range zoomed into, waiting for the range's own; stroked stretched, six took 650 ms.)
+                const thinned = !!own && isThinnedAsDrawn(own.xs, own.values, viewed?.lane.range?.x ?? null, frame.width);
+                return { line, unders, thinned, undersThinned: !!under && isThinnedAsDrawn(under.xs, under.values, under.across, frame.width) };
             });
             // A time signal thinned to several points a pixel: its pixels are worked out and put as one image
             // (denseLine.ts). Stroked, three took 130 ms and more a painting, over 600 ms zoomed to a second or so.
-            const dense = viewed?.lane.kind === 'band' && painted.every(({ line, unders }) => !line.bars && pixelOf(line.colour) !== null
-                && (isDense(line.points) || !line.points.some(Boolean)) && unders.every(part => isDense(part.points) || !part.points.some(Boolean)));
+            const dense = viewed?.lane.kind === 'band' && painted.every(({ line, unders, thinned, undersThinned }) => !line.bars && pixelOf(line.colour) !== null
+                && (thinned || isDense(line.points) || !line.points.some(Boolean)) && unders.every(part => undersThinned || isDense(part.points) || !part.points.some(Boolean)));
             const paintedDense = dense && paintDenseLines(ctx, denseScratch(), painted.flatMap(({ line, unders }): DenseLine[] => [
                 ...unders.map(part => ({ points: part.points, colour: line.colour, width: line.width, from: part.left, to: part.right })),
                 { points: line.points, colour: line.colour, width: line.width, from: frame.left, to: frame.left + frame.width },
