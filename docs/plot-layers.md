@@ -131,8 +131,11 @@ rate instead of an array of times; a trigger's events).
 - `transport/figure_answers.py` hands the kept reading to the figure service as an answer. The service draws,
   ranges and reads it (`python-backend/figures/`).
 
-Do not read a Frame's `data`, `freqs` or `times` anywhere else, and do not compute a time or a frequency from a
-count or a fraction: the reading carries each value's x.
+Do not read a Frame's `data`, `freqs` or `times` anywhere else in the comparison or the figure service, and do not
+compute a time or a frequency from a count or a fraction: the reading carries each value's x. A few services read
+their own Frames for answers outside the comparison (the Tracks rows, a recording's summary, calibration, the scan's
+power mean); `scripts/check_figure_imports.py` lists them in `FRAME_READERS` with what for (rule R, run by verify), and
+fails on a Frame read anywhere else (by the array and method names it lists, `FRAME_ARRAYS`).
 
 ### Adding a new Frame kind
 
