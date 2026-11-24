@@ -50,7 +50,7 @@ answer on its way subscribes with `whenSettled`; an ask replaced before it was s
 `setTimeout`, `setInterval`, `requestAnimationFrame`, `setImmediate` or `requestIdleCallback` in an answer source by
 what the call resolves to (an alias or `window.setTimeout` too), not by its name, and fails. A screen that is also an
 answer source and times its own drawing or gathering (not a failure) is listed in `SCHEDULING_OWNERS` with what its
-timers are for; that list only shrinks. The behaviour is held by `answerStore.test.ts` › "a failed answer's readers
+timers are for; that list only shrinks (`SCHEDULING_OWNERS_CEILING`). The behaviour is held by `answerStore.test.ts` › "a failed answer's readers
 are told exactly when its hold ends…". If the test
 names your new collection and it holds no answers (a gesture's state, a canvas's drawing), list it in
 `src/test/answerBoundaryAllowlist.ts` as `notAnswer` with what it holds. Never add an `unmigrated` entry.
@@ -131,8 +131,11 @@ rate instead of an array of times; a trigger's events).
 - `transport/figure_answers.py` hands the kept reading to the figure service as an answer. The service draws,
   ranges and reads it (`python-backend/figures/`).
 
-Do not read a Frame's `data`, `freqs` or `times` anywhere else, and do not compute a time or a frequency from a
-count or a fraction: the reading carries each value's x.
+Do not read a Frame's `data`, `freqs` or `times` anywhere else in the comparison or the figure service, and do not
+compute a time or a frequency from a count or a fraction: the reading carries each value's x. A few services read
+their own Frames for answers outside the comparison (the Tracks rows, a recording's summary, calibration, the scan's
+power mean); `scripts/check_figure_imports.py` lists them in `FRAME_READERS` with what for (rule R, run by verify), and
+fails on a Frame read anywhere else (by the array and method names it lists, `FRAME_ARRAYS`).
 
 ### Adding a new Frame kind
 
@@ -166,7 +169,8 @@ regenerated), `src/test/stageViewKinds.test.ts` (a kind a step can give that the
 ### The backend's folders
 
 `python-backend/` holds two entries and four folders, and a module imports only the folders below its own
-(`scripts/check_figure_imports.py`, rule F, run by verify):
+(`scripts/check_figure_imports.py`, rule F, run by verify). Beside them, `batch/` (the batch runner a Recipe bundle
+carries, which imports only wandas), `recipes/` (Recipe files) and `tests/` (test helpers) are outside rule F:
 
 | Folder | Holds | May import |
 | --- | --- | --- |

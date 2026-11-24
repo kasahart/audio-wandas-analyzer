@@ -11,7 +11,7 @@
  * The Figure lives while the overlay is shown: hidden, it is disposed (its holdings released, 第 6 節); shown again,
  * a new one is made.
  */
-import { compareOverlay, DELTA_LANE, eventKey, eventLine, imageLaneLine, isBaseLine, OVERLAY_LANE, OVERLAY_LINE, type CompareOverlayInputs } from '../charts/compareOverlay';
+import { compareOverlay, DELTA_LANE, eventKey, eventLine, imageLaneLine, isBaseLine, OVERLAY_LANE, OVERLAY_LINE, OWN_LANE, type CompareOverlayInputs } from '../charts/compareOverlay';
 import { secondsText } from '../shell/numberText';
 import type { ExportDropReason, FigureAnswers } from '../answers/figureRequests';
 import { answersLetGo } from '../answers/figureKeys';
@@ -86,6 +86,8 @@ export interface CompareOverlayDeps {
     words: FigureWords;
     /** Said after the name of a recording the service drew no line of because it is in another unit or reference (仕様 2). */
     leftOtherReference?: string;
+    /** Said after the name of a recording the service drew no line of because no picture of it can be had (failed). */
+    leftFailed?: string;
     label: string;
     /** The page's hint for where the pointer is (over the plot, over an axis), or none when it leaves. */
     hint?: (where: 'plot' | 'axis' | 'colour' | null) => void;
@@ -181,9 +183,14 @@ export function createCompareOverlayScreen(deps: CompareOverlayDeps): CompareOve
     /** A line's calibration word, as the picture says it (計算ア): an uncalibrated line on an axis named calibrated. */
     const wordOf = (members: FigureMembers | null, line: string): string =>
         (members?.calibration === 'calibrated' && members.lines.find(item => item.line === line)?.calibration === 'uncalibrated' ? deps.words.axisUncalibrated : '');
-    /** The recording is shown on no line because it is in another unit or reference, as the service counted it (計算ア). */
-    const leftOut = (members: FigureMembers | null, path: string): boolean =>
-        !!members?.shown.excluded.some(item => item.reason === 'other-reference' && pathOfKey.get(item.key) === path);
+    /**
+     * Why the recording is shown on no line, as the service counted it (計算ア), in the words of its legend item: in
+     * another unit or reference, or failed (no picture of it can be had: a region past its end).
+     */
+    const leftOut = (members: FigureMembers | null, path: string): string => {
+        const reason = members?.shown.excluded.find(item => pathOfKey.get(item.key) === path)?.reason;
+        return reason === 'other-reference' ? deps.leftOtherReference ?? '' : reason === 'failed' ? deps.leftFailed ?? '' : '';
+    };
     const lineOfPath = (path: string): string | undefined => [...pathOfLine].find(([, of]) => of === path)?.[0];
     /** The base as one recording that is the comparison's own (nothing compared): named as that recording. */
     const baseName = (members: FigureMembers | null): string => (!paint ? '' : recordings.base.length === 1 && !recordings.compare.length ? paint.name(recordings.base[0]) : paint.baseName(baseCounts(members)));
@@ -195,8 +202,8 @@ export function createCompareOverlayScreen(deps: CompareOverlayDeps): CompareOve
         const memos = paint.legend({
             // Sounds drawn a recording at a time say each their own calibration: no word of the group's.
             baseTitle: baseName(members) + (recordings.signals ? '' : wordOf(members, OVERLAY_LINE.base)),
-            // A recording left out for its unit or reference has no line: its name says so (the base's heading counts its own).
-            word: path => { const line = lineOfPath(path); return (line ? wordOf(members, line) : '') + (leftOut(members, path) ? deps.leftOtherReference ?? '' : ''); },
+            // A recording left out for its unit or reference, or failed, has no line: its name says so (the base's heading counts its own).
+            word: path => { const line = lineOfPath(path); return (line ? wordOf(members, line) : '') + leftOut(members, path); },
         });
         deps.legendElement.dataset.memos = String(memos);
         const seen = figure.inspect();
@@ -249,6 +256,9 @@ export function createCompareOverlayScreen(deps: CompareOverlayDeps): CompareOve
             lineStyle: styleOfLine,
             // An image lane is named by its recording (the lanes are not overlaid: each says whose it is).
             laneLabel: lane => { const line = imageLaneLine(lane); return line ? nameOfLine({ id: line }) : lane; },
+            // So is a recording's own lane of lines (「One lane per track」): the lanes' colours alone did not say whose
+            // each is (a recording of no slot is grey, as every other one is).
+            laneTitle: lane => (lane.startsWith(OWN_LANE('')) ? nameOfLine({ id: lane.slice(OWN_LANE('').length) }) : undefined),
             // A zoom undone shows the whole recording's lines at once, as the widest picture drew them, while the
             // picture of the whole range is on its way (it took 0.5 to 0.7 s, and the plot stood empty but for the
             // zoomed part stretched).

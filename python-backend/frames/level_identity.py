@@ -1,6 +1,6 @@
 """What a recording's levels are in, for whether they compare (display-rules R1, R4).
 
-One definition for the backend and the webview (src/webview/runtime/comparePanes.ts levelIdentityOf; both are held
+One definition for the backend and the webview (src/webview/runtime/figureModel.ts levelIdentityOf; both are held
 to src/test/fixtures/levelIdentityCases.json): the channel's unit, its reference value and its level reference's label.
 Calibration status is not part of it: a gain-corrected file in FS and a raw one are both in dBFS and compare; each
 still says its own status where it is read.

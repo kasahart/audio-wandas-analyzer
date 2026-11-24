@@ -62,7 +62,7 @@
 ### 4. 3 層目を足す（TypeScript）
 
 1. **絵の型**（`figure/picturePoints.ts`）。
-2. **段の描き方**（`figure/<種類>Lane.ts`）。絵の数字を枠の中の場所に直す関数（`place…`）と、塗る関数（`paint…`）を分けます。場所の関数はテストから見えるようにします。Canvas に描くファイルは `scripts/lint-webview-patterns.js` の `CANVAS_DRAWING_FILES` に足します。
+2. **段の描き方**（`figure/imageLane.ts`、`figure/binsLane.ts` のような 1 種類 1 ファイル。帯は `figure/denseLine.ts`）。絵の数字を枠の中の場所に直す関数（`place…`）と、塗る関数（`paint…`）を分けます。場所の関数はテストから見えるようにします。Canvas に描くファイルは `scripts/lint-webview-patterns.js` の `CANVAS_DRAWING_FILES` に足します。
 3. **Figure**（`figure/figure.ts`）。軸の名前、読み値の文、クリックで出す合図を足します。数の書き方は `shell/numberText.ts` の関数を使います。
 4. **言葉。** 新しい言葉は `src/shared/i18n/strings.ts` と、テストの代役 `src/test/helpers/figureStandIn.ts` の両方に足します。
 

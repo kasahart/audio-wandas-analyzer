@@ -7,6 +7,7 @@ in stage_combine.STORE, the transport adapter and command_dispatch, each reply c
 from __future__ import annotations
 
 import itertools
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -337,6 +338,82 @@ def test_with_the_compared_answer_not_usable_nothing_is_counted_and_nothing_draw
     assert reasons == {"a": "no-identity", "b": "no-identity", "d": "pending"}
     assert all(not lane["lines"] and "range" not in lane for lane in picture["lanes"])
     assert picture["headlines"] == []
+
+
+def test_with_the_compared_recording_failed_the_base_is_still_drawn_and_the_failure_counted() -> None:
+    """A compared recording whose answer cannot be had (a region past its end: failed) leaves no target to wait for:
+    the base is matched as in a figure with nothing compared and drawn, the compared one counted failed, no Δ."""
+    picture = _draw(FigureService(Source(_known()), CombineOps()), _spec(["a", "b", "c"], ["d"], {"d": "failed"}))
+    reasons = {item["key"]: item["reason"] for item in picture["members"]["shown"]["excluded"]}
+    assert reasons == {"d": "failed"}
+    assert set(_line(picture, "overlay", "base")["values"]) == {-45.0}  # type: ignore[index]
+    assert _line(picture, "overlay", "d.wav") is None and _line(picture, "delta", "delta1") is None
+
+
+def _excluded(picture: dict) -> dict[str, str]:
+    return {item["key"]: item["reason"] for item in picture["members"]["shown"]["excluded"]}
+
+
+FS_LEVEL = {"level": {"unit": "FS", "ref": 1.0, "label": "dBFS"}}
+SPL_LEVEL = {"level": {"unit": "Pa", "ref": 2e-5, "label": "dB SPL re 20 µPa"}}
+
+
+def test_a_failed_compared_recording_of_a_known_level_is_still_the_target() -> None:
+    """仕様 2: the compared recording is the target. Failed, its level as the screen knows it still is: the base
+    recordings of its reference are drawn, the others counted other-reference, and the compared one counted failed."""
+    answers = _known()
+    answers["s"] = _answer("s", _flat(60), identity=SPL)
+    answers["t"] = _answer("t", _flat(50), identity=SPL)
+    service = FigureService(Source(answers), CombineOps())
+    picture = _draw(service, _spec(["s", "t", "c"], ["d"], {"d": "failed"}, d=FS_LEVEL))
+    assert _excluded(picture) == {"s": "other-reference", "t": "other-reference", "d": "failed"}
+    assert set(_line(picture, "overlay", "base")["values"]) == {-45.0}  # type: ignore[index]
+    # Of a level no answer is in (the file's, where the step's answers are in another unit: a loudness in sone): no
+    # target of it; the base is matched as with nothing compared and drawn.
+    other = _draw(service, _spec(["a", "b", "c"], ["d"], {"d": "failed"}, d=SPL_LEVEL), generation=2)
+    assert _excluded(other) == {"d": "failed"}
+    assert set(_line(other, "overlay", "base")["values"]) == {-45.0}  # type: ignore[index]
+
+
+def test_a_too_large_compared_recording_leaves_the_base_drawn() -> None:
+    picture = _draw(FigureService(Source(_known()), CombineOps()), _spec(["a", "b", "c"], ["d"], {"d": "too-large"}))
+    assert _excluded(picture) == {"d": "too-large"}
+    assert set(_line(picture, "overlay", "base")["values"]) == {-45.0}  # type: ignore[index]
+
+
+def test_with_the_compared_recording_failed_a_median_is_still_of_one_channel_count() -> None:
+    answers = _known()
+    answers["a"] = replace(answers["a"], channels=1)
+    answers["b"] = replace(answers["b"], channels=2)
+    answers["c"] = replace(answers["c"], channels=2)
+    picture = _draw(FigureService(Source(answers), CombineOps()), _spec(["a", "b", "c"], ["d"], {"d": "failed"}))
+    assert set(_line(picture, "overlay", "base")["values"]) == {-47.5}  # type: ignore[index]
+    assert {"key": "a", "reason": "other-channels"} in picture["members"]["combined"]["excluded"]
+
+
+def test_with_the_compared_recording_failed_and_no_level_known_the_base_wins_over_other_lines() -> None:
+    """Matched as with nothing compared, the recordings with a role come before a line drawn behind them."""
+    answers = _known()
+    answers["o"] = _answer("o", _flat(60), identity=SPL)
+    spec = _spec(["a"], ["d"], {"d": "failed"})
+    spec["lanes"][0]["lines"].insert(0, {"id": "o.wav", "of": {"key": "o"}, "role": None})
+    spec["keys"].insert(0, {"key": "o", "state": "usable", "version": "v-o"})
+    picture = _draw(FigureService(Source(answers), CombineOps()), spec)
+    assert _excluded(picture) == {"o": "other-reference", "d": "failed"}
+    assert set(_line(picture, "overlay", "base")["values"]) == {-40.0}  # type: ignore[index]
+
+
+def test_with_the_compared_recording_failed_lines_behind_do_not_decide_the_median_channel_count() -> None:
+    answers = _known()
+    answers["a"] = replace(answers["a"], channels=1)
+    answers["b"] = replace(answers["b"], channels=1)
+    spec = _spec(["a", "b"], ["d"], {"d": "failed"})
+    for key in "opq":
+        answers[key] = replace(_answer(key, _flat(-20)), channels=2)
+        spec["lanes"][0]["lines"].insert(0, {"id": f"{key}.wav", "of": {"key": key}, "role": None})
+        spec["keys"].insert(0, {"key": key, "state": "usable", "version": f"v-{key}"})
+    picture = _draw(FigureService(Source(answers), CombineOps()), spec)
+    assert set(_line(picture, "overlay", "base")["values"]) == {-45.0}  # type: ignore[index]
 
 
 # --- Holdings, generations and ids --------------------------------------------------------------------------------

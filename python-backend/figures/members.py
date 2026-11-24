@@ -10,17 +10,22 @@ identity and axis, it decides two sets and counts them (第 1 節の第 2 の表
 
 The identity it matches against (合わせる先) is the compared recording's (the line declared with role ``compare1``,
 else the first ``compare…``), never the first member's; with nothing compared, the most common identity of the
-usable answers, a tie going to the one declared first (仕様 2).
+usable answers, a tie going to the one declared first (仕様 2). A compared recording whose answer can be had no more
+(failed for good, too large, no such channel) is matched by its level as the spec declares it when an answer is of
+it, else as with nothing compared among the recordings with a role; the median's axis and channel count are then
+the most common of that identity among the recordings with a role, else among all.
 
 The reasons, in the order they are tried:
 
 0. a key compared as a channel its file does not have (the spec's ``channel`` and ``channels``): ``no-channel``,
    whatever its state (no answer of it can be had);
 1. a key whose level is known (its answer's, or the spec's ``level``) and is of another identity than a known target:
-   ``other-reference``, whatever its state (a recording known to differ is said to differ while pending);
+   ``other-reference``, whatever its state (a recording known to differ is said to differ while pending), but for a
+   key failed or too large, which says that;
 2. not usable: its state (``pending``, ``stale``, ``failed``, ``evicted``);
 3. usable, but the service holds no answer under it: ``evicted``; holds another version of it: ``version``;
-4. no target identity yet (the compared answer is not usable): ``no-identity``;
+4. no target identity yet (the compared answer is pending, stale or evicted): ``no-identity``. A compared
+   recording failed for good, too large or without the channel is matched as the paragraph above says;
 5. of another identity: ``other-reference``;
 6. (``combined`` only) of another channel count than the compared answer's (both said): ``other-channels``;
 7. (``combined`` only) on another axis: ``other-axis``.
@@ -150,28 +155,79 @@ def _held(spec: FigureSpec, key: str, found: Mapping[str, AnyAnswer | None]) -> 
     return answer
 
 
-def _target(
-    spec: FigureSpec, found: Mapping[str, AnyAnswer | None], lanes: tuple[LaneSpec, ...]
-) -> tuple[LevelIdentity | None, str | None]:
+def _cannot_be_had(spec: FigureSpec, key: str) -> bool:
+    """Whether no answer of ``key`` is on its way: it failed for good (the screen declares a failure it asks again
+    for as pending), its values are over what the backend keeps (too-large), or it is compared as a channel its file
+    does not have. Pending, stale and evicted keys are asked again: the figure waits for them."""
+    entry = spec.keys[key]
+    no_channel = entry.channel is not None and entry.channels is not None and entry.channels < entry.channel
+    return entry.state in ("failed", "too-large") or no_channel
+
+
+def _most_common(values: Sequence[object]) -> object:
+    counts: dict[object, int] = {}
+    for value in values:
+        counts[value] = counts.get(value, 0) + 1
+    return max(counts, key=lambda value: counts[value])  # max keeps the first of equal counts
+
+
+@dataclass(frozen=True)
+class _Target:
+    identity: LevelIdentity | None = None
+    axis: str | None = None
+    #: The channel count a median or Δ is taken of (None: not checked).
+    channels: int | None = None
+
+
+def _role_keys(lanes: tuple[LaneSpec, ...]) -> set[str]:
+    """The keys of the lines with a role: the base's and the compared recordings'."""
+    return {
+        key
+        for lane in lanes
+        if lane.kind != "bins"
+        for line in lane.lines
+        if line.role is not None
+        for key in ((line.key,) if line.key is not None else ()) + line.base
+    }
+
+
+def _target(spec: FigureSpec, found: Mapping[str, AnyAnswer | None], lanes: tuple[LaneSpec, ...]) -> _Target:
     compared = _compared_key(lanes)
-    if compared is not None:
+    if compared is not None and not _cannot_be_had(spec, compared):
         answer = _held(spec, compared, found)
-        return (answer.identity, answer.axis) if answer is not None else (None, None)
-    # Nothing compared: the most common identity of the usable answers, a tie to the one declared first; its axis
-    # likewise among the answers of that identity.
-    held = [answer for key in keys_of(lanes) if (answer := _held(spec, key, found)) is not None]
-    if not held:
-        return None, None
-
-    def most_common(values: list[str] | list[LevelIdentity]) -> object:
-        counts: dict[object, int] = {}
-        for value in values:
-            counts[value] = counts.get(value, 0) + 1
-        return max(counts, key=lambda value: counts[value])  # max keeps the first of equal counts
-
-    identity = most_common([answer.identity for answer in held])
-    axis = most_common([answer.axis for answer in held if answer.identity == identity])
-    return identity, axis  # type: ignore[return-value]
+        return _Target(answer.identity, answer.axis, answer.channels) if answer is not None else _Target()
+    held_by = {key: answer for key in keys_of(lanes) if (answer := _held(spec, key, found)) is not None}
+    held = list(held_by.values())
+    # The compared recording can be had no more (a region past its end, too large, no such channel): rather than
+    # drawing nothing, the figure is matched against its level as the screen knows it (仕様 2: the compared
+    # recording is the target) when an answer is of it, or else as one with nothing compared, of the recordings
+    # with a role (the base and the compared ones) before any other line's.
+    known = spec.keys[compared].level if compared is not None else None
+    # The level the screen declares is its file's: of a step in another unit (a loudness in sone) none of the answers
+    # is of it, so it is no target then.
+    if known is not None and not any(answer.identity == known for answer in held):
+        known = None
+    if known is None:
+        among = [answer for key, answer in held_by.items() if key in _role_keys(lanes)] if compared is not None else []
+        # Nothing compared: the most common identity of the usable answers, a tie to the one declared first.
+        pool = among or held
+        if not pool:
+            return _Target()
+        known = cast(LevelIdentity, _most_common([answer.identity for answer in pool]))
+    # Its axis and channel count of the recordings with a role first, as its identity (a line drawn behind them
+    # does not decide what the base's median is of).
+    roles_held = [answer for key, answer in held_by.items() if key in _role_keys(lanes)] if compared is not None else []
+    alike = [answer for answer in roles_held if answer.identity == known] or [
+        answer for answer in held if answer.identity == known
+    ]
+    if not alike:
+        return _Target(known)
+    # Its axis likewise among the answers of that identity; with a compared recording that cannot be had, the
+    # channel count too (a median is of one count).
+    axis = cast(str, _most_common([answer.axis for answer in alike]))
+    counts = [answer.channels for answer in alike if answer.axis == axis and answer.channels is not None]
+    channels = cast(int, _most_common(counts)) if compared is not None and counts else None
+    return _Target(known, axis, channels)
 
 
 def _shown_reason(
@@ -182,7 +238,9 @@ def _shown_reason(
         return "no-channel"
     answer = found.get(key)
     known = answer.identity if entry.state == "usable" and answer is not None else entry.level
-    if target is not None and known is not None and known != target:
+    # A recording that failed for good or is too large says so: its level is the file's as the screen knows it, which
+    # need not be its step's (a loudness), and no answer of it is to come whatever its reference.
+    if target is not None and known is not None and known != target and entry.state not in ("failed", "too-large"):
         return "other-reference"
     if entry.state != "usable":
         return cast(Reason, entry.state)
@@ -264,12 +322,10 @@ def members(spec: FigureSpec, found: Mapping[str, AnyAnswer | None]) -> Members:
     own: dict[str, OwnAxis] = {}
     # The lanes on the figure's axis are matched together; a lane on an axis of its own, among its own keys.
     for lanes in spec.groups():
-        group_target, group_axis = _target(spec, found, lanes)
+        matched = _target(spec, found, lanes)
+        group_target, group_axis, target_channels = matched.identity, matched.axis, matched.channels
         keys = keys_of(lanes)
         reasons.update({key: _shown_reason(spec, key, found, group_target) for key in keys})
-        compared = _compared_key(lanes)
-        held = _held(spec, compared, found) if compared is not None else None
-        target_channels = held.channels if held is not None else None
 
         def combined_reason(
             key: str, channels: int | None = target_channels, axis: str | None = group_axis

@@ -131,6 +131,7 @@ for (const [readme, rows] of Object.entries(limitRows)) {
 
 if (problems.length) {
     console.error(problems.map(problem => `✗ ${problem}`).join('\n'));
+    console.error('\nRule: these values have one source each (the top of scripts/check-single-sources.mjs names them). Fix: change the source, then make each copy above match it; never change only a copy.');
     process.exit(1);
 }
 console.log('Dependency pins and browser limits match their single sources');

@@ -31,7 +31,7 @@ test('every chart\'s level axis, range and file count row says it is computed in
 
 const GUARDED_FUNCTIONS: Readonly<Record<string, readonly string[]>> = {
     /** Lines or files keyed by level identity. */
-    'identity': ['webview/runtime/comparePanes.ts:levelIdentityOf'],
+    'identity': ['webview/runtime/figureModel.ts:levelIdentityOf'],
     /** R9's range rules. */
     'range-rule': ['shared/utils/ticks.ts:niceRange', 'shared/utils/ticks.ts:heatmapDbRange'],
 };
@@ -91,16 +91,14 @@ const ALLOWED: Sites = {
     // The Figure's axis names: the level axis's (levelAxisName) and the other lines' (a metric or a level over time, a
     // cepstrum, a correlation, a gain).
     'webview/figure/axisNames.ts': { 'axis-name': ['levelAxisName', 'lineAxisNames.y', 'metricName', 'valueAxisName.name', 'valueAxisName.named', 'valueAxisName.uncal'] },
-    // levelIdentityOf, defined (figureModel.ts levelKeyOf wraps it).
-    'webview/runtime/comparePanes.ts': { 'identity': ['levelIdentityOf'] },
     // The CSV match's "{matched} of {total}" files (the folder's count).
     'webview/runtime/entryRuntime.ts': { 'file-count': ['createEntryScreen.paint', 'createEntryScreen.readCsvFile'] },
     // The gate's "analyse the base group's n recordings": how many would be scanned, not a figure's n.
     'webview/runtime/trackStageMode.ts': { 'file-count': ['createTrackStageMode.paintNow.count'] },
     // figureModel.ts itself, looked at too: the rules it defines and wraps, and never a default reference
     // ('default-reference'): a guessed reference here would be every figure's. Its definitions: medianInputOf, the one
-    // place a line of several recordings is calibrated only when every one is; levelIdentityOf wrapped by levelKeyOf.
-    'webview/runtime/figureModel.ts': { 'every-calibrated': ['medianInputOf.calibrationStatus'], 'identity': ['levelKeyOf.identity'] },
+    // place a line of several recordings is calibrated only when every one is; levelIdentityOf, and levelKeyOf that wraps it.
+    'webview/runtime/figureModel.ts': { 'every-calibrated': ['medianInputOf.calibrationStatus'], 'identity': ['levelIdentityOf', 'levelKeyOf.identity'] },
 };
 
 function each(node: ts.Node, visit: (node: ts.Node) => void): void {
@@ -209,7 +207,7 @@ const INJECTED_FILE = 'webview/runtime/injectedFigure.ts';
 /** Uses of the guarded functions under other names: what a search for their spelling would miss. */
 const INJECTED_USES = [
     "import { niceRange as nice, heatmapDbRange } from '../../shared/utils/ticks';",
-    "import { levelIdentityOf as keyOf } from './comparePanes';",
+    "import { levelIdentityOf as keyOf } from './figureModel';",
     'export const renamed = (low: number, high: number) => nice(low, high);',
     'export const handedOn = [heatmapDbRange].map(rule => rule(0, 1));',
     'export const identity = (input: Parameters<typeof keyOf>[0]) => keyOf(input);',
@@ -314,4 +312,40 @@ test('every place that groups lines onto a level axis, range or colour scale goe
     // reference: charts/cursorSpectrum.ts): no file builds a second axis here any more, and one that starts to is held.
     assert.equal(builders, 0, 'a file builds a level axis per group again: name it here and hold it to figureModel');
     assert.deepEqual(problems, []);
+});
+
+// ── The figure model is below the screens ────────────────────────────────────────────────────────────────────────
+
+/** The folders of src/webview the figure model may import: none of them imports a screen (runtime/) back. */
+const FIGURE_MODEL_IMPORTS = /^\.\.\/(?:shell|figure|waveform)\/|^\.\.\/\.\.\/shared\//u;
+
+/** Where a module's imports and re-exports (`export { … } from`) name another module: both make a cycle the same way. */
+function moduleSpecifiers(rel: string, text: string): string[] {
+    const source = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true);
+    return source.statements
+        .map(node => (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) ? node.moduleSpecifier : undefined)
+        .filter((specifier): specifier is ts.StringLiteral => !!specifier && ts.isStringLiteral(specifier))
+        .map(specifier => specifier.text);
+}
+
+const outsideFigureModelImports = (specifiers: readonly string[]): string[] => specifiers.filter(specifier => !FIGURE_MODEL_IMPORTS.test(specifier));
+
+test('figureModel.ts imports no module of runtime/: the screens use the figure model, never the other way (docs/plot-layers.md part 2, issue #774)', () => {
+    const rel = 'src/webview/runtime/figureModel.ts';
+    const specifiers = moduleSpecifiers(rel, readFileSync(path.join(__dirname, '..', '..', rel), 'utf8'));
+    assert.ok(specifiers.length > 0, 'no import found: the check reads the wrong file');
+    const outside = outsideFigureModelImports(specifiers);
+    assert.deepEqual(outside, [], `${rel} imports ${outside.join(', ')}. The figure model is the layer the screens (src/webview/runtime/) use, so importing one of them makes a cycle (a screen imports figureModel.ts, which imports it back). Move what figureModel.ts needs into figureModel.ts (as levelIdentityOf and LevelInput were) or into shell/ or shared/, and import it from there.`);
+});
+
+test('the figure model\'s import check finds an import and a re-export of a runtime/ module, and passes the folders it allows', () => {
+    const planted = [
+        "import { legendHtml } from './comparePanes';",
+        "export { trackLevelInput } from './comparePanes';",
+        "import type { AnswerKey } from './answerTypes';",
+        "import { fieldDecimals } from '../shell/numberText';",
+        "export { fieldWindow } from '../figure/fieldWindow';",
+        "import type { UiStrings } from '../../shared/i18n/strings';",
+    ].join('\n');
+    assert.deepEqual(outsideFigureModelImports(moduleSpecifiers('planted.ts', planted)), ['./comparePanes', './comparePanes', './answerTypes']);
 });

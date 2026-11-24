@@ -3,7 +3,7 @@
  * model (what a figure draws of the answers and what it writes). The answer store gives every answer its identity;
  * the figure model only reads it. Neither decides the other's part.
  */
-import type { LevelInput } from './comparePanes';
+import type { LevelInput } from './figureModel';
 
 /** What an answer is of: the file's version, its calibration, the recipe, the region and the analysis condition. */
 export interface AnswerIdentity {

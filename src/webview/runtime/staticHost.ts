@@ -26,6 +26,14 @@ import {
     LoadFailures, sessionFull, type FoundFile, type ShowDirectoryPicker, type SourceToLoad,
 } from './staticSources';
 
+/** A Worker task this long (a scan of a slow step) is one whose answer the user should see before the next task begins. */
+export const LONG_TASK_MS = 1000;
+/**
+ * How long the Worker's next task waits after a long one: the time for that answer to reach the comparison and for the
+ * draw of it to be asked (the page is the host: a few frames). Room to spare, and nothing beside a task of a second or more.
+ */
+export const AFTER_LONG_TASK_MS = 150;
+
 interface Source {
     path: string;
     /** The Worker's identity for this source, relative to `/sources`; recovery reloads under the same one. */
@@ -121,18 +129,35 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         const results = sources.snapshot(source => source.result);
         emit({ type: 'analysis-update', results, selectedFilePaths: Array.from(folder.keys()).filter(path => sources.get(path) || pendingTreePaths.has(path)) });
     };
-    let batches: Promise<void> | undefined;
-    /** Runs source loads one batch at a time so picker and tree batches never interleave their pre-checks; an idle queue starts the batch now. */
-    function enqueueBatch(task: () => Promise<void>): void {
-        const settled: Promise<void> = (batches ? batches.then(task) : task())
-            .catch(() => {})
-            .finally(() => { if (batches === settled) batches = undefined; });
-        batches = settled;
+    /**
+     * The one Worker's turn order: source loads one batch at a time (so picker and tree batches never interleave their
+     * pre-checks), scans and figure requests in turn with them. A figure request goes ahead of the work still waiting
+     * (never of the task running): a picture of the answers already in is a moment's work, a scan can take minutes.
+     * After a long task (LONG_TASK_MS) the next one waits a moment (AFTER_LONG_TASK_MS), so that the draw the long
+     * one's answer asks for (it reaches the comparison a few frames later) is in the queue and goes first. Before, a
+     * comparison of slow steps (loudness: about a minute a file) showed nothing until its last file was computed.
+     */
+    const waiting: Array<{ task: () => Promise<void>; first: boolean }> = [];
+    let draining = false;
+    async function drain(): Promise<void> {
+        draining = true;
+        for (let next = waiting.shift(); next; next = waiting.shift()) {
+            const began = Date.now();
+            await next.task().catch(() => {});
+            if (Date.now() - began >= LONG_TASK_MS) await new Promise(resolve => { setTimeout(resolve, AFTER_LONG_TASK_MS); });
+        }
+        draining = false;
+    }
+    /** Runs `task` in turn; an idle queue starts it now. `first`: ahead of the tasks still waiting (after those put first before it). */
+    function enqueueBatch(task: () => Promise<void>, first = false): void {
+        const at = first ? waiting.findIndex(item => !item.first) : -1;
+        waiting.splice(at < 0 ? waiting.length : at, 0, { task, first });
+        if (!draining) void drain();
     }
 
-    /** Runs `task` in the source batch queue and settles with its outcome. */
-    function exclusive<T>(task: () => Promise<T>): Promise<T> {
-        return new Promise<T>((resolve, reject) => { enqueueBatch(() => task().then(resolve, reject)); });
+    /** Runs `task` in the Worker's turn order and settles with its outcome. */
+    function exclusive<T>(task: () => Promise<T>, first = false): Promise<T> {
+        return new Promise<T>((resolve, reject) => { enqueueBatch(() => task().then(resolve, reject), first); });
     }
     let entryRecipe: Promise<RecipeDocument> | undefined;
     function loadEntryRecipe(): Promise<RecipeDocument> {
@@ -155,19 +180,20 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         const pairedFile = reference ? folder.get(reference.filePath) : undefined;
         if (reference && !pairedFile) return { ok: false, reason: strings.entrySourceGone };
         const recipe = override ?? await loadEntryRecipe();
+        const listed: File = file;
         return exclusive(async () => {
             // A file that is not a selected track is loaded into the Worker for this scan only (the reference too).
             const loaded: string[] = [];
-            const workerPath = async (listed: string, bytes: File): Promise<string> => {
-                if (sources.get(listed)) return listed;
-                const into = (await audioWorker.request({ cmd: 'load', sourceId: listed.slice('/sources/'.length) }, await bytes.arrayBuffer())).filePath;
+            const workerPath = async (at: string, bytes: File): Promise<string> => {
+                if (sources.get(at)) return at;
+                const into = (await audioWorker.request({ cmd: 'load', sourceId: at.slice('/sources/'.length) }, await bytes.arrayBuffer())).filePath;
                 loaded.push(into);
                 return into;
             };
             try {
                 const paired = reference && pairedFile ? { ...reference, filePath: await workerPath(reference.filePath, pairedFile) } : undefined;
                 const over = { stage, ...(region ? { region } : {}), ...(paired ? { reference: paired } : {}) };
-                return await analysisClient.scan({ filePath: await workerPath(path, file), recipe, ...over });
+                return await analysisClient.scan({ filePath: await workerPath(path, listed), recipe, ...over });
             } finally {
                 for (const into of loaded) await audioWorker.request({ cmd: 'unload', filePath: into }).catch(() => undefined);
             }
@@ -345,7 +371,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             scan: (path, stage, region, recipe, reference) => scanEntryFile(path, stage, region, recipe, reference),
             // In turn with the scans: the values they kept are in the Worker that ran them.
             // The figure service, in turn with the scans in the one Worker (which cannot cancel: a superseded draw runs out).
-            figure: (command, payload) => exclusive(() => analysisClient.figure(command, payload)),
+            figure: (command, payload) => exclusive(() => analysisClient.figure(command, payload), true),
             recipe: loadEntryRecipe,
             // The picked folder's CSV/TSV files are listed beside its recordings; the browser cannot reach the folder above.
             readFile: async path => {

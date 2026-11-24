@@ -4,8 +4,7 @@ import { atDecimals, fieldWindow } from '../figure/fieldWindow';
 // The specified range's ends are made by figure/fieldWindow.ts (one rule for the old plots and the Figure).
 export { atDecimals, fieldWindow };
 import { WAVEFORM_HALF_HEIGHT_RATIO } from '../waveform/waveformLayout';
-import { levelIdentityOf, type LevelInput, type PaneRange } from './comparePanes';
-import type { StageView } from '../../shared/protocol/backendProtocol';
+import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
 import type { UiStrings } from '../../shared/i18n/strings';
 
 /**
@@ -16,6 +15,22 @@ import type { UiStrings } from '../../shared/i18n/strings';
  * the Figure names the axes from its picture (figure/axisNames.ts) and the figure service decides the ranges
  * (python-backend/figures/ranges.py), and which recordings a figure counts is the service's too (figures/members.py).
  */
+
+/** An axis' two ends, as numbers. */
+export interface PaneRange { min: number; max: number }
+
+/** A scanned file's level reference as wandas gave it: its unit, reference value and name, its calibration status, and whether its source has a full scale. */
+export type LevelInput = Pick<NonNullable<ScanResult['input']>, 'unit' | 'ref' | 'levelReferenceLabel' | 'calibrationStatus' | 'fullScale'>;
+
+/**
+ * What levels are in (display-rules R1, R4): the unit, the reference value and the level reference's label, the one
+ * definition the backend keeps too (python-backend/frames/level_identity.py; both held to
+ * src/test/fixtures/levelIdentityCases.json). Calibration status is not part of it: a gain-corrected file in FS and a
+ * raw one are both in dBFS and compare; each line still says its own status where it is read.
+ */
+export function levelIdentityOf(input: Pick<LevelInput, 'unit' | 'ref' | 'levelReferenceLabel'>): string {
+    return JSON.stringify([input.unit ?? '', Number(input.ref ?? 1), input.levelReferenceLabel ?? '']);
+}
 
 declare const figureBrand: unique symbol;
 /**

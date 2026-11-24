@@ -58,11 +58,11 @@ npm run verify:e2e
 
 | 作業内容 | 主なファイル |
 | --- | --- |
-| コマンド登録 / VS Code 連携 | `src/extension/index.ts` |
+| コマンド登録 / VS Code 連携 | `src/extension/extensionContributions.ts`（コマンド・メニュー）、`src/extension/index.ts`（起動と結線） |
 | ComparisonPanel の外枠 / HTML コンテナ | `src/webview/panels/ComparisonPanel.ts` |
 | Webview の操作ロジック | `src/webview/runtime/` |
 | 図を描く | `src/webview/figure/figure.ts`、`src/webview/charts/`、`python-backend/figures/` |
-| 共有データ契約 | `src/shared/analysis/analysisTypes.ts` |
+| 共有データ契約 | `python-backend/transport/protocol_schema.py`（`src/shared/protocol/generated/` に生成）、`src/shared/analysis/analysisTypes.ts` |
 | 全体解析バックエンド | `python-backend/services/analyzer.py` |
 | 描く点の間引き | `python-backend/figures/thinning.py` |
 | Tracks の図のために取り置く答え | `python-backend/services/analysis_service.py`、`python-backend/services/tracks_answers.py` |

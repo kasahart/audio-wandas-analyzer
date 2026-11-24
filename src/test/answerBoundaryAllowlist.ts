@@ -14,6 +14,9 @@ const unmigrated = (why: string): Listed => ({ kind: 'unmigrated', why });
 /** How many listed places still keep answers outside the store (kind unmigrated): it only goes down. */
 export const UNMIGRATED_CEILING = 11;
 
+/** How many answer sources may keep timers of their own (SCHEDULING_OWNERS): it only goes down. */
+export const SCHEDULING_OWNERS_CEILING = 2;
+
 /**
  * The collections outside answerStore.ts that outlive a call and hold no answer (answerStoreBoundary.test.ts), each
  * with what it holds instead. The list only shrinks: a cache of answers is never added here, it is moved onto the store.
@@ -34,6 +37,7 @@ export const NOT_ANSWERS: Record<string, Listed> = {
     'src/webview/runtime/playbackController.ts#listeners': notAnswer('playback change listeners'),
     'src/webview/runtime/runtimeEvents.ts#listeners': notAnswer('runtime event listeners'),
     'src/webview/runtime/staticHost.ts#inboundListeners': notAnswer('host message listeners'),
+    'src/webview/runtime/staticHost.ts#waiting': notAnswer('the Worker tasks waiting their turn (loads, scans, figure requests), not their answers'),
     'src/webview/panels/ComparisonPanel.ts#testMessageDisposables': notAnswer('test bridge listeners per panel, to dispose'),
 
     // ── What is on screen: canvases, drawings, marks, zoom and gestures ──

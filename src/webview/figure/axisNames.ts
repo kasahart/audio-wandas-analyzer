@@ -1,7 +1,7 @@
 /**
  * The words an axis is named in (第 4 節: 軸の名前の言葉 are the Figure's; what they name, the quantity, unit,
- * reference and calibration, comes from layer 2). One rule for the old panes (comparePanes.paneAxes names a level
- * axis by it) and the Figure: a level axis always names its reference (R4), and says when it is uncalibrated.
+ * reference and calibration, comes from layer 2). A level axis always names its reference (R4), and says when it is
+ * uncalibrated.
  */
 
 /** The words a level axis is named with (UiStrings' axisLevelCal / axisLevelUncal, a `{label}` in each). */

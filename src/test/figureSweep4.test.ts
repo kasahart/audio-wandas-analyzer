@@ -6,7 +6,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { getStrings } from '../shared/i18n/strings';
-import { trackLevelInput, type LevelInput } from '../webview/runtime/comparePanes';
+import { trackLevelInput } from '../webview/runtime/comparePanes';
+import type { LevelInput } from '../webview/runtime/figureModel';
 import { countedSet, setExclusionText } from '../webview/runtime/figureModel';
 
 const strings = getStrings('en');
