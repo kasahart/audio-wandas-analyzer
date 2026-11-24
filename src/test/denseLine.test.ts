@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { capsuleAt, coveredPixels, isDense, pixelOf } from '../webview/figure/denseLine';
+import { capsuleAt, coveredPixels, isDense, isThinnedAsDrawn, pixelOf } from '../webview/figure/denseLine';
 
 const RED = pixelOf('#ff0000')!;
 const frame = { left: 0, top: 0, width: 20, height: 20 };
@@ -50,4 +50,17 @@ test('a line is dense with two points a pixel across or more; a colour other tha
     assert.equal(isDense(Array.from({ length: 40 }, (_, at): [number, number] => [at, 0])), false);
     assert.equal(pixelOf('rgba(1, 2, 3, 0.5)'), null);
     assert.equal(pixelOf('#abc'), pixelOf('#aabbcc'));
+});
+
+test('a line thinned at its own picture\'s range stays dense shown stretched on a range zoomed into; a line of a few points a pixel there is not', () => {
+    // 1200 points over 0 … 4 s, drawn 600 px wide: two a pixel as drawn.
+    const xs = Array.from({ length: 1200 }, (_, at) => (at / 1199) * 4);
+    const values = xs.map((_, at) => (at % 2 ? 0.5 : -0.5));
+    assert.equal(isThinnedAsDrawn(xs, values, [0, 4], 600), true);
+    // The same points drawn 1000 px wide (fewer than two a pixel), no range, or gaps alone: not.
+    assert.equal(isThinnedAsDrawn(xs, values, [0, 4], 1000), false);
+    assert.equal(isThinnedAsDrawn(xs, values, null, 600), false);
+    assert.equal(isThinnedAsDrawn(xs, values.map(() => null), [0, 4], 600), false);
+    // Points outside the picture's own range are not counted: a line reaching only a quarter of it is dense over its quarter.
+    assert.equal(isThinnedAsDrawn(xs.slice(0, 300), values.slice(0, 300), [0, 4], 600), true);
 });
