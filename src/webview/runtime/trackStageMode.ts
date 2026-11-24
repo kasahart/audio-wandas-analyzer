@@ -305,7 +305,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // (On an event's line of a trigger's, what a click on it does.)
         hint: where => { if (where) deps.hint(where !== 'plot' ? strings.compareHintAxis : figureEvent ? (figureEvent.out ? strings.stageEventClickIn : strings.stageEventClickOut) : strings.compareHintPlot); },
         // The UI's strings, by the names the Figure's words have (figure.ts FigureWords).
-        answers: deps.figures, words: { ...strings, range: rangePopoverStrings(strings) }, leftOtherReference: strings.stageLeftOtherReference, label: strings.ariaStageOverlayCanvas, ...(deps.ResizeObserver ? { ResizeObserver: deps.ResizeObserver } : {}),
+        answers: deps.figures, words: { ...strings, range: rangePopoverStrings(strings) }, leftOtherReference: strings.stageLeftOtherReference, leftFailed: strings.stageLeftFailed, label: strings.ariaStageOverlayCanvas, ...(deps.ResizeObserver ? { ResizeObserver: deps.ResizeObserver } : {}),
         // The Figure's range goes with the comparison's zoom it was set under: a zoom of every plot back to the whole
         // (WHOLE_ZOOM: a step or the region changed, the comparison opened) puts another window in its place.
         zoom: () => state.window,
@@ -659,7 +659,11 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // recordings and the whole pictures before the zoom's detail, the region's metrics before the base group's
         // detail. No spec supersedes another on every repaint, which would leave both unfinished.
         let asking = false;
-        const lacks = (wanted: StageSpec, paths: readonly string[]): boolean => paths.some(path => source.result(wanted, path) === undefined);
+        // A failure for good is an answer (a region past the file's end, lasting): nothing is on its way for it, so the
+        // step is not waited for (its region and trigger lanes are not held back). One asked again after the pause is
+        // still waited for, as keyOf declares it pending.
+        const lasting = (wanted: StageSpec, path: string): boolean => { const found = source.answer(wanted, path); return found.state === 'failed' && found.retryAt === Infinity; };
+        const lacks = (wanted: StageSpec, paths: readonly string[]): boolean => paths.some(path => source.result(wanted, path) === undefined && !lasting(wanted, path));
         const want = (wanted: StageSpec, paths: readonly string[]): boolean => {
             const lacking = lacks(wanted, paths);
             if (lacking && !asking) asking = source.ensure(wanted, paths);
@@ -693,7 +697,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             // The picture's own values are what its axis is grouped and named by (a gain: its pair's unit ratio, R1).
             track.input = pictureLevelOf(coarse(track.filePath), track.input);
         }
-        const picture = tracks.map(track => coarse(track.filePath)).find((view): view is StageView => !!view) ?? null;
+        // The tracks' first, else a base recording's (a group base whose only track is a compared recording that
+        // failed for good: its base is still drawn, of the step's kind).
+        const picture = [...tracks.map(track => track.filePath), ...files].map(path => coarse(path)).find((view): view is StageView => !!view) ?? null;
         // Before any picture is in, the step's Frame says whether it is an image: the comparison is shown at once,
         // computing, rather than the lanes until the first file is in.
         const frameShown = id === INPUT_STAGE ? INPUT_FRAME : steps.find(step => step.id === id)?.output;
@@ -717,12 +723,15 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const imagesOnFigure = (picture ? picture.kind === 'heatmap' : waiting && IMAGE_FRAMES.has(frameShown ?? ''));
         // A trigger's events: each event of each recording a line of the Figure over the time from its
         // trigger, once some recording's events are in (the tracks stay under them, marked).
-        const eventPaths = [...new Set([...(comparePath ? [comparePath] : []), ...tracks.map(track => track.filePath)])];
+        // Overlaid, the base's recordings too: a group base whose only track is a compared recording that failed for
+        // good still draws its events (its median). In lanes only the recordings on screen are drawn.
+        const shownEventPaths = [...new Set([...(comparePath ? [comparePath] : []), ...tracks.map(track => track.filePath)])];
+        const eventPaths = [...new Set([...shownEventPaths, ...allowed])];
         const eventsOnFigure = overlay && !!picture?.events && eventPaths.some(path => !!source.view(specFor(path), path)?.events?.length);
         // Not overlaid (「One lane per track」): the same lines, sounds and events, a lane a recording on
         // screen of the same Figure, as the images are (the tracks' own rows are not drawn on).
         const apartOnFigure = !state.overlaid && !images && (picture
-            ? figureLines(picture) || (!!picture.events && eventPaths.some(path => !!source.view(specFor(path), path)?.events?.length))
+            ? figureLines(picture) || (!!picture.events && shownEventPaths.some(path => !!source.view(specFor(path), path)?.events?.length))
             : FIGURE_FRAMES.has(frameShown ?? ''));
         const lanesOnFigure = imagesOnFigure || apartOnFigure;
         const onFigure = linesOnFigure || lanesOnFigure || eventsOnFigure;
@@ -805,7 +814,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             // Nothing the Figure draws yet: the files on their way (how many are in), or why there is no picture (a
             // trigger that found no event, a step whose Frame is not drawn).
             leaveFigure();
-            say(waiting ? pending?.label ?? '' : emptyStageText(strings, picture));
+            // No picture and nothing on its way because every file failed for good (a region past each file's end):
+            // said so, not that the step cannot be drawn.
+            const failedAll = !picture && !waiting && !gated && files.some(path => lasting(specFor(path), path));
+            say(waiting ? pending?.label ?? '' : failedAll ? strings.stageNothingComputed : emptyStageText(strings, picture));
         }
         // Under a trigger's events (or the word that there are none yet): each recording as the trigger takes it.
         if (!marked || !triggerShown) return;
@@ -893,7 +905,11 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 // version the earlier answer's, so the picture stays and its line is not read until the new one comes.
                 const earlier = answer.state === 'ready' ? undefined : source.previous(wanted, path);
                 const data = answer.state === 'ready' ? answer.value.data : earlier?.stage?.data;
-                const freshness = data && earlier ? 'stale' : answer.state === 'ready' && !data ? 'failed' : answer.state;
+                // The compared recording's failure that is asked again after the pause (not lasting) is on its way:
+                // pending, so the figure keeps waiting for it rather than matching without it until the retry and
+                // back (members.py matches without a compared recording that failed for good: a region past its end).
+                const passing = answer.state === 'failed' && answer.retryAt !== undefined && answer.retryAt !== Infinity && path === comparePath;
+                const freshness = data && earlier ? 'stale' : answer.state === 'ready' && !data ? 'failed' : passing ? 'pending' : answer.state;
                 // What its levels are in: the earlier scan's for a stale one, else as the paint knows it (the step's own
                 // scan, else its track, else the table's answer).
                 const level = (data && earlier ? earlier.input : undefined) ?? at.levelOf(path);
