@@ -52,6 +52,8 @@ export interface TrackRowFigureDeps {
     /** Alt+drag: a stretch of time (s). */
     /** `from`: where the drag began; `to`: where it was let go (before or after it). */
     ranged?(from: number, to: number): (() => void) | void;
+    /** Alt+drag under way: the stretch from the press (`from`) to the pointer (`to`), s; null when it ends picking nothing. */
+    ranging?(drag: { from: number; to: number } | null): void;
     /** Shift+drag: how far (s) from the press; null when abandoned. */
     shifted?(by: number | null, done: boolean): void;
     /** The time the pointer or the keys read here, or none: for the other rows to mark. */
@@ -127,6 +129,7 @@ export function createTrackRowFigure(deps: TrackRowFigureDeps): TrackRowFigureSc
         made.on('placed', lanes => deps.lanes?.(lanes));
         if (deps.placed) made.on('place', at => deps.placed?.(at.x));
         if (deps.ranged) made.on('range', range => (range.from === range.x[1] ? deps.ranged?.(range.x[1], range.x[0]) : deps.ranged?.(range.x[0], range.x[1])));
+        if (deps.ranging) made.on('ranging', drag => deps.ranging?.(drag ? { from: drag.from, to: drag.to } : null));
         if (deps.shifted) made.on('shift', drag => deps.shifted?.(drag.by, drag.done));
         made.on('picture', members => {
             const gone = answersLetGo(members?.shown.excluded ?? [], spec?.keys ?? []);

@@ -126,6 +126,9 @@ export function createTrackRowsScreen(deps: TrackRowsScreenDeps): TrackRowsScree
     const placed = new Map<string, readonly FigurePlacedLane[]>();
     /** A recording's offset when its Shift+drag began. */
     const shifting = new Map<string, number>();
+    /** An Alt+drag under way: the loop there at its press, and how to put that loop back. */
+    const noPutBack = (): void => undefined;
+    let looping: { atPress: { start: number; end: number } | null; putBack: () => void } | null = null;
     let width: number | null = null;
     const key = (track: string, channel: number): string => `${track}\u0000${channel}`;
     const rowOf = (track: TrackRowsTrack): ScreenRow | null => rows.find(row => row.id === track.id) ?? null;
@@ -184,11 +187,28 @@ export function createTrackRowsScreen(deps: TrackRowsScreenDeps): TrackRowsScree
         },
         viewed,
         placed: (track, seconds) => { const row = rowOf(track); return row ? deps.seek(normOf(row, seconds)) : undefined; },
+        // An Alt+drag shows its loop while it is dragged (R11): each move makes the loop from the one there at the press
+        // (a new loop, or that loop with the end pressed moved); the release makes it once more; a drag that picks
+        // nothing puts the loop at the press back.
+        ranging: (track, drag) => {
+            const row = rowOf(track);
+            if (!drag || !row) { looping?.putBack(); looping = null; return; }
+            if (!looping) looping = { atPress: deps.loopNow(), putBack: noPutBack };
+            const next = loopAfterDrag(looping.atPress, normOf(row, drag.from), normOf(row, drag.to), deps.viewSpan());
+            const putBack = next ? deps.loop(next.start, next.end) : undefined;
+            // The first loop shown keeps how to put back the one at the press.
+            if (putBack && looping.putBack === noPutBack) looping.putBack = putBack;
+        },
         ranged: (track, from, to) => {
             const row = rowOf(track);
+            const atPress = looping ? looping.atPress : deps.loopNow();
+            const putBack = looping?.putBack;
+            looping = null;
             if (!row) return undefined;
-            const next = loopAfterDrag(deps.loopNow(), normOf(row, from), normOf(row, to), deps.viewSpan());
-            return next ? deps.loop(next.start, next.end) : undefined;
+            const next = loopAfterDrag(atPress, normOf(row, from), normOf(row, to), deps.viewSpan());
+            if (!next) { putBack?.(); return undefined; }
+            const undo = deps.loop(next.start, next.end);
+            return putBack && putBack !== noPutBack ? putBack : undo;
         },
         shifted: (track, by, done) => {
             const row = rowOf(track);

@@ -167,6 +167,14 @@ export interface FigureSignals {
      */
     shift: (drag: { lane: string; by: number | null; done: boolean }) => void;
     /**
+     * An Alt+drag under way, where the screen takes a range and listens to this too (a Tracks row's loop): the stretch
+     * from the press to the pointer, in the axis across's values, at every move, so the screen shows what it will pick
+     * while it is dragged; no box is drawn for it (it zooms nothing). The release then tells `range` as before; null when
+     * the drag ends picking nothing (let go too near the press, or the release lost), for the screen to put back what it
+     * showed.
+     */
+    ranging: (drag: { lane: string; from: number; to: number } | null) => void;
+    /**
      * A click on a lane's plot, where the screen takes its place rather than a point (a Tracks row: the cursor is put
      * at the time clicked, on the recording or beside it): the place across of the point read at the press, and where
      * nothing is read the place under the pointer. With a listener a click picks no point. The screen may return how
@@ -501,7 +509,7 @@ export function createFigure(options: FigureOptions): Figure {
     if (!options.readout) { readout.className = 'plot-readout figure-readout'; (options.readoutHost ?? options.host).append(readout); }
     const presses = pagePresses(doc);
     const token = {};
-    const listeners: { [K in keyof FigureSignals]: Set<FigureSignals[K]> } = { pick: new Set(), view: new Set(), range: new Set(), picture: new Set(), read: new Set(), across: new Set(), reset: new Set(), placed: new Set(), shift: new Set(), place: new Set() };
+    const listeners: { [K in keyof FigureSignals]: Set<FigureSignals[K]> } = { pick: new Set(), view: new Set(), range: new Set(), picture: new Set(), read: new Set(), across: new Set(), reset: new Set(), placed: new Set(), shift: new Set(), ranging: new Set(), place: new Set() };
     /** The line last told as read (`lane line`; empty: none). */
     let toldRead = '';
     let toldPlaced = '';
@@ -1216,7 +1224,9 @@ export function createFigure(options: FigureOptions): Figure {
         const seen = inspect();
         const ownReadout = writeReadout(seen.readout);
         tellRead(seen.mark);
-        tellAcross(seen.mark);
+        // A drag under way tells the place under the pointer itself (onMove): a paint meanwhile (the loop drawn as it is
+        // dragged) does not take it back to the mark, which is none while dragging (R7).
+        if (!press?.isDrag) tellAcross(seen.mark);
         if (listeners.placed.size) {
             const lanes: FigurePlacedLane[] = seen.lanes.map(lane => ({ id: lane.id, frame: lane.frame, guides: lane.guides, ...(lane.events ? { events: lane.events } : {}) }));
             const now = JSON.stringify(lanes);
@@ -1683,6 +1693,17 @@ export function createFigure(options: FigureOptions): Figure {
             if (!press.isDrag && exceedsDragThreshold(event.clientX - press.clientX, event.clientY - press.clientY)) { press.isDrag = true; presses.dragging = true; }
             // Shift+drag where the screen takes one: told how far, and no box is drawn (nothing is zoomed).
             if (press.isDrag && press.shift) { press.to = at; tellShift(press, false); return; }
+            // Alt+drag where the screen shows the stretch itself (ranging): told the stretch, and no box is drawn.
+            if (press.isDrag && showsRanging(press)) {
+                press.to = at;
+                pointer = at;
+                const lane = press.lane;
+                const to = lane.x.at(Math.max(0, Math.min(1, (at.x - lane.frame.left) / lane.frame.width)));
+                // The readout reads the pointer's place first (R7), then the screen shows the stretch.
+                tellAcross({ x: to });
+                for (const listener of listeners.ranging) listener({ lane: lane.id, from: lane.x.at(Math.max(0, Math.min(1, (press.x - lane.frame.left) / lane.frame.width))), to });
+                return;
+            }
             if (press.isDrag) {
                 press.to = at;
                 // The pointer is where the drag is now: what is read once it ends is read there, not where it began.
@@ -1726,6 +1747,12 @@ export function createFigure(options: FigureOptions): Figure {
         if (under) onMove({ clientX: lastClient.clientX, clientY: lastClient.clientY, target: canvas, buttons: 0 } as unknown as MouseEvent);
         else if (pointer) onLeave();
     };
+    /** An Alt+drag the screen shows as it goes (FigureSignals.ranging), not as a box. */
+    const showsRanging = (drag: { alt: boolean }): boolean => drag.alt && listeners.range.size > 0 && listeners.ranging.size > 0;
+    /** An Alt+drag shown as it went ended picking nothing: the screen puts back what it showed. */
+    const rangingDropped = (drag: { isDrag: boolean; alt: boolean } | null): void => {
+        if (drag?.isDrag && showsRanging(drag)) for (const listener of listeners.ranging) listener(null);
+    };
     /** How far a Shift+drag is from its press, in the lane's values across (its axis is linear: a time axis). */
     const tellShift = (drag: { x: number; to: { x: number }; lane: LaneView }, done: boolean, abandoned = false): void => {
         const lane = drag.lane;
@@ -1750,6 +1777,7 @@ export function createFigure(options: FigureOptions): Figure {
         box = null;
         presses.dragging = false;
         if (done?.isDrag && done.shift) tellShift(done, true, true);
+        rangingDropped(done);
         // Its release lost: nothing is done; a click waiting is no longer current.
         if (done && !done.isDrag) tap(done.read, () => false);
         paint();
@@ -1776,7 +1804,7 @@ export function createFigure(options: FigureOptions): Figure {
         const fy = (y: number): number => Math.max(0, Math.min(1, 1 - (y - lane.frame.top) / lane.frame.height));
         const [x0, x1] = [Math.min(fx(done.x), fx(to.x)), Math.max(fx(done.x), fx(to.x))];
         const [y0, y1] = [Math.min(fy(done.y), fy(to.y)), Math.max(fy(done.y), fy(to.y))];
-        if (x1 - x0 <= 0.005) { paint(); return; }
+        if (x1 - x0 <= 0.005) { rangingDropped(done); paint(); return; }
         const across = [lane.x.at(x0), lane.x.at(x1)] as const;
         // Alt+drag picks a stretch across where the screen takes one (range); elsewhere it is a drag as any (a box zoom).
         if (done.alt && listeners.range.size) { tellRange({ ...rangeOf(lane.id, across[0], across[1]), from: across[fx(done.x) <= fx(to.x) ? 0 : 1] }); paint(); return; }
@@ -2029,6 +2057,8 @@ export function createFigure(options: FigureOptions): Figure {
         inspect,
         dispose() {
             if (disposed) return;
+            // An Alt+drag shown as it went ends with its Figure (the row scrolled away): the screen puts back what it showed.
+            rangingDropped(press);
             disposed = true;
             press = null;
             imagePixels.clear();
