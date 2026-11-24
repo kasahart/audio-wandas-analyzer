@@ -32,6 +32,12 @@ WRONG = {
         "from services.stage_combine import STORE\n",
         "imports services",
     ),
+    "a Frame read in figures/": ("figures/headline.py", "def _x(frame):\n    return frame.freqs\n", "reads .freqs"),
+    "a Frame read in transport/": (
+        "transport/figure_answers.py",
+        "def _v(frame):\n    return frame.data\n",
+        "reads .data",
+    ),
     "services/ from figures/": ("figures/pick.py", "from services import combine_ops\n", "imports services"),
     "transport/ from figures/": ("figures/headline.py", "import transport\n", "imports transport"),
     "drawn points handed to the range": (
