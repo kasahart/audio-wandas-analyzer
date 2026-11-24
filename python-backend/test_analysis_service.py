@@ -19,7 +19,7 @@ from conftest import cursor_lines, pair_lines
 from frames.analysis_spec import MIN_LEVEL_DB
 from services.analysis_engine import AnalysisEngine, compute_spectrogram
 from services.analysis_service import AnalysisService
-from services.analyzer import normalize_stft_options
+from services.analyzer import normalize_stft_options, resolve_stft_params
 from services.answer_store import STORE
 from services.backend_errors import InputError
 from services.tracks_answers import ImageData
@@ -508,3 +508,53 @@ def test_desktop_csv_with_non_finite_samples_is_an_input_error(tmp_path: Path, s
 
     with pytest.raises(InputError, match="non-finite samples"):
         AnalysisService(AnalysisEngine()).analyze(csv)
+
+
+@pytest.mark.parametrize(("n_fft", "overlap"), [(256, 50), (1024, 75), (2048, 70), (512, 0)])
+def test_the_cursor_spectrum_is_the_kept_stft_column_where_the_window_is_one_of_its_frames(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, n_fft: int, overlap: int
+) -> None:
+    """With the file's STFT kept, a window that is one of its frames is read from that column (wandas reads only
+    that column); a window that is not (pushed inside a file end) is a new FFT. Both give the FFT's numbers."""
+    audio = tmp_path / "tones.wav"
+    rate = 16000
+    rng = np.random.default_rng(0)
+    times = np.arange(rate) / rate
+    samples = np.column_stack([0.5 * np.sin(2 * np.pi * 440 * times), 0.1 * rng.standard_normal(rate)])
+    sf.write(audio, samples, rate, subtype="PCM_16")
+    options = {"nFft": n_fft, "overlapPercent": overlap, "window": "hann"}
+    cursors = (0.0, 0.003, 0.25, 0.5, 0.731, 0.999, 1.0)
+    fresh = AnalysisService(AnalysisEngine())
+    expected = {cursor: fresh.slice_rows(audio, cursor_norm=cursor, stft_options=options) for cursor in cursors}
+
+    service = AnalysisService(AnalysisEngine())
+    service.track_answers(audio, stft_options=options)  # keeps the file's STFT, as a Tracks row does
+    ffts: list[int] = []
+    original_fft = wd.ChannelFrame.fft
+
+    def counted_fft(self: wd.ChannelFrame, *args: Any, **kwargs: Any) -> Any:
+        ffts.append(1)
+        return original_fft(self, *args, **kwargs)  # pyright: ignore[reportAttributeAccessIssue]
+
+    monkeypatch.setattr(wd.ChannelFrame, "fft", counted_fft)
+    hop = resolve_stft_params(rate, options)[1]
+    kept = service.engine.get_cached_spectrogram(audio, n_fft, hop, "hann")
+    assert kept is not None
+    used_columns = 0
+    seen: set[int] = set()
+    for cursor in cursors:
+        before = len(ffts)
+        found = service.slice_rows(audio, cursor_norm=cursor, stft_options=options)
+        assert (found.start_sample, found.end_sample) == (expected[cursor].start_sample, expected[cursor].end_sample)
+        # SciPy's STFT and NumPy's FFT round differently, most in the near-silent bins (about 1e-6 dB at -220 dB):
+        # far below anything drawn or read (0.01 dB).
+        np.testing.assert_allclose(found.rows, expected[cursor].rows, rtol=0, atol=1e-4)
+        assert found.max_frequency_hz == expected[cursor].max_frequency_hz
+        # wandas' own frame centres: is the window (centred at start + n_fft // 2) one of the kept STFT's frames?
+        centres = np.asarray(kept.frame_center_times).reshape(-1) * rate
+        is_frame = bool(np.any(np.isclose(centres, found.start_sample + n_fft // 2, rtol=0, atol=1e-6)))
+        if found.start_sample not in seen:  # a window already answered comes from the slice cache
+            assert (len(ffts) == before) == is_frame, (cursor, found.start_sample)
+            used_columns += is_frame
+        seen.add(found.start_sample)
+    assert used_columns >= 3  # the column path is taken, not only the FFT

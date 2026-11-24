@@ -177,6 +177,24 @@ def _snapped_window_center(cursor_sample: float, hop_size: int) -> int:
     return round(cursor_sample / hop_size) * hop_size
 
 
+def _kept_column(kept: wd.SpectrogramFrame | None, start_sample: int, end_sample: int, n_samples: int) -> int | None:
+    """The frame of ``kept`` whose window is exactly samples ``start_sample``..``end_sample`` of the file, or None.
+
+    The window is one of the STFT's frames when a frame is centred on it and it lies wholly inside the file (a frame
+    that passes a file end is zero-padded by the STFT; the cursor's window is pushed inside instead)."""
+    if kept is None or end_sample - start_sample != kept.n_fft or start_sample < 0 or end_sample > n_samples:
+        return None
+    origin = kept.frame_time_origin
+    if origin is None:
+        return None
+    # Samples from the first frame's centre (wandas' frame_time_origin, before the file start) to the window's centre.
+    offset = start_sample + kept.n_fft // 2 - origin * kept.sampling_rate
+    index = round(offset / kept.hop_length)
+    if not math.isclose(index * kept.hop_length, offset, abs_tol=1e-6) or not 0 <= index < kept.n_frames:
+        return None
+    return index
+
+
 class AnalysisService:
     def __init__(self, engine: AnalysisEngine) -> None:
         self.engine = engine
@@ -244,7 +262,19 @@ class AnalysisService:
             max_frequency_hz = bands.max_frequency_hz
             self.engine.put_spectrum_slice(cached, slice_key, rows, max_frequency_hz)
         else:
-            spectrum = analysis_frame[:, start_sample:end_sample].fft(n_fft=window_size, window=window_name)
+            kept = self.engine.kept_spectrogram(cached, (resolved.signature, window_size, hop_size, window_name))
+            column = _kept_column(kept, start_sample, end_sample, analysis_frame.n_samples)
+            if kept is not None and column is not None:
+                # The window is one frame of the STFT the file already keeps (its spectrogram row): wandas reads that
+                # column alone (wandas 0.14 copies only the part of a cached array that is read), not a new FFT.
+                spectrum = kept[:, :, column : column + 1]
+            else:
+                # Of float64 samples, as the STFT is (compute_spectrogram), so both ways give the same numbers.
+                spectrum = (
+                    analysis_frame[:, start_sample:end_sample]
+                    .astype(np.float64)
+                    .fft(n_fft=window_size, window=window_name)  # pyright: ignore[reportAttributeAccessIssue]
+                )
             max_frequency_hz = float(spectrum.freqs[-1])
             # float64, as wandas gives it: its level range, the overlay's order and the readout take it as it is.
             rows = np.asarray(spectrum.dB, dtype=np.float64).reshape(analysis_frame.n_channels, -1)

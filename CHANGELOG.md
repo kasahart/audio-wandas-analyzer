@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Cursor spectrum: where the window is one frame of the Tracks row's spectrogram, that frame is read instead of computed again, about twice as fast while moving the cursor or playing. The values are the same (#822).
 - Updated to wandas 0.14.0 (#818).
 - Compare: when the compared recording cannot be computed (for example the region ends after the file), the base is still drawn instead of an empty figure that waits for it; the compared recording's legend item says it could not be computed, and no Δ is drawn. The region stays in the headline, and when no recording can be computed the panel says so instead of "This step cannot be shown ()" (#817).
 - Compare (browser version): with a slow step (loudness, roughness), each recording's line is drawn as soon as it is computed, as before the figures were rebuilt. The figure no longer stays empty until the last recording is done (#824).
