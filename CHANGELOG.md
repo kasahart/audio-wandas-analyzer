@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Browser version: the message after opening a folder says to click ☐ on a row to show its file as a track, as the row's button is; it said ＋ (#843).
 - Browser version: after taking a track off (unchecking it, or a slot or base change that takes its file off), the footer says how many tracks there are now. It kept the last load's message, with the old count, or stayed at "Preparing local Python Worker / adding files…" when the change came while a file was still loading (#842).
 - Tracks: a long file name in a track's header keeps its end in sight (L1_…run001, L1_…run002) instead of being cut after its first characters (L1_90…), so tracks of files named alike can be told apart. The full path is still the hint (#841).
 - Cursor spectrum: where the window is one frame of the Tracks row's spectrogram, that frame is read instead of computed again, about twice as fast while moving the cursor or playing. The values are the same (#822).
