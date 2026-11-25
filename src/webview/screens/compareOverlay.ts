@@ -173,8 +173,16 @@ export function createCompareOverlayScreen(deps: CompareOverlayDeps): CompareOve
         return view?.lanes ? { ...view, lanes: view.lanes.filter(lane => spec.lanes.some(item => item.id === lane.lane)) } : view;
     };
     const sizeOf = (): { width: number; height: number } => ({ width: Math.max(1, deps.host.clientWidth || 600), height: Math.max(1, deps.host.clientHeight || 300) });
-    /** The counts of what is shown: the last picture's, while no new one is on its way. */
-    const countsNow = (): FigureMembers | null => (figure?.inspect().waiting === false ? counted : null);
+    /**
+     * The counts of what is shown: the last picture's, while no new one is on its way, and while the picture on its
+     * way is of the same spec at another range or size (the Figure shows the last picture on the new view meanwhile:
+     * its recordings are the ones counted). Blanked on each zoom, the base's heading lost its count and the legend
+     * its second line, and the plots under it jumped up and back with every gesture.
+     */
+    const countsNow = (): FigureMembers | null => {
+        const seen = figure?.inspect();
+        return seen && (!seen.waiting || seen.mapped) ? counted : null;
+    };
     /** The base's counts by recording (its line's, as the service made them). */
     const baseCounts = (members: FigureMembers | null): OverlayCounts | null => {
         const lines = members?.lines.filter(item => isBaseLine(item.line)) ?? [];
