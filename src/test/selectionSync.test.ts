@@ -55,3 +55,11 @@ test('a queued play waits for its track and is handed out once', () => {
     assert.equal(selection.takeReadyPlay(path => path === 'a.wav'), 'a.wav');
     assert.equal(selection.takeReadyPlay(() => true), null);
 });
+
+test('the files chosen are read once each has its track (or failed): until then the tracks are on their way (#853)', () => {
+    const selection = setup({ selectedFilePaths: ['a.wav', 'b.wav'] });
+    assert.deepEqual(selection.readProgress(() => false), { read: 0, total: 2 });
+    assert.deepEqual(selection.readProgress(path => path === 'a.wav'), { read: 1, total: 2 });
+    assert.deepEqual(selection.readProgress(() => true), { read: 2, total: 2 });
+    assert.deepEqual(setup().readProgress(() => false), { read: 0, total: 0 });
+});

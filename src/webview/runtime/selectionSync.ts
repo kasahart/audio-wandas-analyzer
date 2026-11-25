@@ -68,6 +68,15 @@ export class SelectionSync {
         return newlySelected;
     }
 
+    /**
+     * How many of the files chosen are read (`isRead`: their track is in, or failed) of how many there are: until
+     * all are, the tracks are on their way (the host reading them, the browser build's Python starting).
+     */
+    readProgress(isRead: (filePath: string) => boolean): { read: number; total: number } {
+        const paths = this.selection.paths;
+        return { read: paths.filter(isRead).length, total: paths.length };
+    }
+
     /** The message asking the host to analyse the tracks chosen; each has its own request id. */
     nextRequest(sessionId: string, clearAll = false): SelectedFilesRequest {
         this.requestSeq += 1;

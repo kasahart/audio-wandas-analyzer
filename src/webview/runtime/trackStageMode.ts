@@ -92,6 +92,11 @@ export interface TrackStageDeps {
     recipeChanged(recipe: RecipeDocument): void;
     /** The tracks on screen, in display order. */
     tracks(): StageTrack[];
+    /**
+     * The files chosen as tracks and how many of them are read (their track in, or failed): until each is, the
+     * comparison has nothing of it to show (the host still reading it, the browser build's Python starting).
+     */
+    tracksRead?(): { read: number; total: number };
     /** The entry table's slots 0–3, the base of a compared file and its name. */
     slots(): (string | null)[];
     basePaths(comparePath: string, group?: boolean): string[];
@@ -709,6 +714,11 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const done = files.filter(path => coarse(path) !== undefined).length;
         const pending = waiting ? { done, total: files.length, label: strings.dsComputing.replace('{done}', String(done)).replace('{n}', String(files.length)) } : undefined;
         root.dataset.pending = pending ? `${done}/${files.length}` : '';
+        // No picture and nothing asked for while files chosen are not read as tracks yet: the comparison waits for
+        // them (not that the step cannot be shown, nor to choose recordings), and draws once they are in (#853).
+        const read = picture || waiting ? undefined : deps.tracksRead?.();
+        const reading = read && read.read < read.total ? read : undefined;
+        root.dataset.reading = reading ? `${reading.read}/${reading.total}` : '';
         const overlay = state.overlaid && !images;
         // A trigger's events overlaid: the tracks stay under them, each recording as the trigger takes it (the step
         // before it), with the trigger's level, where each event was cut and a mark per event to play or leave out.
@@ -794,7 +804,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const excluded = (path: string): readonly number[] => (viewTrigger ? excludedOf(recipe.recipe, eventsKey(viewTrigger, path, channelFor(path))) : []);
         channelOf = channelFor;
         const bypassed = steps.filter(step => step.bypassed).map(step => stepChipLabel(step, strings, state.regionSet));
-        query<HTMLElement>('[data-stage-headline]').textContent = stageModeHeadline({ strings, waiting, referencePath, comparePath, named }, bypassed, region);
+        query<HTMLElement>('[data-stage-headline]').textContent = stageModeHeadline({ strings, waiting: waiting || !!reading, referencePath, comparePath, named }, bypassed, region);
         root.dataset.compared = comparePath ? String(role(comparePath) ?? '') : '';
         root.dataset.base = state.groupBase || !deps.slots()[0] ? 'group' : 'file';
         const aggregate = each ? strings.stageBaseEach : strings.stageBaseAggregate;
@@ -817,7 +827,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             // No picture and nothing on its way because every file failed for good (a region past each file's end):
             // said so, not that the step cannot be drawn.
             const failedAll = !picture && !waiting && !gated && files.some(path => lasting(specFor(path), path));
-            say(waiting ? pending?.label ?? '' : failedAll ? strings.stageNothingComputed : emptyStageText(strings, picture));
+            say(waiting ? pending?.label ?? ''
+                : reading ? strings.tracksReading.replace('{done}', String(reading.read)).replace('{n}', String(reading.total))
+                : failedAll ? strings.stageNothingComputed : emptyStageText(strings, picture));
         }
         // Under a trigger's events (or the word that there are none yet): each recording as the trigger takes it.
         if (!marked || !triggerShown) return;

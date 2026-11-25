@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Compare and Tracks: while the recordings chosen are still being read (the browser version's Python still starting, or the host still reading the files), the comparison and the track area say "Reading the recordings 0 / 2" (録音を読み込み中 0 / 2). The comparison said "This step cannot be shown ()" with nothing in the brackets, and the track area said to click ☐ on a row, for up to about 15 s (#853).
 - Folder table: a long file name is cut between characters as they are seen. An emoji was drawn as �, and a macOS file name (its ガ stored as カ + ゛) could lose its voiced mark where the name was cut (#845).
 - Compare: the Δ says what it is the difference of: the compared slot minus the base. Its headline reads "largest Δ (Compare 1 − Base) …" and its axis "Δ = Compare 1 − Base [dB]" (日本語: 最大 Δ（比較 1 − 基準）, Δ = 比較 1 − 基準 [dB]); with slot 2 compared (key 2, or slot 1 empty) they say Compare 2. A Δ in another unit says the same ("Δ RMS = Compare 1 − Base [Pa]"). With a Compare 2 on screen, the Δ read as if it covered it too. What is drawn is unchanged (#848).
 - Browser version: the message after opening a folder says to click ☐ on a row to show its file as a track, as the row's button is; it said ＋ (#843).
