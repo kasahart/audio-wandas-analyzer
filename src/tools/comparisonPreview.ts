@@ -99,7 +99,9 @@ function finalizePreviewHtml(html: string, options?: { injectVsCodeApiStub?: boo
         .replace(/<meta http-equiv="Content-Security-Policy"[^>]+>\n/u, '')
         .replace(
             '<script src="__COMPARISON_RUNTIME__"></script>',
-            `<script nonce="${nonce}">${readComparisonRuntimeJs()}</script>`,
+            // A function, not a string: the runtime's code can hold $` or $' (a template ending in a regex's $), which a
+            // replacement string reads as "the text before/after the match" and copies the page into itself.
+            () => `<script nonce="${nonce}">${readComparisonRuntimeJs()}</script>`,
         );
     const injections: string[] = [];
     if (options?.injectVsCodeApiStub) {

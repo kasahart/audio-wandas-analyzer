@@ -84,10 +84,26 @@ export function batchBundle(input: BatchInput): { folder: string; files: BatchFi
     return { folder: batchFolderName(input.recipeName, input.now), files };
 }
 
+/**
+ * The wandas versions run_recipe.py accepts, read from the script itself (REQUIRES_WANDAS ≤ version < BEFORE_WANDAS),
+ * so the README's install line cannot name another range than the script checks (#854: a README that said only
+ * ">=" installed a newer wandas, which the script then refused).
+ */
+export function scriptWandasRange(script: string = RUN_RECIPE_PY): { from: string; before: string } {
+    const read = (name: string): string => {
+        const found = new RegExp(`(?:^|\\n)${name} = \\((\\d+), (\\d+), (\\d+)\\)\\r?\\n`).exec(script);
+        if (!found) throw new Error(`run_recipe.py has no ${name} = (x, y, z): the README needs it for its install line.`);
+        return found.slice(1).join('.');
+    };
+    return { from: read('REQUIRES_WANDAS'), before: read('BEFORE_WANDAS') };
+}
+
 function readme(input: BatchInput, count: number, channels: ReadonlyArray<number | null>): string {
     const recipes = channels.map(channel => recipeFile(input.recipeName, channel)).join(', ');
     const known = input.runRoot ?? input.rootPath;
     const root = known || '<録音のフォルダ>';
+    const wandas = scriptWandasRange();
+    const install = `pip install -U "wandas[io]>=${wandas.from},<${wandas.before}"`;
     return `レシピをまとめて実行する（Audio Wandas Analyzer で書き出し）
 ==============================================================
 
@@ -97,8 +113,8 @@ function readme(input: BatchInput, count: number, channels: ReadonlyArray<number
 - run_recipe.py: wandas の公開 API だけで、targets.csv の録音に Recipe を順に掛けます。
 - アプリの中では何も実行していません。
 
-実行（wandas 0.14.0 以上と、WDF の保存に使う wandas[io]）
-  pip install -U "wandas[io]>=0.14.0"
+実行（wandas ${wandas.from} 以上 ${wandas.before} 未満と、WDF の保存に使う wandas[io]）
+  ${install}
   python run_recipe.py --root "${root}" --out outputs --jobs 4
 
 結果
@@ -115,8 +131,8 @@ Contents
 - run_recipe.py: applies the Recipe to every recording in targets.csv, with the wandas public API only.
 - Nothing was run in the app.
 
-Run (wandas 0.14.0 or later, with wandas[io] for saving WDF)
-  pip install -U "wandas[io]>=0.14.0"
+Run (wandas ${wandas.from} or later, before ${wandas.before}, with wandas[io] for saving WDF)
+  ${install}
   python run_recipe.py --root "${known || '<the recordings folder>'}" --out outputs --jobs 4
 
 Results
