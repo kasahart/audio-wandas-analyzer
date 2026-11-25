@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Compare: the Δ says what it is the difference of: the compared slot minus the base. Its headline reads "largest Δ (Compare 1 − Base) …" and its axis "Δ = Compare 1 − Base [dB]" (日本語: 最大 Δ（比較 1 − 基準）, Δ = 比較 1 − 基準 [dB]); with slot 2 compared (key 2, or slot 1 empty) they say Compare 2. A Δ in another unit says the same ("Δ RMS = Compare 1 − Base [Pa]"). With a Compare 2 on screen, the Δ read as if it covered it too. What is drawn is unchanged (#848).
 - Browser version: the message after opening a folder says to click ☐ on a row to show its file as a track, as the row's button is; it said ＋ (#843).
 - Browser version: after taking a track off (unchecking it, or a slot or base change that takes its file off), the footer says how many tracks there are now. It kept the last load's message, with the old count, or stayed at "Preparing local Python Worker / adding files…" when the change came while a file was still loading (#842).
 - Tracks: a long file name in a track's header keeps its end in sight (L1_…run001, L1_…run002) instead of being cut after its first characters (L1_90…), so tracks of files named alike can be told apart. The full path is still the hint (#841).

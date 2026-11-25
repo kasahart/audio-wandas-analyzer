@@ -520,6 +520,8 @@ export interface UiStrings {
     /** The level axis once calibrated; `{label}` is wandas' level reference ("dB SPL re 20 µPa"). */
     axisLevelCal: string;
     axisDelta: string;
+    /** What the Δ lane is the difference of: the compared slot ({n}, as the legend names it) minus the base; `{pair}` in axisDelta and stageMaxDelta (#848). */
+    deltaPair: string;
     axisTime: string;
     axisTriggerTime: string;
     legendHeadline: string;
@@ -1296,7 +1298,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stageEventInButton: 'Put back event #{n}',
         stageEventsUsed: 'Used {used}/{total}',
         stageEventsNoAnswer: 'No events answer',
-        stageMaxDelta: 'largest Δ {at} {delta}',
+        stageMaxDelta: 'largest Δ ({pair}) {at} {delta}',
         compareHintPlot: 'Drag: zoom into the box / Ctrl+Wheel: zoom / Shift+Wheel, swipe sideways: scroll / + −: zoom / Double-click: reset zoom',
         compareHintAxis: 'Double-click: set the range of this axis',
         compareDiffShow: 'Show Δ',
@@ -1313,7 +1315,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisFrequency: 'Frequency [Hz]',
         axisLevelUncal: 'Level, uncalibrated [{label}]',
         axisLevelCal: 'Level [{label}]',
-        axisDelta: 'Difference Δ [dB]',
+        axisDelta: 'Δ = {pair} [dB]',
+        deltaPair: 'Compare {n} − Base',
         axisTime: 'Time [s]',
         axisTriggerTime: 'Time from trigger [s]',
         legendHeadline: '1/3 oct headline',
@@ -2079,7 +2082,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stageEventInButton: 'イベント #{n} を戻す',
         stageEventsUsed: '使用 {used}/{total}',
         stageEventsNoAnswer: 'イベントの答えなし',
-        stageMaxDelta: '最大 Δ {at} {delta}',
+        stageMaxDelta: '最大 Δ（{pair}）{at} {delta}',
         compareHintPlot: 'ドラッグ: 囲んだ範囲にズーム / Ctrl+ホイール: ズーム / Shift+ホイール・横スワイプ: 横にスクロール / + −: ズーム / ダブルクリック: ズームをリセット',
         compareHintAxis: 'ダブルクリック: この軸の範囲を設定',
         compareDiffShow: '差も表示',
@@ -2096,7 +2099,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisFrequency: '周波数 [Hz]',
         axisLevelUncal: 'レベル 未校正 [{label}]',
         axisLevelCal: 'レベル [{label}]',
-        axisDelta: '差 Δ [dB]',
+        axisDelta: 'Δ = {pair} [dB]',
+        deltaPair: '比較 {n} − 基準',
         axisTime: '時間 [s]',
         axisTriggerTime: 'トリガーからの時間 [s]',
         legendHeadline: '1/3 oct 見出し',

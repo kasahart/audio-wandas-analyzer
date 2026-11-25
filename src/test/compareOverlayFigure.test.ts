@@ -16,7 +16,7 @@ import { axisScale } from '../webview/figure/axisScale';
 import { specifiedEnds, type Figure } from '../webview/figure/figure';
 import { zoomRangeAroundPivot, panNormalizedRangeBy, ZOOM_IN_FACTOR } from '../webview/figure/zoomSteps';
 import type { FigureDrawPayload, FigureDrawResult, FigureView } from '../shared/protocol/generated/backendProtocolSchema';
-import { figurePage, SCENE_SIZE, scenePicture, sceneSpec, type FigurePage } from './helpers/figureStandIn';
+import { figurePage, SCENE_SIZE, scenePicture, sceneSpec, WORDS, type FigurePage } from './helpers/figureStandIn';
 import type { Scene } from './helpers/figureOverlayRun';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -225,5 +225,21 @@ test('目安の線 (guide lines) of a picture are drawn at their place on one ax
     assert.ok(hover, 'a read is asked, of the lines');
     assert.equal(JSON.stringify(hover.message.payload).includes('guide'), false);
     assert.equal(figure.inspect().mark, null, 'no mark before a point is read');
+    figure.dispose();
+});
+
+test('the Δ\'s headline and axis name the slot the screen says is compared, not always slot 1 (#848)', () => {
+    const page = figurePage();
+    let slot: number | undefined = 2;
+    const words = { ...WORDS, deltaPair: 'Compare {n} − Base', axisDelta: 'Δ = {pair} [dB]', stageMaxDelta: 'Largest Δ ({pair}) {delta} at {at}' };
+    const figure = page.figure(undefined, { ...SCENE_SIZE, words, deltaSlot: () => slot });
+    figure.show(sceneSpec(), null);
+    answer(page, picture => ({ ...picture, headlines: [{ lane: 'delta', line: 'delta', index: 3, x: 1234, xStep: 10, value: 4.26 }] }));
+    // Slot 2 tapped (or slot 1 empty): the Δ is compare 2 − the base, and says so (trackStageModel.ts comparedPath).
+    assert.equal(figure.inspect().headline, 'Largest Δ (Compare 2 − Base) +4.3 dB at 1.234 kHz');
+    assert.equal(figure.inspect().lanes.find(lane => lane.id === 'delta')?.axisNames.y, 'Δ = Compare 2 − Base [dB]');
+    // No slot said: slot 1, the compared one by default.
+    slot = undefined;
+    assert.equal(figure.inspect().headline, 'Largest Δ (Compare 1 − Base) +4.3 dB at 1.234 kHz');
     figure.dispose();
 });

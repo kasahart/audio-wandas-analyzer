@@ -879,6 +879,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             base: at.images || at.apart ? allowed.filter(path => tracks.some(track => track.filePath === path)) : at.gated ? [] : [...allowed, ...at.unreadable],
             compare: [...(comparePath ? [comparePath] : []), ...slotted.map(track => track.filePath)],
             delta: withDiff,
+            // The Δ is of the compared recording, which is not always slot 1's (a tapped or held key, an empty slot 1).
+            ...(comparePath && role(comparePath) ? { comparedSlot: role(comparePath) } : {}),
             ...(at.signals ? { signals: true } : {}),
             ...(at.images ? { images: true } : {}),
             ...(at.apart ? { apart: tracks.map(track => track.filePath) } : {}),
