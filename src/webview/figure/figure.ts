@@ -41,7 +41,7 @@ import { amountText, exactFieldText, frequencyText, lagText, levelText, quefrenc
 import { zoomKeyAction } from '../shell/zoomKeys';
 import { installRangePopover, openAxisPart, type RangePopover, type RangePopoverStrings } from '../shell/rangePopover';
 import { axisScale, valueScale, windowedScale, type AxisPart, type AxisScale, type ValueScale } from './axisScale';
-import { inDb, levelAxisName, levelUnitOfName, lineAxisNames, type LineAxisWords, colourAxisName, deltaAxisName, rowsAxisName } from './axisNames';
+import { inDb, levelAxisName, levelUnitOfName, lineAxisNames, type LineAxisWords, colourAxisName, deltaAxisName, rowsAxisName, withDeltaPair } from './axisNames';
 import { BINS_COLOURS, paintBins, placeBins, type PlacedBins } from './binsLane';
 import { fieldWindow } from './fieldWindow';
 import { colourBarBox, COLOUR_BAR, COLOUR_BAR_ROOM, emptyColourOf, imagePixelsOf, paintColourBar, upScale, type ImagePalette } from './imageLane';
@@ -65,7 +65,7 @@ export interface FigureWords extends LineAxisWords {
     /** A band lane's axis up (a time signal's values), named with its unit where it has one. */
     waveRangeAxisAmplitude: string;
     axisDelta: string;
-    /** What a Δ is the difference of (compare 1 − base), said on every Δ axis (#848). */
+    /** What a Δ is the difference of ('Compare {n} − Base'), said on every Δ axis and its headline as `{pair}` (#848). */
     deltaPair: string;
     /** A bins lane's axis up (a distribution's counts: {unit}) and what is counted (recordings). */
     dsDistCountAxis: string;
@@ -223,6 +223,11 @@ export interface FigureOptions {
      * recording, which the lanes' colours alone did not tell apart); nothing for a lane it gives nothing for.
      */
     laneTitle?: (lane: string) => string | undefined;
+    /**
+     * The slot of the recording the Δ lane's Δ is of (the compared one: the slot tapped or held, else the first slot
+     * among the tracks), named in every Δ's words as `{n}` of `deltaPair` (#848). Slot 1 where none is given.
+     */
+    deltaSlot?: () => number | undefined;
     /** What is written at a guide line (a trigger's level: its value and unit, the screen's words); nothing by default. */
     guideLabel?: (lane: string, guide: { axis: 'x' | 'y'; at: number; id?: string }) => string | undefined;
     /** The name of a bins lane's axis across: its table column's, the user's own words (its key by default). */
@@ -522,6 +527,8 @@ const readoutWriters = new WeakMap<HTMLElement, object>();
 
 export function createFigure(options: FigureOptions): Figure {
     const { document: doc, requests, words } = options;
+    /** The words a Δ is named with: its pair's slot is the screen's to say (the compared slot; 1 where it says none). */
+    const deltaWords = (): FigureWords => withDeltaPair(words, options.deltaSlot?.() ?? 1);
     const canvas = doc.createElement('canvas');
     canvas.dataset.figure = requests.figureId;
     canvas.tabIndex = 0;
@@ -877,8 +884,9 @@ export function createFigure(options: FigureOptions): Figure {
         const peak = picture.headlines.find(item => item.lane === lane.id);
         if (!peak) return words.stageNoDelta;
         // A time signal's Δ: its sample's time (to its sample period) and its value, signed, in the signal's unit.
-        if (lane.kind === 'band') return words.stageMaxDelta.replace('{at}', secondsText(peak.x, spacingDecimals(peak.xStep, 2, 6))).replace('{delta}', signedText(peak.value, false, lane.axis.unit));
-        return words.stageMaxDelta.replace('{at}', acrossText(lane, peak.x, peak.xStep)).replace('{delta}', lineValueText(lane, peak.value));
+        const named = deltaWords();
+        if (lane.kind === 'band') return named.stageMaxDelta.replace('{at}', secondsText(peak.x, spacingDecimals(peak.xStep, 2, 6))).replace('{delta}', signedText(peak.value, false, lane.axis.unit));
+        return named.stageMaxDelta.replace('{at}', acrossText(lane, peak.x, peak.xStep)).replace('{delta}', lineValueText(lane, peak.value));
     };
     /** A lane's level words (its colour axis on an image lane, its axis up on a lane of level lines). */
     const levelName = (lane: PictureLane): string => (lane.kind === 'image' && lane.axis.quantity !== 'level' ? colourAxisName(words, lane.axis) : levelAxisName(words, lane.axis.referenceLabel, lane.axis.calibration));
@@ -892,11 +900,11 @@ export function createFigure(options: FigureOptions): Figure {
             const name = `${words.waveRangeAxisAmplitude}${lane.axis.calibration === 'uncalibrated' ? words.axisUncalibrated : ''}`;
             const y = lane.axis.unit ? `${name} [${lane.axis.unit}]` : name;
             // A trigger's events are over the time from their trigger. A Δ says what it is the difference of (#848).
-            return { x: lane.axis.x === 'triggerTime' ? words.axisTriggerTime : words.axisTime, y: lane.axis.quantity === 'delta' ? deltaAxisName(words, y) : y };
+            return { x: lane.axis.x === 'triggerTime' ? words.axisTriggerTime : words.axisTime, y: lane.axis.quantity === 'delta' ? deltaAxisName(deltaWords(), y) : y };
         }
         // A distribution: across, the table column's own name (the screen's); up, how many rows.
         if (lane.kind === 'bins') return { x: lane.bins ? options.columnName?.(lane.bins.column) ?? lane.bins.column : '', y: words.dsDistCountAxis.replace('{unit}', words.dsUnitRecording) };
-        return lineAxisNames(words, lane.axis);
+        return lineAxisNames(lane.axis.quantity === 'delta' ? deltaWords() : words, lane.axis);
     };
     /**
      * A bins lane's readout (R7): a bar says its group, its bin's ends and how many rows it holds (with a range

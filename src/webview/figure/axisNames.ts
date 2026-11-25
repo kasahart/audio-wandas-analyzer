@@ -138,8 +138,19 @@ export function lineAxisNames(words: LineAxisWords, axis: LineAxis): { x: string
 }
 
 /**
- * A Δ of a quantity's name: the Δ lane is always compare 1 minus the base (charts/compareOverlay.ts), and every Δ says
- * so before its unit (#848): `RMS [Pa]` → `Δ RMS = Compare 1 − Base [Pa]`. A Δ of dB has its own name (axisDelta).
+ * The words with the Δ's pair filled in (#848): the Δ lane is the compared recording minus the base
+ * (charts/compareOverlay.ts), and the compared recording is the slot tapped or held, or the first slot among the
+ * tracks (trackStageModel.ts comparedPath), so its slot number ({n}) is the screen's to say. `{pair}` in the dB axis's
+ * name and the headline is that pair.
+ */
+export function withDeltaPair<W extends Pick<LineAxisWords, 'deltaPair' | 'axisDelta'> & { stageMaxDelta?: string }>(words: W, slot: number): W {
+    const pair = words.deltaPair.replace('{n}', String(slot));
+    return { ...words, deltaPair: pair, axisDelta: words.axisDelta.replace('{pair}', pair), ...(words.stageMaxDelta !== undefined ? { stageMaxDelta: words.stageMaxDelta.replace('{pair}', pair) } : {}) };
+}
+
+/**
+ * A Δ of a quantity's name: every Δ says what it is the difference of before its unit (#848), with the pair filled in
+ * (withDeltaPair): `RMS [Pa]` → `Δ RMS = Compare 1 − Base [Pa]`. A Δ of dB has its own name (axisDelta).
  */
 export function deltaAxisName(words: Pick<LineAxisWords, 'deltaPair'>, named: string): string {
     const at = named.lastIndexOf(' [');

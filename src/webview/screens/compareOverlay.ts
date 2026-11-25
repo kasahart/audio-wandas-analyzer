@@ -26,6 +26,8 @@ export interface OverlayRecordings {
     /** The compared recording, then the other slots' recordings in slot order. */
     compare: readonly string[];
     delta: boolean;
+    /** The slot (1–3) of the compared recording, `compare[0]`: what the Δ is of, named in its words (#848). */
+    comparedSlot?: number;
     /** The step shown is the sound itself: each base recording is a line of its own (charts/compareOverlay.ts). */
     signals?: boolean;
     /** The step shown is an image: a lane a recording on screen (charts/compareOverlay.ts). */
@@ -260,6 +262,7 @@ export function createCompareOverlayScreen(deps: CompareOverlayDeps): CompareOve
             // Sized by the page's stylesheet to its box, so it follows the layout at once; told its size here.
             fill: true,
             laneHeights: height => ({ delta: Math.round(height * DELTA_SHARE) }),
+            deltaSlot: () => recordings.comparedSlot,
             lineLabel: nameOfLine,
             lineStyle: styleOfLine,
             // An image lane is named by its recording (the lanes are not overlaid: each says whose it is).
@@ -423,6 +426,7 @@ export function createCompareOverlayScreen(deps: CompareOverlayDeps): CompareOve
             const png = createFigure({
                 document: deps.document, host, requests: deps.answers.figure(), words: deps.words, label: deps.label, size,
                 laneHeights: height => ({ delta: Math.round(height * DELTA_SHARE) }),
+                deltaSlot: () => recordings.comparedSlot,
                 lineLabel: line => taken.get(line.id)?.name ?? line.id,
                 lineStyle: line => taken.get(line.id)?.style ?? styleOfLine(line),
                 laneLabel: lane => lanesTaken.get(lane) ?? lane,

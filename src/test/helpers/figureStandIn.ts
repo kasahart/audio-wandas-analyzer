@@ -12,7 +12,7 @@ import type { FigureDrawn, FigureDrawPayload, FigureDrawResult, FigureKey, Figur
 import type { Scene } from './figureOverlayRun';
 
 export const WORDS: FigureWords = {
-    axisFrequency: 'Frequency [Hz]', axisTime: 'Time [s]', axisDelta: 'Difference Δ [dB]', deltaPair: 'Compare 1 − Base', axisLevelCal: 'Level [{label}]', axisLevelUncal: 'Level (uncalibrated) [{label}]', axisUnitUnknown: 'unit unknown',
+    axisFrequency: 'Frequency [Hz]', axisTime: 'Time [s]', axisDelta: 'Difference Δ [dB]', deltaPair: 'Compare {n} − Base', axisLevelCal: 'Level [{label}]', axisLevelUncal: 'Level (uncalibrated) [{label}]', axisUnitUnknown: 'unit unknown',
     pairWaiting: 'computing…', stageCombineFailed: 'failed', stageTooLarge: 'too large', stageBusy: 'busy', waveRangeAxisAmplitude: 'Amplitude', dsDistCountAxis: 'Count per group [{unit}]', dsUnitRecording: 'recordings', plotNoValue: '— (no value here)', axisUncalibrated: ', uncalibrated',
     stageMaxDelta: 'Largest Δ {delta} at {at}', stageNoDelta: '— (no Δ)', stageNoDeltaRate: '— (no Δ: other rates)', stageNoDeltaUnit: '— (no Δ: other units)',
     axisQuefrency: 'Quefrency [s]', axisBand: 'Band centre [Hz]', axisTriggerTime: 'Time from trigger [s]', axisBark: 'Critical band [Bark]', axisLag: 'Lag [s]', axisGain: 'Gain [dB]', axisTransferLevel: 'Transfer level [{unit}]', axisCoherence: 'Coherence γ² [–]', pairPhaseLabel: 'Phase [°]', axisCepstrum: 'Real cepstrum [–]', axisCorrelation: 'Correlation coefficient [–]',
