@@ -125,6 +125,14 @@ test('a long track name gives way in its middle: the run number stays, the text 
     const html = trackNameHtml('L1_900rpm_run001.wav', '/m/L1_900rpm_run001.wav');
     assert.equal(html, '<div class="track-name is-split" data-hint="/m/L1_900rpm_run001.wav" aria-description="/m/L1_900rpm_run001.wav">'
         + '<span class="track-name-head">L1_900rpm_</span><span class="track-name-tail">run001</span><span class="track-name-ext">.wav</span></div>');
+    // The cut never splits what is seen as one character: a base and its combining mark (a macOS name in NFD), an emoji.
+    for (const name of ['計測_前方マイク_ガ12345.wav'.normalize('NFD'), 'L1_900rpm_🎵12345.wav', 'L1_900rpm_👍🏽12345.wav']) {
+        const parts = /<span class="track-name-head">(.*?)<\/span><span class="track-name-tail">(.*?)<\/span>/u.exec(trackNameHtml(name, '/m/x'))!;
+        assert.ok(parts, name);
+        assert.ok(!/^\p{M}/u.test(parts[2]) && !/^[\uDC00-\uDFFF]/.test(parts[2]) && !/[\uD800-\uDBFF]$/.test(parts[1]), `${name}: ${parts[1]} | ${parts[2]}`);
+        assert.equal(parts[1] + parts[2] + '.wav', name);
+        assert.equal(Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(parts[2])).length, 6);
+    }
     // A short name is one box, as before.
     assert.equal(trackNameHtml('Rec_0012.wav', '/m/Rec_0012.wav'), '<div class="track-name" data-hint="/m/Rec_0012.wav" aria-description="/m/Rec_0012.wav">Rec_0012.wav</div>');
 });

@@ -72,14 +72,28 @@ const TRACK_NAME_TAIL = 6;
  * recording; the full path is the hint). So tracks of files named alike (…run001.wav, …run002.wav) stay told apart.
  * The element's text is still the whole name (the PNG export labels its rows with it).
  */
+function graphemes(text: string): string[] {
+    const Segmenter = (Intl as { Segmenter?: new (locale?: string, options?: { granularity: 'grapheme' }) => { segment(text: string): Iterable<{ segment: string }> } }).Segmenter;
+    if (Segmenter) return Array.from(new Segmenter(undefined, { granularity: 'grapheme' }).segment(text), part => part.segment);
+    // Without Intl.Segmenter: code points, each combining mark kept with the character before it.
+    const out: string[] = [];
+    for (const point of text) {
+        if (out.length && /\p{M}/u.test(point)) out[out.length - 1] += point; else out.push(point);
+    }
+    return out;
+}
+
 export function trackNameHtml(fileName: string, filePath: string): string {
     const dot = fileName.lastIndexOf('.');
     const stem = dot > 0 ? fileName.slice(0, dot) : fileName;
     const extension = fileName.slice(stem.length);
-    if (stem.length <= TRACK_NAME_TAIL + 4) return '<div class="track-name"' + hintAttr(filePath) + '>' + escapeHtml(fileName) + '</div>';
-    const cut = stem.length - TRACK_NAME_TAIL;
-    return '<div class="track-name is-split"' + hintAttr(filePath) + '><span class="track-name-head">' + escapeHtml(stem.slice(0, cut))
-        + '</span><span class="track-name-tail">' + escapeHtml(stem.slice(cut)) + '</span><span class="track-name-ext">' + escapeHtml(extension) + '</span></div>';
+    // Counted in characters as seen (graphemes), so the cut never splits a surrogate pair or a base from its
+    // combining mark (a macOS name in NFD: カ + ゙): the two halves are separate boxes that would not join again.
+    const characters = graphemes(stem);
+    if (characters.length <= TRACK_NAME_TAIL + 4) return '<div class="track-name"' + hintAttr(filePath) + '>' + escapeHtml(fileName) + '</div>';
+    const cut = characters.length - TRACK_NAME_TAIL;
+    return '<div class="track-name is-split"' + hintAttr(filePath) + '><span class="track-name-head">' + escapeHtml(characters.slice(0, cut).join(''))
+        + '</span><span class="track-name-tail">' + escapeHtml(characters.slice(cut).join('')) + '</span><span class="track-name-ext">' + escapeHtml(extension) + '</span></div>';
 }
 
 export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): string {
