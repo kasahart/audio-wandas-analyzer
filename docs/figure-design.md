@@ -430,7 +430,7 @@ wandas にまだ無い 1 層目の演算（録音をまたぐ中央値、レベ�
 |---|---|---|
 | `src/webview/screens/` | 画面ごとのモジュール。状態と Figure をつなぐ | `charts`、`figure`（作る関数と合図の型だけ）、`answers`（表の行の答えと集まりの型。読むだけ）、`state`、`shell` |
 | `src/webview/charts/` | 図の宣言。1 図 1 ファイル。データだけ | `figure` の宣言の型、`state` の型 |
-| `src/webview/figure/` | Figure 部品。座標変換、描画、目盛り、印、操作、範囲入力 | `answers`、`shell`。画面や状態は知らない |
+| `src/webview/figure/` | Figure 部品。座標変換、描画、目盛り、印、操作、範囲入力 | `answers`、`shell`、`src/shared/utils` の目盛りの値（`ticks`）と見た目の 1 文字の区切り（`graphemes`。名前を切るとき）。画面や状態は知らない |
 | `src/webview/answers/` | 2 層目への要求と答え。鍵、鮮度、再試行 | プロトコルの型だけ |
 | `src/webview/state/` | 状態の型、入れ物、操作（まだ無い。画面のコードを分けるときに作る） | なし |
 | `src/webview/shell/` | 文字列、数の書き方、DOM の小道具、ポップオーバー | なし |
