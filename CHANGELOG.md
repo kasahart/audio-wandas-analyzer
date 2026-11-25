@@ -5,6 +5,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 ## Unreleased
 
 - Updated to wandas 0.14.0 (#818).
+- Compare: zooming, panning or resetting a base group's figure no longer makes the plot jump up and back. While the zoomed picture was on its way, the base's heading lost its count ("median of 97 · 1 failed left out"), shrank to one line and moved the plot under it; it now keeps the count of the picture still shown (#834).
 - Compare: when the compared recording cannot be computed (for example the region ends after the file), the base is still drawn instead of an empty figure that waits for it; the compared recording's legend item says it could not be computed, and no Δ is drawn. The region stays in the headline, and when no recording can be computed the panel says so instead of "This step cannot be shown ()" (#817).
 - Compare (browser version): with a slow step (loudness, roughness), each recording's line is drawn as soon as it is computed, as before the figures were rebuilt. The figure no longer stays empty until the last recording is done (#824).
 - Compare: with "One lane per track", each lane of lines writes its recording's name in its corner, as the spectrogram lanes do. Since the figures were rebuilt the lanes had no name, and only their colours told them apart (#825).

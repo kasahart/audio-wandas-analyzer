@@ -426,6 +426,8 @@ test('the comparison\'s step bar grows the chain with ＋, offers only what take
     await page.locator('[data-action="stage-base-scan"]').click();
     await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBeGreaterThan(30);
     await answer(page);
+    // The base group's picture drawn (its heading counts it): the plot is where it stays from now on, gestures and all.
+    await expect(page.locator('[data-stage-legend]')).toContainText(STR.entryBaseMedian.replace('{count}', ''));
     // The overlaid plot: hover says what the pointer can do; Shift+wheel or a sideways swipe pans, Ctrl+wheel zooms, a double-click resets.
     const root = page.locator('.track-stage');
     const plot = page.locator(FIGURE);
@@ -489,6 +491,43 @@ test('the comparison\'s step bar grows the chain with ＋, offers only what take
     await expect.poll(async () => { const [start, end] = (await root.getAttribute('data-x-window'))!.split('-').map(Number); return start < 0.15 && start > 0.05 && Math.abs(end - start - 0.85) < 0.002; }).toBe(true);
     await page.mouse.dblclick(middle.x, middle.y);
     await expect(root).toHaveAttribute('data-x-window', '0.000-1.000');
+});
+
+test('a zoom on the comparison keeps the base\'s heading and the plot where they are while the zoomed picture is on its way', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    await page.setViewportSize({ width: 1280, height: 1100 });
+    await openComparison(page);
+    await answer(page);
+    await page.locator('[data-action="stage-base-scan"]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBeGreaterThan(30);
+    await answer(page);
+    const legend = page.locator('[data-stage-legend]');
+    await expect(legend).toContainText(STR.entryBaseMedian.replace('{count}', ''));
+    const plot = page.locator(FIGURE);
+    await expect.poll(() => plot.evaluate(canvas => (canvas as HTMLCanvasElement & { __figureInspect: () => { waiting: boolean } }).__figureInspect().waiting)).toBe(false);
+    // Every change of the heading or of the plot's place from here on, as it happens (not only where the test looks).
+    await page.evaluate(() => {
+        const head = document.querySelector('[data-stage-legend]') as HTMLElement;
+        const canvas = document.querySelector('[data-stage-figure] canvas[data-figure]') as HTMLCanvasElement;
+        const seen = (): string => { const rect = canvas.getBoundingClientRect(); return `${head.innerText.replace(/\s+/g, ' ')} | ${Math.round(rect.top)} ${Math.round(rect.height)}`; };
+        const log = [seen()];
+        const look = (): void => { const now = seen(); if (now !== log[log.length - 1]) log.push(now); };
+        new MutationObserver(look).observe(head, { subtree: true, childList: true, characterData: true, attributes: true });
+        new ResizeObserver(look).observe(canvas);
+        (window as unknown as { __stageSeen: string[] }).__stageSeen = log;
+    });
+    const box = (await plot.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    const root = page.locator('.track-stage');
+    // + zooms: the same spec at another range, so the Figure shows the last picture on the new view until the new one comes.
+    await page.keyboard.press('+');
+    await expect(root).toHaveAttribute('data-x-window', '0.150-0.850');
+    await page.keyboard.press('0');
+    await expect(root).toHaveAttribute('data-x-window', '0.000-1.000');
+    await expect.poll(() => plot.evaluate(canvas => (canvas as HTMLCanvasElement & { __figureInspect: () => { waiting: boolean } }).__figureInspect().waiting)).toBe(false);
+    // The heading kept its count throughout, so the plot under it never moved (a double-click on its axis lands on the axis).
+    expect(await page.evaluate(() => (window as unknown as { __stageSeen: string[] }).__stageSeen)).toHaveLength(1);
 });
 
 test('a region set with its chip compares only that part of the files, shows on the plots, and holding a step shows the comparison without it', async ({ page }) => {
