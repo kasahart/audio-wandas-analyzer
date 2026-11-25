@@ -3339,6 +3339,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     });
     /** The host's new results: the tracks are rebuilt around them, keeping each track's identity and runtime state. */
     function applyAnalysisUpdate(results: ComparisonTrackState[], hostSelectedFilePaths: string[] | undefined) {
+        selection.noteAnswer(results.map(result => result.filePath), hostSelectedFilePaths);
         if (hostSelectedFilePaths) {
             // A file the host newly selects (opened again with the picker after its track was taken off) is shown
             // again; one it still reports from before (an update that crossed the removal) stays off.

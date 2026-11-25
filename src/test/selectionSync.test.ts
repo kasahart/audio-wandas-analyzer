@@ -56,10 +56,23 @@ test('a queued play waits for its track and is handed out once', () => {
     assert.equal(selection.takeReadyPlay(() => true), null);
 });
 
-test('the files chosen are read once each has its track (or failed): until then the tracks are on their way (#853)', () => {
+test('a file chosen is on its way only until the host answers for it, so the count never waits for good (#853)', () => {
     const selection = setup({ selectedFilePaths: ['a.wav', 'b.wav'] });
+    // Not asked for by this page (its tracks came with it): nothing is on its way.
+    assert.deepEqual(selection.readProgress(() => false), { read: 2, total: 2 });
+    selection.nextRequest('s1');
     assert.deepEqual(selection.readProgress(() => false), { read: 0, total: 2 });
     assert.deepEqual(selection.readProgress(path => path === 'a.wav'), { read: 1, total: 2 });
-    assert.deepEqual(selection.readProgress(() => true), { read: 2, total: 2 });
+    // The browser build: a.wav in, b.wav still loading (the host reports it selected, with no result yet).
+    selection.noteAnswer(['a.wav'], ['a.wav', 'b.wav']);
+    assert.deepEqual(selection.readProgress(path => path === 'a.wav'), { read: 1, total: 2 });
+    // An answer that crossed a removal: b.wav has a result the track store keeps off (no track): answered all the same.
+    selection.noteAnswer(['a.wav', 'b.wav'], ['a.wav', 'b.wav']);
+    assert.deepEqual(selection.readProgress(path => path === 'a.wav'), { read: 2, total: 2 });
+    // A cancelled analysis: the host no longer reports the files it did not analyse.
+    selection.add('c.wav');
+    selection.nextRequest('s1');
+    selection.noteAnswer(['a.wav'], ['a.wav']);
+    assert.deepEqual(selection.readProgress(path => path === 'a.wav'), { read: 3, total: 3 });
     assert.deepEqual(setup().readProgress(() => false), { read: 0, total: 0 });
 });

@@ -1255,3 +1255,24 @@ test('while the recordings chosen are still being read, the comparison and the t
     await expect(root).toHaveAttribute('data-reading', '');
     await expect(message).not.toHaveText(reading);
 });
+
+test('a host that answers without the tracks (an analysis cancelled) leaves nothing said to be reading (#853)', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
+    await openEntry(page, scanned!, { language: 'en', recipe });
+    const drawn = await page.locator('[data-entry-rows] tr.entry-row').evaluateAll(rows => rows.map(row => row.getAttribute('data-file-path')!));
+    const other = drawn.findIndex(filePath => filePath !== drawn[0]);
+    await page.keyboard.press('1');
+    for (let step = 0; step < other; step++) await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('2');
+    await page.keyboard.press('Enter');
+    await expect.poll(async () => (await posted(page)).filter(message => message.type === 'analyze-selected-files').at(-1)?.filePaths.length).toBe(2);
+    const root = page.locator('.track-stage');
+    await expect(root).toHaveAttribute('data-reading', '0/2');
+    // VS Code's Cancel on the analysis: the host answers with no result and no longer reports the files selected.
+    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: [], selectedFilePaths: [] } })));
+    await expect(root).toHaveAttribute('data-reading', '');
+    await expect(root.locator('[data-stage-message]')).not.toContainText(STR.tracksReading.split(' {done}')[0]);
+    await expect(page.locator('#empty-state p')).not.toContainText(STR.tracksReading.split(' {done}')[0]);
+});
