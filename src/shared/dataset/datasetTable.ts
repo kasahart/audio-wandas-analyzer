@@ -6,6 +6,7 @@
  */
 import type { ScanResult } from '../protocol/backendProtocol';
 import { csvFile } from '../utils/csv';
+import { graphemes } from '../utils/graphemes';
 import { auditAudioMatches, finiteNumber, MAX_CSV_BYTES, parseCSV, profileColumns, resolveAudio, sourceColumns, type DataRow } from './asdData';
 
 /** The CSV the user picked, read: its columns (the source columns left out) and which of them are numeric. */
@@ -251,9 +252,11 @@ export function columnValues(rows: readonly DatasetRow[], column: ColumnId): Arr
 
 /** Middle ellipsis: a long name keeps its start and its end, where the number that tells files apart usually is. */
 export function middleEllipsis(name: string, max = 34): string {
-    if (name.length <= max) return name;
+    // Counted in characters as seen, so the cut never splits an emoji or a base from its combining mark (#845).
+    const characters = graphemes(name);
+    if (characters.length <= max) return name;
     const head = Math.ceil((max - 1) * 0.35);
-    return `${name.slice(0, head)}…${name.slice(name.length - (max - 1 - head))}`;
+    return `${characters.slice(0, head).join('')}…${characters.slice(characters.length - (max - 1 - head)).join('')}`;
 }
 
 /**
