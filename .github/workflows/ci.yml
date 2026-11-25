@@ -227,3 +227,11 @@ jobs:
       # Only the browser-specific half of `AWA_VERIFY_BROWSER=1 npm run verify`; the verify job runs the rest.
       - run: python3 scripts/prepare-browser-runtime.py --check
       - run: npm run test:browser
+      # A failed browser check leaves its screenshots here (the journey's: test-results/journey-failure.png).
+      - name: Upload browser screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-parity-test-results
+          path: test-results/
+          if-no-files-found: ignore
