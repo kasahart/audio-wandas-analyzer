@@ -13,6 +13,11 @@ export interface ComparisonAssets {
     appVersion: string;
     /** The runtime publishes its rendered UI for the tests (the VS Code host in its test mode). */
     testHooks?: boolean;
+    /**
+     * Names this document in each snapshot it publishes (with testHooks). A panel's html can be replaced while the old
+     * document's snapshots are still on their way; the host keeps only the snapshots of the document it rendered last.
+     */
+    testDocumentId?: string;
 }
 
 export function renderComparisonDocument(state: ComparisonState, assets: ComparisonAssets): string {
@@ -46,7 +51,7 @@ export function renderComparisonDocument(state: ComparisonState, assets: Compari
         };
         window.__APP_STATE__ = ${serializeForScript(state)};
         window.__APP_STRINGS__ = ${serializeForScript(strings)};
-        window.__APP_LOCALE__ = ${serializeForScript(locale)};${assets.testHooks ? '\n        window.__AWA_TEST_HOOKS__ = true;' : ''}
+        window.__APP_LOCALE__ = ${serializeForScript(locale)};${assets.testHooks ? '\n        window.__AWA_TEST_HOOKS__ = true;' : ''}${assets.testHooks && assets.testDocumentId ? `\n        window.__AWA_TEST_DOCUMENT__ = ${serializeForScript(assets.testDocumentId)};` : ''}
     </script>
     ${assets.hostScriptUri ? `<script src="${assets.hostScriptUri}"></script>` : ''}
     <script src="${assets.runtimeScriptUri}"></script>

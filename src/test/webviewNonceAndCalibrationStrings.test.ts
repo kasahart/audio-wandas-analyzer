@@ -34,6 +34,11 @@ test('comparison document turns the runtime test hooks on only when asked', () =
     const state: ComparisonState = { mode: 'results', results: [], spectrogramSettings: DEFAULT_SPECTROGRAM_SETTINGS };
     assert.doesNotMatch(renderComparisonDocument(state, assets), /__AWA_TEST_HOOKS__/);
     assert.match(renderComparisonDocument(state, { ...assets, testHooks: true }), /window\.__AWA_TEST_HOOKS__ = true;/);
+    assert.doesNotMatch(renderComparisonDocument(state, { ...assets, testDocumentId: 'document-1' }), /__AWA_TEST_DOCUMENT__/);
+    assert.match(
+        renderComparisonDocument(state, { ...assets, testHooks: true, testDocumentId: 'document-1' }),
+        /window\.__AWA_TEST_DOCUMENT__ = "document-1";/,
+    );
 });
 
 test('calibration button uses localized label, title and aria-label', () => {

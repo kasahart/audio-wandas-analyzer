@@ -24,6 +24,8 @@ interface ComparisonPanelTestSnapshot {
     resultCount: number;
     lastActionId?: string;
     renderedUi?: ComparisonPanelRenderedUi;
+    /** The rendering of the panel these snapshots come from: a snapshot from a page it replaced is not kept. */
+    documentId: string;
 }
 
 interface ComparisonPanelRenderedUi {
@@ -107,6 +109,7 @@ interface ComparisonPanelRenderedUiMessage {
     type: 'comparison-panel-test-snapshot';
     renderedUi: ComparisonPanelRenderedUi;
     actionId?: string;
+    documentId?: string;
 }
 
 interface ComparisonPanelTestActionMessage {
@@ -126,6 +129,7 @@ export class ComparisonPanel {
     private static testMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
     private static shownListener: ((panel: vscode.WebviewPanel) => void) | undefined;
     private static testHooks = false;
+    private static documentsRendered = 0;
 
     /** The Webviews opened from now on publish their rendered UI, which `getTestSnapshot` keeps for the E2E suite. */
     public static enableTestHooks(): void {
@@ -233,13 +237,15 @@ export class ComparisonPanel {
             })),
             spectrogramSettings,
         };
-        const html = renderComparisonHtml(panel.webview, state, extensionUri, ComparisonPanel.testHooks);
+        const documentId = `document-${++ComparisonPanel.documentsRendered}`;
+        const html = renderComparisonHtml(panel.webview, state, extensionUri, ComparisonPanel.testHooks, documentId);
         panel.webview.html = html;
         ComparisonPanel.testSnapshot = {
             title,
             html,
             fileNames: state.results.map((result) => result.fileName),
             resultCount: state.results.length,
+            documentId,
         };
         ComparisonPanel.shownListener?.(panel);
         return panel;
@@ -299,13 +305,15 @@ export class ComparisonPanel {
             spectrogramSettings,
             entry: true,
         };
-        const html = renderComparisonHtml(panel.webview, state, extensionUri, ComparisonPanel.testHooks);
+        const documentId = `document-${++ComparisonPanel.documentsRendered}`;
+        const html = renderComparisonHtml(panel.webview, state, extensionUri, ComparisonPanel.testHooks, documentId);
         panel.webview.html = html;
         ComparisonPanel.testSnapshot = {
             title,
             html,
             fileNames: state.results.map((result) => result.fileName),
             resultCount: state.results.length,
+            documentId,
         };
         ComparisonPanel.shownListener?.(panel);
         return panel;
@@ -345,6 +353,10 @@ export class ComparisonPanel {
 
     private static captureRenderedUiSnapshot(message: unknown): void {
         if (!ComparisonPanel.isRenderedUiMessage(message) || !ComparisonPanel.testSnapshot) {
+            return;
+        }
+        // Replacing the html does not stop the old page's snapshots already on their way (its tracks, not the new page's).
+        if (message.documentId !== ComparisonPanel.testSnapshot.documentId) {
             return;
         }
 
@@ -398,7 +410,13 @@ export class ComparisonPanel {
 
 }
 
-export function renderComparisonHtml(webview: vscode.Webview, state: ComparisonState, extensionUri: vscode.Uri, testHooks = false): string {
+export function renderComparisonHtml(
+    webview: vscode.Webview,
+    state: ComparisonState,
+    extensionUri: vscode.Uri,
+    testHooks = false,
+    testDocumentId?: string,
+): string {
     return renderComparisonDocument(state, {
         runtimeScriptUri: webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'comparisonRuntime.js')).toString(),
         cspSource: webview.cspSource,
@@ -406,5 +424,6 @@ export function renderComparisonHtml(webview: vscode.Webview, state: ComparisonS
         // eslint-disable-next-line @typescript-eslint/no-require-imports -- package.json sits outside rootDir, so it cannot be imported
         appVersion: (require('../../../package.json') as { version: string }).version,
         testHooks,
+        testDocumentId,
     });
 }
