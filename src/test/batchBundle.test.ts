@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { batchBundle, batchCount, batchTargets } from '../shared/batch/batchBundle';
+import { batchBundle, batchCount, batchTargets, scriptWandasRange } from '../shared/batch/batchBundle';
 import { RUN_RECIPE_PY } from '../shared/batch/runRecipeScript';
 import { datasetRows } from '../shared/dataset/datasetTable';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
@@ -34,6 +34,22 @@ test('a recording whose channels are all targets runs whole; one with only some 
     const readme = files[4].text;
     assert.ok(readme.indexOf('実行') < readme.indexOf('Run (wandas'), 'Japanese first, English under it');
     assert.match(readme, /--root "\/d"/);
+});
+
+test('the README installs only the wandas run_recipe.py accepts (#854: an open ">=" installed a newer wandas the script then refused)', () => {
+    const rows = datasetRows(['/d/a.wav'], '/d', new Map(), new Map([['/d/a.wav', 1]]));
+    const readme = batchBundle({ recipe, recipeName: 'Standard', rows, allRows: rows, rootPath: '/d', now: new Date(2026, 9, 26) }).files.find(file => file.name === 'README.txt')?.text ?? '';
+    const { from, before } = scriptWandasRange();
+    // The range as run_recipe.py checks it: REQUIRES_WANDAS <= wandas.__version__ < BEFORE_WANDAS.
+    assert.match(RUN_RECIPE_PY, new RegExp(`REQUIRES_WANDAS = \\(${from.split('.').join(', ')}\\)`));
+    assert.match(RUN_RECIPE_PY, new RegExp(`BEFORE_WANDAS = \\(${before.split('.').join(', ')}\\)`));
+    const installs = readme.match(/pip install[^\n]*/g) ?? [];
+    assert.ok(installs.length > 0, 'the README says how to install wandas');
+    for (const line of installs) {
+        assert.ok(line.includes(`"wandas[io]>=${from},<${before}"`),
+            `Rule: the README's install line names the range run_recipe.py accepts (>=${from},<${before}). Found: ${line}. Fix: build it from scriptWandasRange() in batchBundle.ts.`);
+    }
+    assert.throws(() => scriptWandasRange('print(1)\n'), /REQUIRES_WANDAS/);
 });
 
 test('a CSV id column called path, channel or recipe is written as id_<name>, so it does not hide the column run_recipe.py reads', () => {
