@@ -219,8 +219,9 @@ test('tracks of files named alike stay told apart: a long name keeps its end (ru
     await expect(page.locator('.track-row')).toHaveCount(2);
     for (const [index, name] of names.entries()) {
         const header = page.locator('.track-row').nth(index).locator('.track-name');
-        // The text is still the whole name (screen readers, the runtime's reads).
-        await expect(header).toHaveText(name);
+        // The whole name is one visually hidden copy (screen readers, the PNG export's row labels); the drawn halves are hidden from screen readers.
+        await expect(header.locator('.track-name-full')).toHaveText(name);
+        await expect(header.locator('[aria-hidden="true"]')).toHaveCount(3);
         await expect(header.locator('.track-name-tail')).toHaveText(name.slice(-10, -4));
         // The run number is drawn whole inside the header; the head is what gives way.
         const fit = await header.evaluate(el => {

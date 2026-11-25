@@ -861,6 +861,7 @@ export function renderComparisonStyles(): string {
         .track-name-head { overflow: hidden; text-overflow: ellipsis; min-width: 1.5em; }
         .track-name-tail { flex: none; }
         .track-name-ext { display: none; }
+        .track-name-full { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
         .track-drag-handle { cursor: grab; color: var(--muted); font-size: 12px; user-select: none; flex-shrink: 0; padding: 0 2px; line-height: 1; }
         .track-drag-handle:active { cursor: grabbing; }
         /* A role chip (roleChip.ts): the role's colour and number, or the track's own colour and · without one; its menu sets the slot. */

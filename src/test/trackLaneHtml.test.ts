@@ -121,13 +121,14 @@ test('the reference button sits in a multi-channel lane header or in a mono trac
     assert.ok(!trackRowHtml(baseRow, rowStrings).includes('set-pair-reference'));
 });
 
-test('a long track name gives way in its middle: the run number stays, the text is the whole name (#841)', () => {
+test('a long track name gives way in its middle: the run number stays, a hidden copy holds the whole name (#841)', () => {
     const html = trackNameHtml('L1_900rpm_run001.wav', '/m/L1_900rpm_run001.wav');
     assert.equal(html, '<div class="track-name is-split" data-hint="/m/L1_900rpm_run001.wav" aria-description="/m/L1_900rpm_run001.wav">'
-        + '<span class="track-name-head">L1_900rpm_</span><span class="track-name-tail">run001</span><span class="track-name-ext">.wav</span></div>');
+        + '<span class="track-name-head" aria-hidden="true">L1_900rpm_</span><span class="track-name-tail" aria-hidden="true">run001</span>'
+        + '<span class="track-name-ext" aria-hidden="true">.wav</span><span class="track-name-full">L1_900rpm_run001.wav</span></div>');
     // The cut never splits what is seen as one character: a base and its combining mark (a macOS name in NFD), an emoji.
     for (const name of ['計測_前方マイク_ガ12345.wav'.normalize('NFD'), 'L1_900rpm_🎵12345.wav', 'L1_900rpm_👍🏽12345.wav']) {
-        const parts = /<span class="track-name-head">(.*?)<\/span><span class="track-name-tail">(.*?)<\/span>/u.exec(trackNameHtml(name, '/m/x'))!;
+        const parts = /<span class="track-name-head" aria-hidden="true">(.*?)<\/span><span class="track-name-tail" aria-hidden="true">(.*?)<\/span>/u.exec(trackNameHtml(name, '/m/x'))!;
         assert.ok(parts, name);
         assert.ok(!/^\p{M}/u.test(parts[2]) && !/^[\uDC00-\uDFFF]/.test(parts[2]) && !/[\uD800-\uDBFF]$/.test(parts[1]), `${name}: ${parts[1]} | ${parts[2]}`);
         assert.equal(parts[1] + parts[2] + '.wav', name);
