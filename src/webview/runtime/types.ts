@@ -84,6 +84,8 @@ export interface RuntimeWindow extends Omit<Window, 'addEventListener' | 'remove
     __uiSmokeState?: UiSmokeState;
     /** Set by a page the tests open: the runtime then publishes its rendered UI (`comparison-panel-test-snapshot`). */
     __AWA_TEST_HOOKS__?: boolean;
+    /** Which rendering of the panel this page is: each snapshot carries it, so the host can drop a replaced page's late ones. */
+    __AWA_TEST_DOCUMENT__?: string;
     addEventListener<K extends keyof WindowEventMap>(
         type: K,
         listener: (event: WindowEventMap[K]) => void,

@@ -9,7 +9,7 @@ import { isFigureCommand, type FigureResultMessage } from '../../shared/protocol
 import type { RuntimeWindow, WebviewHostApi } from './types';
 
 export type HostOutboundMessage = PanelMessage
-    | { type: 'comparison-panel-test-snapshot'; actionId?: string; renderedUi: Record<string, unknown> };
+    | { type: 'comparison-panel-test-snapshot'; actionId?: string; documentId?: string; renderedUi: Record<string, unknown> };
 
 export interface LazyResponseIdentity {
     requestId: string;

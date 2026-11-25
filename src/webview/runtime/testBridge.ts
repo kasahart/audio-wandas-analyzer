@@ -84,6 +84,7 @@ export class ComparisonTestBridge {
     }
 
     private post(renderedUi: Record<string, unknown>, actionId?: string): void {
-        this.messenger.post({ type: 'comparison-panel-test-snapshot', actionId, renderedUi });
+        const documentId = this.browserWindow.__AWA_TEST_DOCUMENT__;
+        this.messenger.post({ type: 'comparison-panel-test-snapshot', actionId, ...(documentId ? { documentId } : {}), renderedUi });
     }
 }

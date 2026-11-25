@@ -84,3 +84,18 @@ test('the test bridge builds and posts a snapshot only on a page with test hooks
         ]);
     }
 });
+
+test('the test bridge names the page in each snapshot when the page has a name', () => {
+    const posted: unknown[] = [];
+    const bridge = new ComparisonTestBridge(
+        { __AWA_TEST_HOOKS__: true, __AWA_TEST_DOCUMENT__: 'document-7' } as unknown as RuntimeWindow,
+        { post: (message: unknown) => { posted.push(message); } } as unknown as HostMessenger,
+    );
+    bridge.provide({ build: () => ({ built: 1 }), fallback: () => ({}) });
+    bridge.publish();
+    bridge.publishFor('a1');
+    assert.deepEqual(posted, [
+        { type: 'comparison-panel-test-snapshot', actionId: undefined, documentId: 'document-7', renderedUi: { built: 1 } },
+        { type: 'comparison-panel-test-snapshot', actionId: 'a1', documentId: 'document-7', renderedUi: { built: 1 } },
+    ]);
+});
