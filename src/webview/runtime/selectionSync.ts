@@ -26,6 +26,8 @@ export class SelectionSync {
     private listedCountValue: number;
     private hostSelection = new Set<string>();
     private pendingPlay: string | null = null;
+    /** The files of the last request to analyse that the host has not answered for yet (a result, or left out). */
+    private awaiting = new Set<string>();
     private requestSeq = 0;
 
     constructor(init: SelectionSyncInit) {
@@ -68,12 +70,37 @@ export class SelectionSync {
         return newlySelected;
     }
 
+    /**
+     * The host answered (an analysis update): each file with a result (shown, failed, or one the track store keeps
+     * off) is answered, and so is each one the host no longer reports selected (left out, its analysis cancelled).
+     */
+    noteAnswer(resultPaths: readonly string[], hostSelected: readonly string[] | undefined): void {
+        for (const filePath of resultPaths) this.awaiting.delete(filePath);
+        if (hostSelected) {
+            const selected = new Set(hostSelected);
+            for (const filePath of [...this.awaiting]) if (!selected.has(filePath)) this.awaiting.delete(filePath);
+        }
+    }
+
+    /**
+     * How many of the files chosen are read of how many there are. A file is still on its way only while the host
+     * has not answered for it since it was last asked for and `isRead` (its track is in) says no: the host reading
+     * it, the browser build's Python starting. A file the host will not answer for (an answer that crossed a
+     * removal, a cancelled analysis) is never counted as on its way, so the count never waits for good (#853).
+     */
+    readProgress(isRead: (filePath: string) => boolean): { read: number; total: number } {
+        const paths = this.selection.paths;
+        return { read: paths.filter(filePath => !this.awaiting.has(filePath) || isRead(filePath)).length, total: paths.length };
+    }
+
     /** The message asking the host to analyse the tracks chosen; each has its own request id. */
     nextRequest(sessionId: string, clearAll = false): SelectedFilesRequest {
         this.requestSeq += 1;
         // Built from the host's listing, so the array is of the same realm as the state the host injected.
         const filePaths = this.listedFilePaths.slice(0, 0);
         filePaths.push(...this.selection.paths);
+        // The newest request is the one answered: its files are awaited until the host answers for them.
+        this.awaiting = new Set(this.selection.paths);
         return {
             requestId: 'selection-' + sessionId + '-' + this.requestSeq,
             filePaths,

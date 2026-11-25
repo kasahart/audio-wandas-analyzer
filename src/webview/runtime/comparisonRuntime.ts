@@ -1243,7 +1243,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const trackId = trackStore.activeIds().find(id => trackStore.require(id).result.filePath === filePath);
         return trackId ? trackStore.require(trackId) : undefined;
     }
-    const trackReady = (filePath: string): boolean => trackStore.activeIds().some(id => trackStore.require(id).result.filePath === filePath);
+    // (Declared, not a const: the layout's empty text asks it before this line runs.)
+    function trackReady(filePath: string): boolean { return trackStore.activeIds().some(id => trackStore.require(id).result.filePath === filePath); }
     function playWhenReady() {
         const filePath = selection.takeReadyPlay(trackReady);
         if (!filePath) return;
@@ -1377,6 +1378,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             });
             return tracks;
         },
+        // A file chosen is read once its track is in (or failed): the host answers each analysis with it.
+        tracksRead: () => selection.readProgress(trackReady),
         sampleRate: () => state.results.find(result => !result.error)?.sampleRateHz,
         // A file's pictures are of its version and calibration (the track's analysis; the host's word of a change): a change asks them again.
         basis: stageBasis(() => undefined, path => state.results.find(result => result.filePath === path && !result.error), path => entryScreen.compareData().fileEpoch?.(path) ?? ''),
@@ -1607,7 +1610,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return buildResultsPane(STR.emptyAllExcluded);
     }
     // A host with nothing listed yet shows its own start prompt where the tracks will appear.
+    // Files chosen and not read yet (the host reading them, the browser build's Python starting): the tracks are on
+    // their way, so the hint is not to choose them (#853).
     function selectionEmptyText() {
+        const { read, total } = selection.readProgress(trackReady);
+        if (read < total) return STR.tracksReading.replace('{done}', String(read)).replace('{n}', String(total));
         return selection.listedCount || !vscode.emptyMessage ? STR.emptyNoTracks : vscode.emptyMessage;
     }
     function buildDirectorySelectionLayout(resultsPaneHtml = buildResultsPane(selectionEmptyText())) {
@@ -1970,9 +1977,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             });
             emptyState.classList.toggle('is-visible', visibleRows.length === 0);
             const message = emptyState.querySelector('p');
-            if (message && !isSelectionMode && message.textContent !== STR.emptyAllExcluded) {
-                message.textContent = STR.emptyAllExcluded;
-            }
+            const text = isSelectionMode ? selectionEmptyText() : STR.emptyAllExcluded;
+            if (message && message.textContent !== text) message.textContent = text;
         }
     }
     function updateOffsetDisplays() {
@@ -3333,6 +3339,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     });
     /** The host's new results: the tracks are rebuilt around them, keeping each track's identity and runtime state. */
     function applyAnalysisUpdate(results: ComparisonTrackState[], hostSelectedFilePaths: string[] | undefined) {
+        selection.noteAnswer(results.map(result => result.filePath), hostSelectedFilePaths);
         if (hostSelectedFilePaths) {
             // A file the host newly selects (opened again with the picker after its track was taken off) is shown
             // again; one it still reports from before (an update that crossed the removal) stays off.

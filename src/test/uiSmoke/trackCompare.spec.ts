@@ -1222,3 +1222,57 @@ test('a region past the end of every recording says that none could be computed,
     await expect(message).toHaveText(STR.stageNothingComputed);
     await expect(message).not.toContainText(STR.stepNotDrawable.split('{frame}')[0].trim());
 });
+
+test('while the recordings chosen are still being read, the comparison and the tracks say so, not that the step cannot be shown (#853)', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
+    await openEntry(page, scanned!, { language: 'en', recipe });
+    // Two recordings in slots 1 and 2 (rows are a recording's channels: the next recording's first row).
+    const drawn = await page.locator('[data-entry-rows] tr.entry-row').evaluateAll(rows => rows.map(row => row.getAttribute('data-file-path')!));
+    const other = drawn.findIndex(filePath => filePath !== drawn[0]);
+    await page.keyboard.press('1');
+    for (let step = 0; step < other; step++) await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('2');
+    await page.keyboard.press('Enter');
+    // The host is asked for the two tracks and has not answered yet (the browser build's Python still starting).
+    await expect.poll(async () => (await posted(page)).filter(message => message.type === 'analyze-selected-files').at(-1)?.filePaths.length).toBe(2);
+    const root = page.locator('.track-stage');
+    const message = root.locator('[data-stage-message]');
+    const reading = STR.tracksReading.replace('{done}', '0').replace('{n}', '2');
+    await expect(message).toHaveText(reading);
+    await expect(message).not.toContainText(STR.stepNotDrawable.split('{frame}')[0].trim());
+    await expect(root).toHaveAttribute('data-reading', '0/2');
+    // Nothing is to be chosen: the headline does not ask for recordings, and the tracks' empty text does not say to click ☐.
+    await expect(root.locator('[data-stage-headline]')).not.toHaveText(STR.stageChooseRoles);
+    await expect(page.locator('#empty-state p')).toHaveText(reading);
+    // Once the tracks are in, the comparison asks for its pictures and no longer says it is reading.
+    const paths = (await posted(page)).filter(message => message.type === 'analyze-selected-files').at(-1)!.filePaths;
+    await page.evaluate(paths => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: paths.map(filePath => ({
+        filePath, fileName: filePath.split('/').at(-1), audioSource: '', sampleRateHz: 16000, durationSeconds: 2, channelCount: 1, sampleCount: 32000,
+        channels: [{ label: 'L', peakAbsolute: 0.5, fullScale: true, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } }],
+    })) } })), paths);
+    await expect(root).toHaveAttribute('data-reading', '');
+    await expect(message).not.toHaveText(reading);
+});
+
+test('a host that answers without the tracks (an analysis cancelled) leaves nothing said to be reading (#853)', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
+    await openEntry(page, scanned!, { language: 'en', recipe });
+    const drawn = await page.locator('[data-entry-rows] tr.entry-row').evaluateAll(rows => rows.map(row => row.getAttribute('data-file-path')!));
+    const other = drawn.findIndex(filePath => filePath !== drawn[0]);
+    await page.keyboard.press('1');
+    for (let step = 0; step < other; step++) await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('2');
+    await page.keyboard.press('Enter');
+    await expect.poll(async () => (await posted(page)).filter(message => message.type === 'analyze-selected-files').at(-1)?.filePaths.length).toBe(2);
+    const root = page.locator('.track-stage');
+    await expect(root).toHaveAttribute('data-reading', '0/2');
+    // VS Code's Cancel on the analysis: the host answers with no result and no longer reports the files selected.
+    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: [], selectedFilePaths: [] } })));
+    await expect(root).toHaveAttribute('data-reading', '');
+    await expect(root.locator('[data-stage-message]')).not.toContainText(STR.tracksReading.split(' {done}')[0]);
+    await expect(page.locator('#empty-state p')).not.toContainText(STR.tracksReading.split(' {done}')[0]);
+});

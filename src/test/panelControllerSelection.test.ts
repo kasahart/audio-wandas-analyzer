@@ -9,6 +9,7 @@ import type { SpectrogramSettingsContext } from '../shared/analysis/savedSpectro
 
 test('directory selection uses live result updates with resource URIs, cache reuse and stale-request protection', async () => {
     const uri = (fsPath: string) => ({ fsPath, toString: () => `file:${fsPath}` });
+    class CancellationError extends Error {}
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const NodeModule = require('node:module') as { _load: (request: string, parent: unknown, isMain: boolean) => unknown };
     const originalLoad = NodeModule._load;
@@ -18,7 +19,7 @@ test('directory selection uses live result updates with resource URIs, cache reu
         if (request === 'vscode') return {
             Uri: { file: uri, joinPath: (base: { fsPath: string }, ...parts: string[]) => uri(path.posix.join(base.fsPath, ...parts)) },
             FileType: { File: 1, Directory: 2, SymbolicLink: 64 }, ViewColumn: { One: 1 }, ProgressLocation: { Notification: 15 },
-            CancellationError: class extends Error {},
+            CancellationError,
             EventEmitter: class { readonly event = () => ({ dispose() {} }); fire() {} dispose() {} },
             commands: { executeCommand: async () => undefined }, workspace: { fs: {} },
             window: { showErrorMessage() {}, showInformationMessage() {}, showOpenDialog() {} },
@@ -84,12 +85,14 @@ test('directory selection uses live result updates with resource URIs, cache reu
     };
     const progressTitles: string[] = [];
     let analysisGate: Promise<void> | undefined;
+    let cancelNext = false;
     const controller = new PanelController(context, {} as PanelBackend, {
         warmup() {},
         analyzeFiles: async (filePaths, _stftOptions, progressTitle) => {
             analyzed.push([...filePaths]);
             if (progressTitle) progressTitles.push(progressTitle);
             await analysisGate;
+            if (cancelNext) { cancelNext = false; throw new CancellationError(); }
             return filePaths.map(filePath => ({ filePath, fileName: path.basename(filePath), sampleRateHz: 16000,
                 durationSeconds: 1, channelCount: 0, sampleCount: 16000, channels: [], analysisRevision: 0,
             } satisfies AnalysisResultWithError));
@@ -160,6 +163,15 @@ test('directory selection uses live result updates with resource URIs, cache reu
         // The webview may then select it like any listed file.
         await select(['/elsewhere/x.wav']);
         assert.deepEqual(controller.getActiveFilePaths(panel), ['/elsewhere/x.wav']);
+        // Cancelled (the progress notification's Cancel): the files not analysed are not shown, and the panel is
+        // told so, so nothing there waits for their tracks (#853); the one already shown stays.
+        cancelNext = true;
+        const beforeCancel = messages.length;
+        await select(['/elsewhere/x.wav', '/retention/sub/b.wav']);
+        assert.deepEqual(analyzed.at(-1), ['/retention/sub/b.wav']);
+        assert.equal(messages.length, beforeCancel + 1, 'a cancelled analysis still answers the panel');
+        assert.deepEqual(messages.at(-1)!.selectedFilePaths, ['/elsewhere/x.wav']);
+        assert.deepEqual(messages.at(-1)!.results.map(result => result.filePath), ['/elsewhere/x.wav']);
         assert.deepEqual(writes, [], 'selection updates must not add persistent settings');
         assert.deepEqual(errors, []);
     } finally { controller.dispose(); }

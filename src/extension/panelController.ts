@@ -583,10 +583,19 @@ export class PanelController implements vscode.Disposable {
             ...selectedFilePaths.filter((filePath) => !newlyAdded.has(filePath) && !cached(filePath)),
         ];
         if (uncached.length > 0) {
-            const analyzedResults = await this.analysis.analyzeFiles(
-                uncached,
-                stftOptions,
-            );
+            let analyzedResults: Awaited<ReturnType<typeof this.analysis.analyzeFiles>>;
+            try {
+                analyzedResults = await this.analysis.analyzeFiles(uncached, stftOptions);
+            } catch (error) {
+                if (!(error instanceof vscode.CancellationError)) throw error;
+                // Cancelled: the files not analysed are not shown, and the panel is told so (its rows unchecked,
+                // nothing left waiting for their tracks, #853); the ones analysed before stay.
+                if (session.isDisposed || session.directorySelection !== selection || !session.isCurrent(revision, message.requestId)) { return; }
+                const dropped = new Set(uncached);
+                selection.selectedFilePaths = selection.selectedFilePaths.filter((filePath) => !dropped.has(filePath));
+                await this.updateDirectorySession(session, collectSelectedResults(selection.selectedFilePaths, selection.cachedResultsByFilePath));
+                return;
+            }
             if (session.isDisposed || session.directorySelection !== selection) { return; }
             const newResults = await this.settleLiveResults(analyzedResults, stftOptions);
             if (session.isDisposed || session.directorySelection !== selection) { return; }
