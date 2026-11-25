@@ -239,8 +239,10 @@ if (require.main === module) {
         await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
         const browser = await chromium.launch({ headless: true, executablePath: process.env.AWA_CHROMIUM_EXECUTABLE || undefined, args: ['--mute-audio'] });
         try {
-            const context = await browser.newContext({ locale: process.env.AWA_BROWSER_LOCALE || 'en-US' });
-            await module.exports({ browser: context, origin: `http://127.0.0.1:${server.address().port}`, root });
+            // As test-browser-parity.js pins it: each page in the pinned locale, with the page's own options kept
+            // (a BrowserContext's newPage takes none, so the journey's viewport would be dropped).
+            const pinned = { newPage: (options = {}) => browser.newPage({ locale: process.env.AWA_BROWSER_LOCALE || 'en-US', ...options }) };
+            await module.exports({ browser: pinned, origin: `http://127.0.0.1:${server.address().port}`, root });
         } finally { await browser.close(); server.close(); }
     })().catch(error => { console.error(error); process.exitCode = 1; });
 }
