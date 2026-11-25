@@ -537,7 +537,7 @@ def test_the_cursor_spectrum_is_the_kept_stft_column_where_the_window_is_one_of_
         return original_fft(self, *args, **kwargs)  # pyright: ignore[reportAttributeAccessIssue]
 
     monkeypatch.setattr(wd.ChannelFrame, "fft", counted_fft)
-    hop = resolve_stft_params(rate, options)[1]
+    hop = resolve_stft_params(len(times), options)[1]
     kept = service.engine.get_cached_spectrogram(audio, n_fft, hop, "hann")
     assert kept is not None
     used_columns = 0
