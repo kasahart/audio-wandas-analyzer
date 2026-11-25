@@ -1,3 +1,5 @@
+import { graphemes } from '../../shared/utils/graphemes';
+
 const EXPORT_BACKGROUND = '#1e1e1e';
 
 export function triggerAnchorDownload(document: Document, href: string, fileName: string): void {
@@ -45,8 +47,8 @@ export function visibleExportCanvases(wrapper: Element | null): HTMLElement[] {
 /** `text` as it fits in `width`: its middle left out (…) when it is wider, so its end (the channel, a suffix) stays. */
 export function fittedText(ctx: Pick<CanvasRenderingContext2D, 'measureText'>, text: string, width: number): string {
     if (typeof ctx.measureText !== 'function' || ctx.measureText(text).width <= width) return text;
-    // By characters (a pair of code units is one), down to the mark alone where nothing else fits.
-    const chars = Array.from(text);
+    // By characters as seen (graphemes: an emoji, a base with its combining mark), down to the mark alone where nothing else fits.
+    const chars = graphemes(text);
     let keep = chars.length - 1;
     const cut = (): string => `${chars.slice(0, Math.floor(keep / 2)).join('')}…${chars.slice(chars.length - Math.ceil(keep / 2)).join('')}`;
     while (keep > 0 && ctx.measureText(cut()).width > width) keep -= 1;

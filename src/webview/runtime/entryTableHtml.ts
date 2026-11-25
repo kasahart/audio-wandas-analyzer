@@ -12,6 +12,7 @@ import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { titledHintAttr as hintAttr } from './hintFooter';
 import { withMinus } from '../shell/numberText';
 import { summarizeAudioCandidates } from '../../shared/dataset/asdData';
+import { graphemes } from '../../shared/utils/graphemes';
 import { groupOf, infoNumber, middleEllipsis, valueOf, type ColumnId, type DatasetFilter, type DatasetRow, type GroupId, type InfoId, type SortColumn, type Unmatched, type ValueId } from '../../shared/dataset/datasetTable';
 
 export type EntryStrings = UiStrings;
@@ -223,13 +224,16 @@ export function formatValue(number: number | null): string {
 const NAME_TAIL = 10;
 
 /** A file's name cut in its middle when the column is narrow (the head takes the ellipsis); the full path is its tooltip. */
-function nameHtml(name: string, title: string): string {
+export function nameHtml(name: string, title: string): string {
     const short = middleEllipsis(name, 48);
     const attrs = `title="${escapeHtml(title)}"`;
-    if (short.length <= NAME_TAIL + 4) return `<span class="entry-nm" ${attrs}>${escapeHtml(short)}</span>`;
-    const cut = short.length - NAME_TAIL;
+    // Counted in characters as seen (graphemes): the halves are separate boxes, so a cut inside an emoji or between a
+    // base and its combining mark (a macOS name in NFD: カ + ゙) would never join again (#845).
+    const characters = graphemes(short);
+    if (characters.length <= NAME_TAIL + 4) return `<span class="entry-nm" ${attrs}>${escapeHtml(short)}</span>`;
+    const cut = characters.length - NAME_TAIL;
     // The two halves are separate boxes, which a screen reader would read with a space between: it reads the whole name instead.
-    return `<span class="entry-nm is-split" ${attrs}><span class="entry-nm-head" aria-hidden="true">${escapeHtml(short.slice(0, cut))}</span><span class="entry-nm-tail" aria-hidden="true">${escapeHtml(short.slice(cut))}</span><span class="entry-nm-full">${escapeHtml(name)}</span></span>`;
+    return `<span class="entry-nm is-split" ${attrs}><span class="entry-nm-head" aria-hidden="true">${escapeHtml(characters.slice(0, cut).join(''))}</span><span class="entry-nm-tail" aria-hidden="true">${escapeHtml(characters.slice(cut).join(''))}</span><span class="entry-nm-full">${escapeHtml(name)}</span></span>`;
 }
 
 /** A row's tools right after its name: ▶, its slot (the badge once in one), ✎, 外す; those carrying state always show. */

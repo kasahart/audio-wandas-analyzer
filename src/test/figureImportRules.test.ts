@@ -39,6 +39,8 @@ test('each new folder imports only its row of 第 8 節', async () => {
     const cases: Array<[string, string, boolean]> = [
         ['src/webview/figure/probe.ts', "import { figureKey } from '../answers/figureKeys';", true],
         ['src/webview/figure/probe.ts', "import { withMinus } from '../shell/numberText';", true],
+        ['src/webview/figure/probe.ts', "import { graphemes } from '../../shared/utils/graphemes';", true],
+        ['src/webview/figure/probe.ts', "import { csvFile } from '../../shared/utils/csv';", false],
         ['src/webview/figure/probe.ts', "import { compareOverlay } from '../charts/compareOverlay';", false],
         ['src/webview/figure/probe.ts', "import { store } from '../state/store';", false],
         ['src/webview/answers/probe.ts', "import type { FigureSpec } from '../../shared/protocol/generated/backendProtocolSchema';", true],

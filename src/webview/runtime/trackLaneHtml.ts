@@ -5,6 +5,7 @@ import { hintAttr } from './hintFooter';
 import { frequencyText } from '../shell/numberText';
 import { calibrationBadgeHtml, calibrationButtonHtml, channelMetricSummaryHtml, isClipped } from './calibrationDecorations';
 import { trackRowFigureId } from './trackCanvasIds';
+import { graphemes } from '../../shared/utils/graphemes';
 
 export interface ChannelLaneSpec {
     trackId: string;
@@ -66,28 +67,17 @@ export type TrackRowStrings = Pick<UiStrings,
 /** How many of a name's last characters (before its extension) stay in sight in a track's header: the run number. */
 const TRACK_NAME_TAIL = 6;
 
+/** A track header's whole file name, however it is drawn (the PNG export labels its rows with it). */
+export function trackNameText(name: Element | null | undefined): string {
+    return (name?.querySelector('.track-name-full') ?? name)?.textContent?.trim() ?? '';
+}
+
 /**
  * A track's name in its narrow header (about 60 px). A long one gives way in its middle: the head takes the ellipsis,
  * the last characters before the extension (the run number) stay, and the extension is not drawn (every track is a
  * recording; the full path is the hint). So tracks of files named alike (…run001.wav, …run002.wav) stay told apart.
  * The whole name is in `.track-name-full` (read by screen readers, and by the PNG export: `trackNameText`).
  */
-function graphemes(text: string): string[] {
-    const Segmenter = (Intl as { Segmenter?: new (locale?: string, options?: { granularity: 'grapheme' }) => { segment(text: string): Iterable<{ segment: string }> } }).Segmenter;
-    if (Segmenter) return Array.from(new Segmenter(undefined, { granularity: 'grapheme' }).segment(text), part => part.segment);
-    // Without Intl.Segmenter: code points, each combining mark kept with the character before it.
-    const out: string[] = [];
-    for (const point of text) {
-        if (out.length && /\p{M}/u.test(point)) out[out.length - 1] += point; else out.push(point);
-    }
-    return out;
-}
-
-/** A track header's whole file name, however it is drawn (the PNG export labels its rows with it). */
-export function trackNameText(name: Element | null | undefined): string {
-    return (name?.querySelector('.track-name-full') ?? name)?.textContent?.trim() ?? '';
-}
-
 export function trackNameHtml(fileName: string, filePath: string): string {
     const dot = fileName.lastIndexOf('.');
     const stem = dot > 0 ? fileName.slice(0, dot) : fileName;

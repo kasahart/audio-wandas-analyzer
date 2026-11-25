@@ -38,7 +38,7 @@ const LAYER_RULES = [
     },
     {
         files: ['src/webview/figure/**/*.ts'],
-        rules: restricted([only(['\\./', '\\.\\./answers/', '\\.\\./shell/', '\\.\\./\\.\\./shared/utils/ticks$'], `${LAYER_MESSAGE} answers/, shell/ and src/shared's tick values (never runtime/, the screens' own code).`)], true),
+        rules: restricted([only(['\\./', '\\.\\./answers/', '\\.\\./shell/', '\\.\\./\\.\\./shared/utils/(?:ticks|graphemes)$'], `${LAYER_MESSAGE} answers/, shell/ and src/shared's tick values and characters as seen (never runtime/, the screens' own code).`)], true),
     },
     {
         files: ['src/webview/answers/**/*.ts'],
