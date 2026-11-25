@@ -600,6 +600,11 @@ test('after a change that only takes tracks off, the status says the tracks now,
     await flush(); await flush(); await flush(); await flush();
     assert.equal(app.status, now(1));
     assert.notEqual(app.status, strings.browserPreparing);
+    // Checking a and b, and before b is loaded, unchecking b: nothing is taken off, only the load of b is superseded.
+    select('r5', ['a.wav', 'b.wav', 'c.wav']);
+    select('r6', ['a.wav', 'c.wav']);
+    await flush(); await flush(); await flush(); await flush();
+    assert.equal(app.status, now(2));
 });
 
 test('a load failure unchecks that tree file and keeps the others', async () => {
