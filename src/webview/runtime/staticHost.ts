@@ -333,9 +333,11 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             enqueueBatch(async () => {
                 if (!sourceGeneration.isCurrent(myGeneration) || !isLatest()) return;
                 const wanted = new Set(message.filePaths.filter(path => tree.has(path)));
+                let removed = false;
                 for (const path of tree.keys()) {
                     if (wanted.has(path) || !sources.get(path)) continue;
                     sources.delete(path);
+                    removed = true;
                     try { await audioWorker.request({ cmd: 'unload', filePath: path }); }
                     catch (error) {
                         if (!sourceGeneration.isCurrent(myGeneration)) return;
@@ -348,8 +350,13 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                 pendingTreePaths.clear();
                 added.forEach(path => pendingTreePaths.add(path));
                 if (!added.length) {
+                    // A load this selection superseded said nothing at its end, and the last message names the tracks
+                    // before this change: say the tracks now, so the footer never stays at "Preparing…" or an old count.
+                    const stale = loading || removed;
                     loading = false; pick.disabled = false;
-                    snapshot(); return;
+                    snapshot();
+                    if (stale) announce(strings.announceAnalysisDone.replace('{count}', String(sources.size)));
+                    return;
                 }
                 loading = true; pick.disabled = true;
                 announce(strings.browserPreparing);
