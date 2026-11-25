@@ -89,8 +89,8 @@ const ALLOWED: Sites = {
     // The number rules moved to shell/numberText.ts (shared by the old plots and the Figure).
     'webview/shell/numberText.ts': { 'bare-db': ['signedText'] },
     // The Figure's axis names: the level axis's (levelAxisName) and the other lines' (a metric or a level over time, a
-    // cepstrum, a correlation, a gain).
-    'webview/figure/axisNames.ts': { 'axis-name': ['levelAxisName', 'lineAxisNames.y', 'metricName', 'valueAxisName.name', 'valueAxisName.named', 'valueAxisName.uncal'] },
+    // cepstrum, a correlation, a gain), and the Δ's dB axis with its pair filled in (withDeltaPair, #848).
+    'webview/figure/axisNames.ts': { 'axis-name': ['levelAxisName', 'lineAxisNames.y', 'metricName', 'valueAxisName.name', 'valueAxisName.named', 'valueAxisName.uncal', 'withDeltaPair.axisDelta'] },
     // The CSV match's "{matched} of {total}" files (the folder's count).
     'webview/runtime/entryRuntime.ts': { 'file-count': ['createEntryScreen.paint', 'createEntryScreen.readCsvFile'] },
     // The gate's "analyse the base group's n recordings": how many would be scanned, not a figure's n.

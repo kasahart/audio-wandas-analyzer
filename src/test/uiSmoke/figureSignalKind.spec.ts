@@ -161,12 +161,12 @@ test('the sound itself is overlaid by the one Figure of the new path: its sample
     await expect.poll(async () => (await seen(page)).lanes.map(item => item.id), { timeout: 30_000 }).toEqual(['overlay', 'delta']);
     await expect.poll(async () => { const now = await seen(page); return !now.waiting && (now.lanes[1]?.lines.length ?? 0) === 1; }, { timeout: 30_000 }).toBe(true);
     const both = await seen(page);
-    expect(both.lanes[1].axisNames).toEqual({ x: 'Time [s]', y: 'Δ Amplitude, uncalibrated [FS]' });
+    expect(both.lanes[1].axisNames).toEqual({ x: 'Time [s]', y: 'Δ Amplitude, uncalibrated = Compare 1 − Base [FS]' });
     expect(both.lanes[1].range!.x).toEqual(both.lanes[0].range!.x);
     expect(both.lanes[1].range!.y[0]).toBe(-both.lanes[1].range!.y[1]);
     expect(both.lanes[1].range!.y[1]).toBeGreaterThanOrEqual(0.002);
     expect(both.lanes[1].range!.y[1]).toBeLessThan(0.003);
-    await expect(page.locator('[data-stage-figure-headline]')).toHaveText(/^largest Δ \d+\.\d{4,6} s [+−]0\.0020\d* FS$/u);
+    await expect(page.locator('[data-stage-figure-headline]')).toHaveText(/^largest Δ \(Compare 1 − Base\) \d+\.\d{4,6} s [+−]0\.0020\d* FS$/u);
     if (process.env.AWA_SHOT_DIR) await page.locator('.track-stage').screenshot({ path: path.join(process.env.AWA_SHOT_DIR, 'signal-delta.png') });
     expect(await stop(), 'the backend answered every request').toEqual([]);
 });
