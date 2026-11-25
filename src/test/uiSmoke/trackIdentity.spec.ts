@@ -211,3 +211,22 @@ test('recreated directory document restores host selection and audio before the 
     });
     expect(latestSelection).toEqual([paths[1]]);
 });
+
+test('tracks of files named alike stay told apart: a long name keeps its end (run number) in the narrow header (#841)', async ({ page }) => {
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    const names = ['L1_900rpm_microphone_front_run001.wav', 'L1_900rpm_microphone_front_run002.wav'];
+    await page.evaluate(dispatchAnalysisUpdate, names.map(name => `/m/${name}`));
+    await expect(page.locator('.track-row')).toHaveCount(2);
+    for (const [index, name] of names.entries()) {
+        const header = page.locator('.track-row').nth(index).locator('.track-name');
+        // The text is still the whole name (screen readers, the runtime's reads).
+        await expect(header).toHaveText(name);
+        await expect(header.locator('.track-name-tail')).toHaveText(name.slice(-10, -4));
+        // The run number is drawn whole inside the header; the head is what gives way.
+        const fit = await header.evaluate(el => {
+            const box = el.getBoundingClientRect(), tail = el.querySelector('.track-name-tail')!.getBoundingClientRect(), head = el.querySelector<HTMLElement>('.track-name-head')!;
+            return { inside: tail.left >= box.left - 0.5 && tail.right <= box.right + 0.5, headCut: head.scrollWidth > head.clientWidth };
+        });
+        expect(fit).toEqual({ inside: true, headCut: true });
+    }
+});

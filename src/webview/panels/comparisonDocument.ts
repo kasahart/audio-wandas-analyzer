@@ -856,6 +856,11 @@ export function renderComparisonStyles(): string {
         #directory-selection-layout.sidebar-collapsed #selection-sidebar-rail { display: flex; }
         .track-title-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
         .track-title-row .track-name { flex: 1 1 auto; min-width: 0; }
+        /* A long name gives way in its middle (trackNameHtml): the head takes the ellipsis, the run number stays, the extension is not drawn. */
+        .track-name.is-split { display: flex; }
+        .track-name-head { overflow: hidden; text-overflow: ellipsis; min-width: 1.5em; }
+        .track-name-tail { flex: none; }
+        .track-name-ext { display: none; }
         .track-drag-handle { cursor: grab; color: var(--muted); font-size: 12px; user-select: none; flex-shrink: 0; padding: 0 2px; line-height: 1; }
         .track-drag-handle:active { cursor: grabbing; }
         /* A role chip (roleChip.ts): the role's colour and number, or the track's own colour and · without one; its menu sets the slot. */

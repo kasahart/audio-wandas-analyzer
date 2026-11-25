@@ -63,6 +63,25 @@ export type TrackRowStrings = Pick<UiStrings,
     | 'hintRemoveTrack' | 'hintOffsetUp' | 'hintOffsetDown' | 'hintTrackHeightResizer'
     | 'peakLabel' | 'calibrationBadgeUncalibratedHint' | 'calibrationBadgeRawHint' | 'calibrationBadgePartialHint' | 'calibrationFactorLabel'>;
 
+/** How many of a name's last characters (before its extension) stay in sight in a track's header: the run number. */
+const TRACK_NAME_TAIL = 6;
+
+/**
+ * A track's name in its narrow header (about 60 px). A long one gives way in its middle: the head takes the ellipsis,
+ * the last characters before the extension (the run number) stay, and the extension is not drawn (every track is a
+ * recording; the full path is the hint). So tracks of files named alike (…run001.wav, …run002.wav) stay told apart.
+ * The element's text is still the whole name (the PNG export labels its rows with it).
+ */
+export function trackNameHtml(fileName: string, filePath: string): string {
+    const dot = fileName.lastIndexOf('.');
+    const stem = dot > 0 ? fileName.slice(0, dot) : fileName;
+    const extension = fileName.slice(stem.length);
+    if (stem.length <= TRACK_NAME_TAIL + 4) return '<div class="track-name"' + hintAttr(filePath) + '>' + escapeHtml(fileName) + '</div>';
+    const cut = stem.length - TRACK_NAME_TAIL;
+    return '<div class="track-name is-split"' + hintAttr(filePath) + '><span class="track-name-head">' + escapeHtml(stem.slice(0, cut))
+        + '</span><span class="track-name-tail">' + escapeHtml(stem.slice(cut)) + '</span><span class="track-name-ext">' + escapeHtml(extension) + '</span></div>';
+}
+
 export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): string {
     const { trackId, trackIndex: i, channels } = spec;
     const monoSummary = channels.length === 1
@@ -77,7 +96,7 @@ export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): stri
         + '    <div class="track-drag-handle" draggable="true" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaDragHandle) + '" data-hint="' + escapeHtml(strings.ariaDragHandle) + '">≡</div>'
         // The track's role chip (its colour without a role): the same slots as the entry table's 0–3.
         + '    ' + spec.roleChipHtml
-        + '    <div class="track-name"' + hintAttr(spec.filePath) + '>' + escapeHtml(spec.fileName) + '</div>'
+        + '    ' + trackNameHtml(spec.fileName, spec.filePath)
         + (isClipped(channels) ? '    <span class="clip-badge"' + hintAttr(strings.clipBadgeTitle) + '>CLIP</span>' : '')
         + '    ' + calibrationBadgeHtml(channels, strings)
         + '  </div>'

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import type { ChannelSummary } from '../shared/analysis/analysisTypes';
 import test from 'node:test';
-import { channelLaneHtml, trackRowHtml, type ChannelLaneSpec, type TrackRowSpec, type TrackRowStrings } from '../webview/runtime/trackLaneHtml';
+import { channelLaneHtml, trackNameHtml, trackRowHtml, type ChannelLaneSpec, type TrackRowSpec, type TrackRowStrings } from '../webview/runtime/trackLaneHtml';
 
 const base: ChannelLaneSpec = {
     trackId: 't1',
@@ -119,4 +119,12 @@ test('the reference button sits in a multi-channel lane header or in a mono trac
     assert.ok(row.indexOf(button) > row.indexOf('data-action="configure-calibration"'));
     assert.ok(row.indexOf(button) < row.indexOf('class="track-offset"'));
     assert.ok(!trackRowHtml(baseRow, rowStrings).includes('set-pair-reference'));
+});
+
+test('a long track name gives way in its middle: the run number stays, the text is the whole name (#841)', () => {
+    const html = trackNameHtml('L1_900rpm_run001.wav', '/m/L1_900rpm_run001.wav');
+    assert.equal(html, '<div class="track-name is-split" data-hint="/m/L1_900rpm_run001.wav" aria-description="/m/L1_900rpm_run001.wav">'
+        + '<span class="track-name-head">L1_900rpm_</span><span class="track-name-tail">run001</span><span class="track-name-ext">.wav</span></div>');
+    // A short name is one box, as before.
+    assert.equal(trackNameHtml('Rec_0012.wav', '/m/Rec_0012.wav'), '<div class="track-name" data-hint="/m/Rec_0012.wav" aria-description="/m/Rec_0012.wav">Rec_0012.wav</div>');
 });
