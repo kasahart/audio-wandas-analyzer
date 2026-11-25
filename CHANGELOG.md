@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Tracks: a long file name in a track's header keeps its end in sight (L1_…run001, L1_…run002) instead of being cut after its first characters (L1_90…), so tracks of files named alike can be told apart. The full path is still the hint (#841).
 - Cursor spectrum: where the window is one frame of the Tracks row's spectrogram, that frame is read instead of computed again, about twice as fast while moving the cursor or playing. The values are the same (#822).
 - Updated to wandas 0.14.0 (#818).
 - Compare: zooming, panning or resetting a base group's figure no longer makes the plot jump up and back. While the zoomed picture was on its way, the base's heading lost its count ("median of 97 · 1 failed left out"), shrank to one line and moved the plot under it; it now keeps the count of the picture still shown (#834).

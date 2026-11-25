@@ -63,6 +63,47 @@ export type TrackRowStrings = Pick<UiStrings,
     | 'hintRemoveTrack' | 'hintOffsetUp' | 'hintOffsetDown' | 'hintTrackHeightResizer'
     | 'peakLabel' | 'calibrationBadgeUncalibratedHint' | 'calibrationBadgeRawHint' | 'calibrationBadgePartialHint' | 'calibrationFactorLabel'>;
 
+/** How many of a name's last characters (before its extension) stay in sight in a track's header: the run number. */
+const TRACK_NAME_TAIL = 6;
+
+/**
+ * A track's name in its narrow header (about 60 px). A long one gives way in its middle: the head takes the ellipsis,
+ * the last characters before the extension (the run number) stay, and the extension is not drawn (every track is a
+ * recording; the full path is the hint). So tracks of files named alike (…run001.wav, …run002.wav) stay told apart.
+ * The whole name is in `.track-name-full` (read by screen readers, and by the PNG export: `trackNameText`).
+ */
+function graphemes(text: string): string[] {
+    const Segmenter = (Intl as { Segmenter?: new (locale?: string, options?: { granularity: 'grapheme' }) => { segment(text: string): Iterable<{ segment: string }> } }).Segmenter;
+    if (Segmenter) return Array.from(new Segmenter(undefined, { granularity: 'grapheme' }).segment(text), part => part.segment);
+    // Without Intl.Segmenter: code points, each combining mark kept with the character before it.
+    const out: string[] = [];
+    for (const point of text) {
+        if (out.length && /\p{M}/u.test(point)) out[out.length - 1] += point; else out.push(point);
+    }
+    return out;
+}
+
+/** A track header's whole file name, however it is drawn (the PNG export labels its rows with it). */
+export function trackNameText(name: Element | null | undefined): string {
+    return (name?.querySelector('.track-name-full') ?? name)?.textContent?.trim() ?? '';
+}
+
+export function trackNameHtml(fileName: string, filePath: string): string {
+    const dot = fileName.lastIndexOf('.');
+    const stem = dot > 0 ? fileName.slice(0, dot) : fileName;
+    const extension = fileName.slice(stem.length);
+    // Counted in characters as seen (graphemes), so the cut never splits a surrogate pair or a base from its
+    // combining mark (a macOS name in NFD: カ + ゙): the two halves are separate boxes that would not join again.
+    const characters = graphemes(stem);
+    if (characters.length <= TRACK_NAME_TAIL + 4) return '<div class="track-name"' + hintAttr(filePath) + '>' + escapeHtml(fileName) + '</div>';
+    const cut = characters.length - TRACK_NAME_TAIL;
+    // The halves are separate boxes, which a screen reader would read with a space between (and the hidden extension
+    // not at all): it reads the whole name from a visually hidden copy instead, as the folder table's name does.
+    return '<div class="track-name is-split"' + hintAttr(filePath) + '><span class="track-name-head" aria-hidden="true">' + escapeHtml(characters.slice(0, cut).join(''))
+        + '</span><span class="track-name-tail" aria-hidden="true">' + escapeHtml(characters.slice(cut).join('')) + '</span><span class="track-name-ext" aria-hidden="true">' + escapeHtml(extension)
+        + '</span><span class="track-name-full">' + escapeHtml(fileName) + '</span></div>';
+}
+
 export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): string {
     const { trackId, trackIndex: i, channels } = spec;
     const monoSummary = channels.length === 1
@@ -77,7 +118,7 @@ export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): stri
         + '    <div class="track-drag-handle" draggable="true" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaDragHandle) + '" data-hint="' + escapeHtml(strings.ariaDragHandle) + '">≡</div>'
         // The track's role chip (its colour without a role): the same slots as the entry table's 0–3.
         + '    ' + spec.roleChipHtml
-        + '    <div class="track-name"' + hintAttr(spec.filePath) + '>' + escapeHtml(spec.fileName) + '</div>'
+        + '    ' + trackNameHtml(spec.fileName, spec.filePath)
         + (isClipped(channels) ? '    <span class="clip-badge"' + hintAttr(strings.clipBadgeTitle) + '>CLIP</span>' : '')
         + '    ' + calibrationBadgeHtml(channels, strings)
         + '  </div>'

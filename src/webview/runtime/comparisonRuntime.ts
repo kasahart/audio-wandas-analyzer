@@ -44,7 +44,7 @@ import { domSnapshotBase, latestSpectrogramSnapshot, shellSnapshot } from './tes
 import { buildTrackSnapshot } from './comparisonSnapshot';
 import { syncCanvasSize } from './canvasSizing';
 import { trackRowFigureId } from './trackCanvasIds';
-import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
+import { channelLaneHtml, trackNameText, trackRowHtml } from './trackLaneHtml';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotHit, type PlotWindow } from './plotInteraction';
 import { plotUnderPointer } from './trackPointerEvents';
 import { attachHoverHints, createHintFooter, createTaskStatus, setHint, attachFocusHint } from './hintFooter';
@@ -2761,7 +2761,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             // the words of a row that could not be drawn (failed, still waiting at the deadline, too short), as on the page.
             const composed = composeTrackCanvases(document, pieces, function (piece) {
                 if (!piece.closest('.track-row-figure')) return '';
-                const file = piece.closest('.track-row')?.querySelector('.track-name')?.textContent?.trim() ?? '';
+                const file = trackNameText(piece.closest('.track-row')?.querySelector('.track-name'));
                 const channel = piece.closest('.track-channel-lane')?.querySelector('.track-channel-lane-label')?.textContent?.trim() ?? '';
                 return [file, channel].filter(Boolean).join(' · ');
             }, rowSaysPlaced);
