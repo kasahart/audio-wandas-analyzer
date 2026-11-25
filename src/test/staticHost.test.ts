@@ -577,6 +577,31 @@ test('an opened folder lists its WAV files and checked files load as tracks unde
     assert.equal(app.status, app.browser.__APP_STRINGS__.browserCleared);
 });
 
+test('after a change that only takes tracks off, the status says the tracks now, never an old count or "Preparing…" (#842)', async () => {
+    const app = harness();
+    const strings = app.browser.__APP_STRINGS__;
+    const folderPicker = app.elements.find(element => element.tag === 'input' && 'webkitdirectory' in element.attributes)!;
+    const file = (path: string) => ({ size: 100, name: path.split('/').pop()!, webkitRelativePath: path, arrayBuffer: async () => new ArrayBuffer(100) });
+    folderPicker.files = [file('rec/a.wav'), file('rec/b.wav'), file('rec/c.wav')];
+    folderPicker.onchange!();
+    const select = (requestId: string, names: string[]): void => { app.host.postMessage({ type: 'analyze-selected-files', requestId, filePaths: names.map(name => `/sources/rec/${name}`) }); };
+    const now = (count: number): string => strings.announceAnalysisDone.replace('{count}', String(count));
+
+    select('r1', ['a.wav', 'b.wav']);
+    await flush(); await flush(); await flush();
+    assert.match(app.status, /2/);
+    // Taking one track off on its own.
+    select('r2', ['b.wav']);
+    await flush(); await flush();
+    assert.equal(app.status, now(1));
+    // Checking c and, before it is loaded, unchecking b: the load is superseded and says nothing at its end.
+    select('r3', ['b.wav', 'c.wav']);
+    select('r4', ['c.wav']);
+    await flush(); await flush(); await flush(); await flush();
+    assert.equal(app.status, now(1));
+    assert.notEqual(app.status, strings.browserPreparing);
+});
+
 test('a load failure unchecks that tree file and keeps the others', async () => {
     const app = harness();
     const folderPicker = app.elements.find(element => element.tag === 'input' && 'webkitdirectory' in element.attributes)!;
