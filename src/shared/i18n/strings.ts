@@ -880,7 +880,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         browserCleared: 'Worker cleared; audio memory released. Add short files.',
         browserRemoved: 'All tracks removed; audio memory released. Add short files.',
         browserExported: 'Selected regions exported as PCM16 WAV.',
-        browserFolderOpened: 'Opened a folder with {count} readable files. Put files in slots 0–3 or press ＋ on a row to show them as tracks.',
+        browserFolderOpened: 'Opened a folder with {count} readable files. Put files in slots 0–3 or click ☐ on a row to show them as tracks.',
         browserDropNoWav: 'Drop audio or CSV files to add them as tracks; use Open Folder for folders.',
         browserUnavailable: 'Not available in the browser version.',
 
@@ -1663,7 +1663,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         browserCleared: 'Workerを終了し、音声メモリを解放しました。短いファイルを追加できます。',
         browserRemoved: '全トラックを削除し、音声メモリを解放しました。',
         browserExported: '選択区間をPCM16 WAVで書き出しました。',
-        browserFolderOpened: '読み込めるファイルを{count}件含むフォルダを開きました。0〜3 のスロットに入れるか、行の ＋ でトラックとして表示します。',
+        browserFolderOpened: '読み込めるファイルを{count}件含むフォルダを開きました。0〜3 のスロットに入れるか、行の ☐ でトラックとして表示します。',
         browserDropNoWav: 'ドロップできるのは音声ファイルとCSVです。フォルダは「フォルダを開く」から開いてください。',
         browserUnavailable: 'Web版では未対応です。',
 

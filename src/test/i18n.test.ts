@@ -75,3 +75,11 @@ test('fillTemplate fills named placeholders and leaves unknown ones', () => {
         '校正係数 — チャンネル 2: R',
     );
 });
+
+test('the folder-opened message names the button a row really has to show its file as a track: ☐, not ＋ (#843)', () => {
+    for (const locale of ['en', 'ja'] as const) {
+        const text = getStrings(locale).browserFolderOpened;
+        assert.ok(text.includes('☐'), `${locale}: ${text}`);
+        assert.ok(!text.includes('＋'), `${locale}: ${text}`);
+    }
+});
