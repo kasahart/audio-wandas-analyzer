@@ -41,7 +41,7 @@ import { amountText, exactFieldText, frequencyText, lagText, levelText, quefrenc
 import { zoomKeyAction } from '../shell/zoomKeys';
 import { installRangePopover, openAxisPart, type RangePopover, type RangePopoverStrings } from '../shell/rangePopover';
 import { axisScale, valueScale, windowedScale, type AxisPart, type AxisScale, type ValueScale } from './axisScale';
-import { inDb, levelAxisName, levelUnitOfName, lineAxisNames, type LineAxisWords, colourAxisName, rowsAxisName } from './axisNames';
+import { inDb, levelAxisName, levelUnitOfName, lineAxisNames, type LineAxisWords, colourAxisName, deltaAxisName, rowsAxisName } from './axisNames';
 import { BINS_COLOURS, paintBins, placeBins, type PlacedBins } from './binsLane';
 import { fieldWindow } from './fieldWindow';
 import { colourBarBox, COLOUR_BAR, COLOUR_BAR_ROOM, emptyColourOf, imagePixelsOf, paintColourBar, upScale, type ImagePalette } from './imageLane';
@@ -65,6 +65,8 @@ export interface FigureWords extends LineAxisWords {
     /** A band lane's axis up (a time signal's values), named with its unit where it has one. */
     waveRangeAxisAmplitude: string;
     axisDelta: string;
+    /** What a Δ is the difference of (compare 1 − base), said on every Δ axis (#848). */
+    deltaPair: string;
     /** A bins lane's axis up (a distribution's counts: {unit}) and what is counted (recordings). */
     dsDistCountAxis: string;
     dsUnitRecording: string;
@@ -887,9 +889,10 @@ export function createFigure(options: FigureOptions): Figure {
         // A time signal: its values in their unit (none where the recording has none), said uncalibrated where the
         // picture's calibration word says so (R4).
         if (lane.kind === 'band') {
-            const name = `${lane.axis.quantity === 'delta' ? 'Δ ' : ''}${words.waveRangeAxisAmplitude}${lane.axis.calibration === 'uncalibrated' ? words.axisUncalibrated : ''}`;
-            // A trigger's events are over the time from their trigger.
-            return { x: lane.axis.x === 'triggerTime' ? words.axisTriggerTime : words.axisTime, y: lane.axis.unit ? `${name} [${lane.axis.unit}]` : name };
+            const name = `${words.waveRangeAxisAmplitude}${lane.axis.calibration === 'uncalibrated' ? words.axisUncalibrated : ''}`;
+            const y = lane.axis.unit ? `${name} [${lane.axis.unit}]` : name;
+            // A trigger's events are over the time from their trigger. A Δ says what it is the difference of (#848).
+            return { x: lane.axis.x === 'triggerTime' ? words.axisTriggerTime : words.axisTime, y: lane.axis.quantity === 'delta' ? deltaAxisName(words, y) : y };
         }
         // A distribution: across, the table column's own name (the screen's); up, how many rows.
         if (lane.kind === 'bins') return { x: lane.bins ? options.columnName?.(lane.bins.column) ?? lane.bins.column : '', y: words.dsDistCountAxis.replace('{unit}', words.dsUnitRecording) };

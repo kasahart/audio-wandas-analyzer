@@ -191,9 +191,9 @@ test('the spectrum overlay is one Figure on the new path: the old overlay and Δ
     await expect.poll(async () => !(await seen(page)).waiting, { timeout: 30_000 }).toBe(true);
     const both = await seen(page);
     expect(both.lanes[1].range!.x).toEqual(both.lanes[0].range!.x);
-    expect(both.lanes[1].axisNames.y).toBe('Difference Δ [dB]');
+    expect(both.lanes[1].axisNames.y).toBe('Δ = Compare 1 − Base [dB]');
     // The Δ headline: where the difference is largest, the narrow tone, in the readout's form.
-    await expect(page.locator('[data-stage-figure-headline]')).toHaveText(/^largest Δ 1\.5\d* kHz \+\d+\.\d dB$/u);
+    await expect(page.locator('[data-stage-figure-headline]')).toHaveText(/^largest Δ \(Compare 1 − Base\) 1\.5\d* kHz \+\d+\.\d dB$/u);
     expect(await stop(), 'the backend answered every request').toEqual([]);
 });
 
@@ -505,7 +505,7 @@ test('the spectrum overlay\'s CSV is every bin of every line exactly as the back
     // Three lines (the base, compare 1, the Δ), each its frequencies and its answers.
     expect(header.length).toBe(6);
     expect(header[0]).toMatch(/Frequency \[Hz\]$/u);
-    expect(header[5]).toMatch(/Difference Δ \[dB\]$/u);
+    expect(header[5]).toMatch(/Δ = Compare 1 − Base \[dB\]$/u);
     // Every bin of each recording's answer (0 Hz to Nyquist), exactly as the backend itself writes it out.
     const every = await everyValue(page);
     const base = every.get('base')!, compare = every.get('compare1')!;
