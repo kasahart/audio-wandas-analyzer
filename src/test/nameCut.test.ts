@@ -3,8 +3,10 @@ import test from 'node:test';
 import { middleEllipsis } from '../shared/dataset/datasetTable';
 import { graphemes } from '../shared/utils/graphemes';
 import { nameHtml } from '../webview/runtime/entryTableHtml';
+import { fittedText } from '../webview/runtime/exportDownloads';
+import { fitted } from '../webview/figure/pngLegend';
 
-// Rule (#845): a shortened or split name is cut between characters as seen (graphemes), never inside one: not inside a
+// Rule (#845): a shortened or split name (folder table, track header, PNG export labels and legend) is cut between characters as seen (graphemes), never inside one: not inside a
 // surrogate pair (an emoji, shown as two �), not between a base and its combining mark (a macOS name in NFD: カ + ゙
 // would draw ゙ alone). If this fails, count with `graphemes()` (src/shared/utils/graphemes.ts), not `.length`/`.slice`.
 const NAMES = [
@@ -51,5 +53,20 @@ test('graphemes keep marks, skin tones and joined emoji with their base, with or
         assert.deepEqual(graphemes(expected.join('')), expected);
     } finally {
         (Intl as { Segmenter?: unknown }).Segmenter = saved;
+    }
+});
+
+test('the PNG export\'s row labels and legend names are cut between characters as seen, as on the page (#845)', () => {
+    // A stand-in for a canvas: every UTF-16 code unit 6 px wide.
+    const ctx = { measureText: (text: string) => ({ width: text.length * 6 }) } as Pick<CanvasRenderingContext2D, 'measureText'>;
+    for (const fit of [fittedText, fitted]) {
+        for (const name of NAMES) {
+            for (const width of [60, 102, 150, 240]) {
+                const short = fit(ctx, name, width);
+                const [head, tail] = short.split('…');
+                assert.ok(!cutInside(head, tail ?? ''), `${fit.name} ${name} @${width}: ${head} | ${tail}`);
+                assert.ok(name.startsWith(head) && name.endsWith(tail ?? ''), `${fit.name} ${name} @${width}`);
+            }
+        }
     }
 });

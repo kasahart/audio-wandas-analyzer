@@ -1,3 +1,5 @@
+import { graphemes } from '../../shared/utils/graphemes';
+
 /**
  * A figure's PNG with its lines named. On the page a Figure's legend is beside the canvas (HTML), so an image of the
  * canvas alone does not say which line is which recording: the names go on a strip above the figure, each after a
@@ -14,10 +16,10 @@ const ROW = 18, PAD = 8, STROKE = 18, GAP = 6, BETWEEN = 16, FONT = 11;
 const NAME_COLOUR = '#888';
 
 /** `text` as it fits in `width` (CSS px): its middle left out (…) when it is wider. */
-function fitted(ctx: CanvasRenderingContext2D, text: string, width: number): string {
+export function fitted(ctx: Pick<CanvasRenderingContext2D, 'measureText'>, text: string, width: number): string {
     if (ctx.measureText(text).width <= width) return text;
-    // By characters (a pair of code units is one), down to the mark alone where nothing else fits.
-    const chars = Array.from(text);
+    // By characters as seen (graphemes: an emoji, a base with its combining mark), down to the mark alone where nothing else fits.
+    const chars = graphemes(text);
     let keep = chars.length - 1;
     const cut = (): string => `${chars.slice(0, Math.floor(keep / 2)).join('')}…${chars.slice(chars.length - Math.ceil(keep / 2)).join('')}`;
     while (keep > 0 && ctx.measureText(cut()).width > width) keep -= 1;
