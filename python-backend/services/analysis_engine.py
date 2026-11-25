@@ -240,7 +240,13 @@ class AnalysisEngine:
         source_version: object = None,
     ) -> wd.SpectrogramFrame | None:
         cached, _analysis_frame, resolved = self.get_analysis(file_path, calibration_profile, source_version)
-        return cached.spectrograms.get((resolved.signature, n_fft, hop_length, window))
+        return self.kept_spectrogram(cached, (resolved.signature, n_fft, hop_length, window))
+
+    def kept_spectrogram(self, cached: CachedAnalysis, key: StftKey) -> wd.SpectrogramFrame | None:
+        """The STFT already kept for ``cached`` under ``key`` (calibration signature, n_fft, hop, window), or None.
+        Never computes one: a caller that only wants to reuse a kept STFT asks here."""
+        with self._lock:
+            return cached.spectrograms.get(key)
 
     def is_cached(self, file_path: str | Path) -> bool:
         with self._lock:
