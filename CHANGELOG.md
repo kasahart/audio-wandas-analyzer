@@ -4,8 +4,10 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+## 0.0.17
+
 - Compare and Tracks: while the recordings chosen are still being read (the browser version's Python still starting, or the host still reading the files), the comparison and the track area say "Reading the recordings 0 / 2" (録音を読み込み中 0 / 2). The comparison said "This step cannot be shown ()" with nothing in the brackets, and the track area said to click ☐ on a row, for up to about 15 s. In VS Code, cancelling the analysis of files just checked now unchecks the files not analysed (they kept their ☑ with no track) (#853).
-- Recipe bundle (「レシピをまとめて書き出す」): the README's install line names the wandas the bundle's run_recipe.py accepts (`wandas[io]>=0.14.0,<0.15.0`). It said only `>=`, so once a newer wandas was out, following it installed a wandas the script then refused; bundles written by v0.0.17 already do this with wandas 0.14.0 (#854).
+- Recipe bundle (「レシピをまとめて書き出す」): the README's install line names the wandas the bundle's run_recipe.py accepts (`wandas[io]>=0.14.0,<0.15.0`). It said only `>=`, so once a newer wandas was out, following it installed a wandas the script then refused; bundles written by v0.0.16 already do this now that wandas 0.14.0 is out (#854).
 - Folder table: a long file name is cut between characters as they are seen. An emoji was drawn as �, and a macOS file name (its ガ stored as カ + ゛) could lose its voiced mark where the name was cut (#845).
 - Compare: the Δ says what it is the difference of: the compared slot minus the base. Its headline reads "largest Δ (Compare 1 − Base) …" and its axis "Δ = Compare 1 − Base [dB]" (日本語: 最大 Δ（比較 1 − 基準）, Δ = 比較 1 − 基準 [dB]); with slot 2 compared (key 2, or slot 1 empty) they say Compare 2. A Δ in another unit says the same ("Δ RMS = Compare 1 − Base [Pa]"). With a Compare 2 on screen, the Δ read as if it covered it too. What is drawn is unchanged (#848).
 - Browser version: the message after opening a folder says to click ☐ on a row to show its file as a track, as the row's button is; it said ＋ (#843).
@@ -19,9 +21,6 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 - Compare: with "One lane per track", each lane of lines writes its recording's name in its corner, as the spectrogram lanes do. Since the figures were rebuilt the lanes had no name, and only their colours told them apart (#825).
 - Compare: box-zooming into the waveforms no longer freezes the page for a moment (about 0.2 s with three recordings, up to 0.8 s with six) while the zoomed view is computed. The waveform shown stretched in the meantime is painted the fast way, as the finished one is (#819).
 - Compare (browser version): when the region does not fit one recording (it ends after the file), the figure no longer blanks and says "Computing…" every 5 seconds. A scan that fails because the request does not fit the file is not asked again until the file, its calibration, the Recipe or the region changes; an unreadable file is still tried again (#815).
-
-## 0.0.17
-
 - Tracks: an Alt+drag on a row shows the loop region from its first move and while it is dragged, as before the figures were rebuilt (#805), instead of the zoom box; the loop is still set when the mouse is let go (#811).
 
 ## 0.0.16
