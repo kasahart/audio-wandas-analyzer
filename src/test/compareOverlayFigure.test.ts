@@ -65,6 +65,18 @@ test('the overlay\'s spec declares its lines in the order they are drawn: no rol
     ]);
 });
 
+test('time signals overlaid (R1): each base recording is a line of its own, and a Δ lane is declared only against one base recording, never a group', () => {
+    const keys = ['b1', 'b2', 'c1'].map(key => ({ key, state: 'usable' as const, version: key }));
+    const one = compareOverlay({ others: [], base: ['b1'], compare: ['c1'], delta: true, signals: true, keys });
+    assert.deepEqual(one.lanes.map(lane => lane.id), ['overlay', 'delta']);
+    assert.deepEqual(one.lanes[1].lines, [{ id: OVERLAY_LINE.delta, of: { delta: { compare: 'c1', base: ['b1'] } }, role: 'compare1' }]);
+    const group = compareOverlay({ others: [], base: ['b1', 'b2'], compare: ['c1'], delta: true, signals: true, keys });
+    assert.deepEqual(group.lanes.map(lane => lane.id), ['overlay'],
+        'Rule: docs/display-rules.md R1, a time signal\'s Δ is taken only against one base recording (the median of unaligned waveforms is near 0). '
+        + 'Fix: keep `s.base.length === 1` in signalOverlay (src/webview/charts/compareOverlay.ts).');
+    assert.deepEqual(group.lanes[0].lines.map(line => [line.id, line.of]), [['base1', { key: 'b1' }], ['base2', { key: 'b2' }], ['compare1', { key: 'c1' }]]);
+});
+
 test('a lane a recording (「One lane per track」): each recording on screen is a lane of its own line, in the tracks\' order, with no median and no Δ; sounds as band lanes, a trigger\'s events by their recording', () => {
     const keys = ['o', 'b1', 'b2', 'c1'].map(key => ({ key, state: 'usable' as const, version: key }));
     const spec = compareOverlay({ others: ['o'], base: ['b1', 'b2'], compare: ['c1'], delta: true, apart: ['c1', 'b2', 'o', 'b1'], keys });

@@ -51,6 +51,7 @@
 - 単位や校正（基準値）が違う録音どうしは、どの Frame でも Δ と中央値を出さず、その理由を出します（スペクトル、帯、スペクトログラム、指標も同じです）。
 - テスト: `python-backend/test_stage_combine.py` › test_a_short_time_signal_is_a_signal_whatever_its_length
 - テスト: `python-backend/test_figures_events.py` › test_a_base_groups_line_is_the_median_of_its_recordings_event_means
+- テスト: `src/test/compareOverlayFigure.test.ts` › time signals overlaid (R1): each base recording is a line of its own, and a Δ lane is declared only against one base recording, never a group
 - テスト: `python-backend/test_stage_view.py` › test_a_time_signal_is_its_own_values_never_a_level_the_comparison_makes
 - レベルが比べられるかは、単位・基準値・レベル基準の名前の 3 つで決めます。校正状態は含めません（ゲイン補正した FS の録音と補正していない FS の録音はどちらも dBFS なので比べます）。それでも校正状態の違う線が 1 本の軸に載るときは、未校正の線が読み値と凡例に自分で「未校正」と書きます（R4）。webview とバックエンドはこの 1 つの定義を使います（`figureModel.ts` の `levelIdentityOf`、`python-backend/frames/level_identity.py`）。比較台の基準の群も同じ定義で分けます（図のサービスの `python-backend/figures/members.py`）。
 - テスト: `src/test/levelIdentity.test.ts` › levels compare only in one unit, reference and its label, whatever their calibration status: the webview answers the table the backend answers (R1, R4, A34)
