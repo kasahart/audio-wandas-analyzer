@@ -172,7 +172,7 @@
         "@eslint/js": "10.0.1",
         "@playwright/test": "^1.65.1",
         "@types/jsdom": "^30.0.0",
-        "@types/node": "^22.10.2",
+        "@types/node": "^22.20.7",
         "@types/vscode": "~1.120.0",
         "@vscode/test-electron": "^3.1.0",
         "@vscode/vsce": "^4.1.1",
@@ -182,6 +182,6 @@
         "globals": "17.14.0",
         "jsdom": "^31.0.1",
         "typescript": "^5.7.2",
-        "typescript-eslint": "8.73.0"
+        "typescript-eslint": "8.74.0"
     }
 }
